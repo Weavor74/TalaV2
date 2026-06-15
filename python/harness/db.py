@@ -1,0 +1,917 @@
+"""
+db.py — Tala Cognitive Engine Room: PostgreSQL Database Layer
+=============================================================
+The SINGLE authoritative durable-state layer for the entire Tala harness.
+
+Invariant
+---------
+ALL reads and writes of persistent state MUST flow through this module.
+mem0 is NEVER used as a durable authority — it is a read-only semantic
+cache whose writes are blocked by :mod:`mem0_adapter`.
+
+Exposed API
+-----------
+- ``init_pool()``   — create the asyncpg connection pool and run migrations
+- ``close_pool()``  — drain and close the pool on shutdown
+- ``get_pool()``    — return the live pool (raises if not initialized)
+- ``execute()``     — run a DML statement and return status string
+- ``fetch()``       — run a query and return list[Record]
+- ``fetchrow()``    — run a query and return a single Record | None
+- ``assert_postgres_authority()`` — invariant guard used by other modules
+
+Milestone 1.2 — Task 1.2.2
+"""
+
+from __future__ import annotations
+
+import logging
+import os
+import textwrap
+from contextlib import asynccontextmanager
+from typing import Any, AsyncIterator
+
+import asyncpg
+from asyncpg import Pool, Record
+
+from .config import settings
+
+logger = logging.getLogger(__name__)
+
+# ---------------------------------------------------------------------------
+# Module state
+# ---------------------------------------------------------------------------
+
+_pool: Pool | None = None
+
+# Token that mem0_adapter embeds in the call-stack locals so we can detect
+# illegal write attempts originating from that context.
+_MEM0_CONTEXT_TOKEN = "__tala_mem0_ctx__"
+
+
+# ---------------------------------------------------------------------------
+# DDL — table definitions
+# ---------------------------------------------------------------------------
+
+_DDL_STATEMENTS: list[str] = [
+    # ------------------------------------------------------------------
+    # nodes — core knowledge graph nodes
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS nodes (
+            id                  UUID        PRIMARY KEY DEFAULT gen_random_uuid(),
+            node_type           TEXT        NOT NULL,
+            execution_authority TEXT        NOT NULL DEFAULT 'user',
+            content_json        JSONB       NOT NULL DEFAULT '{}',
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # Index for fast type-based lookups
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_nodes_type
+            ON nodes (node_type);
+    """),
+    # Auto-update updated_at via trigger
+    textwrap.dedent("""\
+        CREATE OR REPLACE FUNCTION tala_set_updated_at()
+        RETURNS TRIGGER LANGUAGE plpgsql AS $$
+        BEGIN
+            NEW.updated_at = NOW();
+            RETURN NEW;
+        END;
+        $$;
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'trg_nodes_updated_at'
+            ) THEN
+                CREATE TRIGGER trg_nodes_updated_at
+                BEFORE UPDATE ON nodes
+                FOR EACH ROW EXECUTE FUNCTION tala_set_updated_at();
+            END IF;
+        END;
+        $$;
+    """),
+
+    # ------------------------------------------------------------------
+    # token_ledger — immutable append-only accounting of every inference
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS token_ledger (
+            id                  BIGSERIAL   PRIMARY KEY,
+            session_id          TEXT        NOT NULL,
+            prompt_tokens       INTEGER     NOT NULL DEFAULT 0,
+            completion_tokens   INTEGER     NOT NULL DEFAULT 0,
+            cost_usd            NUMERIC(18, 10) NOT NULL DEFAULT 0,
+            model               TEXT        NOT NULL DEFAULT '',
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_token_ledger_session
+            ON token_ledger (session_id);
+    """),
+
+    # ------------------------------------------------------------------
+    # wallet — single-row token economy balance sheet
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS wallet (
+            id                  INTEGER     PRIMARY KEY DEFAULT 1,
+            crypto_balance      NUMERIC(28, 8) NOT NULL DEFAULT 0,
+            ai_token_balance    NUMERIC(28, 8) NOT NULL DEFAULT 0,
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT wallet_single_row CHECK (id = 1)
+        );
+    """),
+    # Seed the wallet row if it doesn't exist yet
+    textwrap.dedent(f"""\
+        INSERT INTO wallet (id, ai_token_balance)
+        VALUES (1, {settings.INITIAL_AI_TOKEN_BALANCE})
+        ON CONFLICT (id) DO NOTHING;
+    """),
+
+    # ------------------------------------------------------------------
+    # agent_log — structured log sink for all harness subsystems
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS agent_log (
+            id          BIGSERIAL   PRIMARY KEY,
+            level       TEXT        NOT NULL DEFAULT 'INFO',
+            message     TEXT        NOT NULL,
+            trace       JSONB       NOT NULL DEFAULT '{}',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_agent_log_level
+            ON agent_log (level);
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_agent_log_created_at
+            ON agent_log (created_at DESC);
+    """),
+    # ------------------------------------------------------------------
+    # inference_providers — configured LLM backends (Milestone 15)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS inference_providers (
+            id         TEXT        PRIMARY KEY,
+            type       TEXT        NOT NULL,
+            name       TEXT        NOT NULL,
+            priority   INTEGER     NOT NULL,
+            status     TEXT        NOT NULL DEFAULT 'unknown',
+            config     JSONB       NOT NULL DEFAULT '{}',
+            locked     BOOLEAN     NOT NULL DEFAULT FALSE,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        INSERT INTO inference_providers (id, type, name, priority, status, config, locked)
+        VALUES (
+            'embedded-builtin',
+            'embedded',
+            'Tala Embedded Engine',
+            1,
+            'unknown',
+            '{"model": "Qwen/Qwen2.5-0.5B-Instruct"}'::jsonb,
+            TRUE
+        )
+        ON CONFLICT (id) DO NOTHING;
+    """),
+    # ------------------------------------------------------------------
+    # agents — configured agent and workforce personas (Milestone 16)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS agents (
+            id                  TEXT        PRIMARY KEY,
+            name                TEXT        NOT NULL,
+            type                TEXT        NOT NULL DEFAULT 'standalone',
+            role                TEXT        NOT NULL DEFAULT '',
+            crew_type           TEXT        NOT NULL DEFAULT '',
+            is_active           BOOLEAN     NOT NULL DEFAULT FALSE,
+            config              JSONB       NOT NULL DEFAULT '{}',
+            created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        INSERT INTO agents (id, name, type, role, is_active, config)
+        VALUES (
+            'tala-core',
+            'Tala Core',
+            'standalone',
+            'General Assistant',
+            TRUE,
+            '{"system_prompt": "You are Tala, the core offline cognitive agent. Help the user complete tasks in their workspace."}'::jsonb
+        )
+        ON CONFLICT (id) DO NOTHING;
+    """),
+    # ------------------------------------------------------------------
+    # guardrails_config — safety configuration presets (Milestone 18)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS guardrails_config (
+            id          INTEGER     PRIMARY KEY DEFAULT 1,
+            category    TEXT        NOT NULL DEFAULT 'none',
+            rules       JSONB       NOT NULL DEFAULT '{}',
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            CONSTRAINT guardrails_config_single_row CHECK (id = 1)
+        );
+    """),
+    textwrap.dedent("""\
+        INSERT INTO guardrails_config (id, category, rules)
+        VALUES (1, 'none', '{}'::jsonb)
+        ON CONFLICT (id) DO NOTHING;
+    """),
+    # ------------------------------------------------------------------
+    # client_settings — local client runtime choices and pairing state
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS client_settings (
+            key        TEXT        PRIMARY KEY,
+            value      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # search_providers — configured search backends
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS search_providers (
+            id          TEXT        PRIMARY KEY,
+            name        TEXT        NOT NULL,
+            endpoint    TEXT        NOT NULL,
+            api_key     TEXT        NOT NULL DEFAULT '',
+            priority    INTEGER     NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # git_providers — configured git hosting backends
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS git_providers (
+            id          TEXT        PRIMARY KEY,
+            name        TEXT        NOT NULL,
+            endpoint    TEXT        NOT NULL,
+            username    TEXT        NOT NULL DEFAULT '',
+            api_key     TEXT        NOT NULL DEFAULT '',
+            priority    INTEGER     NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # storage_providers — remote / cloud storage backends
+    # credentials is a JSONB blob; schema varies per provider type
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS storage_providers (
+            id            TEXT        PRIMARY KEY,
+            name          TEXT        NOT NULL,
+            provider_type TEXT        NOT NULL,
+            credentials   JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            priority      INTEGER     NOT NULL,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # database_providers — external/replica database servers
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS database_providers (
+            id          TEXT        PRIMARY KEY,
+            name        TEXT        NOT NULL,
+            endpoint    TEXT        NOT NULL,
+            username    TEXT        NOT NULL DEFAULT '',
+            password    TEXT        NOT NULL DEFAULT '',
+            database    TEXT        NOT NULL DEFAULT '',
+            priority    INTEGER     NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # runtime_instances — remote HTML-NN nodes/instances
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS runtime_instances (
+            id          TEXT        PRIMARY KEY,
+            name        TEXT        NOT NULL,
+            url         TEXT        NOT NULL,
+            api_key     TEXT        NOT NULL DEFAULT '',
+            priority    INTEGER     NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # auth_credentials — credentials for various protocols (Milestone 25)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS auth_credentials (
+            id          TEXT        PRIMARY KEY,
+            name        TEXT        NOT NULL,
+            auth_type   TEXT        NOT NULL, -- 'ssh', 'rdp', 'api_key', 'oauth'
+            config      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            priority    INTEGER     NOT NULL,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # firewall_contacts — trusted peer contacts and access control (Milestone 26)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS firewall_contacts (
+            id            TEXT        PRIMARY KEY, -- cryptographic peer address
+            name          TEXT        NOT NULL,
+            access_rights JSONB       NOT NULL DEFAULT '{}'::jsonb, -- e.g. {"allowed_categories": ["rp"], "clearance_level": 5}
+            priority      INTEGER     NOT NULL,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
+    # tasks — long-form and queue execution tasks (Milestone 1)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS tasks (
+            id           TEXT        PRIMARY KEY,
+            parent_id    TEXT        REFERENCES tasks(id) ON DELETE SET NULL,
+            description  TEXT        NOT NULL,
+            status       TEXT        NOT NULL DEFAULT 'pending',
+            dependencies TEXT[]      NOT NULL DEFAULT '{}',
+            payload      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            result       JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            completed_at TIMESTAMPTZ
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_tasks_status ON tasks(status);
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name='tasks' AND column_name='assigned_agent_id'
+            ) THEN
+                ALTER TABLE tasks ADD COLUMN assigned_agent_id TEXT;
+                ALTER TABLE tasks ADD COLUMN model_override JSONB;
+                ALTER TABLE tasks ADD COLUMN worktree_path TEXT;
+                ALTER TABLE tasks ADD COLUMN branch_name TEXT;
+            END IF;
+        END;
+        $$;
+    """),
+    # ------------------------------------------------------------------
+    # task_event_store — append-only execution log (Milestone 1)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS task_event_store (
+            id         BIGSERIAL   PRIMARY KEY,
+            task_id    TEXT        NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            event_type TEXT        NOT NULL,
+            payload    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_task_event_store_task_id ON task_event_store(task_id);
+    """),
+    # ------------------------------------------------------------------
+    # goal_decompositions — cache for semantic decomposition (Milestone 11)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS goal_decompositions (
+            id          BIGSERIAL   PRIMARY KEY,
+            goal        TEXT        NOT NULL,
+            tasks_json  JSONB       NOT NULL,
+            prompt_hash TEXT        NOT NULL DEFAULT '',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_goal_decompositions_goal ON goal_decompositions(goal);
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns 
+                WHERE table_name='goal_decompositions' AND column_name='prompt_hash'
+            ) THEN
+                ALTER TABLE goal_decompositions ADD COLUMN prompt_hash TEXT NOT NULL DEFAULT '';
+            END IF;
+        END;
+        $$;
+    """),
+    # ------------------------------------------------------------------
+    # profiles — human, agent, project, organization, asset, workflow, memory profiles
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS profiles (
+            id          TEXT        PRIMARY KEY,
+            type        TEXT        NOT NULL, -- 'human', 'agent', 'project', 'organization', 'asset', 'workflow', 'memory'
+            name        TEXT        NOT NULL,
+            username    TEXT        NOT NULL DEFAULT '',
+            config      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_profiles_type ON profiles(type);
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_profiles_username ON profiles(username);
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'trg_profiles_updated_at'
+            ) THEN
+                CREATE TRIGGER trg_profiles_updated_at
+                BEFORE UPDATE ON profiles
+                FOR EACH ROW EXECUTE FUNCTION tala_set_updated_at();
+            END IF;
+        END;
+        $$;
+    """),
+    # ------------------------------------------------------------------
+    # contacts – unique blockchain wallet mapped sharing contacts
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS contacts (
+            username       TEXT        PRIMARY KEY,
+            wallet_address TEXT        UNIQUE NOT NULL,
+            endpoint_url   TEXT        NOT NULL DEFAULT '',
+            shared_secret  TEXT        NOT NULL DEFAULT '',
+            permissions    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        ALTER TABLE contacts
+            ADD COLUMN IF NOT EXISTS endpoint_url TEXT NOT NULL DEFAULT '';
+    """),
+    textwrap.dedent("""\
+        ALTER TABLE contacts
+            ADD COLUMN IF NOT EXISTS shared_secret TEXT NOT NULL DEFAULT '';
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_contacts_wallet ON contacts(wallet_address);
+    """),
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS p2p_sessions (
+            peer_username TEXT        PRIMARY KEY,
+            wallet_address TEXT       NOT NULL,
+            endpoint_url   TEXT       NOT NULL DEFAULT '',
+            status         TEXT       NOT NULL DEFAULT 'pending',
+            handshake_json JSONB      NOT NULL DEFAULT '{}'::jsonb,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            last_message_at TIMESTAMPTZ
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS p2p_messages (
+            id             BIGSERIAL   PRIMARY KEY,
+            peer_username  TEXT        NOT NULL,
+            direction      TEXT        NOT NULL,
+            message_json   JSONB       NOT NULL,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'trg_contacts_updated_at'
+            ) THEN
+                CREATE TRIGGER trg_contacts_updated_at
+                BEFORE UPDATE ON contacts
+                FOR EACH ROW EXECUTE FUNCTION tala_set_updated_at();
+            END IF;
+        END;
+        $$;
+    """),
+    # ------------------------------------------------------------------
+    # heartbeats — proactive cron-scheduled autonomous goals
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS heartbeats (
+            id          TEXT        PRIMARY KEY,
+            name        TEXT        NOT NULL,
+            cron_expr   TEXT        NOT NULL,
+            goal_text   TEXT        NOT NULL,
+            enabled     BOOLEAN     NOT NULL DEFAULT TRUE,
+            last_run_at TIMESTAMPTZ,
+            last_status TEXT        NOT NULL DEFAULT 'pending',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_heartbeats_enabled ON heartbeats(enabled);
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'trg_heartbeats_updated_at'
+            ) THEN
+                CREATE TRIGGER trg_heartbeats_updated_at
+                BEFORE UPDATE ON heartbeats
+                FOR EACH ROW EXECUTE FUNCTION tala_set_updated_at();
+            END IF;
+        END;
+        $$;
+    """),
+    # ------------------------------------------------------------------
+    # conversation_turns — full history of interactions
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS conversation_turns (
+            id          BIGSERIAL   PRIMARY KEY,
+            session_id  TEXT        NOT NULL,
+            role        TEXT        NOT NULL,
+            content     TEXT        NOT NULL DEFAULT '',
+            tool_calls  JSONB       NOT NULL DEFAULT '[]'::jsonb,
+            metadata    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_conversation_turns_session
+            ON conversation_turns (session_id);
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_conversation_turns_created
+            ON conversation_turns (created_at DESC);
+    """),
+
+    # ------------------------------------------------------------------
+    # memory_index — unified text index for sessions, tasks, nodes, etc.
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS memory_index (
+            id            BIGSERIAL   PRIMARY KEY,
+            source_type   TEXT        NOT NULL, -- 'session', 'task', 'node', 'workflow', 'profile'
+            ref_id        TEXT        NOT NULL,
+            title         TEXT        NOT NULL DEFAULT '',
+            content_text  TEXT        NOT NULL DEFAULT '',
+            tsvector_col  TSVECTOR,
+            trust_label   TEXT        NOT NULL DEFAULT 'recalled',
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_memory_index_source
+            ON memory_index (source_type);
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_memory_index_ref
+            ON memory_index (ref_id);
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_memory_index_fts 
+            ON memory_index USING GIN (tsvector_col);
+    """),
+    textwrap.dedent("""\
+        CREATE OR REPLACE FUNCTION tala_update_memory_tsvector()
+        RETURNS TRIGGER LANGUAGE plpgsql AS $$
+        BEGIN
+            NEW.tsvector_col = to_tsvector('english', COALESCE(NEW.title, '') || ' ' || COALESCE(NEW.content_text, ''));
+            RETURN NEW;
+        END;
+        $$;
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'trg_memory_index_tsvector'
+            ) THEN
+                CREATE TRIGGER trg_memory_index_tsvector
+                BEFORE INSERT OR UPDATE OF title, content_text ON memory_index
+                FOR EACH ROW EXECUTE FUNCTION tala_update_memory_tsvector();
+            END IF;
+        END;
+        $$;
+    """),
+
+    # ------------------------------------------------------------------
+    # research_results — caches web/local snippets and trust tags
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS research_results (
+            id            TEXT        PRIMARY KEY,
+            session_id    TEXT        NOT NULL,
+            source_type   TEXT        NOT NULL,
+            title         TEXT        NOT NULL DEFAULT '',
+            snippet       TEXT        NOT NULL DEFAULT '',
+            source_url    TEXT        NOT NULL DEFAULT '',
+            summary       TEXT        NOT NULL DEFAULT '',
+            score         FLOAT       NOT NULL DEFAULT 0.0,
+            trust_label   TEXT        NOT NULL DEFAULT 'external',
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_research_results_session
+            ON research_results (session_id);
+    """),
+
+    # ------------------------------------------------------------------
+    # memory_recall_events — logs injections and retrieved evidence
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS memory_recall_events (
+            id               BIGSERIAL   PRIMARY KEY,
+            query            TEXT        NOT NULL,
+            recalled_id      TEXT        NOT NULL,
+            is_injected      BOOLEAN     NOT NULL DEFAULT FALSE,
+            created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+]
+
+
+
+# ---------------------------------------------------------------------------
+# Invariant guard
+# ---------------------------------------------------------------------------
+
+def assert_postgres_authority(caller: str = "") -> None:
+    """
+    Raise :class:`RuntimeError` if invoked from a mem0 context.
+
+    Every write path in this module calls this to enforce the architectural
+    invariant: PostgreSQL is the *only* durable authority.  mem0 is a
+    read-only semantic cache and MUST NEVER be used for canonical state.
+
+    Parameters
+    ----------
+    caller:
+        Descriptive name of the calling site (used in the error message).
+    """
+    import inspect
+    frame = inspect.currentframe()
+    try:
+        # Walk up the call stack looking for the mem0 context token
+        while frame is not None:
+            if _MEM0_CONTEXT_TOKEN in frame.f_locals:
+                raise RuntimeError(
+                    f"[TALA INVARIANT VIOLATION] {caller or 'unknown'} attempted a "
+                    f"durable write from inside a mem0 context.  "
+                    f"All durable state MUST flow through PostgreSQL (db.py).  "
+                    f"mem0 is a READ-ONLY semantic cache."
+                )
+            frame = frame.f_back
+    finally:
+        del frame  # prevent reference cycles
+
+
+# ---------------------------------------------------------------------------
+# Pool lifecycle
+# ---------------------------------------------------------------------------
+
+async def init_pool() -> Pool:
+    """
+    Initialise the asyncpg connection pool and apply DDL migrations.
+
+    Returns the pool for optional direct use; also stored as module state
+    accessible via :func:`get_pool`.
+    """
+    global _pool
+
+    if _pool is not None:
+        logger.debug("db.init_pool called but pool already exists — skipping")
+        return _pool
+
+    db_url = settings.DB_URL
+    logger.info("Connecting to PostgreSQL: %s", _redact_url(db_url))
+
+    try:
+        import asyncio
+        _pool = await asyncio.wait_for(
+            asyncpg.create_pool(
+                dsn=db_url,
+                min_size=2,
+                max_size=10,
+                command_timeout=30,
+                # Ensure JSON/JSONB columns come back as dicts, not strings
+                init=_configure_connection,
+            ),
+            timeout=15.0
+        )
+    except asyncio.TimeoutError as exc:
+        logger.error("Timeout establishing connection pool to PostgreSQL. Is the database overloaded or connection limit reached?")
+        raise RuntimeError("Database connection timed out during initialization.") from exc
+
+    logger.info("PostgreSQL pool established (min=2 max=10)")
+    await _run_migrations()
+    return _pool
+
+
+async def close_pool() -> None:
+    """Drain and close the connection pool gracefully."""
+    global _pool
+    if _pool is None:
+        return
+    logger.info("Closing PostgreSQL pool …")
+    await _pool.close()
+    _pool = None
+    logger.info("PostgreSQL pool closed")
+
+
+def get_pool() -> Pool:
+    """
+    Return the active connection pool.
+
+    Raises
+    ------
+    RuntimeError
+        If :func:`init_pool` has not been called yet.
+    """
+    if _pool is None:
+        raise RuntimeError(
+            "Database pool is not initialised.  "
+            "Ensure init_pool() is awaited during server startup."
+        )
+    return _pool
+
+
+# ---------------------------------------------------------------------------
+# Public async query helpers
+# ---------------------------------------------------------------------------
+
+async def execute(query: str, *args: Any, caller: str = "") -> str:
+    """
+    Execute a DML statement (INSERT / UPDATE / DELETE / DDL).
+
+    Parameters
+    ----------
+    query:
+        Parameterised SQL string with ``$1``, ``$2`` … placeholders.
+    *args:
+        Positional parameters bound to the placeholders.
+    caller:
+        Optional descriptor used in invariant-violation messages.
+
+    Returns
+    -------
+    str
+        The PostgreSQL command status tag, e.g. ``'INSERT 0 1'``.
+    """
+    assert_postgres_authority(caller or query[:60])
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        result = await conn.execute(query, *args)
+    return result
+
+
+async def fetch(query: str, *args: Any) -> list[Record]:
+    """
+    Run a SELECT and return all matching rows as a list of :class:`asyncpg.Record`.
+
+    Each record supports attribute-style access: ``row["column_name"]``.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        rows = await conn.fetch(query, *args)
+    return rows
+
+
+async def fetchrow(query: str, *args: Any) -> Record | None:
+    """
+    Run a SELECT and return the first row, or ``None`` if no rows match.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        row = await conn.fetchrow(query, *args)
+    return row
+
+
+async def fetchval(query: str, *args: Any, column: int = 0) -> Any:
+    """
+    Run a SELECT and return a single scalar value from *column* of the first row.
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        value = await conn.fetchval(query, *args, column=column)
+    return value
+
+
+@asynccontextmanager
+async def transaction() -> AsyncIterator[asyncpg.Connection]:
+    """
+    Async context manager that provides a transactional connection.
+
+    Usage::
+
+        async with db.transaction() as conn:
+            await conn.execute("INSERT INTO …", …)
+            await conn.execute("UPDATE …", …)
+    """
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        async with conn.transaction():
+            yield conn
+
+
+# ---------------------------------------------------------------------------
+# Convenience log helper (writes to agent_log table)
+# ---------------------------------------------------------------------------
+
+async def log_to_db(
+    level: str,
+    message: str,
+    trace: dict[str, Any] | None = None,
+) -> None:
+    """
+    Append a structured log entry to the ``agent_log`` table.
+
+    This is a fire-and-forget helper; errors are swallowed and re-emitted
+    to the Python logger so that a DB outage never silences the harness.
+    """
+    try:
+        import json
+        trace_json = json.dumps(trace or {})
+        pool = get_pool()
+        async with pool.acquire() as conn:
+            await conn.execute(
+                """
+                INSERT INTO agent_log (level, message, trace)
+                VALUES ($1, $2, $3::jsonb)
+                """,
+                level.upper(),
+                message,
+                trace_json,
+            )
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("Failed to write to agent_log: %s", exc)
+
+
+# ---------------------------------------------------------------------------
+# Private helpers
+# ---------------------------------------------------------------------------
+
+async def _configure_connection(conn: asyncpg.Connection) -> None:
+    """Connection init callback — configure codec for JSONB columns."""
+    await conn.set_type_codec(
+        "jsonb",
+        encoder=lambda v: __import__("json").dumps(v),
+        decoder=lambda v: __import__("json").loads(v),
+        schema="pg_catalog",
+        format="text",
+    )
+    await conn.set_type_codec(
+        "json",
+        encoder=lambda v: __import__("json").dumps(v),
+        decoder=lambda v: __import__("json").loads(v),
+        schema="pg_catalog",
+        format="text",
+    )
+
+
+async def _run_migrations() -> None:
+    """Apply all DDL statements idempotently (CREATE IF NOT EXISTS)."""
+    pool = get_pool()
+    async with pool.acquire() as conn:
+        for stmt in _DDL_STATEMENTS:
+            try:
+                await conn.execute(stmt)
+            except Exception as exc:  # noqa: BLE001
+                logger.error("Migration failed:\n%s\nError: %s", stmt, exc)
+                raise
+    logger.info("Database schema migrations applied successfully")
+
+
+def _redact_url(url: str) -> str:
+    """Replace password in a DSN string with '***' for safe logging."""
+    try:
+        from urllib.parse import urlparse, urlunparse
+        parsed = urlparse(url)
+        if parsed.password:
+            netloc = parsed.netloc.replace(parsed.password, "***")
+            return urlunparse(parsed._replace(netloc=netloc))
+    except Exception:  # noqa: BLE001
+        pass
+    return url

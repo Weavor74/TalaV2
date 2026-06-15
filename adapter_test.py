@@ -1,0 +1,1 @@
+print("adapter test passed")

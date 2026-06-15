@@ -1,0 +1,6 @@
+description: MCP Smoke
+name: 'Distilled skill from: MCP Smoke'
+steps:
+- action: echo
+  args:
+    message: Auto-generated step based on execution log

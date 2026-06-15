@@ -1,0 +1,3 @@
+"""
+Gateway & MCP runtime module
+"""

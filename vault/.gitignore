@@ -1,0 +1,14 @@
+# Ignore everything in the vault directory by default.
+# Only the .gitignore itself and the README are tracked.
+#
+# This prevents accidental commit of:
+#   - Private key material
+#   - Personal identity nodes containing real PII
+#   - Wallet credentials or passphrases
+#   - Ephemeris data files with birth location metadata
+#
+# To intentionally track a vault file, add a specific negation rule below.
+
+*
+!.gitignore
+!README.md
