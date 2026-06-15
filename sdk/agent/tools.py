@@ -525,6 +525,27 @@ async def get_auth_credential(auth_type: str | None = None, name_substring: str 
 
 
 @register_tool(
+    name="trigger_vps_update",
+    description="Trigger an automatic server update by pulling the latest code from the repository and notifying all connected clients.",
+)
+async def trigger_vps_update() -> dict[str, Any]:
+    """
+    Trigger a server update on the VPS.
+    """
+    from python.harness.server import handle_system_trigger_update
+    import json
+    
+    # Run the underlying update handler
+    response_str = await handle_system_trigger_update({}, req_id="local_tool")
+    try:
+        response = json.loads(response_str)
+    except Exception:
+        response = {"raw": response_str}
+        
+    return {"status": "success", "rpc_response": response}
+
+
+@register_tool(
     name="run_workspace_command",
     description="Run a shell command asynchronously in the workspace root. Optional env dict securely injects secrets without logging them in the command string.",
 )

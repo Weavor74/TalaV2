@@ -11391,4 +11391,15 @@ const MCPServerRegistryManager = {
 document.addEventListener('DOMContentLoaded', () => {
     MCPServerRegistryManager.init();
     PluginRegistryManager.init();
+    
+    // Listen for server updates
+    try {
+        window.tala.on('python:notification', (msg) => {
+            if (msg && msg.method === 'system.update_available') {
+                alert('A server update has been applied! Please reload or restart the application to use the latest version.');
+            }
+        });
+    } catch (err) {
+        console.warn('Failed to register system.update_available listener', err);
+    }
 });

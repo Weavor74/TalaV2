@@ -7307,6 +7307,30 @@ async def handle_system_self_test(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``system.trigger_update`` — Pull latest code from the repository and notify clients.
+    """
+    import asyncio
+    try:
+        proc = await asyncio.create_subprocess_shell(
+            "git pull",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        
+        await broadcast_notification("system.update_available")
+        return _ok(req_id, {
+            "status": "success", 
+            "stdout": stdout.decode().strip(), 
+            "stderr": stderr.decode().strip()
+        })
+    except Exception as exc:
+        logger.exception("system.trigger_update error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_self_improvement_create_plan(params: dict[str, Any], req_id: Any) -> str:
     """
     ``self_improvement.create_plan`` — Create a bounded self-improvement plan.
@@ -8158,6 +8182,7 @@ _HANDLERS: dict[str, Any] = {
     "search.query":       handle_search_query,
     "system.info":        handle_system_info,
     "system.self_test":   handle_system_self_test,
+    "system.trigger_update": handle_system_trigger_update,
     "git.get_providers":  handle_git_get_providers,
     "git.save_providers": handle_git_save_providers,
     "storage.get_providers":  handle_storage_get_providers,
