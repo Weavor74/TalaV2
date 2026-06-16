@@ -1031,6 +1031,9 @@ const InferenceManager = {
     }
     if (typeof AgentChat !== 'undefined') {
       AgentChat._sessionId = normalized;
+      if (typeof AgentChat.loadHistory === 'function') {
+        AgentChat.loadHistory();
+      }
     }
     IPCLog.append('info', `Chat session route set to ${normalized}`);
     return normalized;
@@ -4281,13 +4284,14 @@ const AgentChat = {
   PEER_MENTION_RE: /^@([A-Za-z0-9_.-]+)\s+([\s\S]+)$/,
 
   init() {
-    this._history = [];
     this._sessionId = localStorage.getItem('tala.chat.session_id') || `chat-${Date.now()}`;
     this._providerId = localStorage.getItem('tala.chat.provider_id') || '';
     localStorage.setItem('tala.chat.session_id', this._sessionId);
     this._messages = qs('#chat-messages');
     this._textarea = qs('#chat-textarea');
     this._visionProviderId = localStorage.getItem('tala.chat.vision_provider_id') || '';
+    
+    this.loadHistory();
 
     this._btnScreenshot = qs('#btn-chat-screenshot');
     if (this._btnScreenshot) {
@@ -4351,6 +4355,7 @@ const AgentChat = {
       if (btn) {
         btn.addEventListener('click', async () => {
           this._history = [];
+          if (typeof this.saveHistory === 'function') this.saveHistory();
           setUIMode(mode);
           IPCLog.append('info', `Switching chat to ${mode.toUpperCase()} mode...`);
           try {
@@ -4481,6 +4486,32 @@ const AgentChat = {
     } catch (_) {
       return null;
     }
+  },
+
+  loadHistory() {
+    if (!this._messages) return;
+    
+    // Remove all existing messages except the initial message
+    const existing = this._messages.querySelectorAll('.chat-message:not(#chat-initial-message)');
+    existing.forEach(el => this._messages.removeChild(el));
+
+    this._history = [];
+    const saved = localStorage.getItem(`tala.chat.history_data.${this._sessionId}`);
+    if (saved) {
+      try {
+        this._history = JSON.parse(saved);
+        this._history.forEach(msg => {
+          this.appendMessage(msg.role, msg.role === 'user' ? 'You' : 'Tala', msg.content);
+        });
+      } catch (e) {
+        console.warn('Failed to parse chat history', e);
+        this._history = [];
+      }
+    }
+  },
+
+  saveHistory() {
+    localStorage.setItem(`tala.chat.history_data.${this._sessionId}`, JSON.stringify(this._history));
   },
 
   async sendMessage() {
@@ -4888,6 +4919,7 @@ const AgentChat = {
           }
           this._history.push({ role: 'user', content: promptText });
           this._history.push({ role: 'assistant', content: response.text });
+          this.saveHistory();
         }
 
         if (typeof NodeGraph !== 'undefined') {
