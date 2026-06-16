@@ -691,6 +691,44 @@ function registerTerminalHandlers() {
       return { ok: false, error: err.message };
     }
   });
+
+  ipcMain.handle('system:apply_update', async (_event, payload) => {
+    try {
+      const fs = require('node:fs');
+      const path = require('node:path');
+      const { spawn } = require('node:child_process');
+      const base64Data = payload.zipBase64;
+      if (!base64Data) throw new Error("Missing zipBase64 in payload");
+      
+      const buffer = Buffer.from(base64Data, 'base64');
+      const zipPath = path.join(__dirname, '..', 'update_client_payload.zip');
+      
+      fs.writeFileSync(zipPath, buffer);
+      console.log('[main] Applying OTA update from zip...');
+      
+      return new Promise((resolve, reject) => {
+        const pythonCommand = 'import zipfile; import os; zipfile.ZipFile("update_client_payload.zip").extractall(os.getcwd()); os.remove("update_client_payload.zip")';
+        const extractor = spawn('python', ['-c', pythonCommand], {
+          cwd: path.join(__dirname, '..')
+        });
+        
+        extractor.on('close', (code) => {
+          if (code === 0) {
+            console.log('[main] Update applied successfully. Relaunching app...');
+            app.relaunch();
+            app.exit(0);
+            resolve({ ok: true });
+          } else {
+            console.error(`[main] Update extraction failed with code ${code}`);
+            reject(new Error(`Extraction failed with code ${code}`));
+          }
+        });
+      });
+    } catch (err) {
+      console.error('[main] OTA update apply failed', err);
+      return { ok: false, error: err.message };
+    }
+  });
 }
 
 function killProcessOnPort(port) {

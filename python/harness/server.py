@@ -7331,6 +7331,41 @@ async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> s
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+async def handle_system_download_update(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``system.download_update`` — Package the current repository into a ZIP file and return as Base64.
+    """
+    import asyncio
+    import base64
+    import os
+    try:
+        zip_path = "update_payload.zip"
+        # Use git archive to securely package the committed state without virtualenvs or node_modules
+        proc = await asyncio.create_subprocess_shell(
+            f"git archive -o {zip_path} HEAD",
+            stdout=asyncio.subprocess.PIPE,
+            stderr=asyncio.subprocess.PIPE,
+        )
+        stdout, stderr = await proc.communicate()
+        
+        if proc.returncode != 0:
+            return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"git archive failed: {stderr.decode()}")
+            
+        with open(zip_path, "rb") as f:
+            zip_bytes = f.read()
+            
+        os.remove(zip_path)
+        
+        zip_b64 = base64.b64encode(zip_bytes).decode('utf-8')
+        return _ok(req_id, {
+            "status": "success",
+            "zipBase64": zip_b64
+        })
+    except Exception as exc:
+        logger.exception("system.download_update error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_self_improvement_create_plan(params: dict[str, Any], req_id: Any) -> str:
     """
     ``self_improvement.create_plan`` — Create a bounded self-improvement plan.
@@ -8183,6 +8218,7 @@ _HANDLERS: dict[str, Any] = {
     "system.info":        handle_system_info,
     "system.self_test":   handle_system_self_test,
     "system.trigger_update": handle_system_trigger_update,
+    "system.download_update": handle_system_download_update,
     "git.get_providers":  handle_git_get_providers,
     "git.save_providers": handle_git_save_providers,
     "storage.get_providers":  handle_storage_get_providers,

@@ -11394,9 +11394,23 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Listen for server updates
     try {
-        window.tala.on('python:notification', (msg) => {
+        window.tala.on('python:notification', async (msg) => {
             if (msg && msg.method === 'system.update_available') {
-                alert('A server update has been applied! Please reload or restart the application to use the latest version.');
+                const confirmed = confirm('A server update is available from the VPS. Do you want to download and apply it now?');
+                if (confirmed) {
+                    try {
+                        console.log('Downloading update payload from VPS...');
+                        const response = await window.tala.invoke('system.download_update');
+                        if (response.status === 'success' && response.zipBase64) {
+                            console.log('Applying update payload locally...');
+                            await window.tala.invoke('system:apply_update', { zipBase64: response.zipBase64 });
+                        } else {
+                            alert('Failed to download update payload from VPS.');
+                        }
+                    } catch (err) {
+                        alert('Error during OTA update: ' + err.message);
+                    }
+                }
             }
         });
     } catch (err) {
