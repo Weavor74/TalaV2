@@ -1,9 +1,9 @@
 # Tala VPS: Complete Initial Setup Guide
 
-This guide covers the entire process of taking a brand new Ubuntu/Debian Virtual Private Server (VPS) and configuring it as a secure, permanent Tala peer. It includes acquiring a domain, setting up SSL/TLS encryption, and locking down the firewall.
+This guide covers the entire process of taking a brand new AlmaLinux Virtual Private Server (VPS) and configuring it as a secure, permanent Tala peer. It includes acquiring a domain, setting up SSL/TLS encryption, and locking down the firewall.
 
 ## Prerequisites
-1. **A fresh VPS** running Ubuntu 22.04 or 24.04 (e.g., DigitalOcean, Linode, AWS EC2, Hetzner).
+1. **A fresh VPS** running AlmaLinux 8 or 9 (e.g., DigitalOcean, Linode, AWS EC2, Hetzner).
 2. **A Domain Name** (e.g., `tala.yourdomain.com`).
 3. **SSH Access** to your VPS as `root` or a user with `sudo` privileges.
 
@@ -23,18 +23,21 @@ Before configuring SSL on the VPS, you must point your domain to the VPS's publi
 ---
 
 ## Step 2: System Preparation & Firewall
-SSH into your VPS and update the system packages:
+SSH into your VPS, update the system packages, and install EPEL for extra packages:
 
 ```bash
-sudo apt update && sudo apt upgrade -y
+sudo dnf update -y
+sudo dnf install -y epel-release
 ```
 
-Set up the UFW (Uncomplicated Firewall) to allow SSH, HTTP, and HTTPS traffic. We will **not** expose Tala's internal ports directly to the internet; they will be proxied through Nginx.
+Set up `firewalld` to allow SSH, HTTP, and HTTPS traffic. We will **not** expose Tala's internal ports directly to the internet; they will be proxied through Nginx.
 
 ```bash
-sudo ufw allow OpenSSH
-sudo ufw allow 'Nginx Full'
-sudo ufw enable
+sudo systemctl enable --now firewalld
+sudo firewall-cmd --permanent --add-service=ssh
+sudo firewall-cmd --permanent --add-service=http
+sudo firewall-cmd --permanent --add-service=https
+sudo firewall-cmd --reload
 ```
 
 ---
@@ -44,12 +47,10 @@ Create a dedicated system user for Tala and clone the repository.
 
 ```bash
 # Create the tala user and directory
-sudo adduser --system --group --home /opt/tala tala
-sudo mkdir -p /opt/tala
-sudo chown -R tala:tala /opt/tala
+sudo useradd -r -m -d /opt/tala tala
 
 # Install system dependencies (Git, Python, etc.)
-sudo apt install -y git python3-venv python3-pip curl
+sudo dnf install -y git python3 python3-pip curl
 
 # Clone the repository
 git clone https://github.com/Weavor74/TalaV2.git /opt/tala
@@ -118,12 +119,12 @@ We will use Nginx to listen for public traffic on ports 80 and 443, and securely
 
 Install Nginx:
 ```bash
-sudo apt install -y nginx
+sudo dnf install -y nginx
 ```
 
 Create a new Nginx configuration file for Tala:
 ```bash
-sudo nano /etc/nginx/sites-available/tala
+sudo nano /etc/nginx/conf.d/tala.conf
 ```
 
 Paste the following configuration (replace `tala.yourdomain.com` with your actual domain):
@@ -156,11 +157,11 @@ server {
 
 Enable the configuration and restart Nginx:
 ```bash
-sudo ln -s /etc/nginx/sites-available/tala /etc/nginx/sites-enabled/
-sudo rm /etc/nginx/sites-enabled/default
 sudo nginx -t
+sudo systemctl enable --now nginx
 sudo systemctl restart nginx
 ```
+*Note: AlmaLinux `nginx` automatically loads files from `conf.d/`, so no symlinks are necessary.*
 
 ---
 
@@ -169,7 +170,7 @@ Public WebSocket (`ws://`) and HTTP traffic is unencrypted. We will use Let's En
 
 Install Certbot and the Nginx plugin:
 ```bash
-sudo apt install -y certbot python3-certbot-nginx
+sudo dnf install -y certbot python3-certbot-nginx
 ```
 
 Run Certbot to fetch and install the certificate:

@@ -22,6 +22,8 @@ fi
 PKG_MANAGER=""
 if command -v apt-get &> /dev/null && [ -f /etc/debian_version ]; then
     PKG_MANAGER="apt"
+elif command -v dnf &> /dev/null; then
+    PKG_MANAGER="dnf"
 elif command -v xbps-install &> /dev/null; then
     PKG_MANAGER="xbps"
 elif [ -f /etc/os-release ] && grep -qi '^ID=void' /etc/os-release; then
@@ -30,7 +32,7 @@ elif [ -f /etc/os-release ] && grep -qi '^ID=void' /etc/os-release; then
     exit 1
 else
     echo -e "\033[31mUnsupported Linux package manager.\033[0m"
-    echo -e "\033[33mSupported package managers: apt-get (Debian/Ubuntu), xbps-install (Void Linux).\033[0m"
+    echo -e "\033[33mSupported package managers: apt-get (Debian/Ubuntu), dnf (AlmaLinux/RHEL/Fedora), xbps-install (Void Linux).\033[0m"
     exit 1
 fi
 
@@ -49,6 +51,8 @@ fi
 # 2. Dependencies via package manager
 if [ "$PKG_MANAGER" = "apt" ]; then
     echo "[2/6] Checking Dependencies via APT..."
+elif [ "$PKG_MANAGER" = "dnf" ]; then
+    echo "[2/6] Checking Dependencies via DNF..."
 else
     echo "[2/6] Checking Dependencies via XBPS..."
 fi
@@ -57,7 +61,8 @@ install_if_missing() {
     local cmd="$1"
     local apt_pkg="$2"
     local xbps_pkg="$3"
-    local friendly_name="$4"
+    local dnf_pkg="$4"
+    local friendly_name="$5"
     
     if command -v "$cmd" &> /dev/null; then
         echo -e "  - \033[32m$friendly_name is already installed.\033[0m"
@@ -66,6 +71,9 @@ install_if_missing() {
             echo -e "  - \033[33mInstalling $friendly_name via apt...\033[0m"
             $SUDO apt-get update -yqq
             $SUDO apt-get install -yqq $apt_pkg
+        elif [ "$PKG_MANAGER" = "dnf" ]; then
+            echo -e "  - \033[33mInstalling $friendly_name via dnf...\033[0m"
+            $SUDO dnf install -y $dnf_pkg
         elif [ "$PKG_MANAGER" = "xbps" ]; then
             echo -e "  - \033[33mInstalling $friendly_name via xbps-install...\033[0m"
             $SUDO xbps-install -Sy $xbps_pkg
@@ -74,8 +82,8 @@ install_if_missing() {
     fi
 }
 
-install_if_missing "node" "nodejs npm" "nodejs npm" "Node.js"
-install_if_missing "psql" "postgresql postgresql-contrib" "postgresql postgresql-client" "PostgreSQL"
+install_if_missing "node" "nodejs npm" "nodejs npm" "nodejs npm" "Node.js"
+install_if_missing "psql" "postgresql postgresql-contrib" "postgresql postgresql-client" "postgresql postgresql-server" "PostgreSQL"
 
 if ! command -v uv &> /dev/null; then
     echo -e "  - \033[33mInstalling Python (uv) package manager...\033[0m"
