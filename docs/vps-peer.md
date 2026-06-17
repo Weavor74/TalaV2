@@ -81,6 +81,19 @@ uv run python scripts/add-vps-contact.py \
 
 The script prompts for the shared secret. Use the same secret when adding the VPS contact on the desktop client.
 
+## Over-The-Air (OTA) Updates
+
+The VPS also acts as the central hub for distributing software updates to all connected Tala clients.
+When the VPS updates its own codebase, it packages the new version into a pristine `.zip` and broadcasts an update notification to all active peers.
+
+To trigger an OTA update:
+1. Ask the AI assistant on the VPS or any connected client to "trigger a server update".
+2. The VPS will automatically pull the latest `main` branch from git and execute `git archive` to build the payload.
+3. The VPS broadcasts a `system.update_available` JSON-RPC notification to all connected WebSocket clients.
+4. Clients prompt their users with an update dialog. Upon confirmation, clients automatically download the Base64-encoded payload from the VPS, extract it over their local installation, and seamlessly restart themselves into the new version.
+
+*Note: For the VPS to correctly package the update, ensure `git` is installed on the VPS and the `/opt/tala` directory remains a valid git repository.*
+
 ## Systemd Service
 
 Install the service template:
