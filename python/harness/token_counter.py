@@ -8,8 +8,30 @@ Responsibilities
 1. Count tokens using ``tiktoken`` (cl100k_base encoding as universal fallback).
 2. Compute cost: ``cost_usd = token_count * TOKEN_COST_PER_TOKEN``
    (default: 0.0000001 USD per token — one ten-millionth).
-3. Check the wallet balance in PostgreSQL against the required cost.
-4. Raise :class:`InsufficientTokenBalanceError` if balance is too low.
+3. Determine token mode based on system connection state:
+
+   **Ghost Token mode** (local-only system)
+     When the system connection mode is ``"local"`` (i.e. the operator chose
+     "Stay Local" and has not connected to a VPS peer), ALL interactions use
+     ghost tokens — an unlimited internal accounting unit that never touches
+     the blockchain.  This gives a completely friction-free offline experience.
+     The token_ledger still records every call for local audit purposes.
+
+   **Real Token mode** (connected system)
+     When the system connection mode is ``"vps"`` AND the inference call
+     consumes a remote peer's resource (``resource_owner`` refers to a
+     different wallet address), a signed payment transaction is submitted to
+     the Tala PoA blockchain node running at ``TALA_CHAIN_BIND_HOST:PORT``.
+     The counterparty receives the payment minus the configured house fee.
+     If the real blockchain balance is insufficient an
+     :class:`InsufficientTokenBalanceError` is raised.
+
+     Local-origin calls (where ``resource_owner`` matches the operator's own
+     wallet, or is absent) still use ghost tokens even in VPS mode — only
+     cross-node resource consumption settles on-chain.
+
+4. Raise :class:`InsufficientTokenBalanceError` if a real-token balance check
+   fails (never raised in ghost-token mode).
 5. Log every count to the ``token_ledger`` table (append-only accounting).
 6. Return a :class:`TokenCheckResult` to the caller.
 
@@ -56,8 +78,12 @@ except ImportError:  # pragma: no cover
 
 class InsufficientTokenBalanceError(Exception):
     """
-    Raised when the wallet's ``ai_token_balance`` cannot cover the cost of
-    the requested inference.
+    Raised when the wallet's real TalaCoin balance cannot cover the cost of
+    a cross-node inference call.
+
+    This error is never raised in ghost-token (local) mode — it only fires
+    when the system is connected to a peer network and the requested resource
+    is owned by a different wallet.
 
     Attributes
     ----------
@@ -93,6 +119,16 @@ class TokenCountError(Exception):
 
 
 # ---------------------------------------------------------------------------
+# Ghost token sentinel balance
+# ---------------------------------------------------------------------------
+
+# Any balance returned in ghost-token mode.  Effectively unlimited — the
+# value is large enough to never trigger InsufficientTokenBalanceError while
+# remaining representable as a normal float.
+_GHOST_BALANCE: float = 999_999.0
+
+
+# ---------------------------------------------------------------------------
 # Result dataclass
 # ---------------------------------------------------------------------------
 
@@ -106,11 +142,13 @@ class TokenCheckResult:
     prompt_tokens:
         Number of tokens counted in the prompt.
     cost_usd:
-        Computed cost in USD.
+        Computed cost in USD (or equivalent ghost-token units).
     balance_before:
         Wallet balance *before* deducting this cost.
+        ``999999.0`` indicates ghost-token mode.
     balance_after:
         Wallet balance *after* deducting this cost (written to DB).
+        Equal to ``balance_before`` in ghost-token mode.
     session_id:
         Caller-supplied session identifier.
     encoding:
@@ -119,6 +157,9 @@ class TokenCheckResult:
         Wall-clock time taken to complete the check, in milliseconds.
     ledger_id:
         Primary key of the inserted ``token_ledger`` row.
+    ghost_mode:
+        ``True`` when ghost tokens were used (local system or own-wallet call);
+        ``False`` when a real blockchain payment was submitted.
     """
 
     prompt_tokens: int
@@ -129,6 +170,7 @@ class TokenCheckResult:
     encoding: str
     elapsed_ms: float
     ledger_id: int = field(default=0)
+    ghost_mode: bool = field(default=True)
 
 
 # ---------------------------------------------------------------------------
@@ -155,6 +197,30 @@ def count_tokens(text: str) -> tuple[int, str]:
     return estimated, "estimate"
 
 
+async def _get_system_connection_mode() -> str:
+    """
+    Return the current system connection mode (``"local"`` or ``"vps"``).
+
+    Reads from the ``client_settings`` PostgreSQL table (key
+    ``"chain.connection"``).  Falls back to ``"local"`` on any error so that
+    a DB outage never accidentally enables real-token billing.
+    """
+    try:
+        from . import db
+        row = await db.fetchrow(
+            "SELECT value FROM client_settings WHERE key = 'chain.connection'"
+        )
+        if not row:
+            return "local"
+        value = row["value"]
+        if isinstance(value, str):
+            value = json.loads(value)
+        return str(value.get("mode", "local")) if isinstance(value, dict) else "local"
+    except Exception as exc:
+        logger.debug("Could not read system connection mode: %s — defaulting to local", exc)
+        return "local"
+
+
 async def count_and_check(
     prompt: str,
     session_id: str,
@@ -163,9 +229,23 @@ async def count_and_check(
     resource_owner: str | None = None,
 ) -> TokenCheckResult:
     """
-    Count tokens in *prompt*, verify wallet balance, deduct cost, and log.
+    Count tokens in *prompt*, determine token mode, optionally deduct cost,
+    and log to the immutable ``token_ledger``.
 
-    This is the **mandatory gate** before any vLLM inference call.
+    This is the **mandatory gate** before any inference call.
+
+    Token Mode Decision
+    -------------------
+    Ghost tokens are used when **either** of the following is true:
+
+    * The system connection mode is ``"local"`` (operator chose Stay Local).
+    * ``resource_owner`` is absent or matches the operator's own wallet
+      address (consuming your own resources, even on a connected system).
+
+    Real tokens (blockchain payment) are used **only** when:
+
+    * The system connection mode is ``"vps"``, **AND**
+    * ``resource_owner`` refers to a different peer's wallet address.
 
     Parameters
     ----------
@@ -176,10 +256,10 @@ async def count_and_check(
     model:
         Model name to record in the ledger (informational only).
     completion_tokens:
-        If known in advance (e.g. from a budget parameter), include for
-        accurate cost accounting.  Usually 0 at prompt-time.
+        If known in advance, include for accurate cost accounting.
     resource_owner:
-        The owner of the primary data used in the prompt. If provided, they receive the payment minus a house cut.
+        Wallet address or ``@username`` of the peer whose resource is being
+        consumed.  ``None`` or own wallet → ghost tokens.
 
     Returns
     -------
@@ -188,7 +268,7 @@ async def count_and_check(
     Raises
     ------
     InsufficientTokenBalanceError
-        If the wallet balance cannot cover the prompt cost.
+        Only in real-token mode, if the blockchain balance is insufficient.
     TokenCountError
         If counting fails for an unexpected reason.
     """
@@ -211,110 +291,126 @@ async def count_and_check(
         total_tokens, encoding_name, cost_usd, session_id,
     )
 
-    # -- 2. Check and deduct from Tala Blockchain ------------------------
+    # -- 2. Determine token mode ------------------------------------------
     wallet_address = os.environ.get("TALA_WALLET_ADDRESS", "local-client")
     chain_port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
     chain_host = os.environ.get("TALA_CHAIN_BIND_HOST", "127.0.0.1")
     base_url = f"http://{chain_host}:{chain_port}"
 
+    # Resolve connection mode first (defaults to local on any DB error).
+    system_mode = await _get_system_connection_mode()
+    system_is_local = (system_mode != "vps")
+
+    # A call is "own resource" when resource_owner is absent, matches the
+    # operator's wallet, or is a @-reference to the operator's own username.
+    owner = (resource_owner or "").strip()
+    own_wallet_refs = {wallet_address, f"@{wallet_address}", "", "local-client", "@local-tala"}
+    resource_is_own = owner in own_wallet_refs or not owner
+
+    # Ghost mode: local system OR consuming own resources.
+    use_ghost_tokens = system_is_local or resource_is_own
+
+    logger.debug(
+        "Token mode: %s (system_mode=%s, resource_owner=%r)",
+        "ghost" if use_ghost_tokens else "real",
+        system_mode,
+        resource_owner,
+    )
+
+    # -- 3. Check and optionally deduct balance ---------------------------
+    cost_tokens = cost_usd
     loop = asyncio.get_running_loop()
 
-    def check_balance_sync():
+    def check_balance_sync() -> float:
         req = urllib.request.Request(f"{base_url}/chain/wallet/{wallet_address}/balance")
         with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode('utf-8'))
+            data = json.loads(response.read().decode("utf-8"))
             return float(data.get("balance", 0.0))
 
-    def submit_payment_sync():
+    def submit_payment_sync() -> dict:
         tx_id = str(uuid.uuid4())
         amount = cost_tokens
-        
-        counterparty = wallet_address
+
+        counterparty = owner
         house_fee_percent = 0.0
-        
-        if resource_owner and resource_owner != wallet_address:
-            # Check if resource_owner is a username (starts with @)
-            if resource_owner.startswith('@'):
-                try:
-                    peer_req = urllib.request.Request(f"{base_url}/chain/peers/{urllib.parse.quote(resource_owner)}")
-                    with urllib.request.urlopen(peer_req) as response:
-                        peer_data = json.loads(response.read().decode('utf-8'))
-                        if peer_data.get("peer") and peer_data["peer"].get("wallet_address"):
-                            counterparty = peer_data["peer"]["wallet_address"]
-                        else:
-                            counterparty = resource_owner # fallback
-                except Exception as e:
-                    logger.warning(f"Failed to resolve peer {resource_owner}: {e}")
-                    counterparty = resource_owner
-            else:
-                counterparty = resource_owner
-            
-            # Apply 10% house cut for using others' resources
+
+        # Resolve @username → wallet address via chain peer directory
+        if owner.startswith("@"):
+            try:
+                import urllib.parse
+                peer_req = urllib.request.Request(
+                    f"{base_url}/chain/peers/{urllib.parse.quote(owner)}"
+                )
+                with urllib.request.urlopen(peer_req) as response:
+                    peer_data = json.loads(response.read().decode("utf-8"))
+                    if peer_data.get("peer") and peer_data["peer"].get("wallet_address"):
+                        counterparty = peer_data["peer"]["wallet_address"]
+            except Exception as e:
+                logger.warning("Failed to resolve peer %s: %s", owner, e)
+
+        # Apply 10 % house cut for using another peer's resources
+        if counterparty != wallet_address:
             house_fee_percent = 0.10
-        
-        raw_str = f"payment:{wallet_address}:{counterparty}:{amount}:{int(time.time()*1000)}"
+
+        raw_str = f"payment:{wallet_address}:{counterparty}:{amount}:{int(time.time() * 1000)}"
         tx_hash = hashlib.sha256(raw_str.encode()).hexdigest()
-        
-        from . import wallet
-        private_key = wallet.get_private_key()
-        signature_bytes = private_key.sign(tx_hash.encode('utf-8'))
+
+        from . import wallet as _wallet
+        private_key = _wallet.get_private_key()
+        signature_bytes = private_key.sign(tx_hash.encode("utf-8"))
         signature_hex = signature_bytes.hex()
-        
+
         payload = {
             "id": tx_id,
             "type": "payment",
             "hash": tx_hash,
             "creator": wallet_address,
             "counterparty": counterparty,
-            "metadata": {
-                "amount": amount,
-                "house_fee_percent": house_fee_percent
-            },
+            "metadata": {"amount": amount, "house_fee_percent": house_fee_percent},
             "signature": signature_hex,
-            "public_key": wallet_address
+            "public_key": wallet_address,
         }
-        
         req = urllib.request.Request(
             f"{base_url}/chain/tx",
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
-            method='POST'
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         with urllib.request.urlopen(req) as response:
-            return json.loads(response.read().decode('utf-8'))
+            return json.loads(response.read().decode("utf-8"))
 
-    is_local_use = not resource_owner or resource_owner == wallet_address or resource_owner == f"@{wallet_address}"
-
-    try:
-        if is_local_use:
-            balance_before = 999999.0  # Ghost Tokens
-        else:
+    if use_ghost_tokens:
+        # Ghost mode: unlimited local balance, no blockchain call.
+        balance_before = _GHOST_BALANCE
+        balance_after = _GHOST_BALANCE
+    else:
+        # Real mode: read live blockchain balance.
+        try:
             balance_before = await loop.run_in_executor(None, check_balance_sync)
-    except Exception as e:
-        logger.warning(f"Failed to check blockchain balance, allowing interaction fallback. Error: {e}")
-        balance_before = 999999.0  # Fallback Ghost Tokens
+        except Exception as exc:
+            logger.warning(
+                "Failed to read blockchain balance — falling back to ghost tokens: %s", exc
+            )
+            balance_before = _GHOST_BALANCE
+            balance_after = _GHOST_BALANCE
+            use_ghost_tokens = True  # Degrade gracefully
 
-    cost_tokens = cost_usd
+        if not use_ghost_tokens:
+            if balance_before < cost_tokens:
+                raise InsufficientTokenBalanceError(
+                    required_cost=cost_tokens,
+                    current_balance=balance_before,
+                    token_count=total_tokens,
+                    session_id=session_id,
+                )
+            try:
+                await loop.run_in_executor(None, submit_payment_sync)
+                balance_after = balance_before - cost_tokens
+            except Exception as exc:
+                logger.warning("Failed to submit blockchain payment: %s", exc)
+                balance_after = balance_before
 
-    if balance_before < cost_tokens:
-        raise InsufficientTokenBalanceError(
-            required_cost=cost_tokens,
-            current_balance=balance_before,
-            token_count=total_tokens,
-            session_id=session_id,
-        )
-
-    try:
-        if not is_local_use:
-            await loop.run_in_executor(None, submit_payment_sync)
-            balance_after = balance_before - cost_tokens
-        else:
-            balance_after = balance_before  # Unlimited Ghost Tokens
-    except Exception as e:
-        logger.warning(f"Failed to submit payment to blockchain: {e}")
-        balance_after = balance_before
-
-    # Append to local ledger (immutable audit trail)
+    # -- 4. Append to local ledger (immutable audit trail) ----------------
     async with db.transaction() as conn:
         ledger_row = await conn.fetchrow(
             """
@@ -326,7 +422,7 @@ async def count_and_check(
             session_id,
             token_count,
             completion_tokens,
-            cost_tokens, # reuse cost column for token count
+            cost_tokens,
             model or "",
         )
         ledger_id = ledger_row["id"] if ledger_row else 0
@@ -334,27 +430,38 @@ async def count_and_check(
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     logger.info(
-        "Token gate PASSED  session=%s tokens=%d cost=%.1f "
+        "Token gate PASSED  session=%s tokens=%d cost=%.4f mode=%s "
         "balance=%.4f->%.4f  ledger_id=%d  elapsed=%.1fms",
         session_id, total_tokens, cost_tokens,
+        "ghost" if use_ghost_tokens else "real",
         balance_before, balance_after,
         ledger_id, elapsed_ms,
     )
 
     return TokenCheckResult(
         prompt_tokens=token_count,
-        cost_usd=cost_tokens, # Repurposed as Interaction Tokens
+        cost_usd=cost_tokens,
         balance_before=balance_before,
         balance_after=balance_after,
         session_id=session_id,
         encoding=encoding_name,
         elapsed_ms=elapsed_ms,
         ledger_id=ledger_id,
+        ghost_mode=use_ghost_tokens,
     )
 
 
 async def get_wallet_balance() -> float:
-    """Return the current TalaCoin balance from the local blockchain."""
+    """
+    Return the current TalaCoin balance from the local blockchain node.
+
+    Returns ``999999.0`` (ghost balance) when the system is in local mode
+    or when the blockchain node is unreachable.
+    """
+    system_mode = await _get_system_connection_mode()
+    if system_mode != "vps":
+        return _GHOST_BALANCE
+
     wallet_address = os.environ.get("TALA_WALLET_ADDRESS", "local-client")
     chain_port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
     chain_host = os.environ.get("TALA_CHAIN_BIND_HOST", "127.0.0.1")
@@ -362,25 +469,34 @@ async def get_wallet_balance() -> float:
 
     loop = asyncio.get_running_loop()
 
-    def check_balance_sync():
+    def check_balance_sync() -> float:
         req = urllib.request.Request(f"{base_url}/chain/wallet/{wallet_address}/balance")
         with urllib.request.urlopen(req) as response:
-            data = json.loads(response.read().decode('utf-8'))
+            data = json.loads(response.read().decode("utf-8"))
             return float(data.get("balance", 0.0))
 
     try:
         return await loop.run_in_executor(None, check_balance_sync)
-    except Exception as e:
-        logger.warning(f"Failed to check blockchain balance: {e}")
-        return 999999.0  # Ghost Tokens
+    except Exception as exc:
+        logger.warning("Failed to check blockchain balance: %s", exc)
+        return _GHOST_BALANCE  # Ghost tokens as graceful fallback
 
 
 async def top_up_wallet(amount: float, caller: str = "system") -> float:
     """
-    Mint new TalaCoins on the blockchain (simulating a top-up).
+    Mint new TalaCoins on the blockchain (operator top-up).
+
+    This calls the ``/chain/mint`` endpoint on the local blockchain node and
+    updates the ``agent_log`` for auditing.  Returns ``0.0`` if the mint
+    fails or the system is in local mode.
     """
     from .db import log_to_db
-    
+
+    system_mode = await _get_system_connection_mode()
+    if system_mode != "vps":
+        logger.info("top_up_wallet called in local mode — no-op (ghost tokens are unlimited)")
+        return _GHOST_BALANCE
+
     wallet_address = os.environ.get("TALA_WALLET_ADDRESS", "local-client")
     chain_port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
     chain_host = os.environ.get("TALA_CHAIN_BIND_HOST", "127.0.0.1")
@@ -388,30 +504,28 @@ async def top_up_wallet(amount: float, caller: str = "system") -> float:
 
     loop = asyncio.get_running_loop()
 
-    def mint_sync():
-        payload = {
-            "address": wallet_address,
-            "amount": amount
-        }
+    def mint_sync() -> dict:
+        payload = {"address": wallet_address, "amount": amount}
         req = urllib.request.Request(
             f"{base_url}/chain/mint",
-            data=json.dumps(payload).encode('utf-8'),
-            headers={'Content-Type': 'application/json'},
-            method='POST'
+            data=json.dumps(payload).encode("utf-8"),
+            headers={"Content-Type": "application/json"},
+            method="POST",
         )
         with urllib.request.urlopen(req) as response:
-            return json.loads(response.read().decode('utf-8'))
+            return json.loads(response.read().decode("utf-8"))
 
     try:
         result = await loop.run_in_executor(None, mint_sync)
         new_balance = float(result.get("new_balance", 0.0))
-        
+
         await log_to_db(
             "INFO",
-            f"Wallet topped up by {amount:.4f} by '{caller}' via Blockchain mint. New balance: {new_balance:.4f}",
+            f"Wallet topped up by {amount:.4f} by '{caller}' via Blockchain mint. "
+            f"New balance: {new_balance:.4f}",
             {"caller": caller, "amount": amount, "new_balance": new_balance},
         )
         return new_balance
-    except Exception as e:
-        logger.warning(f"Failed to mint tokens on blockchain: {e}")
+    except Exception as exc:
+        logger.warning("Failed to mint tokens on blockchain: %s", exc)
         return 0.0

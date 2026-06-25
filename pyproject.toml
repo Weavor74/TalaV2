@@ -48,6 +48,12 @@ voice = [
     "sounddevice>=0.4.6",
     "numpy>=1.26.0,<2.5.0",
 ]
+mem0 = [
+    "mem0ai>=0.1.29",
+]
+astrology = [
+    "pyswisseph>=2.10.3.2",
+]
 
 [project.scripts]
 tala = "cli.main:main"
