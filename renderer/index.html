@@ -16,7 +16,7 @@
       font-src 'self' https://fonts.gstatic.com;
       img-src 'self' data:;
       frame-src 'self' https://duckduckgo.com https://*.duckduckgo.com http: https:;
-      connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:*;
+      connect-src 'self' http://127.0.0.1:* ws://127.0.0.1:* http://localhost:* ws://localhost:* https://talacore.app;
     "
   />
   <title>Tala — Cognitive Engine Room</title>
@@ -35,6 +35,9 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div id="upgrade-banner" style="display: none; position: fixed; top: 0; left: 0; right: 0; background: var(--bg-success, #2a8b3d); color: white; text-align: center; padding: 8px; z-index: 10000; font-family: var(--font-sans); font-size: 0.85rem; font-weight: 500; cursor: pointer; border-bottom: 1px solid rgba(255,255,255,0.2);">
+    Update available: <span id="upgrade-banner-version"></span>. Click here to download the latest version!
+  </div>
   <!-- ═══════════════════════════════════════════════════════════════
        APP SHELL
        Layout: [sidebar + drawer] [main workspace] [right panel]
@@ -2635,6 +2638,11 @@
             <button class="terminal-tab" data-tab="harness">Python Harness</button>
           </div>
           <div class="terminal-actions">
+            <div style="display: flex; align-items: center; margin-right: 16px; border-right: 1px solid rgba(255,255,255,0.1); padding-right: 16px;">
+              <span id="bottom-network-dot" style="display:inline-block; width:8px; height:8px; border-radius:50%; background:#444; margin-right:6px; box-shadow: 0 0 5px rgba(0,0,0,0.5);"></span>
+              <span id="bottom-network-text" style="font-size: 0.75rem; margin-right: 10px; font-weight: 500; color: #aaa;">Local Only</span>
+              <button id="btn-bottom-network-toggle" class="btn btn-secondary" style="font-size: 0.65rem; padding: 2px 8px; background: rgba(255,255,255,0.05); border: 1px solid rgba(255,255,255,0.1);">Connect VPS</button>
+            </div>
             <span class="terminal-live-dot" title="Session active"></span>
             <span class="terminal-live-label">LIVE</span>
             <button class="btn-terminal-action" id="btn-terminal-clear" title="Clear Console">

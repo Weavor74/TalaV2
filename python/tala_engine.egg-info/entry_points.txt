@@ -1,0 +1,3 @@
+[console_scripts]
+tala = cli.main:main
+tala-tui = cli.tui:main

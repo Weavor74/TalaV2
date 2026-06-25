@@ -17,12 +17,18 @@ Dependency detection is explicit:
 - **PostgreSQL** is installed when `psql` is missing, then the database role and database are bootstrapped.
 - **Configuration** is owned by `scripts/first_run.py`; installers do not overwrite an existing `.env`.
 
+### Voice Features (Optional)
+If you want to use local voice commands, you must manually install the `[voice]` dependencies after the initial installation. *Note: this requires Python < 3.13 due to `numba` restrictions.*
+```bash
+uv pip install -e .[voice]
+```
+
 ### Windows
-Open PowerShell and run:
+Open PowerShell as **Administrator** and run:
 ```powershell
 .\install-windows.ps1
 ```
-*(Uses `winget` to provision dependencies)*
+*(Uses `winget` to provision dependencies, requires Administrator privileges)*
 
 ### macOS
 Open your Terminal and run:

@@ -86,19 +86,14 @@ def install_node_dependencies() -> None:
 
 def install_python_dependencies() -> None:
     uv = shutil.which("uv")
-    requirements = ROOT_DIR / "python" / "requirements.txt"
-    if not requirements.exists():
-        raise RuntimeError(f"Missing Python requirements file: {requirements}")
-
     if uv:
-        _run([uv, "venv", str(VENV_DIR)])
-        _run([uv, "pip", "install", "--python", str(_venv_python()), "-r", str(requirements)])
+        _run([uv, "sync", "--all-extras"])
         return
 
     print("  - uv not found; falling back to stdlib venv + pip")
     _run([sys.executable, "-m", "venv", str(VENV_DIR)])
     _run([str(_venv_pip()), "install", "--upgrade", "pip"])
-    _run([str(_venv_pip()), "install", "-r", str(requirements)])
+    _run([str(_venv_pip()), "install", "-e", ".[voice]"])
 
 
 def migrate_database() -> bool:

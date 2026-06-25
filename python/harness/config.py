@@ -191,6 +191,11 @@ def load_config() -> Config:
     )
 
     Config._LOADED = True
+    
+    # Initialize the cryptographic wallet and set TALA_WALLET_ADDRESS env var
+    from . import wallet
+    wallet.init_wallet(cfg.VAULT_PATH)
+    
     logger.debug("Config loaded: WS=%s DB=%s vLLM=%s", cfg.ws_uri, cfg.DB_URL, cfg.vllm_base_url)
     return cfg
 

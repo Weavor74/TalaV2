@@ -35,6 +35,9 @@ pydantic>=2.7
 # Local blockchain document payload encryption
 cryptography>=42.0
 
+# BIP39 seed phrase generation for non-custodial wallet
+mnemonic>=0.20
+
 # Model Context Protocol client support
 mcp>=1.5.0
 click>=8.1

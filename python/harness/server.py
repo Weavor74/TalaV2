@@ -1224,12 +1224,19 @@ async def handle_inference_generate(
             history_str = "\n".join(f"{m['role'].capitalize()}: {m['content']}" for m in non_sys_messages)
         token_gate_prompt = f"System: {active_system_prompt}\n{history_str}"
 
+    # Resolve primary peer from prompt references to pay the data owner
+    primary_peer = None
+    peer_match = re.search(r'@([a-zA-Z0-9_-]+)', token_gate_prompt)
+    if peer_match:
+        primary_peer = f"@{peer_match.group(1)}"
+
     # Token gate — raises InsufficientTokenBalanceError if broke (runs on combined prompt for accurate billing)
     try:
         check = await count_and_check(
             prompt=token_gate_prompt,
             session_id=session_id,
             model=settings.VLLM_MODEL,
+            resource_owner=primary_peer,
         )
     except InsufficientTokenBalanceError as exc:
         await db.log_to_db("WARNING", str(exc), {"session_id": session_id})
@@ -1528,7 +1535,6 @@ async def handle_inference_generate(
                     is_requested_provider = (request_provider and provider["id"] == request_provider["id"])
                     
                     if not (is_forced_provider or is_requested_provider):
-                        import re
                         gen_lower = generated_text.lower()
                         low_confidence_phrases = ["i don't know", "i am not sure", "as an ai", "i cannot fulfill", "i'm not sure", "i can't fulfill"]
                         
@@ -1588,7 +1594,6 @@ async def handle_inference_generate(
             return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"All inference providers failed: {all_errors}")
 
         # Parse tool calls
-        import re
         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
         if not tool_match:
             all_responses.append(generated_text)
@@ -3899,7 +3904,7 @@ async def _save_client_setting(key: str, value: dict[str, Any]) -> None:
 async def handle_chain_connection_get(params: dict[str, Any], req_id: Any) -> str:
     try:
         setting = await _get_client_setting(CHAIN_CONNECTION_SETTING_KEY)
-        return _ok(req_id, {"connection": setting or {"mode": "undecided", "auto_connect": False}})
+        return _ok(req_id, {"connection": setting or {"mode": "local", "auto_connect": False}})
     except Exception as exc:
         logger.exception("chain.connection_get error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))

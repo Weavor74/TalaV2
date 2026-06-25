@@ -5061,7 +5061,12 @@ const StatusBar = {
   },
 
   setTokenBalance(n) {
-    const formatted = typeof n === 'number' ? n.toLocaleString() : '—';
+    let formatted;
+    if (n === 999999) {
+      formatted = 'Ghost Tokens (∞)';
+    } else {
+      formatted = typeof n === 'number' ? n.toLocaleString() : '—';
+    }
     if (this._els.tokenValue) this._els.tokenValue.textContent = formatted;
 
     // Update sidebar token bar + value
@@ -10344,32 +10349,6 @@ const ProfileManager = {
     }
   },
 
-  async autoConnectChainIfConfigured(profile) {
-    if (this._chainAutoConnectAttempted || !profile || profile.id !== 'master-user') return;
-    this._chainAutoConnectAttempted = true;
-
-    try {
-      const status = await invoke('python:rpc', {
-        method: 'chain.connection_get',
-        params: {}
-      });
-      const connection = status?.connection || {};
-      if (connection.mode !== 'vps' || connection.auto_connect !== true) return;
-
-      const resp = await invoke('python:rpc', {
-        method: 'chain.auto_connect',
-        params: {}
-      });
-      if (resp && resp.success) {
-        IPCLog.append('ok', `Auto-connected to Tala VPS chain: ${connection.endpoint_url || connection.username || '@tala-vps'}`);
-      } else {
-        IPCLog.append('warn', `Tala VPS auto-connect failed: ${JSON.stringify(resp)}`);
-      }
-    } catch (err) {
-      IPCLog.append('warn', `Tala VPS auto-connect error: ${err.message || err}`);
-    }
-  },
-
   async refreshChainStatus() {
     const statusEl = qs('#profile-chain-status');
     const detailsEl = qs('#profile-chain-details');
@@ -11448,4 +11427,138 @@ document.addEventListener('DOMContentLoaded', () => {
     } catch (err) {
         console.warn('Failed to register system.update_available listener', err);
     }
+
+    // Global Network Toggle Button Logic
+    const bottomToggleBtn = document.getElementById('btn-bottom-network-toggle');
+    const bottomNetworkDot = document.getElementById('bottom-network-dot');
+    const bottomNetworkText = document.getElementById('bottom-network-text');
+
+    async function updateNetworkToggleUI() {
+        if (!bottomToggleBtn) return;
+        try {
+            const status = await invoke('python:rpc', { method: 'chain.connection_get', params: {} });
+            const connection = status?.connection || {};
+            if (connection.mode === 'vps') {
+                bottomNetworkDot.style.background = '#00f0ff';
+                bottomNetworkDot.style.boxShadow = '0 0 8px #00f0ff';
+                bottomNetworkText.textContent = 'VPS Online';
+                bottomNetworkText.style.color = '#00f0ff';
+                bottomToggleBtn.textContent = 'Disconnect';
+            } else {
+                bottomNetworkDot.style.background = '#444';
+                bottomNetworkDot.style.boxShadow = '0 0 5px rgba(0,0,0,0.5)';
+                bottomNetworkText.textContent = 'Local Only';
+                bottomNetworkText.style.color = '#aaa';
+                bottomToggleBtn.textContent = 'Connect VPS';
+            }
+        } catch (err) {
+            bottomNetworkText.textContent = 'Offline';
+            bottomToggleBtn.textContent = 'Connect VPS';
+        }
+    }
+
+    if (bottomToggleBtn) {
+        bottomToggleBtn.addEventListener('click', async () => {
+            bottomToggleBtn.disabled = true;
+            bottomToggleBtn.textContent = 'Wait...';
+            try {
+                const status = await invoke('python:rpc', { method: 'chain.connection_get', params: {} });
+                const connection = status?.connection || {};
+                if (connection.mode === 'vps') {
+                    // Disconnect
+                    await invoke('python:rpc', { method: 'chain.disconnect', params: { remove_contact: false } });
+                    IPCLog.append('info', 'Manually disconnected from Tala VPS chain.');
+                } else {
+                    // Connect
+                    const profileResp = await invoke('python:rpc', { method: 'identity.get_user_profile', params: {} });
+                    let profileUsername = 'local-user';
+                    if (profileResp && profileResp.success && profileResp.profile && profileResp.profile.username) {
+                        profileUsername = profileResp.profile.username;
+                    }
+                    if (profileUsername === 'local-user' || profileUsername.trim() === '') {
+                        IPCLog.append('warning', 'Please configure your username in Settings > User Profile before connecting to the VPS.');
+                        if (typeof UI !== 'undefined' && UI.switchView) {
+                            UI.switchView('settings');
+                            const userTab = document.querySelector('.settings-sub-tab[data-panel="identity"]');
+                            if (userTab) userTab.click();
+                        }
+                        return;
+                    }
+                    
+                    // We assume talacore.app is the default public directory
+                    await invoke('python:rpc', { method: 'chain.connect_vps', params: { username: profileUsername, endpoint_url: '', shared_secret: '' } });
+                    IPCLog.append('ok', 'Manually connected to Tala VPS chain as @' + profileUsername + '.');
+                }
+            } catch (err) {
+                console.error(err);
+                IPCLog.append('error', `Network toggle error: ${err.message || err}`);
+            } finally {
+                bottomToggleBtn.disabled = false;
+                await updateNetworkToggleUI();
+                if (typeof ProfileManager !== 'undefined') ProfileManager.refreshChainStatus();
+            }
+        });
+        
+        // Initial state update
+        updateNetworkToggleUI();
+        setInterval(updateNetworkToggleUI, 15000);
+    }
+
+    // Auto-Update Checker
+    async function checkForUpdates() {
+        try {
+            // Get local version
+            const localResp = await invoke('app.version');
+            if (!localResp || !localResp.version) return;
+            const localVersion = localResp.version;
+
+            // Get remote version
+            const remoteResp = await fetch('https://talacore.app/version.json', { cache: 'no-store' });
+            if (!remoteResp.ok) return;
+            const remoteData = await remoteResp.json();
+            if (!remoteData || !remoteData.version) return;
+            const remoteVersion = remoteData.version;
+
+            // Simple semver compare (assuming x.y.z)
+            const localParts = localVersion.split('.').map(Number);
+            const remoteParts = remoteVersion.split('.').map(Number);
+            
+            let isNewer = false;
+            for (let i = 0; i < 3; i++) {
+                const l = localParts[i] || 0;
+                const r = remoteParts[i] || 0;
+                if (r > l) { isNewer = true; break; }
+                if (r < l) { break; }
+            }
+
+            if (isNewer) {
+                const banner = document.getElementById('upgrade-banner');
+                const vSpan = document.getElementById('upgrade-banner-version');
+                if (banner && vSpan) {
+                    vSpan.textContent = 'v' + remoteVersion;
+                    banner.style.display = 'block';
+                    banner.onclick = async () => {
+                        vSpan.textContent = 'Downloading update... please wait';
+                        banner.style.pointerEvents = 'none';
+                        let url = remoteData.downloads.windows;
+                        if (navigator.userAgent.indexOf('Mac') !== -1) url = remoteData.downloads.macos;
+                        if (navigator.userAgent.indexOf('Linux') !== -1) url = remoteData.downloads.linux;
+                        
+                        try {
+                            await invoke('app.update', { url: url });
+                        } catch (err) {
+                            console.error('Update failed:', err);
+                            vSpan.textContent = 'Update failed. Check console.';
+                        }
+                    };
+                }
+            }
+        } catch (err) {
+            console.warn('Update check failed:', err);
+        }
+    }
+
+    // Check immediately and then every 2 hours
+    setTimeout(checkForUpdates, 3000);
+    setInterval(checkForUpdates, 2 * 60 * 60 * 1000);
 });

@@ -89,7 +89,7 @@ if (fs.existsSync(KEYS_FILE)) {
 // ---------------------------------------------------------------------------
 
 class Transaction {
-  constructor(id, type, hash, creator, counterparty, timestamp = Date.now(), document = null, metadata = null) {
+  constructor(id, type, hash, creator, counterparty, timestamp = Date.now(), document = null, metadata = null, signature = null, public_key = null) {
     this.id = id; // Contract UUID
     this.type = type; // "contract", "payment", etc.
     this.hash = hash; // SHA-256 payload hash
@@ -98,6 +98,8 @@ class Transaction {
     this.timestamp = timestamp;
     this.document = document;
     this.metadata = metadata;
+    this.signature = signature;
+    this.public_key = public_key;
   }
 
   calculateHash() {
@@ -153,6 +155,7 @@ class Blockchain {
     this.chain = [];
     this.pendingTransactions = [];
     this.difficulty = 1; // Light difficulty for instant edge execution
+    this.walletBalances = new Map(); // Track token balances
     this.loadChain();
   }
 
@@ -173,10 +176,14 @@ class Blockchain {
         if (!this.isValid()) {
           console.error('[Chain] Loaded chain is invalid. Starting fresh...');
           this.chain = [this.createGenesisBlock()];
+          this.walletBalances.clear();
           this.saveChain();
+        } else {
+          this.recalculateBalances();
         }
       } else {
         this.chain = [this.createGenesisBlock()];
+        this.walletBalances.clear();
         this.saveChain();
       }
     } catch (err) {
@@ -195,8 +202,60 @@ class Blockchain {
     }
   }
 
+  recalculateBalances() {
+    this.walletBalances.clear();
+    for (const block of this.chain) {
+      for (const tx of block.transactions) {
+        this.applyTransactionToBalance(tx);
+      }
+    }
+  }
+
+  applyTransactionToBalance(tx) {
+    if (tx.type === 'mint') {
+      const amount = parseFloat(tx.metadata?.amount || 0);
+      const current = this.walletBalances.get(tx.counterparty) || 0;
+      this.walletBalances.set(tx.counterparty, current + amount);
+    } else if (tx.type === 'payment') {
+      const amount = parseFloat(tx.metadata?.amount || 0);
+      const houseFeePercent = parseFloat(tx.metadata?.house_fee_percent || 0);
+      
+      const creatorBal = this.walletBalances.get(tx.creator) || 0;
+      this.walletBalances.set(tx.creator, creatorBal - amount);
+      
+      let houseFee = 0;
+      if (houseFeePercent > 0 && houseFeePercent <= 1) {
+        houseFee = amount * houseFeePercent;
+      }
+      const finalAmount = amount - houseFee;
+
+      // Fetch counterparty balance AFTER deducting creator, in case they are the same
+      const cpBal = this.walletBalances.get(tx.counterparty) || 0;
+      this.walletBalances.set(tx.counterparty, cpBal + finalAmount);
+      
+      if (houseFee > 0) {
+        const networkBal = this.walletBalances.get('tala-network') || 0;
+        this.walletBalances.set('tala-network', networkBal + houseFee);
+      }
+    }
+  }
+
+  getBalance(address) {
+    return this.walletBalances.get(address) || 0;
+  }
+
   createGenesisBlock() {
-    return new Block(0, '0', 1716681600000, [], 0); // Hardcoded timestamp
+    const genesisTx = new Transaction(
+      '00000000-0000-0000-0000-000000000000',
+      'mint',
+      'genesis',
+      'system',
+      'tala-network',
+      1716681600000,
+      null,
+      { amount: 440000000000000 }
+    );
+    return new Block(0, '0', 1716681600000, [genesisTx], 0); // Hardcoded timestamp
   }
 
   getLatestBlock() {
@@ -204,6 +263,34 @@ class Blockchain {
   }
 
   addTransaction(tx) {
+    if (tx.type === 'mint' && this.chain.length > 0) {
+      console.log(`[Chain] Rejected mint transaction: ${tx.id}. Minting is disabled after genesis.`);
+      throw new Error("Minting new tokens is disabled. Maximum supply is fixed.");
+    }
+    
+    // Zero-Trust Cryptographic Payment Verification
+    if (tx.type === 'payment') {
+      if (!tx.signature || !tx.public_key) {
+        throw new Error("Unauthorized: Payment transactions must be cryptographically signed.");
+      }
+      if (tx.creator !== tx.public_key) {
+        throw new Error("Unauthorized: Creator must match the public key.");
+      }
+      try {
+        const key = crypto.createPublicKey({
+          key: Buffer.from(tx.public_key, 'hex'),
+          format: 'raw',
+          type: 'ed25519'
+        });
+        const isValid = crypto.verify(null, Buffer.from(tx.hash), key, Buffer.from(tx.signature, 'hex'));
+        if (!isValid) {
+          throw new Error("Cryptographic signature verification failed.");
+        }
+      } catch (err) {
+        throw new Error("Unauthorized: " + err.message);
+      }
+    }
+
     this.pendingTransactions.push(tx);
     console.log(`[Chain] Transaction added: ${tx.id}`);
     
@@ -225,6 +312,12 @@ class Blockchain {
     newBlock.signBlock(poaPrivateKey, poaPublicKey);
 
     this.chain.push(newBlock);
+    
+    // Apply balances for new block
+    for (const tx of newBlock.transactions) {
+      this.applyTransactionToBalance(tx);
+    }
+
     this.pendingTransactions = [];
     console.log(`[Chain] Block mined and signed: ${newBlock.index} | Hash: ${newBlock.hash}`);
     this.saveChain();
@@ -433,6 +526,158 @@ const server = http.createServer((req, res) => {
 
   const url = new URL(req.url, `http://${req.headers.host}`);
 
+  // Route: GET / (Splash Page)
+  if (url.pathname === '/' && req.method === 'GET') {
+    try {
+      const html = fs.readFileSync(path.join(__dirname, '../public/splash.html'), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(html);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Splash page not found');
+    }
+    return;
+  }
+
+  // Route: GET static assets (.png, .jpg, .css, .js)
+  const ext = path.extname(url.pathname).toLowerCase();
+  const publicExts = { '.png': 'image/png', '.jpg': 'image/jpeg', '.css': 'text/css', '.js': 'application/javascript', '.zip': 'application/zip', '.json': 'application/json' };
+  if (publicExts[ext] && req.method === 'GET') {
+    try {
+      const cleanPath = url.pathname.split('?')[0].replace(/^\/+/, '');
+      const filePath = path.join(__dirname, '../public', cleanPath);
+      const content = fs.readFileSync(filePath);
+      res.writeHead(200, { 
+        'Content-Type': publicExts[ext],
+        'Access-Control-Allow-Origin': '*'
+      });
+      res.end(content);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('File not found');
+    }
+    return;
+  }
+
+  // Route: GET /preview (Landing Page)
+  if (url.pathname === '/preview' && req.method === 'GET') {
+    try {
+      const html = fs.readFileSync(path.join(__dirname, '../public/index.html'), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(html);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Landing page not found');
+    }
+    return;
+  }
+
+  // Route: GET /download (Download Page)
+  if (url.pathname === '/download' && req.method === 'GET') {
+    try {
+      const html = fs.readFileSync(path.join(__dirname, '../public/download.html'), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(html);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Download page not found');
+    }
+    return;
+  }
+
+  // Route: Install Scripts
+  const installScripts = ['/install-windows.ps1', '/install-linux.sh', '/install-macos.sh'];
+  if (installScripts.includes(url.pathname) && req.method === 'GET') {
+    try {
+      // The scripts are located in the root Tala folder (two levels above src)
+      const filePath = path.join(__dirname, '../..', url.pathname);
+      const content = fs.readFileSync(filePath, 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/plain' });
+      res.end(content);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Script not found');
+    }
+    return;
+  }
+
+  // Route: GET /buy (Payment Portal)
+  if (url.pathname === '/buy' && req.method === 'GET') {
+    try {
+      const html = fs.readFileSync(path.join(__dirname, '../public/buy.html'), 'utf8');
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      res.end(html);
+    } catch (e) {
+      res.writeHead(404, { 'Content-Type': 'text/plain' });
+      res.end('Payment portal not found');
+    }
+    return;
+  }
+
+  // Route: POST /checkout
+  if (url.pathname === '/checkout' && req.method === 'POST') {
+    readRequestBody(req).then(body => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const username = String(payload.username || '').trim();
+        const amount = parseFloat(payload.amount || 0);
+
+        if (!username || amount <= 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Invalid username or amount' }));
+          return;
+        }
+
+        const peer = peerDirectory.find(username);
+        if (!peer) {
+          res.writeHead(404, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'User not found on the network. Make sure your desktop client is running.' }));
+          return;
+        }
+
+        // Direct treasury transfer from tala-network
+        const txId = crypto.randomUUID();
+        const tx = new Transaction(
+          txId,
+          'payment', // Internal treasury transfer
+          crypto.randomBytes(32).toString('hex'), // Mock hash since it's internally verified
+          'tala-network',
+          peer.wallet_address,
+          new Date().toISOString(),
+          null,
+          { amount: amount, house_fee_percent: 0 }
+        );
+
+        // Bypass client signature requirements for the centralized treasury transfer
+        // Note: we just push it into a block directly on the VPS
+        const prevHash = talaLedger.getLatestBlock().hash;
+        const block = new Block(
+          talaLedger.chain.length,
+          prevHash,
+          new Date().toISOString(),
+          [tx],
+          0,
+          null, // No signature needed for internal PoA injection
+          'tala-network'
+        );
+        block.hash = block.calculateHash();
+        
+        talaLedger.chain.push(block);
+        talaLedger.recalculateBalances();
+        talaLedger.saveChain();
+
+        console.log(`[Treasury] Transferred ${amount} TalaCoins to ${username} (${peer.wallet_address})`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, amount, to: username, tx_id: txId }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    });
+    return;
+  }
+
   // Route: GET /chain/status
   if (url.pathname === '/chain/status' && req.method === 'GET') {
     const status = {
@@ -557,6 +802,16 @@ const server = http.createServer((req, res) => {
           return;
         }
 
+        if (payload.type === 'payment') {
+          const amount = parseFloat(payload.metadata?.amount || 0);
+          const currentBalance = talaLedger.getBalance(payload.creator);
+          if (currentBalance < amount) {
+            res.writeHead(400, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Insufficient TalaCoin balance' }));
+            return;
+          }
+        }
+
         const tx = new Transaction(
           payload.id,
           payload.type,
@@ -565,7 +820,9 @@ const server = http.createServer((req, res) => {
           payload.counterparty,
           Date.now(),
           payload.document ?? null,
-          payload.metadata ?? null
+          payload.metadata ?? null,
+          payload.signature ?? null,
+          payload.public_key ?? null
         );
 
         talaLedger.addTransaction(tx);
@@ -579,9 +836,74 @@ const server = http.createServer((req, res) => {
         }));
       } catch (err) {
         res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message || 'Malformed JSON payload' }));
+      }
+    });
+    return;
+  }
+
+  // Route: POST /chain/mint
+  if (url.pathname === '/chain/mint' && req.method === 'POST') {
+    let body = '';
+    req.on('data', chunk => { body += chunk; });
+    req.on('end', () => {
+      try {
+        const payload = JSON.parse(body);
+        if (!payload.address || !payload.amount) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing address or amount' }));
+          return;
+        }
+
+        const amount = parseFloat(payload.amount);
+        if (amount <= 0) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Amount must be greater than 0' }));
+          return;
+        }
+
+        const id = crypto.randomUUID();
+        const hash = sha256Hex(`payment:tala-network:${payload.address}:${amount}:${Date.now()}`);
+        
+        const tx = new Transaction(
+          id,
+          'payment',
+          hash,
+          'tala-network',
+          payload.address,
+          Date.now(),
+          null,
+          { amount: amount }
+        );
+        
+        const currentBalance = talaLedger.getBalance('tala-network');
+        if (currentBalance < amount) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Insufficient TalaCoin balance in treasury' }));
+          return;
+        }
+        talaLedger.addTransaction(tx);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+          status: 'Treasury payment added (formerly mint)', 
+          contract_id: tx.id,
+          new_balance: talaLedger.getBalance(payload.address)
+        }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: 'Malformed JSON payload' }));
       }
     });
+    return;
+  }
+
+  // Route: GET /chain/wallet/:address/balance
+  const balanceMatch = url.pathname.match(/^\/chain\/wallet\/([^/]+)\/balance$/);
+  if (balanceMatch && req.method === 'GET') {
+    const address = balanceMatch[1];
+    const balance = talaLedger.getBalance(address);
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ address, balance }));
     return;
   }
 

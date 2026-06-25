@@ -9,6 +9,13 @@ Write-Host " Tala Cognitive Engine Room - Native Windows Installer" -ForegroundC
 Write-Host "========================================================" -ForegroundColor Cyan
 Write-Host ""
 
+$isAdmin = ([Security.Principal.WindowsPrincipal][Security.Principal.WindowsIdentity]::GetCurrent()).IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+if (-not $isAdmin) {
+    Write-Host "ERROR: This installer requires Administrator privileges to install system dependencies like PostgreSQL." -ForegroundColor Red
+    Write-Host "Please restart PowerShell as Administrator (Right-click -> Run as Administrator) and run this script again." -ForegroundColor Yellow
+    exit 1
+}
+
 $ScriptDir = Split-Path -Parent $MyInvocation.MyCommand.Definition
 $Root = $ScriptDir
 
@@ -25,23 +32,40 @@ if ($LASTEXITCODE -eq 2) {
 Write-Host "[2/6] Checking Dependencies via Winget..."
 
 function Install-IfMissing {
-    param([string]$Command, [string]$WingetId, [string]$FriendlyName)
+    param([string]$Command, [string]$WingetId, [string]$FriendlyName, [string]$Location = "")
     try {
         $null = Get-Command $Command -ErrorAction Stop
         Write-Host "  - $FriendlyName is already installed." -ForegroundColor Green
     } catch {
         Write-Host "  - Installing $FriendlyName via winget..." -ForegroundColor Yellow
-        winget install --id $WingetId --accept-package-agreements --accept-source-agreements --silent
+        $wingetArgs = @("install", "--id", $WingetId, "--accept-package-agreements", "--accept-source-agreements", "--silent")
+        if ($Location) {
+            $wingetArgs += "--location", $Location
+        }
+        & winget $wingetArgs
         Write-Host "  - $FriendlyName installed! (You may need to restart your terminal later)." -ForegroundColor Green
+    }
+}
+
+$pgPath = "$env:ProgramFiles\PostgreSQL\17\bin"
+if (Test-Path $pgPath) {
+    $userPath = [System.Environment]::GetEnvironmentVariable("Path", "User")
+    if ($userPath -notmatch [regex]::Escape($pgPath)) {
+        Write-Host "  - Adding PostgreSQL to User PATH..." -ForegroundColor Yellow
+        [System.Environment]::SetEnvironmentVariable("Path", "$userPath;$pgPath", "User")
+        $env:PATH += ";$pgPath"
+    } elseif ($env:PATH -notmatch [regex]::Escape($pgPath)) {
+        $env:PATH += ";$pgPath"
     }
 }
 
 Install-IfMissing -Command "node" -WingetId "OpenJS.NodeJS.LTS" -FriendlyName "Node.js"
 Install-IfMissing -Command "uv" -WingetId "astral-sh.uv" -FriendlyName "Python (uv)"
-Install-IfMissing -Command "psql" -WingetId "PostgreSQL.PostgreSQL" -FriendlyName "PostgreSQL"
+Install-IfMissing -Command "psql" -WingetId "PostgreSQL.PostgreSQL.17" -FriendlyName "PostgreSQL" -Location "$env:ProgramFiles\PostgreSQL\17"
 
 # Update PATH dynamically for the current session in case winget just installed them
 $env:PATH = [System.Environment]::GetEnvironmentVariable("Path", "Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path", "User")
+
 
 if (-not (Get-Command "python" -ErrorAction SilentlyContinue) -and -not (Get-Command "py" -ErrorAction SilentlyContinue)) {
     Write-Host "  - Python runtime not found. Installing Python 3.11 via uv..." -ForegroundColor Yellow

@@ -22,7 +22,7 @@ $BackendProcess = Start-Process -NoNewWindow -PassThru -FilePath $VenvPython -Ar
 try {
     Write-Host "Starting Tala Electron UI..."
     # Use npm start for electron
-    $FrontendProcess = Start-Process -NoNewWindow -PassThru -FilePath "npm" -ArgumentList "start"
+    $FrontendProcess = Start-Process -NoNewWindow -PassThru -FilePath "npm.cmd" -ArgumentList "start"
 
     Write-Host "Tala is running. Press Ctrl+C to terminate." -ForegroundColor Green
 

@@ -1,7 +1,7 @@
 {
   "name": "tala-engine",
-  "version": "0.1.0",
-  "description": "Tala Cognitive Engine Room — local AI orchestration shell",
+  "version": "0.1.10",
+  "description": "Tala Cognitive Engine Room \u2014 local AI orchestration shell",
   "main": "electron/main.js",
   "author": "Tala Project",
   "license": "MIT",
@@ -61,13 +61,23 @@
     ],
     "asar": false,
     "win": {
-      "target": ["nsis", "zip"]
+      "target": [
+        "nsis",
+        "zip"
+      ]
     },
     "mac": {
-      "target": ["dmg", "zip"]
+      "target": [
+        "dmg",
+        "zip"
+      ]
     },
     "linux": {
-      "target": ["AppImage", "deb", "tar.gz"],
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ],
       "category": "Utility"
     }
   },

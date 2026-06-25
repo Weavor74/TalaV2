@@ -43,7 +43,8 @@ try {
 // electron-store for persisted configuration
 let Store;
 try {
-  Store = require('electron-store');
+  const storeModule = require('electron-store');
+  Store = storeModule.default || storeModule;
 } catch {
   Store = null;
 }
@@ -221,7 +222,7 @@ function createWindow() {
         "font-src 'self' https://fonts.gstatic.com; " +
         "img-src 'self' data:; " +
         "frame-src 'self' file: https://duckduckgo.com https://*.duckduckgo.com http: https:; " +
-        "connect-src 'self' http://127.0.0.1:8332;"
+        "connect-src 'self' http://127.0.0.1:8332 https://talacore.app;"
       ];
     }
 
@@ -506,6 +507,90 @@ function registerPythonRpcHandler() {
       throw new Error('python:rpc requires a "method" string field.');
     }
 
+    if (method === 'app.update') {
+      return new Promise((resolve, reject) => {
+        const url = params.url;
+        if (!url) return reject('No url provided for update');
+        const fs = require('fs');
+        const os = require('os');
+        const { spawn } = require('child_process');
+        const path = require('path');
+        const appRoot = path.resolve(__dirname, '..');
+
+        if (process.platform === 'win32') {
+          const scriptPath = path.join(os.tmpdir(), 'tala-update.ps1');
+          const zipPath = path.join(os.tmpdir(), 'tala-update.zip');
+          const startScript = path.join(appRoot, 'scripts', 'start-tala.ps1');
+          const scriptContent = `
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host " Tala Cognitive Engine Room Updater" -ForegroundColor Cyan
+Write-Host "========================================" -ForegroundColor Cyan
+Write-Host ""
+Write-Host "Waiting for Tala to close..."
+Start-Sleep -Seconds 3
+
+Write-Host "Downloading update from ${url}..." -ForegroundColor Yellow
+Invoke-WebRequest -Uri "${url}" -OutFile "${zipPath}"
+
+Write-Host "Extracting update to ${appRoot}..." -ForegroundColor Yellow
+try {
+    Expand-Archive -Path "${zipPath}" -DestinationPath "${appRoot}" -Force
+    Write-Host "Update successful!" -ForegroundColor Green
+} catch {
+    Write-Host "Extraction failed: $_" -ForegroundColor Red
+    Start-Sleep -Seconds 5
+    exit
+}
+
+Write-Host "Restarting Tala Engine..." -ForegroundColor Cyan
+Start-Sleep -Seconds 2
+Start-Process -FilePath "powershell.exe" -ArgumentList "-ExecutionPolicy Bypass -WindowStyle Normal -NoExit -File \`"${startScript}\`"" -WorkingDirectory "${appRoot}"
+exit
+`;
+          fs.writeFileSync(scriptPath, scriptContent);
+          const child = spawn('cmd.exe', ['/c', 'start', 'powershell.exe', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Normal', '-NoExit', '-File', scriptPath], {
+            detached: true,
+            stdio: 'ignore'
+          });
+          child.unref();
+          resolve({ success: true });
+          setTimeout(() => { app.quit(); }, 500);
+        } else {
+          // Linux/Mac logic... kept simple
+          const https = require('https');
+          const zipPath = path.join(os.tmpdir(), 'tala-update.zip');
+          const file = fs.createWriteStream(zipPath);
+          https.get(url, (response) => {
+            if (response.statusCode !== 200) return reject('Download failed');
+            response.pipe(file);
+            file.on('finish', () => {
+              file.close(() => {
+                const scriptPath = path.join(os.tmpdir(), 'tala-update.sh');
+                const startScript = path.join(appRoot, 'scripts', 'start-tala.sh');
+                const scriptContent = `#!/bin/bash
+sleep 3
+unzip -o "${zipPath}" -d "${appRoot}"
+chmod +x "${startScript}"
+cd "${appRoot}"
+bash "${startScript}" &
+`;
+                fs.writeFileSync(scriptPath, scriptContent);
+                fs.chmodSync(scriptPath, '755');
+                const child = spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' });
+                child.unref();
+                resolve({ success: true });
+                setTimeout(() => { app.quit(); }, 500);
+              });
+            });
+          }).on('error', (err) => reject(err.message));
+        }
+      });
+    }
+
+    if (method === 'app.version') {
+      return { version: require('../package.json').version };
+    }
+
     // If WS is not connected, return a degraded stub for known health checks
     if (!wsConnected || !wsClient || wsClient.readyState !== (WebSocket?.OPEN ?? 1)) {
       if (method === 'harness.health') {
@@ -515,9 +600,6 @@ function registerPythonRpcHandler() {
           tokens_used:     0,
           last_latency_ms: null,
         };
-      }
-      if (method === 'app.version') {
-        return { version: require('../package.json').version };
       }
       return {
         __rpcError: true,
