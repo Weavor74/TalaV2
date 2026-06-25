@@ -1,8 +1,16 @@
 # Tala Cognitive Engine Room
 
-Tala is an offline-first, desktop-native AI orchestration shell built with Electron and a Python backend.
+Tala is an offline-first, desktop-native AI orchestration shell built with Electron and a Python backend. It serves as a secure, distributed, and highly-capable agentic ecosystem (conceptually similar to self-improving agents like Hermes, but fortified with enterprise-grade data persistence and peer-to-peer networking).
 
 This repository is intentionally committed as a blank slate: generated node files, local databases, snapshots, caches, and runtime blockchain state are excluded from source control.
+
+## Core Capabilities
+
+- **P2P Mesh Networking & Remote Orchestration:** Tala integrates a WebRTC/libp2p mesh network (`aiortc`), enabling secure peer-to-peer JSON-RPC over DataChannels. This allows agents to seamlessly interact, orchestrate remote services, or perform secure remote desktop operations across distributed nodes.
+- **Autonomous Skill Distillation:** Tala features an autonomous learning loop (`SkillDistiller`) that analyzes successful workflows and distills them into reusable YAML/Python plugins. These skills are automatically packaged as marketplace-ready manifests that can be anchored to the Tala Proof-of-Authority blockchain for network distribution.
+- **Enterprise-Grade Memory (Mem0 + PostgreSQL):** Tala utilizes semantic vector memory (`mem0`) for fuzzy matching and deep historical context across sessions. Unlike standard agents, Tala wraps this in a strict read-only adapter, enforcing that all durable state (nodes, ledger, vault) is authoritatively and securely managed by a local PostgreSQL database.
+- **Model Context Protocol (MCP) Integration:** Tala provides full support for the official MCP Python SDK, dynamically mapping and invoking external capabilities across both `stdio` (local subprocess) and `sse` (remote HTTP) transports.
+- **Multi-Provider & Embedded Inference:** Fully abstracted LLM access supporting multiple providers (vLLM, etc.) orchestrated via the Python backend's configuration and workflow engine.
 
 ## Architecture Documents
 
