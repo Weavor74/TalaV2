@@ -7,10 +7,15 @@ This repository is intentionally committed as a blank slate: generated node file
 ## Core Capabilities
 
 - **P2P Mesh Networking & Remote Orchestration:** Tala integrates a WebRTC/libp2p mesh network (`aiortc`), enabling secure peer-to-peer JSON-RPC over DataChannels. This allows agents to seamlessly interact, orchestrate remote services, or perform secure remote desktop operations across distributed nodes.
-- **Autonomous Skill Distillation:** Tala features an autonomous learning loop (`SkillDistiller`) that analyzes successful workflows and distills them into reusable YAML/Python plugins. These skills are automatically packaged as marketplace-ready manifests that can be anchored to the Tala Proof-of-Authority blockchain for network distribution.
+- **Tala Proof-of-Authority (PoA) Blockchain:** A localized blockchain ledger tracks trusted nodes, verifies peer identity during mesh orchestration, anchors distilled marketplace skills, and manages the distributed token economy for API billing and AI token balances.
+- **Autonomous Skill Distillation:** Tala features an autonomous learning loop (`SkillDistiller`) that analyzes successful workflows and distills them into reusable YAML/Python plugins. These skills are automatically packaged as marketplace-ready manifests that can be anchored to the Tala blockchain for network distribution.
 - **Enterprise-Grade Memory (Mem0 + PostgreSQL):** Tala utilizes semantic vector memory (`mem0`) for fuzzy matching and deep historical context across sessions. Unlike standard agents, Tala wraps this in a strict read-only adapter, enforcing that all durable state (nodes, ledger, vault) is authoritatively and securely managed by a local PostgreSQL database.
+- **Advanced Visual Builders:** The Electron interface provides interactive visual builders for zero-code orchestration:
+  - **Agent Builder:** Create and refine complex agent personas with specific capabilities.
+  - **Guardrail Builder:** Architect strict, rule-based safety, output, and behavior constraints.
+  - **Workflow Builder:** Design multi-step, multi-agent workflows and node graphs via an intuitive visual editor.
 - **Model Context Protocol (MCP) Integration:** Tala provides full support for the official MCP Python SDK, dynamically mapping and invoking external capabilities across both `stdio` (local subprocess) and `sse` (remote HTTP) transports.
-- **Multi-Provider & Embedded Inference:** Fully abstracted LLM access supporting multiple providers (vLLM, etc.) orchestrated via the Python backend's configuration and workflow engine.
+- **Bring-Your-Own-Everything (BYOE):** Fully abstracted access supporting multiple embedded or remote providers for inference (vLLM, OpenAI, Anthropic, OpenRouter), authentication, and storage endpoints, orchestrated via the Python backend's configuration.
 
 ## Architecture Documents
 
