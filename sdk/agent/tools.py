@@ -13,11 +13,13 @@ from __future__ import annotations
 
 import inspect
 import logging
+import os
 from typing import Any, Callable
 
 from sdk.agent.governance import RiskClassifier
 
 log = logging.getLogger(__name__)
+
 
 
 class ToolRegistry:
@@ -26,6 +28,22 @@ class ToolRegistry:
     """
 
     _tools: dict[str, dict[str, Any]] = {}
+
+    # ---------------------------------------------------------------------------
+    # Confidence gate
+    # ---------------------------------------------------------------------------
+    # Distilled skills whose historical confidence score drops below this
+    # threshold are NOT executed.  Instead run_tool() returns a structured
+    # ``confidence_gate_triggered`` signal so the dispatcher can re-enter the
+    # full GoalEngine planning cycle.
+    #
+    # Override at startup via the TALA_SKILL_CONFIDENCE_GATE environment variable
+    # (a float between 0.0 and 1.0).  Non-skill tools (no ``node_path``) are
+    # never subject to this gate.
+    SKILL_CONFIDENCE_GATE: float = float(
+        os.environ.get("TALA_SKILL_CONFIDENCE_GATE", "0.50")
+    )
+
 
     @classmethod
     def register(
@@ -144,6 +162,34 @@ class ToolRegistry:
 
         func = tool_entry["func"]
         plugin_id = tool_entry.get("plugin_id")
+
+        # --- CONFIDENCE GATE (skill nodes only) ----------------------------
+        # Only applies to auto-distilled skill-*.html tools that carry a
+        # node_path.  Built-in / plugin tools are never gated.
+        node_path = tool_entry.get("node_path")
+        if node_path:
+            confidence = tool_entry.get("metrics", {}).get("confidence", 0.8)
+            gate = cls.SKILL_CONFIDENCE_GATE
+            if confidence < gate:
+                log.warning(
+                    "ToolRegistry: confidence gate triggered for skill %r "
+                    "(confidence=%.3f < gate=%.2f). Returning gate signal.",
+                    name, confidence, gate,
+                )
+                return {
+                    "success": False,
+                    "confidence_gate_triggered": True,
+                    "confidence": confidence,
+                    "threshold": gate,
+                    "skill_name": name,
+                    "node_path": node_path,
+                    "error": (
+                        f"Skill '{name}' confidence {confidence:.2f} is below "
+                        f"gate {gate:.2f} — falling back to full goal planning."
+                    ),
+                }
+        # -------------------------------------------------------------------
+
         
         # --- NEW GATEWAY ENFORCEMENT LAYER ---
         if plugin_id:

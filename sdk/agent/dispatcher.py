@@ -240,12 +240,32 @@ class TalaExecutionDispatcher:
                     arguments=tool_args,
                     authority_level=authority_level,
                 )
+
+                # ── Confidence gate: skill degraded — re-enter goal planning ──
+                if res.get("confidence_gate_triggered"):
+                    log.info(
+                        "TalaExecutionDispatcher: confidence gate triggered for skill %r "
+                        "(confidence=%.3f < gate=%.2f) — falling back to GoalEngine.",
+                        tool_name,
+                        res.get("confidence", 0.0),
+                        res.get("threshold", 0.5),
+                    )
+                    return await self._goal_engine_fallback(
+                        task_description,
+                        root_dir,
+                        context,
+                        authority_level,
+                        reason=res["error"],
+                    )
+                # ─────────────────────────────────────────────────────────────
+
                 return {
                     "success": res["success"],
                     "action_taken": f"tool_{tool_name}",
                     "output": res.get("output"),
                     "error": res.get("error"),
                 }
+
 
         # ------------------------------------------------------------------
         # File creation (deterministic fallback / empty touch)
@@ -722,3 +742,92 @@ Response must contain ONLY the category name. No markdown, no explanations."""
             log.debug("TalaExecutionDispatcher: classification failed: %s", exc)
         
         return "logged"
+
+    # ------------------------------------------------------------------
+    # Confidence gate fallback
+    # ------------------------------------------------------------------
+
+    async def _goal_engine_fallback(
+        self,
+        task_description: str,
+        root_dir: str,
+        context: dict[str, Any],
+        authority_level: str,
+        reason: str = "",
+    ) -> dict[str, Any]:
+        """
+        Re-enter the full GoalEngine planning and execution cycle when a
+        distilled skill's confidence score falls below
+        :attr:`ToolRegistry.SKILL_CONFIDENCE_GATE`.
+
+        This closes the feedback loop: historical execution performance
+        (tracked in ``metrics.confidence`` inside each skill HTML-NN node)
+        directly controls *runtime execution strategy* — a low-confidence
+        skill is treated as a suggestion, not a command.
+
+        The method is intentionally fire-and-forward: it passes the original
+        ``task_description`` unchanged so GoalEngine can re-decompose,
+        re-plan, and potentially produce an improved skill node if the new
+        run succeeds cleanly.
+
+        Parameters
+        ----------
+        task_description:
+            The original natural-language task string.
+        root_dir:
+            Workspace root passed through to GoalEngine.
+        context:
+            Caller context dict (may carry authority_level, adapter_packet, etc.).
+        authority_level:
+            Governance authority level propagated from the calling context.
+        reason:
+            Human-readable explanation of why the gate fired (for logging).
+
+        Returns
+        -------
+        dict with ``action_taken='goal_engine_fallback'`` and
+        ``confidence_gate_triggered=True`` so callers can distinguish this
+        path from a normal goal execution result.
+        """
+        log.info(
+            "TalaExecutionDispatcher: entering GoalEngine fallback. "
+            "reason=%r task=%r",
+            reason, task_description[:80],
+        )
+        try:
+            from sdk.agent.goal_engine import GoalEngine
+            from sdk.agent.batch_policy import BatchPolicy
+
+            engine = GoalEngine(root_dir=root_dir)
+            policy = BatchPolicy.auto()
+
+            # Propagate adapter_packet if the caller embedded it in context
+            adapter_packet = context.get("adapter_packet")
+
+            result = await engine.run_goal(
+                goal_text=task_description,
+                policy=policy,
+                adapter_packet=adapter_packet,
+            )
+
+            return {
+                "success": result.get("success", False),
+                "action_taken": "goal_engine_fallback",
+                "confidence_gate_triggered": True,
+                "fallback_reason": reason,
+                "output": result,
+                "error": result.get("error"),
+            }
+        except Exception as exc:
+            log.error(
+                "TalaExecutionDispatcher: GoalEngine fallback raised: %s", exc
+            )
+            return {
+                "success": False,
+                "action_taken": "goal_engine_fallback",
+                "confidence_gate_triggered": True,
+                "fallback_reason": reason,
+                "output": None,
+                "error": str(exc),
+            }
+
