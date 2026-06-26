@@ -20,6 +20,7 @@ def build_bundles():
         "node_modules/*",
         "data/*",
         "vault/*",
+        ".env",
         "__pycache__/*",
         "*.pyc",
         "blockchain/public/*.zip",
