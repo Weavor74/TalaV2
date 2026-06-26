@@ -87,7 +87,7 @@ def install_node_dependencies() -> None:
 def install_python_dependencies() -> None:
     uv = shutil.which("uv")
     if uv:
-        _run([uv, "sync", "--all-extras"])
+        _run([uv, "sync", "--extra", "voice"])
         return
 
     print("  - uv not found; falling back to stdlib venv + pip")
