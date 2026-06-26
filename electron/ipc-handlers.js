@@ -370,7 +370,8 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     const util = require('node:util');
     const execPromise = util.promisify(exec);
     try {
-      const workspaceRoot = 'D:\\src\\TalaV2';
+      const path = require('node:path');
+      const workspaceRoot = path.join(__dirname, '..');
       const { stdout, stderr } = await execPromise('git status --short', { cwd: workspaceRoot });
       return { ok: true, stdout, stderr };
     } catch (err) {
