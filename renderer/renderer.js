@@ -789,6 +789,7 @@ const InferenceManager = {
     }
   ],
   _selectedType: null,
+  _editingId: null,
   _downloadInterval: null,
   _detecting: false,
   _routeSelection: '',
@@ -1203,6 +1204,7 @@ const InferenceManager = {
       </div>
       <div class="provider-card-actions">
         <button class="btn-provider-action btn-provider-route" title="Use provider for current session">◎</button>
+        <button class="btn-provider-action btn-provider-edit" title="Edit provider">✎</button>
         <button class="btn-provider-action btn-provider-up"   title="Move Up"   ${isFirst ? 'disabled' : ''}>↑</button>
         <button class="btn-provider-action btn-provider-down" title="Move Down" ${isLast  ? 'disabled' : ''}>↓</button>
         ${p.locked
@@ -1213,6 +1215,8 @@ const InferenceManager = {
 
     const route = card.querySelector('.btn-provider-route');
     if (route) route.addEventListener('click', () => this.pinSelectedProvider(p.id));
+    const edit = card.querySelector('.btn-provider-edit');
+    if (edit) edit.addEventListener('click', () => this.editProvider(p.id));
     if (!isFirst) card.querySelector('.btn-provider-up').addEventListener('click', () => this.move(p.id, -1));
     if (!isLast)  card.querySelector('.btn-provider-down').addEventListener('click', () => this.move(p.id, 1));
     const del = card.querySelector('.btn-provider-delete');
@@ -1262,6 +1266,7 @@ const InferenceManager = {
   // ── Modal ──────────────────────────────────────────────────────────
   openModal() {
     this._selectedType = null;
+    this._editingId = null;
     if (this._stepType)  { this._stepType.hidden = false; }
     if (this._stepDet)   { this._stepDet.hidden = true; this._stepDet.innerHTML = ''; }
     if (this._btnBack)   this._btnBack.hidden = true;
@@ -1405,12 +1410,23 @@ const InferenceManager = {
     }
     if (nameEl) nameEl.classList.remove('input-error');
 
-    const provider = {
-      id:     `prov-${Date.now()}`,
-      type,
-      name,
-      status: 'unknown',
-    };
+    let provider;
+    let isEditing = false;
+    
+    if (this._editingId) {
+      provider = this._providers.find(p => p.id === this._editingId);
+      isEditing = !!provider;
+    }
+    
+    if (!provider) {
+      provider = {
+        id:     `prov-${Date.now()}`,
+        type,
+        status: 'unknown',
+      };
+    }
+    
+    provider.name = name;
 
     if (type === 'embedded') {
       provider.model  = qs('#prov-model')?.value || 'qwen2.5-0.5b';
@@ -1428,11 +1444,38 @@ const InferenceManager = {
       provider.apiKey   = qs('#prov-apikey')?.value?.trim()   || '';
     }
 
-    this._providers.push(provider);
+    if (!isEditing) {
+      this._providers.push(provider);
+    }
+    
     this.persistProviders();
     this.render();
     this.closeModal();
-    IPCLog.append('info', `Provider added: "${name}" (${type}) → priority ${this._providers.length}`);
+    IPCLog.append('info', `Provider ${isEditing ? 'updated' : 'added'}: "${name}" (${type})`);
+  },
+
+  editProvider(id) {
+    const p = this._providers.find(prov => prov.id === id);
+    if (!p) return;
+    this._editingId = id;
+    this.showDetails(p.type); // This sets up the innerHTML of the modal for the type
+    
+    const nameEl = qs('#prov-name');
+    if (nameEl) nameEl.value = p.name || '';
+    
+    if (p.type === 'local') {
+      const eng = qs('#prov-engine'); if (eng && p.engine) eng.value = p.engine;
+      const ep = qs('#prov-endpoint'); if (ep && p.endpoint) ep.value = p.endpoint;
+      const mod = qs('#prov-model'); if (mod && p.model) mod.value = p.model;
+      const key = qs('#prov-apikey'); if (key && p.apiKey) key.value = p.apiKey;
+    } else if (p.type === 'remote') {
+      const svc = qs('#prov-service'); if (svc && p.service) svc.value = p.service;
+      const ep = qs('#prov-endpoint'); if (ep && p.endpoint) ep.value = p.endpoint;
+      const mod = qs('#prov-model'); if (mod && p.model) mod.value = p.model;
+      const key = qs('#prov-apikey'); if (key && p.apiKey) key.value = p.apiKey;
+    }
+    
+    if (this._modal) this._modal.hidden = false;
   },
 };
 
