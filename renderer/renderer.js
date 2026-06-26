@@ -97,6 +97,7 @@ const UIController = {
         .then(result => {
           if (result?.version) {
             el.textContent = `v${result.version}`;
+
           }
         })
         .catch(() => { /* ignore, default text stays */ });
@@ -11508,9 +11509,10 @@ document.addEventListener('DOMContentLoaded', () => {
     async function checkForUpdates() {
         try {
             // Get local version
-            const localResp = await invoke('app.version');
+            const localResp = await invoke('python:rpc', { method: 'app.version' });
             if (!localResp || !localResp.version) return;
             const localVersion = localResp.version;
+
 
             // Get remote version
             const remoteResp = await fetch('https://talacore.app/version.json', { cache: 'no-store' });
