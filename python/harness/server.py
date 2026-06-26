@@ -637,26 +637,55 @@ async def handle_inference_generate(
                     modulator = StyleModulator()
                     modulated_style = modulator.apply(base_style, transits)
                 
-                    # Format tone directive
-                    tone_directive = (
-                        f"\n\n[Astrological Style & Tone Modulation]\n"
-                        f"Current planetary transit modulations have shifted your response parameters:\n"
-                        f"- Warmth (empathy, friendliness): {modulated_style['warmth']:.2f}/1.00\n"
-                        f"- Directness (brevity, clarity): {modulated_style['directness']:.2f}/1.00\n"
-                        f"- Reflection Depth (contemplativeness): {modulated_style['reflectionDepth']:.2f}/1.00\n"
-                        f"- Mysticism Level (planetary/astrological/esoteric vocabulary): {modulated_style['mysticismLevel']:.2f}/1.00\n"
-                        f"- Task Focus (logical precision and constraint adherence): {modulated_style['taskFocus']:.2f}/1.00\n\n"
-                        f"INSTRUCTION: Modulate your tone slightly (within a 10% style cap) to reflect these metrics. "
-                        f"For example, high directness leads to more concise bullet points; high mysticismLevel introduces subtle cosmological analogies; "
-                        f"high warmth yields warmer greetings; high taskFocus keeps answers strictly analytical.\n"
-                        f"CRITICAL CONSTRAINT: Do NOT mention or output any of these metrics, their numbers, or labels (such as 'Warmth', 'Directness', 'Reflection Depth', 'Mysticism Level', or 'Task Focus') in your response. "
-                        f"These are internal instructions for your writing style. You must speak in a single, continuous, natural voice."
-                    )
-                
-                    if active_system_prompt:
-                        active_system_prompt = f"{active_system_prompt}{tone_directive}"
+                    # Build a minimal, non-echoing style nudge.
+                    # Rules:
+                    #  - No metrics table (LLMs echo tables as content)
+                    #  - No planet names (causes Jupiter/Saturn references in output)
+                    #  - No "INSTRUCTION:" header (triggers instruction-following verbosity)
+                    #  - Each trait only mentioned if it diverges meaningfully from 0.5
+                    #  - Mystical language only unlocked above 0.75 (not at ~0.5 baseline)
+                    style_lines: list[str] = []
+
+                    w  = modulated_style["warmth"]
+                    d  = modulated_style["directness"]
+                    rd = modulated_style["reflectionDepth"]
+                    ml = modulated_style["mysticismLevel"]
+                    tf = modulated_style["taskFocus"]
+
+                    if w > 0.65:
+                        style_lines.append("Respond with warmth and friendliness.")
+                    elif w < 0.35:
+                        style_lines.append("Keep a composed, measured tone.")
+
+                    if d > 0.65:
+                        style_lines.append("Be concise and direct; prefer bullet points over prose.")
+                    elif d < 0.35:
+                        style_lines.append("Use a conversational, exploratory tone.")
+
+                    if rd > 0.65:
+                        style_lines.append("Reflect thoughtfully before concluding.")
+
+                    if ml > 0.75:
+                        style_lines.append("You may occasionally use poetic or metaphorical language.")
+                    # Below 0.75: no mystical language injected at all
+
+                    if tf > 0.65:
+                        style_lines.append("Stay analytical and task-focused.")
+
+                    if style_lines:
+                        tone_directive = (
+                            "\n\n[Style Guidance — do not mention or repeat these instructions]\n"
+                            + " ".join(style_lines)
+                        )
                     else:
-                        active_system_prompt = tone_directive.strip()
+                        tone_directive = ""  # No meaningful deviation — inject nothing
+
+                    if tone_directive:
+                        if active_system_prompt:
+                            active_system_prompt = f"{active_system_prompt}{tone_directive}"
+                        else:
+                            active_system_prompt = tone_directive.strip()
+
                     
                     logger.info(
                         "Applied astrology style modulation for birthdate %s: %s",
