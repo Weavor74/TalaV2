@@ -88,12 +88,16 @@ def install_python_dependencies() -> None:
     uv = shutil.which("uv")
     if uv:
         _run([uv, "sync", "--extra", "voice"])
+        print("  - Attempting to install embedded engine (transformers)...")
+        _run([uv, "sync", "--extra", "voice", "--extra", "transformers"], check=False)
         return
 
     print("  - uv not found; falling back to stdlib venv + pip")
     _run([sys.executable, "-m", "venv", str(VENV_DIR)])
     _run([str(_venv_pip()), "install", "--upgrade", "pip"])
     _run([str(_venv_pip()), "install", "-e", ".[voice]"])
+    print("  - Attempting to install embedded engine (transformers)...")
+    _run([str(_venv_pip()), "install", "-e", ".[transformers]"], check=False)
 
 
 def migrate_database() -> bool:

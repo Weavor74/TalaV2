@@ -127,6 +127,10 @@ def resolve_rules(category: str, custom_rules: dict[str, Any]) -> dict[str, Any]
             resolved["competitor_list"] = DEFAULT_COMPETITORS
         if "toxicity_threshold" not in resolved:
             resolved["toxicity_threshold"] = 0.5
+        if "custom_blocklist" not in resolved:
+            resolved["custom_blocklist"] = False
+        if "custom_blocklist_terms" not in resolved:
+            resolved["custom_blocklist_terms"] = []
         return resolved
         
     return {}
@@ -226,6 +230,19 @@ class GuardrailsManager:
         if self.rules.get("gibberish"):
             self._check_gibberish(prompt)
 
+        # 6. Custom Blocklist check
+        if self.rules.get("custom_blocklist"):
+            block_list = self.rules.get("custom_blocklist_terms", [])
+            lower_prompt = prompt.lower()
+            for term in block_list:
+                # We do simple substring matching to block generic phrases
+                if term.lower() in lower_prompt:
+                    raise SafetyGuardrailViolation(
+                        f"Prompt blocked: Contains custom blocked phrase '{term}'.",
+                        rule_violated="custom_blocklist",
+                        trigger_value=term
+                    )
+
     def validate_output(self, text: str) -> str:
         """
         Verify and/or redact model output.
@@ -275,7 +292,19 @@ class GuardrailsManager:
         if self.rules.get("gibberish"):
             self._check_gibberish(text)
 
-        # 5. PII Redaction in output (in-place replacement)
+        # 5. Custom Blocklist check in output
+        if self.rules.get("custom_blocklist"):
+            block_list = self.rules.get("custom_blocklist_terms", [])
+            lower_text = text.lower()
+            for term in block_list:
+                if term.lower() in lower_text:
+                    raise SafetyGuardrailViolation(
+                        f"Generation blocked: Response contains custom blocked phrase '{term}'.",
+                        rule_violated="custom_blocklist",
+                        trigger_value=term
+                    )
+
+        # 6. PII Redaction in output (in-place replacement)
         validated_text = text
         if self.rules.get("pii"):
             pii_fields = self.rules.get("pii_fields", [])

@@ -791,8 +791,10 @@ const InferenceManager = {
   _selectedType: null,
   _editingId: null,
   _downloadInterval: null,
+  _engineIntervals: {},
   _detecting: false,
   _routeSelection: '',
+  _engines: [],
 
   init() {
     this._initialized = true;
@@ -7958,7 +7960,9 @@ const GuardrailsManager = {
       sql_injection: false,
       competitors: false,
       competitor_list: [],
-      gibberish: false
+      gibberish: false,
+      custom_blocklist: false,
+      custom_blocklist_terms: []
     },
     lite: {
       toxicity: true,
@@ -7968,7 +7972,9 @@ const GuardrailsManager = {
       sql_injection: false,
       competitors: false,
       competitor_list: [],
-      gibberish: false
+      gibberish: false,
+      custom_blocklist: false,
+      custom_blocklist_terms: []
     },
     moderate: {
       toxicity: true,
@@ -7978,7 +7984,9 @@ const GuardrailsManager = {
       sql_injection: true,
       competitors: false,
       competitor_list: [],
-      gibberish: false
+      gibberish: false,
+      custom_blocklist: false,
+      custom_blocklist_terms: []
     },
     heavy: {
       toxicity: true,
@@ -7988,7 +7996,9 @@ const GuardrailsManager = {
       sql_injection: true,
       competitors: true,
       competitor_list: ['chatgpt', 'claude', 'gemini', 'openai', 'siri', 'alexa', 'cortana', 'bard'],
-      gibberish: true
+      gibberish: true,
+      custom_blocklist: false,
+      custom_blocklist_terms: []
     }
   },
 
@@ -8014,6 +8024,8 @@ const GuardrailsManager = {
     this._competitorsEnable = qs('#gr-competitors-enable');
     this._competitorsList = qs('#gr-competitors-list');
     this._gibberishEnable = qs('#gr-gibberish-enable');
+    this._customBlocklistEnable = qs('#gr-custom-enable');
+    this._customBlocklistTerms = qs('#gr-custom-list');
 
     // 1. Bind Category Card Selection
     this._cards.forEach(card => {
@@ -8101,6 +8113,12 @@ const GuardrailsManager = {
     }
     
     if (this._gibberishEnable) this._gibberishEnable.checked = !!rules.gibberish;
+    
+    if (this._customBlocklistEnable) this._customBlocklistEnable.checked = !!rules.custom_blocklist;
+    if (this._customBlocklistTerms) {
+      const termList = rules.custom_blocklist_terms || [];
+      this._customBlocklistTerms.value = termList.join(', ');
+    }
   },
 
   async load() {
@@ -8151,6 +8169,12 @@ const GuardrailsManager = {
         .map(s => s.trim())
         .filter(s => s.length > 0);
 
+      const customBlocklistRaw = this._customBlocklistTerms?.value || '';
+      const customBlocklist = customBlocklistRaw
+        .split(',')
+        .map(s => s.trim())
+        .filter(s => s.length > 0);
+
       rules = {
         toxicity: !!this._toxicityEnable?.checked,
         toxicity_threshold: parseFloat(this._toxicityThreshold?.value || 0.5),
@@ -8159,7 +8183,9 @@ const GuardrailsManager = {
         sql_injection: !!this._sqlEnable?.checked,
         competitors: !!this._competitorsEnable?.checked,
         competitor_list: competitorList,
-        gibberish: !!this._gibberishEnable?.checked
+        gibberish: !!this._gibberishEnable?.checked,
+        custom_blocklist: !!this._customBlocklistEnable?.checked,
+        custom_blocklist_terms: customBlocklist
       };
     } else {
       // Preset categories use their static rules

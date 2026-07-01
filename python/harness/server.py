@@ -2707,16 +2707,17 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
                 # Insert the updated list
                 for idx, p in enumerate(providers):
                     cfg = p.get("config", {})
-                    # Re-calculate config fields from flat structure if config dict is empty
-                    if not cfg:
-                        cfg = {
-                            "model": p.get("model"),
-                            "engine": p.get("engine"),
-                            "endpoint": p.get("endpoint"),
-                            "apiKey": p.get("apiKey"),
-                            "service": p.get("service"),
-                        }
-                        cfg = {k: v for k, v in cfg.items() if v is not None}
+                    # Always merge flat config fields into the config dict
+                    flat_cfg = {
+                        "model": p.get("model"),
+                        "engine": p.get("engine"),
+                        "endpoint": p.get("endpoint"),
+                        "apiKey": p.get("apiKey"),
+                        "service": p.get("service"),
+                    }
+                    for k, v in flat_cfg.items():
+                        if v is not None:
+                            cfg[k] = v
                     
                     await conn.execute(
                         """
@@ -2783,6 +2784,45 @@ async def handle_inference_trigger_download(params: dict[str, Any], req_id: Any)
         return _ok(req_id, {"success": True})
     except Exception as exc:
         logger.exception("inference.trigger_download error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_inference_get_engines(params: dict[str, Any], req_id: Any) -> str:
+    """``inference.get_engines`` — Returns all supported embedded engines and their install status."""
+    try:
+        from python.inference.engine_manager import get_all_engines
+        return _ok(req_id, {"engines": get_all_engines()})
+    except Exception as exc:
+        logger.exception("inference.get_engines error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_inference_install_engine(params: dict[str, Any], req_id: Any) -> str:
+    """``inference.install_engine`` — Triggers the background pip installation of an engine."""
+    engine_id = params.get("engine_id")
+    if not engine_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "engine_id required")
+        
+    try:
+        from python.inference.engine_manager import start_install
+        start_install(engine_id)
+        return _ok(req_id, {"success": True})
+    except Exception as exc:
+        logger.exception("inference.install_engine error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_inference_get_engine_install_progress(params: dict[str, Any], req_id: Any) -> str:
+    """``inference.get_engine_install_progress`` — Returns the status and logs of an engine installation."""
+    engine_id = params.get("engine_id")
+    if not engine_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "engine_id required")
+        
+    try:
+        from python.inference.engine_manager import get_status
+        return _ok(req_id, get_status(engine_id))
+    except Exception as exc:
+        logger.exception("inference.get_engine_install_progress error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
@@ -8217,6 +8257,9 @@ _HANDLERS: dict[str, Any] = {
     "inference.save_providers": handle_inference_save_providers,
     "inference.get_embedded_status": handle_inference_get_embedded_status,
     "inference.trigger_download": handle_inference_trigger_download,
+    "inference.get_engines": handle_inference_get_engines,
+    "inference.install_engine": handle_inference_install_engine,
+    "inference.get_engine_install_progress": handle_inference_get_engine_install_progress,
     "inference.detect_local_providers": handle_inference_detect_local_providers,
     "db.query":           handle_db_query,
     "db.insert":          handle_db_insert,

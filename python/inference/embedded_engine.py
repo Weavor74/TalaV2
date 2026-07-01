@@ -183,35 +183,55 @@ def _get_model_and_tokenizer() -> tuple[Any, Any]:
     if _model is not None:
         return _model, _tokenizer
 
-    # Set OpenMP/MKL thread limits BEFORE importing torch to prevent CPU starvation
-    try:
-        import os
-        import multiprocessing
-        cores = max(1, min(4, multiprocessing.cpu_count() - 1))
-        os.environ["OMP_NUM_THREADS"] = str(cores)
-        os.environ["MKL_NUM_THREADS"] = str(cores)
-    except Exception as e:
-        logger.warning("Could not set OS thread limits: %s", e)
+    from python.inference.engine_manager import is_engine_installed
+    
+    if is_engine_installed("transformers"):
+        # Set OpenMP/MKL thread limits BEFORE importing torch to prevent CPU starvation
+        try:
+            import os
+            import multiprocessing
+            cores = max(1, min(4, multiprocessing.cpu_count() - 1))
+            os.environ["OMP_NUM_THREADS"] = str(cores)
+            os.environ["MKL_NUM_THREADS"] = str(cores)
+        except Exception as e:
+            logger.warning("Could not set OS thread limits: %s", e)
+    
+        import torch
+        from transformers import AutoTokenizer, AutoModelForCausalLM
+    
+        try:
+            torch.set_num_threads(cores)
+            logger.info("Set PyTorch CPU threads to %d to prevent event loop starvation.", cores)
+        except Exception as e:
+            logger.warning("Could not set PyTorch CPU thread limits: %s", e)
+    
+        device = "cuda" if torch.cuda.is_available() else "cpu"
+        logger.info("Loading Qwen 0.5B model using Transformers on %s...", device)
+        _tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
+        _model = AutoModelForCausalLM.from_pretrained(
+            MODEL_ID,
+            torch_dtype=torch.float16 if device == "cuda" else torch.float32,
+            device_map="auto" if device == "cuda" else "cpu"
+        )
+        logger.info("Transformers embedded model loaded successfully on %s.", device)
+        return _model, _tokenizer
 
-    import torch
-    from transformers import AutoTokenizer, AutoModelForCausalLM
-
-    try:
-        torch.set_num_threads(cores)
-        logger.info("Set PyTorch CPU threads to %d to prevent event loop starvation.", cores)
-    except Exception as e:
-        logger.warning("Could not set PyTorch CPU thread limits: %s", e)
-
-    device = "cuda" if torch.cuda.is_available() else "cpu"
-    logger.info("Loading Qwen 0.5B model on %s...", device)
-    _tokenizer = AutoTokenizer.from_pretrained(MODEL_ID)
-    _model = AutoModelForCausalLM.from_pretrained(
-        MODEL_ID,
-        torch_dtype=torch.float16 if device == "cuda" else torch.float32,
-        device_map="auto" if device == "cuda" else "cpu"
-    )
-    logger.info("Embedded model loaded successfully on %s.", device)
-    return _model, _tokenizer
+    elif is_engine_installed("vllm"):
+        from vllm import LLM
+        logger.info("Loading Qwen 0.5B model using vLLM...")
+        # For simplicity, we just use the LLM object as both model and tokenizer representation
+        _model = LLM(model=MODEL_ID, enforce_eager=True)
+        _tokenizer = _model.get_tokenizer()
+        logger.info("vLLM embedded model loaded successfully.")
+        return _model, _tokenizer
+        
+    elif is_engine_installed("llamacpp"):
+        from llama_cpp import Llama
+        # Note: In a full implementation, we'd need a GGUF file here instead of MODEL_ID.
+        # Since we are sticking with the default huggingface repo, llama-cpp is just a stub for now.
+        raise RuntimeError("llama.cpp requires a .gguf model file. Please use transformers or vLLM.")
+    else:
+        raise RuntimeError("No embedded inference engines are installed. Please install one from Settings.")
 
 
 async def generate_stream(
@@ -219,14 +239,44 @@ async def generate_stream(
     max_tokens: int = 512,
     temperature: float = 0.7,
 ) -> AsyncIterator[str]:
-    """Generates a text completion stream using the local embedded CPU model."""
+    """Generates a text completion stream using the installed local engine."""
     import asyncio
     import threading
-    from transformers import TextIteratorStreamer
-
+    
+    from python.inference.engine_manager import is_engine_installed
+    
     # Initialize model if not already done
     loop = asyncio.get_running_loop()
     model, tokenizer = await loop.run_in_executor(None, _get_model_and_tokenizer)
+
+    if is_engine_installed("vllm") and not is_engine_installed("transformers"):
+        # vLLM generation
+        from vllm import SamplingParams
+        
+        if isinstance(prompt, list):
+            formatted_prompt = tokenizer.apply_chat_template(
+                prompt,
+                tokenize=False,
+                add_generation_prompt=True,
+            )
+        else:
+            formatted_prompt = prompt
+            
+        sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
+        
+        # vLLM generate() is blocking, so we run in executor.
+        # Note: vllm's AsyncLLMEngine would be better for streaming, but LLM() is synchronous.
+        def _generate():
+            return model.generate([formatted_prompt], sampling_params, use_tqdm=False)
+            
+        outputs = await loop.run_in_executor(None, _generate)
+        text = outputs[0].outputs[0].text
+        # Yield in one chunk for synchronous vllm
+        yield text
+        return
+
+    # Transformers generation (Default fallback)
+    from transformers import TextIteratorStreamer
 
     streamer = TextIteratorStreamer(
         tokenizer,

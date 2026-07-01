@@ -3,7 +3,7 @@ import asyncpg
 import json
 
 async def main():
-    conn = await asyncpg.connect("postgresql://postgres:postgres@localhost:5432/tala")
+    conn = await asyncpg.connect("postgresql://tala:tala@localhost:5432/tala")
     rows = await conn.fetch("SELECT id, name, type, config, status FROM inference_providers")
     for r in rows:
         print(dict(r))

@@ -477,6 +477,20 @@
                   <div class="inference-router-active" id="inference-route-active">No provider pinned. Tala will use the priority chain with embedded fallback.</div>
                 </div>
 
+                <div class="embedded-engines-section" style="margin-top: var(--space-4); margin-bottom: var(--space-5);">
+                  <div class="inference-router-header">
+                    <div>
+                      <div class="inference-router-eyebrow">LOCAL EMBEDDED ENGINES</div>
+                      <h3 class="inference-router-title">Engine Manager</h3>
+                      <p class="inference-router-copy">Install an embedded inference engine to run models locally without third-party services. Downloading an engine will consume disk space.</p>
+                    </div>
+                  </div>
+                  <div class="engine-list" id="embedded-engine-list" style="display: flex; flex-direction: column; gap: var(--space-3); margin-top: var(--space-3);">
+                    <!-- Dynamic engine list injected here -->
+                    <div style="font-size: 13px; color: var(--text-2);">Loading embedded engines...</div>
+                  </div>
+                </div>
+
                 <!-- Provider priority chain — populated by InferenceManager -->
                 <div class="provider-list" id="provider-list">
                   <div class="provider-list-empty" id="provider-list-empty">
@@ -1370,6 +1384,16 @@
                         <div class="form-group-checkbox-row" style="margin-bottom: var(--space-4);">
                           <input type="checkbox" id="gr-gibberish-enable" />
                           <label for="gr-gibberish-enable" class="checkbox-label">Gibberish Filter</label>
+                        </div>
+
+                        <!-- Custom Blocklist -->
+                        <div class="form-group-checkbox-row">
+                          <input type="checkbox" id="gr-custom-enable" />
+                          <label for="gr-custom-enable" class="checkbox-label">Custom Blocklist</label>
+                        </div>
+                        <div class="form-group indent-fields" id="gr-custom-fields" style="margin-bottom: var(--space-4);">
+                          <label for="gr-custom-list" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Blocked Phrases (Comma-separated)</label>
+                          <textarea id="gr-custom-list" rows="2" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; font-family: inherit; resize: vertical;" placeholder="e.g. ignore previous instructions, roleplay as..."></textarea>
                         </div>
 
                         <!-- Form Actions -->
