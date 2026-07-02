@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tala-engine"
-version = "0.1.19"
+version = "0.1.21"
 description = "Tala Cognitive Engine Room — local AI orchestration shell"
 authors = [
   { name="Tala Project" }
@@ -33,6 +33,8 @@ dependencies = [
     "mnemonic==0.21",
     "aiortc==1.14.0",
     "lxml==6.1.1",
+    "tqdm>=4.66.0",
+    "huggingface_hub>=0.23.0",
 ]
 
 [project.optional-dependencies]
