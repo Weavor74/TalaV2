@@ -1,3 +1,7 @@
+"""
+documentation_nodes.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import hashlib
@@ -1092,8 +1096,8 @@ def verify_documentation_nodes(
                 continue
 
             node_errors: list[str] = []
-            if node_type != "documentation":
-                node_errors.append(f"node_type must be documentation, got {node_type}")
+            if node_type not in ALLOWED_NODE_TYPES:
+                node_errors.append(f"node_type must be one of {sorted(ALLOWED_NODE_TYPES)}, got {node_type}")
             if schema_version != "neural-node/v2":
                 node_errors.append(f"schema_version must be neural-node/v2, got {schema_version}")
             if parsed.execution_authority != 0.0:
