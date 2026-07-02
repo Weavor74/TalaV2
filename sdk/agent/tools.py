@@ -345,8 +345,16 @@ def _get_workspace_root() -> Path:
 )
 async def web_search(query: str) -> list[dict[str, str]]:
     """
-    Perform a search query on the web.
+    NAME
+           web_search - Query prioritized web search APIs or direct web search crawler. Returns titles, urls, and snippets.
+           
+    SYNOPSIS
+           web_search(query: str) -> list[dict[str, str]]
+           
+    DESCRIPTION
+           Perform a search query on the web.
     Returns a list of dicts with keys: title, url, snippet.
+    
     """
     from python.harness.search_manager import SearchManager
     return await SearchManager.query(query)
@@ -362,8 +370,15 @@ async def send_telegram_message(
     bot_token: str | None = None,
 ) -> dict[str, Any]:
     """
-    Send a message to a Telegram channel/user.
-
+    NAME
+           send_telegram_message - Send a text message to a specific Telegram chat using a bot token.
+           
+    SYNOPSIS
+           send_telegram_message(message: str, chat_id: Any, bot_token: Any) -> dict[str, Any]
+           
+    DESCRIPTION
+           Send a message to a Telegram channel/user.
+    
     Parameters
     ----------
     message:
@@ -372,11 +387,12 @@ async def send_telegram_message(
         Optional chat ID or username. If not specified, tries default_chat_id from database or environment.
     bot_token:
         Optional bot API token. If not specified, tries token from database or environment.
-
+    
     Returns
     -------
     dict
         Status indicating 'success', 'dry_run', 'failed', or 'error', along with response details.
+    
     """
     import os
     import httpx
@@ -462,13 +478,21 @@ async def send_telegram_message(
 )
 async def verify_and_heal_documentation() -> dict[str, Any]:
     """
-    Run SelfHealingDocs comparative check across all core agent files and their Neural Nodes.
+    NAME
+           verify_and_heal_documentation - Scan the codebase and HTML Neural Nodes to detect discrepancies and automatically apply healing corrections.
+           
+    SYNOPSIS
+           verify_and_heal_documentation() -> dict[str, Any]
+           
+    DESCRIPTION
+           Run SelfHealingDocs comparative check across all core agent files and their Neural Nodes.
     Automatically applies documentation corrections to nodes.
-
+    
     Returns
     -------
     dict
         A summary report of analyzed modules, corrections found, and nodes updated.
+    
     """
     from pathlib import Path
     from sdk.agent.wiki import SelfHealingDocs, apply_corrections
@@ -576,7 +600,15 @@ async def get_auth_credential(auth_type: str | None = None, name_substring: str 
 )
 async def trigger_vps_update() -> dict[str, Any]:
     """
-    Trigger a server update on the VPS.
+    NAME
+           trigger_vps_update - Trigger an automatic server update by pulling the latest code from the repository and notifying all connected clients.
+           
+    SYNOPSIS
+           trigger_vps_update() -> dict[str, Any]
+           
+    DESCRIPTION
+           Trigger a server update on the VPS.
+    
     """
     from python.harness.server import handle_system_trigger_update
     import json
@@ -597,7 +629,15 @@ async def trigger_vps_update() -> dict[str, Any]:
 )
 async def run_workspace_command(command: str, env: dict[str, str] | None = None) -> dict[str, Any]:
     """
-    Execute a command asynchronously in the workspace directory.
+    NAME
+           run_workspace_command - Run a shell command asynchronously in the workspace root. Optional env dict securely injects secrets without logging them in the command string.
+           
+    SYNOPSIS
+           run_workspace_command(command: str, env: Any) -> dict[str, Any]
+           
+    DESCRIPTION
+           Execute a command asynchronously in the workspace directory.
+    
     """
     from sdk.agent.async_shell import AsyncShellExecutor
     workspace_root = str(_get_workspace_root())
@@ -622,7 +662,15 @@ async def run_workspace_command(command: str, env: dict[str, str] | None = None)
 )
 async def write_workspace_file(file_path: str, content: str) -> dict[str, Any]:
     """
-    Saves content into a file located at a path relative to the workspace root.
+    NAME
+           write_workspace_file - Write content to a file path within the workspace directory.
+           
+    SYNOPSIS
+           write_workspace_file(file_path: str, content: str) -> dict[str, Any]
+           
+    DESCRIPTION
+           Saves content into a file located at a path relative to the workspace root.
+    
     """
     workspace_root = _get_workspace_root()
     target = (workspace_root / file_path).resolve()
@@ -655,7 +703,15 @@ async def write_workspace_file(file_path: str, content: str) -> dict[str, Any]:
 )
 async def read_neural_node(node_id: str) -> dict[str, Any]:
     """
-    Searches and loads the HTML content of the target Neural Node file.
+    NAME
+           read_neural_node - Read the HTML content or metadata of a specific HTML Neural Node.
+           
+    SYNOPSIS
+           read_neural_node(node_id: str) -> dict[str, Any]
+           
+    DESCRIPTION
+           Searches and loads the HTML content of the target Neural Node file.
+    
     """
     from sdk.agent.parser import parse_file
     workspace_root = _get_workspace_root()
@@ -705,7 +761,15 @@ async def read_neural_node(node_id: str) -> dict[str, Any]:
 )
 async def update_neural_node(node_id: str, sections: dict[str, str]) -> dict[str, Any]:
     """
-    Update section definitions inside the target HTML Neural Node.
+    NAME
+           update_neural_node - Update specific section contents of an HTML Neural Node.
+           
+    SYNOPSIS
+           update_neural_node(node_id: str, sections: Any) -> dict[str, Any]
+           
+    DESCRIPTION
+           Update section definitions inside the target HTML Neural Node.
+    
     """
     from sdk.agent.wiki import WikiUpdater
     workspace_root = _get_workspace_root()
@@ -1222,7 +1286,15 @@ async def refresh_node_grid_tool() -> dict[str, Any]:
 )
 async def submit_agent_goal(goal: str, min_skill_phases: int | None = None) -> dict[str, Any]:
     """
-    Triggers background task planner/execution loop for the specified goal text.
+    NAME
+           submit_agent_goal - Submit a multi-phase goal to the autonomous GoalEngine and wait for execution.
+           
+    SYNOPSIS
+           submit_agent_goal(goal: str, min_skill_phases: Any) -> dict[str, Any]
+           
+    DESCRIPTION
+           Triggers background task planner/execution loop for the specified goal text.
+    
     """
     from sdk.agent.goal_engine import GoalEngine
     from sdk.agent.batch_policy import BatchPolicy
@@ -1252,7 +1324,15 @@ async def submit_agent_goal(goal: str, min_skill_phases: int | None = None) -> d
 )
 async def list_active_tasks() -> dict[str, Any]:
     """
-    Fetch and return last 10 task records from tasks table.
+    NAME
+           list_active_tasks - Query PostgreSQL and list the 10 most recent execution tasks.
+           
+    SYNOPSIS
+           list_active_tasks() -> dict[str, Any]
+           
+    DESCRIPTION
+           Fetch and return last 10 task records from tasks table.
+    
     """
     try:
         from python.harness import db
@@ -1295,7 +1375,15 @@ async def list_active_tasks() -> dict[str, Any]:
 )
 async def distill_workflow_to_skill(skill_name: str, description: str, workflow_steps: list[str], requirements: list[str] = None) -> dict[str, Any]:
     """
-    Generate an HTML Neural Node skill file and anchor it to the ledger.
+    NAME
+           distill_workflow_to_skill - Autonomously generate a reusable HTML Neural Node Skill from a solved complex workflow. Use this tool when you discover a useful multi-step sequence to memorize it for future use.
+           
+    SYNOPSIS
+           distill_workflow_to_skill(skill_name: str, description: str, workflow_steps: Any, requirements: Any) -> dict[str, Any]
+           
+    DESCRIPTION
+           Generate an HTML Neural Node skill file and anchor it to the ledger.
+    
     """
     import json
     import hashlib
@@ -1533,7 +1621,97 @@ Output:
 )
 async def generate_detailed_neural_node(node_id: str, title: str, node_type: str, detailed_markdown: str, execution_authority: float = 0.5) -> dict[str, Any]:
     """
-    Generate a detailed HTML Neural Node from a markdown document.
+    NAME
+           generate_detailed_neural_node - Generate a highly detailed HTML Neural Node from a structured markdown document. Use this for deep documentation.
+    
+    CRITICAL: When generating Function Documentation, you MUST format your detailed_markdown EXACTLY using this layout:
+    
+    # Function Doc: `[Function Name]`
+    
+    ## 1. Purpose
+    `[Function Name]` does this:
+    [Short description]
+    
+    Use it when:
+    [When this function should be used]
+    
+    Do not use it when:
+    [When this function should not be used]
+    
+    ## 2. Basic Info
+    | Field | Value |
+    |---|---|
+    | Function | `[Function Name]` |
+    | Type | `[Utility / Data / API / UI / Validation / Other]` |
+    | Input | `[Main input type]` |
+    | Output | `[Main output type]` |
+    | Changes State? | `[Yes / No]` |
+    | Can Fail? | `[Yes / No]` |
+    
+    ## 3. Inputs
+    | Name | Required | Type | Meaning |
+    |---|---|---|---|
+    | `[inputName]` | Yes | `[type]` | `[what it means]` |
+    
+    ## 4. Output
+    The function returns:
+    [Describe the output]
+    Example output:
+    [example output]
+    
+    ## 5. Behavior
+    1. Receive input.
+    2. Check that input is valid.
+    3. Do the main task.
+    4. Return the result.
+    5. Handle errors safely.
+    
+    ## 6. Errors
+    | Problem | What Should Happen |
+    |---|---|
+    | Missing input | [return error / return null / throw error] |
+    
+    ## 7. Side Effects
+    [Does not change anything outside itself] OR [Writes file / updates state / etc]
+    
+    ## 8. Safe Use Rules
+    - Validate input before use.
+    - Do not log secrets.
+    - Do not expose private data.
+    - Sanitize file paths, commands, queries, and HTML.
+    - Confirm permission before write, delete, send, or execute actions.
+    
+    ## 9. Example
+    Input:
+    [example]
+    Steps:
+    [what it does]
+    Output:
+    [example]
+    
+    ## 10. Test Checklist
+    - [ ] Works with valid input.
+    - [ ] Handles missing input.
+    - [ ] Handles bad input.
+    - [ ] Returns expected output.
+    - [ ] Handles errors safely.
+    - [ ] Does not create unwanted side effects.
+    
+    ## 11. Invocation & Integration
+    [How to call or trigger this component]
+    [For functions: provide the exact import path and syntax]
+    [For UI/Panels: explain how to visually trigger or render it]
+    
+    ## 12. Notes
+    [Any limits or assumptions]
+    
+           
+    SYNOPSIS
+           generate_detailed_neural_node(node_id: str, title: str, node_type: str, detailed_markdown: str, execution_authority: float) -> dict[str, Any]
+           
+    DESCRIPTION
+           Generate a detailed HTML Neural Node from a markdown document.
+    
     """
     import json
     import hashlib
