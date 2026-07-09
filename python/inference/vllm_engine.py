@@ -248,6 +248,9 @@ async def _get_vllm_engine() -> Any:
         dtype="float16",          # fp16 on CUDA for efficiency
         device="cuda",
         trust_remote_code=True,
+        enable_lora=True,
+        max_loras=1,
+        max_lora_rank=16,
     )
 
     _vllm_engine = _AsyncLLMEngine.from_engine_args(engine_args)
@@ -331,6 +334,7 @@ async def generate(
     top_p: float = 0.95,
     top_k: int = -1,
     stop: list[str] | None = None,
+    lora_path: str | None = None,
 ) -> AsyncIterator[str]:
     """
     Generate a completion for *prompt*, streaming output token-by-token.
@@ -394,7 +398,7 @@ async def generate(
 
     try:
         if is_vllm_available():
-            async for chunk in _generate_vllm(prompt, max_tokens, temperature, session_id, top_p, top_k, stop):
+            async for chunk in _generate_vllm(prompt, max_tokens, temperature, session_id, top_p, top_k, stop, lora_path):
                 yield chunk
         elif is_transformers_available():
             async for chunk in _generate_transformers(prompt, max_tokens, temperature, session_id):
@@ -430,9 +434,17 @@ async def _generate_vllm(
     top_p: float,
     top_k: int,
     stop: list[str] | None,
+    lora_path: str | None = None,
 ) -> AsyncIterator[str]:
     """Stream tokens from vLLM AsyncLLMEngine."""
     engine = await _get_vllm_engine()
+    
+    lora_request = None
+    if lora_path:
+        from vllm.lora.request import LoRARequest  # type: ignore[import]
+        # Generate a unique LoRA ID for the request
+        lora_id = hash(lora_path) % 100000
+        lora_request = LoRARequest(str(lora_id), lora_id, lora_path)
 
     sampling_params = _SamplingParams(
         max_tokens=max_tokens,
@@ -449,6 +461,7 @@ async def _generate_vllm(
         prompt=prompt,
         sampling_params=sampling_params,
         request_id=request_id,
+        lora_request=lora_request,
     ):
         for output in request_output.outputs:
             new_text = output.text[len(previous_text):]

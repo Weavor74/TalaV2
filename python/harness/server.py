@@ -204,7 +204,11 @@ def _parse_request(raw: str) -> tuple[Any, str, dict[str, Any]]:
 
 
 def _normalize_endpoint_url(endpoint: str) -> str:
-    """Return a base endpoint URL guaranteed to have a /v1 (or equivalent) path.
+    """
+    Return a base endpoint URL guaranteed to have a /v1 (or equivalent) path.
+    
+    // Normalizes user-provided LLM URLs to ensure compatibility with standard OpenAI API contracts.
+    // Automatically repairs common omissions (like missing /v1) for local providers (Ollama/LM Studio).
 
     Many users configure Ollama / LM Studio as ``http://localhost:11434``
     without the ``/v1`` path segment.  Appending ``/chat/completions`` to that
@@ -424,6 +428,10 @@ async def handle_inference_generate(
 ) -> str:
     """
     ``inference.generate`` — Run vLLM inference (with token gate).
+    
+    // Core Inference Pipeline: Intercepts raw UI prompts, validates them against guardrails,
+    // injects necessary RAG nodes (memory), applies astrology/personality traits, and relays 
+    // the request to the target LLM provider, debiting token balance securely.
 
     Params
     ------
@@ -484,6 +492,8 @@ async def handle_inference_generate(
     temperature: float = float(params.get("temperature", 0.7))
     stream: bool = bool(params.get("stream", False))
     history: list[dict[str, Any]] = params.get("history", [])
+    
+    best_lora_path = None
 
     raw_prompt = bool(params.get("raw_prompt", False))
     if raw_prompt:
@@ -1021,6 +1031,26 @@ async def handle_inference_generate(
                     if top_active:
                         max_injected_nodes = 2 if chat_mode in ("rp", "hybrid") else 5
                         nodes_to_inject = top_active[:max_injected_nodes]
+                        
+                        from python.inference.lora_trainer import queue_lora_training
+                        import asyncio
+                        
+                        # Process LoRA for injected nodes
+                        for node, score in nodes_to_inject:
+                            # 1. Extract adapter if present
+                            lora = getattr(node, "lora_adapter", None)
+                            if lora:
+                                lora_p = Path(nodes_dir) / lora if not Path(lora).is_absolute() else Path(lora)
+                                if lora_p.exists():
+                                    best_lora_path = str(lora_p)
+                                    logger.info("Found existing LoRA adapter for node %s: %s", node.node_id, best_lora_path)
+                            else:
+                                # 2. JIT Training Trigger if node lacks adapter
+                                out_path = str(Path(nodes_dir) / f"{node.node_id}_lora" / "adapter_model.safetensors")
+                                if not Path(out_path).exists():
+                                    asyncio.create_task(queue_lora_training(node.node_id, node.semantic_memory, out_path))
+                                else:
+                                    best_lora_path = out_path
 
                         context_parts = []
                         if chat_mode in ("rp", "hybrid"):
@@ -1403,7 +1433,7 @@ async def handle_inference_generate(
                         raise RuntimeError("Embedded model not fully downloaded / cached yet.")
                     
                     chunks = []
-                    async for chunk in generate_stream(messages, max_tokens, temperature):
+                    async for chunk in generate_stream(messages, max_tokens, temperature, lora_path=best_lora_path):
                         chunks.append(chunk)
                         if stream:
                             notification = json.dumps({

@@ -220,7 +220,7 @@ def _get_model_and_tokenizer() -> tuple[Any, Any]:
         from vllm import LLM
         logger.info("Loading Qwen 0.5B model using vLLM...")
         # For simplicity, we just use the LLM object as both model and tokenizer representation
-        _model = LLM(model=MODEL_ID, enforce_eager=True)
+        _model = LLM(model=MODEL_ID, enforce_eager=True, enable_lora=True, max_loras=1, max_lora_rank=16)
         _tokenizer = _model.get_tokenizer()
         logger.info("vLLM embedded model loaded successfully.")
         return _model, _tokenizer
@@ -238,6 +238,7 @@ async def generate_stream(
     prompt: str | list[dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.7,
+    lora_path: str | None = None,
 ) -> AsyncIterator[str]:
     """Generates a text completion stream using the installed local engine."""
     import asyncio
@@ -267,7 +268,12 @@ async def generate_stream(
         # vLLM generate() is blocking, so we run in executor.
         # Note: vllm's AsyncLLMEngine would be better for streaming, but LLM() is synchronous.
         def _generate():
-            return model.generate([formatted_prompt], sampling_params, use_tqdm=False)
+            lora_request = None
+            if lora_path:
+                from vllm.lora.request import LoRARequest  # type: ignore[import]
+                lora_id = hash(lora_path) % 100000
+                lora_request = LoRARequest(str(lora_id), lora_id, lora_path)
+            return model.generate([formatted_prompt], sampling_params, use_tqdm=False, lora_request=lora_request)
             
         outputs = await loop.run_in_executor(None, _generate)
         text = outputs[0].outputs[0].text
