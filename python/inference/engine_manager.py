@@ -48,25 +48,15 @@ ENGINES = {
 }
 
 def is_engine_installed(engine_id: str) -> bool:
-    """Checks if the packages for the given engine are importable."""
+    """Checks if the packages for the given engine are importable without fully loading them."""
+    import importlib.util
+    
     if engine_id == "transformers":
-        try:
-            import transformers
-            return True
-        except ImportError:
-            return False
+        return importlib.util.find_spec("transformers") is not None
     elif engine_id == "vllm":
-        try:
-            import vllm
-            return True
-        except ImportError:
-            return False
+        return importlib.util.find_spec("vllm") is not None
     elif engine_id == "llamacpp":
-        try:
-            import llama_cpp
-            return True
-        except ImportError:
-            return False
+        return importlib.util.find_spec("llama_cpp") is not None
     return False
 
 

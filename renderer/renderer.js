@@ -11712,3 +11712,5 @@ document.addEventListener('DOMContentLoaded', () => {
     setTimeout(checkForUpdates, 3000);
     setInterval(checkForUpdates, 2 * 60 * 60 * 1000);
 });
+
+window.InferenceManager = InferenceManager;
