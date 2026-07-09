@@ -71,6 +71,10 @@ function fmtTime(d = new Date()) {
  * Invoke a whitelisted IPC channel with a payload.
  * Falls back gracefully if the contextBridge is not available (e.g., during tests).
  *
+ * // Context Bridge Relay: Provides a type-safe boundary between the sandboxed UI (renderer)
+ * // and the Node.js/Python backend. All OS-level operations (file I/O, database queries)
+ * // must pass through this funnel to prevent malicious Neural Nodes from escaping the browser sandbox.
+ *
  * @param {string} channel
  * @param {*} [data]
  * @returns {Promise<*>}
@@ -799,6 +803,7 @@ const InferenceManager = {
   init() {
     this._initialized = true;
     this._list      = qs('#provider-list');
+    this._engineList = qs('#embedded-engine-list');
     this._btnAdd    = qs('#btn-add-provider');
     this._btnDetect = qs('#btn-detect-providers');
     this._modal     = qs('#modal-add-provider');
@@ -861,6 +866,80 @@ const InferenceManager = {
 
     this.loadProviders();
     this.startDownloadPolling();
+    this.loadEmbeddedEngines();
+    this.startEnginePolling();
+  },
+
+  async loadEmbeddedEngines() {
+    if (!this._engineList) return;
+    try {
+      const response = await invoke('python:rpc', {
+        method: 'inference.get_engines',
+        params: {}
+      });
+      this._engines = response.engines || [];
+      this.renderEmbeddedEngines();
+    } catch (err) {
+      this._engineList.innerHTML = `<div style="color: var(--danger-color);">Error loading engines: ${err.message}</div>`;
+    }
+  },
+
+  renderEmbeddedEngines() {
+    if (!this._engineList) return;
+    if (!this._engines || this._engines.length === 0) {
+      this._engineList.innerHTML = `<div style="font-size: 13px; color: var(--text-2);">No embedded engines found.</div>`;
+      return;
+    }
+    
+    let html = '';
+    for (const engine of this._engines) {
+      const isReady = engine.status === 'ready' || engine.is_installed;
+      const isInstalling = engine.status === 'installing';
+      
+      let actionBtn = '';
+      if (isReady) {
+        actionBtn = `<button class="btn btn-sm btn-outline" disabled>Installed</button>`;
+      } else if (isInstalling) {
+        const pct = (engine.progress || 0).toFixed(0);
+        actionBtn = `<button class="btn btn-sm btn-primary" disabled>Installing (${pct}%)</button>`;
+      } else {
+        actionBtn = `<button class="btn btn-sm btn-primary" onclick="InferenceManager.installEngine('${engine.id}')">Install</button>`;
+      }
+      
+      html += `
+        <div class="provider-item" style="display: flex; align-items: center; justify-content: space-between; padding: var(--space-2); background: var(--bg-surface); border: 1px solid var(--border-color); border-radius: 4px;">
+          <div>
+            <div style="font-weight: 500;">${engine.name}</div>
+            <div style="font-size: 12px; color: var(--text-2);">${engine.description}</div>
+          </div>
+          <div>${actionBtn}</div>
+        </div>
+      `;
+    }
+    this._engineList.innerHTML = html;
+  },
+  
+  async installEngine(engineId) {
+    try {
+      await invoke('python:rpc', {
+        method: 'inference.install_engine',
+        params: { engine_id: engineId }
+      });
+      this.startEnginePolling();
+    } catch (err) {
+      console.warn('Failed to start engine installation', err);
+    }
+  },
+  
+  startEnginePolling() {
+    if (this._enginePollInterval) clearInterval(this._enginePollInterval);
+    this._enginePollInterval = setInterval(() => {
+      this.loadEmbeddedEngines();
+      const anyInstalling = this._engines.some(e => e.status === 'installing');
+      if (!anyInstalling && this._engines.length > 0) {
+        clearInterval(this._enginePollInterval);
+      }
+    }, 2000);
   },
 
   async loadProviders() {
