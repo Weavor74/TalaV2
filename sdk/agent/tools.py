@@ -2027,3 +2027,46 @@ If the workflow requires information from the user, ask the user and wait for th
     final_vars = state.get("variables", {})
     vars_str = "\\n".join(f"- {k}: {v}" for k, v in final_vars.items())
     return f"*** WORKFLOW COMPLETE ***\\n\\nThe workflow has finished executing.\\nCollected Variables:\\n{vars_str}"
+
+@register_tool(
+    name="manage_inference_engine",
+    description="Check status, install, or update the embedded inference engine.",
+)
+async def manage_inference_engine(action: str, engine_id: str = "transformers") -> dict[str, Any]:
+    """
+    NAME
+           manage_inference_engine - Check status, install, or update the embedded inference engine.
+           
+    SYNOPSIS
+           manage_inference_engine(action: str, engine_id: str) -> dict[str, Any]
+           
+    DESCRIPTION
+           Manages local embedded inference engines (e.g. transformers, llamacpp).
+           Supported actions:
+           - "status": Returns the installation status of the engine.
+           - "install": Starts downloading and installing the engine in the background.
+           - "list": Returns a list of all available engines and their status.
+           
+           - action: The action to perform ("status", "install", "list").
+           - engine_id: The ID of the engine (e.g. "transformers", "llamacpp").
+    """
+    from python.inference.engine_manager import get_status, start_install, get_all_engines
+    
+    action = action.lower()
+    if action == "list":
+        return {"engines": get_all_engines()}
+        
+    if action == "status":
+        try:
+            return get_status(engine_id)
+        except ValueError as e:
+            return {"error": str(e)}
+            
+    if action in ("install", "update", "download"):
+        try:
+            start_install(engine_id)
+            return {"status": "started", "message": f"Installation of {engine_id} has started in the background. Use action='status' to monitor."}
+        except ValueError as e:
+            return {"error": str(e)}
+            
+    return {"error": f"Unknown action: {action}"}
