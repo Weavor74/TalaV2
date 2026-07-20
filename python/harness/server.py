@@ -1590,33 +1590,33 @@ async def handle_inference_generate(
                             else:
                                 generated_text = content
 
-                    # Router Checks
-                    is_forced_provider = (forced_provider and provider["id"] == forced_provider["id"])
-                    is_requested_provider = (request_provider and provider["id"] == request_provider["id"])
+                # Router Checks
+                is_forced_provider = (forced_provider and provider["id"] == forced_provider["id"])
+                is_requested_provider = (request_provider and provider["id"] == request_provider["id"])
+                
+                if not (is_forced_provider or is_requested_provider):
+                    gen_lower = generated_text.lower()
+                    low_confidence_phrases = ["i don't know", "i am not sure", "as an ai", "i cannot fulfill", "i'm not sure", "i can't fulfill"]
                     
-                    if not (is_forced_provider or is_requested_provider):
-                        gen_lower = generated_text.lower()
-                        low_confidence_phrases = ["i don't know", "i am not sure", "as an ai", "i cannot fulfill", "i'm not sure", "i can't fulfill"]
-                        
-                        fallback_reason = None
-                        if any(phrase in gen_lower for phrase in low_confidence_phrases):
-                            fallback_reason = "Low confidence detected"
-                        elif all_responses:
-                            last_response = all_responses[-1]
-                            tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
-                            last_tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', last_response, re.DOTALL)
-                            if tool_match and last_tool_match and tool_match.group(0) == last_tool_match.group(0):
-                                fallback_reason = "Identical tool call loop detected"
-                                
-                        if fallback_reason:
-                            err_msg = f"Provider '{p_name}' ({p_type}) skipped via router fallback: {fallback_reason}"
-                            logger.info(err_msg)
-                            errors.append(err_msg)
-                            success = False
-                            continue
+                    fallback_reason = None
+                    if any(phrase in gen_lower for phrase in low_confidence_phrases):
+                        fallback_reason = "Low confidence detected"
+                    elif all_responses:
+                        last_response = all_responses[-1]
+                        tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
+                        last_tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', last_response, re.DOTALL)
+                        if tool_match and last_tool_match and tool_match.group(0) == last_tool_match.group(0):
+                            fallback_reason = "Identical tool call loop detected"
+                            
+                    if fallback_reason:
+                        err_msg = f"Provider '{p_name}' ({p_type}) skipped via router fallback: {fallback_reason}"
+                        logger.info(err_msg)
+                        errors.append(err_msg)
+                        success = False
+                        continue
 
-                    success = True
-                    break
+                success = True
+                break
 
             except Exception as exc:
                 exc_desc = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
