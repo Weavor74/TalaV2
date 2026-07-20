@@ -1662,27 +1662,40 @@ async def handle_inference_generate(
         #   `CALL:tool.name(key="val")`              →  <call:tool.name key="val" />
         #   CALL:tool.name(key="val")                →  <call:tool.name key="val" />
         def _normalize_tool_call_format(text: str) -> str:
-            def _reformat(m: re.Match) -> str:
-                name = m.group(1)
-                raw_args = m.group(2).strip().lstrip("(").rstrip(")")
-                return f'<call:{name} {raw_args} />'
-
-            # ```xml CALL:... ``` block (with or without newlines)
-            text = re.sub(
-                r'```(?:xml)?\s*CALL:([\w\.]+)\(([^)]*)\)\s*```',
-                _reformat, text, flags=re.DOTALL | re.IGNORECASE
-            )
-            # Inline backtick: `CALL:tool(args)`
-            text = re.sub(
-                r'`CALL:([\w\.]+)\(([^)]*)\)`',
-                _reformat, text, flags=re.IGNORECASE
-            )
-            # Bare CALL: not preceded by < (so we don't double-convert)
-            text = re.sub(
-                r'(?<!<)\bCALL:([\w\.]+)\(([^)]*)\)',
-                _reformat, text, flags=re.IGNORECASE
-            )
-            return text
+            call_match = re.search(r'\bCALL:([\w\.]+)\(([^)]*)\)', text, re.IGNORECASE)
+            if not call_match:
+                return text
+                
+            tool_name = call_match.group(1)
+            raw_args = call_match.group(2).strip().lstrip("(").rstrip(")")
+            
+            start_pos = call_match.start()
+            end_pos = call_match.end()
+            
+            # Extract the text after the closing parenthesis of the CALL
+            after_text = text[end_pos:].strip()
+            if after_text.endswith("```"):
+                after_text = after_text[:-3].strip()
+            elif after_text.endswith("`"):
+                after_text = after_text[:-1].strip()
+                
+            # Extract the text before the CALL
+            before_text = text[:start_pos].strip()
+            if before_text.startswith("```xml"):
+                before_text = before_text[6:].strip()
+            elif before_text.startswith("```"):
+                before_text = before_text[3:].strip()
+            elif before_text.startswith("`"):
+                before_text = before_text[1:].strip()
+                
+            if after_text:
+                normalized = f'<call:{tool_name} {raw_args}>{after_text}</call:{tool_name}>'
+            else:
+                normalized = f'<call:{tool_name} {raw_args} />'
+                
+            if before_text:
+                return f"{before_text}\n\n{normalized}"
+            return normalized
 
         generated_text = _normalize_tool_call_format(generated_text)
 
