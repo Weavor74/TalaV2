@@ -2791,5 +2791,65 @@ async def broadcast_update(node_path: str) -> dict[str, Any]:
     }
 
 
+_p2p_send_callback = None
+
+
+def register_p2p_send_callback(cb) -> None:
+    """
+    NAME
+           register_p2p_send_callback - Register the callback to send A2A messages
+           
+    SYNOPSIS
+           register_p2p_send_callback(cb)
+           
+    DESCRIPTION
+           Registers the callback function that connects the tools layer to the
+           underlying P2P harness messaging infrastructure.
+    """
+    global _p2p_send_callback
+    _p2p_send_callback = cb
+
+
+@register_tool(
+    name="send_a2a_message",
+    description="Send an Agent-to-Agent (A2A) message to a trusted peer contact's agent.",
+)
+async def send_a2a_message(peer_username: str, message: str) -> dict[str, Any]:
+    """
+    NAME
+           send_a2a_message - send an agent-to-agent message to a peer
+           
+    SYNOPSIS
+           send_a2a_message(peer_username: str, message: str) -> dict[str, Any]
+           
+    DESCRIPTION
+           Sends an agent-to-agent (A2A) message over the secure P2P network
+           to the agent of a trusted peer contact.
+           
+           - peer_username: The username of the peer contact to message
+           - message: The text content of the message to send
+           
+    SEE ALSO
+           broadcast_update(1)
+    """
+    if _p2p_send_callback is None:
+        return {
+            "success": False,
+            "error": "P2P send callback not registered in tools subsystem."
+        }
+    try:
+        res = await _p2p_send_callback(peer_username, message)
+        return {
+            "success": True,
+            "output": res
+        }
+    except Exception as e:
+        return {
+            "success": False,
+            "error": str(e)
+        }
+
+
+
 
 

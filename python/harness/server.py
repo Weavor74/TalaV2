@@ -1515,7 +1515,8 @@ async def handle_inference_generate(
                                 p_name, model, _probe_exc
                             )
                             failed_endpoints.add(_norm_check_base)
-                            errors.append(f"Provider '{p_name}' skipped: {_probe_exc}")
+                            probe_desc = f"{type(_probe_exc).__name__}: {_probe_exc}" if str(_probe_exc) else type(_probe_exc).__name__
+                            errors.append(f"Provider '{p_name}' skipped: {probe_desc}")
                             if provider["id"] != "embedded-builtin":
                                 try:
                                     await db.execute(
@@ -1618,7 +1619,8 @@ async def handle_inference_generate(
                     break
 
             except Exception as exc:
-                err_msg = f"Provider '{p_name}' ({p_type}) failed: {exc}"
+                exc_desc = f"{type(exc).__name__}: {exc}" if str(exc) else type(exc).__name__
+                err_msg = f"Provider '{p_name}' ({p_type}) failed: {exc_desc}"
                 logger.warning(err_msg)
                 errors.append(err_msg)
                 
@@ -4015,7 +4017,235 @@ async def handle_p2p_receive_message(params: dict[str, Any], req_id: Any) -> str
     if not _verify_packet(packet, secret):
         return _ok(req_id, {"accepted": False, "reason": "bad_signature"})
     await _record_p2p_message(contact["username"], "inbound", packet)
+
+    if packet.get("type") == "a2a":
+        asyncio.create_task(_handle_inbound_a2a(contact["username"], packet.get("message", "")))
+
     return _ok(req_id, {"accepted": True, "peer": contact["username"]})
+
+
+async def _send_a2a_message_helper(username: str, message: str) -> dict[str, Any]:
+    """
+    NAME
+           _send_a2a_message_helper - Package and send A2A message to peer contact
+           
+    SYNOPSIS
+           _send_a2a_message_helper(username: str, message: str) -> dict[str, Any]
+           
+    DESCRIPTION
+           Resolves peer contact by username, constructs and signs a P2P packet of type
+           "a2a" containing the message, calls the peer's receive endpoint, and
+           persists the message in the database.
+           
+           - username: The username of the peer contact
+           - message: The string message to transmit
+    """
+    contact = await _get_contact(username=username)
+    if contact is None:
+        raise ValueError(f"Unknown contact: {username}")
+        
+    endpoint = contact.get("endpoint_url")
+    if not endpoint:
+        raise ValueError(f"Contact {username} has no endpoint_url")
+        
+    profile_config = await _get_master_profile_config()
+    secret = _contact_secret(contact)
+    
+    packet = _sign_packet(
+        {
+            "protocol": "tala-p2p/1.0",
+            "type": "a2a",
+            "sender_wallet": os.environ.get("TALA_WALLET_ADDRESS", "local-tala"),
+            "recipient_wallet": contact["wallet_address"],
+            "message": message.strip(),
+            "shared_profile": _profile_for_permissions(profile_config, contact["permissions"]),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+        },
+        secret,
+    )
+    
+    response = await _call_peer_rpc(endpoint, "p2p.receive_message", {"packet": packet})
+    await _record_p2p_message(contact["username"], "outbound", packet)
+    return {"recipient": contact["username"], "response": response}
+
+
+async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None:
+    """
+    NAME
+           _handle_inbound_a2a - Asynchronously process inbound A2A message
+           
+    SYNOPSIS
+           _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None
+           
+    DESCRIPTION
+           Loads local active agent configuration and builds conversation history from
+           database context. Runs agent inference to produce a response and automatically
+           dispatches it back to the peer. Includes runaway loop detection.
+           
+           - peer_username: The username of the peer contact that sent the message
+           - incoming_message: The content of the incoming message
+    """
+    # 1. Loop runaway protection: check if we received too many messages in the last 15 seconds
+    try:
+        recent_rows = await db.fetch(
+            "SELECT created_at FROM p2p_messages WHERE peer_username = $1 AND created_at > NOW() - INTERVAL '15 seconds' LIMIT 10",
+            peer_username
+        )
+        if len(recent_rows) >= 6:
+            logger.warning("A2A: Rapid message loop detected with %s. Pausing automatic reply.", peer_username)
+            return
+    except Exception as exc:
+        logger.warning("A2A loop protection check failed: %s", exc)
+
+    # 2. Fetch active agent configuration
+    try:
+        agent_row = await db.fetchrow("SELECT name, config FROM agents WHERE is_active = TRUE")
+        if agent_row:
+            cfg = agent_row["config"]
+            if isinstance(cfg, str):
+                cfg = json.loads(cfg)
+            active_system_prompt = cfg.get("system_prompt", "You are Tala, the core offline cognitive agent.")
+        else:
+            active_system_prompt = "You are Tala, the core offline cognitive agent."
+    except Exception as e:
+        logger.warning("A2A: Failed to fetch active agent config: %s", e)
+        active_system_prompt = "You are Tala, the core offline cognitive agent."
+
+    # 3. Load conversation history for prompt context (last 20 messages)
+    history_messages = []
+    try:
+        rows = await db.fetch(
+            "SELECT direction, message_json FROM p2p_messages WHERE peer_username = $1 ORDER BY created_at ASC LIMIT 20",
+            peer_username
+        )
+        for r in rows:
+            direction = r["direction"]
+            msg_json = r["message_json"]
+            if isinstance(msg_json, str):
+                msg_json = json.loads(msg_json)
+            msg_text = msg_json.get("message", "").strip()
+            if msg_text:
+                role = "user" if direction == "inbound" else "assistant"
+                history_messages.append({"role": role, "content": msg_text})
+    except Exception as e:
+        logger.warning("A2A: Failed to fetch conversation history: %s", e)
+        history_messages = [{"role": "user", "content": incoming_message}]
+
+    # Ingest system prompt formatting
+    from datetime import datetime as dt_module
+    current_time = dt_module.now().strftime("%Y-%m-%d %H:%M:%S")
+    time_metadata = f"[Current Date & Time: {current_time}]"
+    if active_system_prompt:
+        system_content = f"{time_metadata}\n{active_system_prompt}"
+    else:
+        system_content = time_metadata
+
+    inference_messages = [{"role": "system", "content": system_content}]
+    
+    # Ensure current incoming message is at the end of the history
+    if not history_messages or history_messages[-1]["content"] != incoming_message.strip():
+        history_messages.append({"role": "user", "content": incoming_message})
+        
+    inference_messages.extend(history_messages)
+
+    # 4. Invoke inference engine
+    try:
+        rows = await db.fetch(
+            "SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC"
+        )
+    except Exception as e:
+        logger.error("A2A: Failed to query inference providers: %s", e)
+        return
+
+    generated_text = None
+    errors = []
+    
+    for provider in rows:
+        if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
+            continue
+            
+        p_type = provider["type"]
+        p_name = provider["name"]
+        p_config = provider["config"] or {}
+        if isinstance(p_config, str):
+            p_config = json.loads(p_config)
+            
+        logger.info("A2A: Attempting generation with provider '%s' (%s)", p_name, p_type)
+        
+        try:
+            if p_type == "embedded":
+                from python.inference.embedded_engine import check_model_cached, generate_stream
+                if not check_model_cached():
+                    raise RuntimeError("Embedded model not cached.")
+                chunks = []
+                async for chunk in generate_stream(inference_messages, 512, 0.7):
+                    chunks.append(chunk)
+                generated_text = "".join(chunks)
+                break
+            elif p_type in ("local", "remote"):
+                endpoint = p_config.get("endpoint", "").strip()
+                model = p_config.get("model", "").strip()
+                api_key = p_config.get("apiKey", "").strip()
+                
+                if p_type == "local":
+                    engine = p_config.get("engine", "ollama")
+                    if not endpoint:
+                        endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
+                    if not model:
+                        model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
+                else:
+                    service = p_config.get("service", "openai")
+                    if service == "openai" and not endpoint:
+                        endpoint = "https://api.openai.com/v1"
+                    elif service == "gemini" and not endpoint:
+                        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
+                    elif service == "anthropic" and not endpoint:
+                        endpoint = "https://api.anthropic.com/v1"
+                        
+                import httpx
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    if "anthropic" in endpoint or p_config.get("service") == "anthropic":
+                        headers["x-api-key"] = api_key
+                        headers["anthropic-version"] = "2023-06-01"
+                    else:
+                        headers["Authorization"] = f"Bearer {api_key}"
+                        
+                url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
+                payload = {
+                    "model": model,
+                    "messages": inference_messages,
+                    "max_tokens": 512,
+                    "temperature": 0.7,
+                    "stream": False
+                }
+                if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
+                    payload["options"] = {"num_ctx": 8192}
+                    
+                async with httpx.AsyncClient(timeout=90.0) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                    if response.status_code != 200:
+                        raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
+                    resp_json = response.json()
+                    choice = resp_json["choices"][0]["message"]
+                    generated_text = choice.get("content", "") or ""
+                    break
+        except Exception as e:
+            exc_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            logger.warning("A2A: Provider '%s' failed: %s", p_name, exc_desc)
+            errors.append(f"Provider '{p_name}' failed: {exc_desc}")
+            
+    if not generated_text:
+        logger.error("A2A: All inference providers failed: %s", errors)
+        return
+        
+    # 5. Send reply
+    try:
+        await _send_a2a_message_helper(peer_username, generated_text)
+        logger.info("A2A: Sent reply to %s successfully.", peer_username)
+    except Exception as e:
+        logger.error("A2A: Failed to send reply to %s: %s", peer_username, e)
+
 
 
 async def handle_p2p_resolve_node_reference(params: dict[str, Any], req_id: Any) -> str:
@@ -9136,6 +9366,10 @@ async def _startup() -> None:
     manager.register_provider(LocalMemoryProvider())
     manager.register_provider(HindsightProvider())
     await manager.initialize()
+
+    # 1.6. Register A2A callback for agent tools
+    from sdk.agent.tools import register_p2p_send_callback
+    register_p2p_send_callback(_send_a2a_message_helper)
 
     # 2. Log startup to agent_log
     await db.log_to_db(

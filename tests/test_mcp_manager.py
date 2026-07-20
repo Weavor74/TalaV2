@@ -3,10 +3,15 @@ test_mcp_manager.py - Auto-generated documentation base.
 """
 
 import sys
+from pathlib import Path
 import textwrap
 import json
 
 import pytest
+
+_ROOT_DIR = str(Path(__file__).resolve().parent.parent)
+if _ROOT_DIR not in sys.path:
+    sys.path.insert(0, _ROOT_DIR)
 
 from python.harness.mcp_manager import MCPManager
 from python.harness.workflow_executor import WorkflowExecutor

@@ -41,8 +41,10 @@ python/tala_engine.egg-info/dependency_links.txt
 python/tala_engine.egg-info/entry_points.txt
 python/tala_engine.egg-info/requires.txt
 python/tala_engine.egg-info/top_level.txt
+tests/test_a2a_communication.py
 tests/test_adapter_selector.py
 tests/test_autonomous_weight_adjustment.py
+tests/test_blockchain_firewall.py
 tests/test_command_parser.py
 tests/test_compile_lora_adapter.py
 tests/test_divergence_orchestration.py
@@ -53,6 +55,7 @@ tests/test_gateway.py
 tests/test_ghost_persistence.py
 tests/test_git_providers_force.py
 tests/test_guardrails_hardening.py
+tests/test_logging_tx_id.py
 tests/test_mcp_manager.py
 tests/test_memory.py
 tests/test_memory_providers.py
@@ -60,6 +63,7 @@ tests/test_multimodal.py
 tests/test_planning_engine.py
 tests/test_promptware.py
 tests/test_research_library_integration.py
+tests/test_search_git_credentials_resolution.py
 tests/test_search_providers_force.py
 tests/test_security_classification_audit.py
 tests/test_semantic_rag.py
@@ -67,5 +71,6 @@ tests/test_sync_blockchain_tool.py
 tests/test_trust.py
 tests/test_vault_sync_audit.py
 tests/test_vps_broadcast.py
+tests/test_workflow_credentials_resolution.py
 tests/test_workflow_skill_distillation.py
 tests/test_workflow_terminal_backends.py
