@@ -55,7 +55,7 @@ function readRequestBody(req) {
     let body = '';
     req.on('data', chunk => {
       body += chunk;
-      if (body.length > 1024 * 1024) {
+      if (body.length > 100 * 1024 * 1024) {
         reject(new Error('Request body too large'));
         req.destroy();
       }
