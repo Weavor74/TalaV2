@@ -3284,6 +3284,44 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
     # Look up peer username by endpoint
     peer_record = await db.fetchrow("SELECT peer_username FROM p2p_sessions WHERE endpoint_url = $1", endpoint)
     peer_username = peer_record["peer_username"] if peer_record else None
+
+    # ── VPS Write State Machine Gating ──
+    is_vps = False
+    if peer_username and "vps" in peer_username.lower():
+        is_vps = True
+    elif "vps" in endpoint.lower() or "34.60." in endpoint:
+        is_vps = True
+        
+    write_methods = {
+        "p2p.receive_message", 
+        "p2p.receive_handshake", 
+        "system.trigger_update", 
+        "system.update_available",
+        "p2p.send_message",
+        "p2p.handshake"
+    }
+    
+    if is_vps and method in write_methods:
+        from python.harness.vps_state_machine import VPSWriteStateMachine, VPSState
+        context_text = ""
+        try:
+            active_task = await db.fetchrow("SELECT description FROM tasks WHERE status = 'in-progress' ORDER BY created_at DESC LIMIT 1")
+            if active_task:
+                context_text = active_task["description"]
+        except Exception:
+            pass
+            
+        if not context_text:
+            packet = params.get("packet", {})
+            if isinstance(packet, dict):
+                context_text = packet.get("content", "") or packet.get("message", "")
+            if not context_text:
+                context_text = f"Approved sync write to VPS: {method}"
+                
+        sm = VPSWriteStateMachine()
+        state = await sm.validate(context_text)
+        if state != VPSState.APPROVED:
+            raise RuntimeError(f"VPS Write Operation Blocked: Memory context validation failed (State: {state.value})")
     
     # E2EE Envelope Encryption
     from python.harness.e2ee_manager import e2ee_manager
@@ -5072,7 +5110,7 @@ async def handle_mcp_remove_server(params: dict[str, Any], req_id: Any) -> str:
 
     try:
         from python.harness.mcp_manager import mcp_manager
-        removed = mcp_manager.remove_server(name)
+        removed = await mcp_manager.remove_server(name)
         return _ok(req_id, {"success": True, "removed": removed, "server_name": name})
     except Exception as exc:
         logger.exception("mcp.remove_server error")
@@ -5162,6 +5200,86 @@ async def handle_guardrails_save(params: dict[str, Any], req_id: Any) -> str:
         return _ok(req_id, {"success": True})
     except Exception as exc:
         logger.exception("guardrails.save error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_vps_version_push(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``vps.version_push`` — Receive a high-priority VERSION_PUSH update from a peer on the VPS.
+    Validates digital signature and performs in-memory dry-run check via compile_lora_adapter
+    (validating weights and schema metadata parity) before writing the node.
+    """
+    import hmac
+    import hashlib
+    import json
+    import os
+    import re
+    from pathlib import Path
+    
+    node_hash = params.get("node_hash", "")
+    signature = params.get("signature", "")
+    content_html = params.get("content_html", "")
+    
+    if not node_hash or not signature or not content_html:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "Missing required parameters: node_hash, signature, content_html")
+        
+    # 1. Validate signature
+    shared_secret = b"vps_shared_key_2026"
+    expected_sig = hmac.new(shared_secret, node_hash.encode("utf-8"), hashlib.sha256).hexdigest()
+    if not hmac.compare_digest(signature, expected_sig):
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, "ACCESS_DENIED: Invalid digital signature.")
+        
+    # 2. In-memory dry-run validation (simulating diagnose_html_nn.py)
+    # Check that metadata and weight layers are present and valid
+    metadata_m = re.search(r'<script[^>]*id="node-metadata"[^>]*>(.*?)</script>', content_html, re.DOTALL)
+    weights_m = re.search(r'<script[^>]*id="lora-weights"[^>]*>(.*?)</script>', content_html, re.DOTALL)
+    
+    validation_score = 0.0
+    
+    if metadata_m and weights_m:
+        try:
+            meta = json.loads(metadata_m.group(1).strip())
+            # Check mandatory fields
+            has_mandatory = all(k in meta for k in ("semantic_tags", "emotional_valence", "relevance_weight", "usage_count"))
+            if has_mandatory:
+                # Decodes base64 weights in memory
+                import base64
+                weights_bytes = base64.b64decode(weights_m.group(1).strip())
+                if len(weights_bytes) > 16:
+                    validation_score = 100.0
+        except Exception:
+            pass
+            
+    if validation_score < 100.0:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, "Validation failed: HTML-NN node is invalid or corrupted.")
+        
+    # 3. Commit/write to local nodes directory
+    try:
+        user_data = os.environ.get("TALA_USER_DATA")
+        if user_data:
+            nodes_dir = Path(user_data) / "nodes"
+        else:
+            appdata = os.environ.get("APPDATA")
+            if appdata:
+                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
+            else:
+                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+                
+        # Resolve node filename
+        article_m = re.search(r'<article[^>]*data-node-id="([^"]+)"', content_html)
+        if article_m:
+            node_id = article_m.group(1)
+        else:
+            node_id = f"peer_node_{node_hash[:12]}"
+            
+        nodes_dir.mkdir(parents=True, exist_ok=True)
+        node_file = nodes_dir / f"{node_id}.html"
+        node_file.write_text(content_html, encoding="utf-8")
+        
+        logger.info("VERSION_PUSH: Successfully validated and committed node %s", node_id)
+        return _ok(req_id, {"status": "SUCCESS", "message": f"Node {node_id} successfully validated and committed.", "node_id": node_id})
+    except Exception as exc:
+        logger.exception("vps.version_push write error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
@@ -5332,7 +5450,7 @@ async def handle_git_get_providers(params: dict[str, Any], req_id: Any) -> str:
     """
     try:
         rows = await db.fetch(
-            "SELECT id, name, endpoint, username, api_key, priority "
+            "SELECT id, name, endpoint, username, api_key, priority, locked "
             "FROM git_providers ORDER BY priority ASC"
         )
         providers = [
@@ -5343,6 +5461,7 @@ async def handle_git_get_providers(params: dict[str, Any], req_id: Any) -> str:
                 "username": r["username"],
                 "api_key":  r["api_key"],
                 "priority": r["priority"],
+                "locked":   r["locked"],
             }
             for r in rows
         ]
@@ -5366,18 +5485,20 @@ async def handle_git_save_providers(params: dict[str, Any], req_id: Any) -> str:
             async with conn.transaction():
                 await conn.execute("DELETE FROM git_providers")
                 for idx, p in enumerate(providers):
+                    is_locked = bool(p.get('locked'))
                     await conn.execute(
-                        """
+                        '''
                         INSERT INTO git_providers
-                          (id, name, endpoint, username, api_key, priority, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-                        """,
-                        p["id"],
-                        p["name"],
-                        p["endpoint"],
-                        p.get("username", ""),
-                        p.get("api_key", ""),
+                          (id, name, endpoint, username, api_key, priority, locked, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                        ''',
+                        p['id'],
+                        p['name'],
+                        p['endpoint'],
+                        p.get('username', ''),
+                        p.get('api_key', ''),
                         idx + 1,
+                        is_locked,
                     )
         try:
             await update_settings_git_node()
@@ -5420,14 +5541,15 @@ async def handle_search_save_providers(params: dict[str, Any], req_id: Any) -> s
                 for idx, p in enumerate(providers):
                     await conn.execute(
                         """
-                        INSERT INTO search_providers (id, name, endpoint, api_key, priority, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                        INSERT INTO search_providers (id, name, endpoint, api_key, priority, locked, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
                         """,
                         p["id"],
                         p["name"],
                         p["endpoint"],
                         p.get("api_key", ""),
                         idx + 1,
+                        bool(p.get("locked", False)),
                     )
         try:
             await update_settings_search_node()
@@ -6489,7 +6611,8 @@ async def handle_research_search(params: dict[str, Any], req_id: Any) -> str:
             logger.warning("Failed to broadcast browser search navigation notification: %s", e)
 
         from python.harness.search_manager import SearchManager
-        results = await SearchManager.query(query)
+        provider_id = params.get("search_provider_id")
+        results = await SearchManager.query(query, provider_id=provider_id)
         return _ok(req_id, {"results": results})
     except Exception as exc:
         logger.exception("research.search error")
@@ -8312,6 +8435,7 @@ _HANDLERS: dict[str, Any] = {
     "workflow.save":      handle_workflow_save,
     "workflow.delete":    handle_workflow_delete,
     "workflow.execute":   handle_workflow_execute,
+    "vps.version_push":   handle_vps_version_push,
     "mcp.connect_server": handle_mcp_connect_server,
     "mcp.list_servers":   handle_mcp_list_servers,
     "mcp.remove_server":  handle_mcp_remove_server,

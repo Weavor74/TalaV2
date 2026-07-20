@@ -245,8 +245,11 @@ const TabManager = {
         ContactsManager.load();
       }
 
-      if (id === 'research' && !ResearchManager._initialized) {
-        ResearchManager.init();
+      if (id === 'research') {
+        if (!ResearchManager._initialized) {
+          ResearchManager.init();
+        }
+        ResearchManager.populateSearchProviders();
       }
 
       document.querySelectorAll('.sidebar-icon-btn').forEach(btn => {
@@ -1834,6 +1837,7 @@ const GitProviderManager = {
     card.className = 'provider-card provider-type-remote';
     card.style.borderLeftColor = color;
     card.dataset.providerId = p.id;
+    const isForced = !!p.locked;
     card.innerHTML = `
       <div class="provider-priority-badge">${i + 1}</div>
       <div class="provider-type-chip type-remote" style="background: ${color}22; color: ${color}; border-color: ${color}44;">${label}</div>
@@ -1841,6 +1845,10 @@ const GitProviderManager = {
         <div class="provider-card-name">${p.name}</div>
         <div class="provider-card-meta">${userMeta}</div>
       </div>
+      <label class="provider-force-checkbox-container ${isForced ? 'forced' : ''}" title="Force use this git provider (bypasses priority order)">
+        <input type="checkbox" class="provider-force-checkbox" ${isForced ? 'checked' : ''} />
+        <span class="provider-force-text">FORCE</span>
+      </label>
       <div class="provider-status-indicator">
         <span class="status-dot status-ok"></span>
         <span class="provider-status-text">ACTIVE</span>
@@ -1854,6 +1862,22 @@ const GitProviderManager = {
     if (!isFirst) card.querySelector('.btn-git-provider-up').addEventListener('click',   () => this.move(p.id, -1));
     if (!isLast)  card.querySelector('.btn-git-provider-down').addEventListener('click', () => this.move(p.id,  1));
     card.querySelector('.btn-git-provider-delete').addEventListener('click', () => this.remove(p.id));
+
+    const forceCheckbox = card.querySelector('.provider-force-checkbox');
+    if (forceCheckbox) {
+      forceCheckbox.addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        this._providers.forEach(prov => {
+          if (prov.id === p.id) {
+            prov.locked = checked;
+          } else {
+            prov.locked = false;
+          }
+        });
+        this.persistProviders();
+        this.render();
+      });
+    }
 
     return card;
   },
@@ -1920,6 +1944,7 @@ const GitProviderManager = {
       endpoint,
       username,
       api_key:  apiKey,
+      locked:   false,
     });
     this.persistProviders();
     this.render();
@@ -3400,6 +3425,7 @@ const ResearchManager = {
     this._btnSaveNode     = qs('#btn-research-save-node');
     this._previewArea     = qs('#research-preview-area');
     this._badge           = qs('#context-viewer-badge');
+    this._searchEngineSelect = qs('#research-search-engine');
     
     this._toggleAll       = qs('#toggle-source-all');
     this._toggles         = document.querySelectorAll('.source-toggle');
@@ -3436,6 +3462,33 @@ const ResearchManager = {
     });
   },
 
+  async populateSearchProviders() {
+    if (!this._searchEngineSelect) return;
+    try {
+      const response = await invoke('python:rpc', {
+        method: 'search.get_providers',
+        params: {}
+      });
+      if (response && response.providers) {
+        this._searchEngineSelect.innerHTML = `
+          <option value="">Default Routing</option>
+          <option value="crawler">Direct Web Crawler</option>
+        `;
+        response.providers.forEach(p => {
+          const opt = document.createElement('option');
+          opt.value = p.id;
+          opt.textContent = `${p.name} (${p.endpoint})`;
+          if (p.locked) {
+            opt.selected = true;
+          }
+          this._searchEngineSelect.appendChild(opt);
+        });
+      }
+    } catch (err) {
+      console.warn('[ResearchManager] Failed to populate search engines:', err);
+    }
+  },
+
   async search() {
     if (!this._subjectInput || !this._sourcesList || !this._btnSearch) return;
     const query = this._subjectInput.value.trim();
@@ -3467,9 +3520,10 @@ const ResearchManager = {
     this.renderContextViewer();
 
     try {
+      const searchProviderId = this._searchEngineSelect ? this._searchEngineSelect.value : "";
       const response = await invoke('python:rpc', {
         method: 'research.unified_search',
-        params: { query, sources }
+        params: { query, sources, search_provider_id: searchProviderId }
       });
 
       this._results = response?.results || [];
@@ -3973,6 +4027,7 @@ const SearchProviderManager = {
     const isFirst   = i === 0;
     const isLast    = i === total - 1;
 
+    const isForced = !!p.locked;
     const card = document.createElement('div');
     card.className = 'provider-card provider-type-remote';
     card.dataset.providerId = p.id;
@@ -3983,6 +4038,10 @@ const SearchProviderManager = {
         <div class="provider-card-name">${p.name}</div>
         <div class="provider-card-meta">${p.endpoint}</div>
       </div>
+      <label class="provider-force-checkbox-container ${isForced ? 'forced' : ''}" title="Force use this search provider (bypasses priority order and fallback direct crawl)">
+        <input type="checkbox" class="provider-force-checkbox" ${isForced ? 'checked' : ''} />
+        <span class="provider-force-text">FORCE</span>
+      </label>
       <div class="provider-status-indicator">
         <span class="status-dot status-ok"></span>
         <span class="provider-status-text">ACTIVE</span>
@@ -3996,6 +4055,22 @@ const SearchProviderManager = {
     if (!isFirst) card.querySelector('.btn-search-provider-up').addEventListener('click', () => this.move(p.id, -1));
     if (!isLast)  card.querySelector('.btn-search-provider-down').addEventListener('click', () => this.move(p.id, 1));
     card.querySelector('.btn-search-provider-delete').addEventListener('click', () => this.remove(p.id));
+
+    const forceCheckbox = card.querySelector('.provider-force-checkbox');
+    if (forceCheckbox) {
+      forceCheckbox.addEventListener('change', (e) => {
+        const checked = e.target.checked;
+        this._providers.forEach(prov => {
+          if (prov.id === p.id) {
+            prov.locked = checked;
+          } else {
+            prov.locked = false;
+          }
+        });
+        this.persistProviders();
+        this.render();
+      });
+    }
 
     return card;
   },
@@ -4068,6 +4143,7 @@ const SearchProviderManager = {
       name,
       endpoint,
       api_key: apiKey,
+      locked: false,
     };
 
     this._providers.push(provider);

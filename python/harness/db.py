@@ -248,6 +248,7 @@ _DDL_STATEMENTS: list[str] = [
             endpoint    TEXT        NOT NULL,
             api_key     TEXT        NOT NULL DEFAULT '',
             priority    INTEGER     NOT NULL,
+            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -263,6 +264,7 @@ _DDL_STATEMENTS: list[str] = [
             username    TEXT        NOT NULL DEFAULT '',
             api_key     TEXT        NOT NULL DEFAULT '',
             priority    INTEGER     NOT NULL,
+            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -891,6 +893,43 @@ async def _configure_connection(conn: asyncpg.Connection) -> None:
     )
 
 
+async def seed_approved_vps_context() -> None:
+    """
+    NAME
+           seed_approved_vps_context - Seed approved memory contexts into PG embeddings table
+           
+    SYNOPSIS
+           await seed_approved_vps_context()
+           
+    DESCRIPTION
+           Checks if the approved system memory context is already present in the
+           embeddings table, and seeds it using our deterministic offline embedding if not.
+    """
+    try:
+        from python.harness.vps_state_machine import generate_offline_embedding, vector_to_str
+        import uuid
+        import hashlib
+        
+        approved_text = "approved local-to-vps synchronization and ledger update"
+        exists = await fetchrow("SELECT 1 FROM embeddings WHERE owner_kind = 'system-approved' AND content = $1", approved_text)
+        if not exists:
+            approved_emb = generate_offline_embedding(approved_text)
+            await execute(
+                """
+                INSERT INTO embeddings (id, owner_kind, owner_id, chunk_index, embedding_model, content, content_hash, embedding, metadata)
+                VALUES ($1, 'system-approved', $2, 0, 'offline-deterministic', $3, $4, $5::vector, '{}'::jsonb)
+                """,
+                uuid.uuid4(),
+                uuid.UUID("00000000-0000-0000-0000-000000000000"),
+                approved_text,
+                hashlib.sha256(approved_text.encode('utf-8')).hexdigest(),
+                vector_to_str(approved_emb)
+            )
+            logger.info("Successfully seeded approved VPS memory context into embeddings table.")
+    except Exception as exc:
+        logger.warning("Failed to seed approved VPS memory context: %s", exc)
+
+
 async def _run_migrations() -> None:
     """Apply all DDL statements idempotently (CREATE IF NOT EXISTS)."""
     pool = get_pool()
@@ -902,6 +941,16 @@ async def _run_migrations() -> None:
                 logger.error("Migration failed:\n%s\nError: %s", stmt, exc)
                 raise
     logger.info("Database schema migrations applied successfully")
+    try:
+        async with pool.acquire() as conn:
+            await conn.execute("ALTER TABLE search_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+            await conn.execute("ALTER TABLE git_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+    except Exception as exc:
+        logger.warning("Failed to run dynamic migrations: %s", exc)
+    try:
+        await seed_approved_vps_context()
+    except Exception as exc:
+        logger.warning("Failed to seed approved VPS memory context after migrations: %s", exc)
 
 
 def _redact_url(url: str) -> str:

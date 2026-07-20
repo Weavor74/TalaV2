@@ -1,3 +1,7 @@
+"""
+settings_nn.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import json
 import logging
@@ -363,27 +367,29 @@ async def update_settings_guardrails_node():
 
 async def update_settings_search_node():
     try:
-        rows = await db.fetch("SELECT id, name, endpoint, priority FROM search_providers ORDER BY priority ASC")
+        rows = await db.fetch("SELECT id, name, endpoint, priority, locked FROM search_providers ORDER BY priority ASC")
         providers = []
         for r in rows:
             providers.append({
                 "id": r["id"],
                 "name": r["name"],
                 "endpoint": r["endpoint"],
-                "priority": r["priority"]
+                "priority": r["priority"],
+                "locked": r["locked"]
             })
             
         html_lines = [
             "<h2>Search Providers</h2>",
             "<p>Web search backends used for research and crawl operations.</p>",
             "<table>",
-            "<thead><tr><th>Name</th><th>Endpoint</th><th>Priority</th></tr></thead>",
+            "<thead><tr><th>Name</th><th>Endpoint</th><th>Priority</th><th>Locked/Forced</th></tr></thead>",
             "<tbody>"
         ]
         for p in providers:
-            html_lines.append(f"<tr><td>{p['name']}</td><td><code>{p['endpoint']}</code></td><td>{p['priority']}</td></tr>")
+            status_text = "Yes" if p["locked"] else "No"
+            html_lines.append(f"<tr><td>{p['name']}</td><td><code>{p['endpoint']}</code></td><td>{p['priority']}</td><td>{status_text}</td></tr>")
         if not providers:
-            html_lines.append("<tr><td colspan='3'>No search providers configured.</td></tr>")
+            html_lines.append("<tr><td colspan='4'>No search providers configured.</td></tr>")
         html_lines.append("</tbody></table>")
         
         state_data = {
@@ -462,7 +468,7 @@ async def update_settings_system_node():
 
 async def update_settings_git_node():
     try:
-        rows = await db.fetch("SELECT id, name, endpoint, username, priority FROM git_providers ORDER BY priority ASC")
+        rows = await db.fetch("SELECT id, name, endpoint, username, priority, locked FROM git_providers ORDER BY priority ASC")
         providers = []
         for r in rows:
             providers.append({
@@ -470,20 +476,22 @@ async def update_settings_git_node():
                 "name": r["name"],
                 "endpoint": r["endpoint"],
                 "username": r["username"],
-                "priority": r["priority"]
+                "priority": r["priority"],
+                "locked": r["locked"]
             })
             
         html_lines = [
             "<h2>Git Hosting Providers</h2>",
             "<p>Configured repository hosts used for syncing workspace files.</p>",
             "<table>",
-            "<thead><tr><th>Name</th><th>Endpoint</th><th>Username</th><th>Priority</th></tr></thead>",
+            "<thead><tr><th>Name</th><th>Endpoint</th><th>Username</th><th>Priority</th><th>Locked/Forced</th></tr></thead>",
             "<tbody>"
         ]
         for p in providers:
-            html_lines.append(f"<tr><td>{p['name']}</td><td><code>{p['endpoint']}</code></td><td>{p['username']}</td><td>{p['priority']}</td></tr>")
+            status_text = "Yes" if p["locked"] else "No"
+            html_lines.append(f"<tr><td>{p['name']}</td><td><code>{p['endpoint']}</code></td><td>{p['username']}</td><td>{p['priority']}</td><td>{status_text}</td></tr>")
         if not providers:
-            html_lines.append("<tr><td colspan='4'>No git providers configured.</td></tr>")
+            html_lines.append("<tr><td colspan='5'>No git providers configured.</td></tr>")
         html_lines.append("</tbody></table>")
         
         state_data = {

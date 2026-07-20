@@ -493,7 +493,8 @@ async def handle_research_unified_search(params: dict[str, Any]) -> dict[str, An
         
     if include_web:
         try:
-            web_raw_results = await SearchManager.query(query)
+            search_provider_id = params.get("search_provider_id")
+            web_raw_results = await SearchManager.query(query, provider_id=search_provider_id)
             for res in web_raw_results:
                 results.append({
                     "id": f"web-{uuid.uuid4().hex[:8]}",

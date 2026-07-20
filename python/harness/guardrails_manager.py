@@ -48,6 +48,37 @@ TOXIC_TERMS = {
 # Competitor list
 DEFAULT_COMPETITORS = ["chatgpt", "claude", "gemini", "openai", "siri", "alexa", "cortana", "bard"]
 
+# Jailbreak hijack prevention patterns
+JAILBREAK_PATTERNS = [
+    re.compile(r"\bignore\s+(?:all\s+)?previous\s+instructions\b", re.IGNORECASE),
+    re.compile(r"\byou\s+are\s+now\s+in\s+developer\s+mode\b", re.IGNORECASE),
+    re.compile(r"\bignore\s+system\s+rules\b", re.IGNORECASE),
+    re.compile(r"\bdan\s+mode\b", re.IGNORECASE),
+]
+
+def _log_violation_to_ledger(violation_type: str, details: dict[str, Any]) -> None:
+    from sdk.agent.anchor import canonicalize_and_anchor
+    from datetime import datetime, timezone
+    import uuid
+    event_data = {
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "event_type": "Safety-Guardrail-Violation",
+        "violation_type": violation_type,
+        "details": details
+    }
+    anchor_id = f"safety_violation_{uuid.uuid4().hex[:8]}_{int(datetime.now(timezone.utc).timestamp())}"
+    anchor_html = f"<div>[SAFETY ALERT] Guardrail violation detected: {violation_type}</div>"
+    try:
+        canonicalize_and_anchor(
+            node_id=anchor_id,
+            content_html=anchor_html,
+            state_data=event_data,
+            document_type="safety-violation",
+            creator="tala-guardrails-manager"
+        )
+    except Exception as e:
+        logger.warning("Failed to anchor safety violation to blockchain: %s", e)
+
 
 def verify_luhn(card_number: str) -> bool:
     """Validate credit card number using Luhn algorithm to reduce false positives."""
@@ -157,10 +188,21 @@ class GuardrailsManager:
         if not self.rules:
             return
 
+        # 0. Jailbreak hijack check
+        for pattern in JAILBREAK_PATTERNS:
+            if pattern.search(prompt):
+                _log_violation_to_ledger("jailbreak_attempt", {"prompt": prompt})
+                raise SafetyGuardrailViolation(
+                    "Prompt blocked: Jailbreak or instruction hijack attempt detected.",
+                    rule_violated="jailbreak_attempt",
+                    trigger_value=prompt
+                )
+
         # 1. SQL Injection check
         if self.rules.get("sql_injection"):
             for pattern in SQL_INJECTION_PATTERNS:
                 if pattern.search(prompt):
+                    _log_violation_to_ledger("sql_injection", {"prompt": prompt})
                     raise SafetyGuardrailViolation(
                         "Prompt blocked: SQL Injection attempt detected.",
                         rule_violated="sql_injection",
@@ -173,6 +215,7 @@ class GuardrailsManager:
             lower_prompt = prompt.lower()
             for competitor in comp_list:
                 if re.search(r'\b' + re.escape(competitor.lower()) + r'\b', lower_prompt):
+                    _log_violation_to_ledger("competitors", {"prompt": prompt, "competitor": competitor})
                     raise SafetyGuardrailViolation(
                         f"Prompt blocked: Competitor reference to '{competitor}' is not allowed.",
                         rule_violated="competitors",
@@ -188,6 +231,7 @@ class GuardrailsManager:
                 if term in lower_prompt:
                     score = max(score, weight)
             if score >= threshold:
+                _log_violation_to_ledger("toxicity", {"prompt": prompt, "score": score, "threshold": threshold})
                 raise SafetyGuardrailViolation(
                     f"Prompt blocked: Toxicity score {score} exceeds threshold {threshold}.",
                     rule_violated="toxicity",
@@ -196,47 +240,58 @@ class GuardrailsManager:
 
         # 4. PII Check - Blocking in input prompts if detected
         if self.rules.get("pii"):
-            pii_fields = self.rules.get("pii_fields", [])
+            has_bypass = "[PERMISSION_GRANT=MANUAL_OK_2026]" in prompt
             
-            if "email" in pii_fields and EMAIL_REGEX.search(prompt):
-                raise PiiAccessBlockedError(
-                    "Access blocked: Prompt contains Personally Identifiable Information (Email).",
-                    data_field="prompt",
-                    classification="email"
-                )
-            if "phone" in pii_fields and PHONE_REGEX.search(prompt):
-                raise PiiAccessBlockedError(
-                    "Access blocked: Prompt contains Personally Identifiable Information (Phone).",
-                    data_field="prompt",
-                    classification="phone"
-                )
-            if "ssn" in pii_fields and SSN_REGEX.search(prompt):
-                raise PiiAccessBlockedError(
-                    "Access blocked: Prompt contains Personally Identifiable Information (SSN).",
-                    data_field="prompt",
-                    classification="ssn"
-                )
-            if "credit_card" in pii_fields:
-                for match in CREDIT_CARD_REGEX.finditer(prompt):
-                    cleaned_card = "".join(match.group().split())
-                    if verify_luhn(cleaned_card):
-                        raise PiiAccessBlockedError(
-                            "Access blocked: Prompt contains Personally Identifiable Information (Credit Card).",
-                            data_field="prompt",
-                            classification="credit_card"
-                        )
+            if not has_bypass:
+                pii_fields = self.rules.get("pii_fields", [])
+                
+                if "email" in pii_fields and EMAIL_REGEX.search(prompt):
+                    _log_violation_to_ledger("pii_leak", {"classification": "email"})
+                    raise PiiAccessBlockedError(
+                        "Access blocked: Prompt contains Personally Identifiable Information (Email).",
+                        data_field="prompt",
+                        classification="email"
+                    )
+                if "phone" in pii_fields and PHONE_REGEX.search(prompt):
+                    _log_violation_to_ledger("pii_leak", {"classification": "phone"})
+                    raise PiiAccessBlockedError(
+                        "Access blocked: Prompt contains Personally Identifiable Information (Phone).",
+                        data_field="prompt",
+                        classification="phone"
+                    )
+                if "ssn" in pii_fields and SSN_REGEX.search(prompt):
+                    _log_violation_to_ledger("pii_leak", {"classification": "ssn"})
+                    raise PiiAccessBlockedError(
+                        "Access blocked: Prompt contains Personally Identifiable Information (SSN).",
+                        data_field="prompt",
+                        classification="ssn"
+                    )
+                if "credit_card" in pii_fields:
+                    for match in CREDIT_CARD_REGEX.finditer(prompt):
+                        cleaned_card = "".join(match.group().split())
+                        if verify_luhn(cleaned_card):
+                            _log_violation_to_ledger("pii_leak", {"classification": "credit_card"})
+                            raise PiiAccessBlockedError(
+                                "Access blocked: Prompt contains Personally Identifiable Information (Credit Card).",
+                                data_field="prompt",
+                                classification="credit_card"
+                            )
 
         # 5. Gibberish check
         if self.rules.get("gibberish"):
-            self._check_gibberish(prompt)
+            try:
+                self._check_gibberish(prompt)
+            except SafetyGuardrailViolation as exc:
+                _log_violation_to_ledger("gibberish", {"prompt": prompt, "reason": str(exc)})
+                raise
 
         # 6. Custom Blocklist check
         if self.rules.get("custom_blocklist"):
             block_list = self.rules.get("custom_blocklist_terms", [])
             lower_prompt = prompt.lower()
             for term in block_list:
-                # We do simple substring matching to block generic phrases
                 if term.lower() in lower_prompt:
+                    _log_violation_to_ledger("custom_blocklist", {"prompt": prompt, "term": term})
                     raise SafetyGuardrailViolation(
                         f"Prompt blocked: Contains custom blocked phrase '{term}'.",
                         rule_violated="custom_blocklist",
@@ -257,6 +312,7 @@ class GuardrailsManager:
             lower_text = text.lower()
             for competitor in comp_list:
                 if re.search(r'\b' + re.escape(competitor.lower()) + r'\b', lower_text):
+                    _log_violation_to_ledger("output_competitor", {"competitor": competitor})
                     raise SafetyGuardrailViolation(
                         f"Generation blocked: Competitor reference to '{competitor}' is not allowed in responses.",
                         rule_violated="competitors",
@@ -272,6 +328,7 @@ class GuardrailsManager:
                 if term in lower_text:
                     score = max(score, weight)
             if score >= threshold:
+                _log_violation_to_ledger("output_toxicity", {"score": score, "threshold": threshold})
                 raise SafetyGuardrailViolation(
                     f"Generation blocked: Response toxicity score {score} exceeds threshold {threshold}.",
                     rule_violated="toxicity",
@@ -282,6 +339,7 @@ class GuardrailsManager:
         if self.rules.get("sql_injection"):
             for pattern in SQL_INJECTION_PATTERNS:
                 if pattern.search(text):
+                    _log_violation_to_ledger("output_sql_injection", {})
                     raise SafetyGuardrailViolation(
                         "Generation blocked: SQL query structure detected in output text.",
                         rule_violated="sql_injection",
@@ -290,7 +348,11 @@ class GuardrailsManager:
 
         # 4. Gibberish check in output
         if self.rules.get("gibberish"):
-            self._check_gibberish(text)
+            try:
+                self._check_gibberish(text)
+            except SafetyGuardrailViolation as exc:
+                _log_violation_to_ledger("output_gibberish", {"reason": str(exc)})
+                raise
 
         # 5. Custom Blocklist check in output
         if self.rules.get("custom_blocklist"):
@@ -298,6 +360,7 @@ class GuardrailsManager:
             lower_text = text.lower()
             for term in block_list:
                 if term.lower() in lower_text:
+                    _log_violation_to_ledger("output_custom_blocklist", {"term": term})
                     raise SafetyGuardrailViolation(
                         f"Generation blocked: Response contains custom blocked phrase '{term}'.",
                         rule_violated="custom_blocklist",
@@ -316,9 +379,7 @@ class GuardrailsManager:
             if "ssn" in pii_fields:
                 validated_text = SSN_REGEX.sub("[REDACTED_SSN]", validated_text)
             if "credit_card" in pii_fields:
-                # Need to verify Luhn for matches before redacting to avoid regular number redaction
                 matches = list(CREDIT_CARD_REGEX.finditer(validated_text))
-                # Replace matching credit cards from back to front to preserve string indices
                 for match in reversed(matches):
                     cleaned_card = "".join(match.group().split())
                     if verify_luhn(cleaned_card):

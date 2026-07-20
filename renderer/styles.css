@@ -1274,8 +1274,7 @@ button:focus:not(:focus-visible) {
   display: flex;
   flex-direction: column;
   gap: var(--space-4);
-  max-width: 900px;
-  margin: 0 auto;
+  max-width: 100%;
   width: 100%;
 }
 

@@ -25,7 +25,7 @@ async def get_search_providers() -> list[dict[str, Any]]:
     """Retrieve all configured search providers sorted by priority from DB."""
     try:
         rows = await db.fetch(
-            "SELECT id, name, endpoint, api_key, priority FROM search_providers ORDER BY priority ASC"
+            "SELECT id, name, endpoint, api_key, priority, locked FROM search_providers ORDER BY priority ASC"
         )
         return [
             {
@@ -34,6 +34,7 @@ async def get_search_providers() -> list[dict[str, Any]]:
                 "endpoint": r["endpoint"],
                 "api_key": r["api_key"],
                 "priority": r["priority"],
+                "locked": r["locked"],
             }
             for r in rows
         ]
@@ -107,12 +108,33 @@ class SearchManager:
     """Manages search queries via prioritized API providers or raw crawler failovers."""
 
     @classmethod
-    async def query(cls, query: str) -> list[dict[str, str]]:
+    async def query(cls, query: str, provider_id: str | None = None) -> list[dict[str, str]]:
         """
         Execute search query.
         Tries providers in priority order, falling back to DDG HTML crawl on failure/none.
         """
         providers = await get_search_providers()
+        
+        # Check if we forced a specific provider via arguments (from Research Library selection)
+        selected_providers = []
+        if provider_id:
+            if provider_id == "crawler":
+                logger.info("SearchManager: Direct crawling fallback selected.")
+                return await crawl_web(query)
+            
+            selected_providers = [p for p in providers if p["id"] == provider_id]
+            if selected_providers:
+                logger.info("SearchManager: Specific provider '%s' requested.", provider_id)
+                providers = selected_providers
+            else:
+                logger.warning("SearchManager: Requested provider ID '%s' not found. Falling back to default routing.", provider_id)
+
+        # Check if there is a forced (locked) search provider
+        if not provider_id or not selected_providers:
+            locked_providers = [p for p in providers if p.get("locked")]
+            if locked_providers:
+                logger.info("SearchManager: Locked search providers active. Filtering search backends.")
+                providers = locked_providers
         
         for p in providers:
             name = p["name"]
