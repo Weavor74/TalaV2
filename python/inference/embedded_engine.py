@@ -36,9 +36,29 @@ _tokenizer: Any = None
 
 
 def get_status() -> tuple[str, float, str]:
-    """Return the current download status: (status, progress_percent, error_message)."""
+    """
+    NAME
+           get_status - Return the current embedded model download and engine status
+           
+    SYNOPSIS
+           get_status() -> tuple[str, float, str]
+           
+    DESCRIPTION
+           Checks the current download status of the embedded model, and verifies
+           if at least one local inference engine package is installed.
+           If the model is cached but no engine is installed, returns an error status.
+    """
     with _lock:
-        return _download_status, _download_progress, _download_error
+        status = _download_status
+        error = _download_error
+        
+        if status == "ready":
+            from python.inference.engine_manager import is_engine_installed
+            any_installed = is_engine_installed("transformers") or is_engine_installed("vllm") or is_engine_installed("llamacpp")
+            if not any_installed:
+                return "error", 100.0, "No embedded inference engines are installed. Please install one from Settings."
+                
+        return status, _download_progress, error
 
 
 def set_status(status: str, progress: float = 0.0, error: str = "") -> None:
