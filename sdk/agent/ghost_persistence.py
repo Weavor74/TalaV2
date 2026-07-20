@@ -260,7 +260,7 @@ async def pre_flight_reconciliation() -> bool:
         try:
             if local_height < remote_height:
                 # Local chain is lagging — perform PULL sync
-                log.info("GhostPersistence: Local chain is lagging. Fetching remote blocks...")
+                log.info("GhostPersistence: Local chain is lagging. Fetching remote blocks from https://talacore.app...")
                 remote_blocks = await asyncio.to_thread(_get_json, "https://talacore.app/chain/blocks")
                 
                 log.info("GhostPersistence: Reconciling remote blocks into local node...")
@@ -272,7 +272,7 @@ async def pre_flight_reconciliation() -> bool:
                 log.info("GhostPersistence: Pull reconciliation successful: %s", result)
             else:
                 # Local chain is ahead or diverged — perform PUSH sync to VPS
-                log.info("GhostPersistence: Pushing local blocks to Weavor VPS Main Chain...")
+                log.info("GhostPersistence: Pushing local blocks to VPS Main Chain at https://talacore.app...")
                 local_blocks = await asyncio.to_thread(_get_json, "http://127.0.0.1:8332/chain/blocks")
                 
                 result = await asyncio.to_thread(
