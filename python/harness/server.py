@@ -1220,11 +1220,17 @@ async def handle_inference_generate(
         if active_system_prompt:
             messages.append({"role": "system", "content": active_system_prompt})
     
-        # Process history list if provided
+        # Process history list if provided, keeping only the last 10 turns
+        # and truncating older massive turns to prevent context blowout in local models.
         if isinstance(history, list):
-            for msg in history:
+            recent_history = history[-10:]
+            for idx, msg in enumerate(recent_history):
                 role = "assistant" if msg.get("role") in ("agent", "assistant") else "user"
                 content = msg.get("content", "").strip()
+                # Truncate older large content (e.g. tool results) if it exceeds 4k chars,
+                # unless it is the most recent message in history.
+                if len(content) > 4000 and idx < len(recent_history) - 1:
+                    content = content[:4000] + "\n... [truncated for context limit preservation] ..."
                 if content:
                     messages.append({"role": role, "content": content})
 
@@ -1531,7 +1537,7 @@ async def handle_inference_generate(
                                     logger.warning("Failed to update status for failing provider '%s': %s", p_name, status_exc)
                             continue
 
-                    _read_timeout = 180.0 if p_type == "local" else 90.0
+                    _read_timeout = 300.0 if p_type == "local" else 120.0
                     async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout, connect=5.0)) as client:
                         if stream:
                             chunks = []
