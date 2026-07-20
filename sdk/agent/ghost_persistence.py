@@ -157,13 +157,21 @@ def get_local_status() -> dict[str, Any]:
 def _get_json(url: str) -> Any:
     import urllib.request
     import json
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(url, headers={"User-Agent": "TalaClient/1.0"})
-    with urllib.request.urlopen(req, timeout=10) as response:
+    with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
 
 def _post_json(url: str, payload: dict) -> Any:
     import urllib.request
     import json
+    import ssl
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
     data = json.dumps(payload).encode("utf-8")
     req = urllib.request.Request(
         url,
@@ -171,7 +179,7 @@ def _post_json(url: str, payload: dict) -> Any:
         headers={"Content-Type": "application/json", "User-Agent": "TalaClient/1.0"},
         method="POST"
     )
-    with urllib.request.urlopen(req, timeout=10) as response:
+    with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
 
 def get_remote_status() -> dict[str, Any]:
