@@ -154,6 +154,26 @@ def get_local_status() -> dict[str, Any]:
     except Exception as exc:
         return {"error": str(exc)}
 
+def _get_json(url: str) -> Any:
+    import urllib.request
+    import json
+    req = urllib.request.Request(url, headers={"User-Agent": "TalaClient/1.0"})
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
+def _post_json(url: str, payload: dict) -> Any:
+    import urllib.request
+    import json
+    data = json.dumps(payload).encode("utf-8")
+    req = urllib.request.Request(
+        url,
+        data=data,
+        headers={"Content-Type": "application/json", "User-Agent": "TalaClient/1.0"},
+        method="POST"
+    )
+    with urllib.request.urlopen(req, timeout=10) as response:
+        return json.loads(response.read().decode("utf-8"))
+
 def get_remote_status() -> dict[str, Any]:
     """
     NAME
@@ -163,17 +183,10 @@ def get_remote_status() -> dict[str, Any]:
            status = get_remote_status()
            
     DESCRIPTION
-           Hits the remote status endpoint via gcloud ssh.
+           Hits the remote main blockchain status endpoint at https://talacore.app/chain/status.
     """
-    import subprocess
     try:
-        cmd = [
-            "gcloud", "compute", "ssh", "tala-vps",
-            "--zone=us-central1-a",
-            "--command=curl -s http://127.0.0.1:8332/chain/status"
-        ]
-        res = subprocess.run(cmd, capture_output=True, text=True, check=True, shell=True)
-        return json.loads(res.stdout.strip())
+        return _get_json("https://talacore.app/chain/status")
     except Exception as exc:
         return {"error": str(exc)}
 
@@ -187,10 +200,9 @@ async def pre_flight_reconciliation() -> bool:
            
     DESCRIPTION
            Compares local Ghost Blockchain and remote Main Blockchain status.
-           If diverged, pushes local block updates to VPS and restarts services.
+           If diverged, pulls or pushes block updates to sync local and remote states.
     """
     import asyncio
-    import subprocess
     from python.harness.db import log_to_db
 
     log.info("GhostPersistence: Initiating pre-flight reconciliation check.")
@@ -236,30 +248,34 @@ async def pre_flight_reconciliation() -> bool:
         except Exception as db_exc:
             log.warning("GhostPersistence: Failed to log conflict to database: %s", db_exc)
 
-        # Execute push/overwrite to restore consensus using local state
+        # Reconcile local and remote chains using high-level HTTP reconcile APIs
         try:
-            repo_root = Path(__file__).resolve().parent.parent.parent
-            local_chain_path = repo_root / "blockchain" / "data" / "chain.json"
-
-            log.info("GhostPersistence: Overwriting remote ledger with local Ghost Blockchain...")
-            cmd_scp = [
-                "gcloud", "compute", "scp",
-                str(local_chain_path),
-                "tala-vps:chain.json",
-                "--zone=us-central1-a"
-            ]
-            await asyncio.to_thread(subprocess.run, cmd_scp, check=True, shell=True)
-
-            cmd_mv_restart = [
-                "gcloud", "compute", "ssh", "tala-vps",
-                "--zone=us-central1-a",
-                "--command=sudo mv ~/chain.json /opt/tala/blockchain/data/chain.json && sudo systemctl restart tala-vps.service"
-            ]
-            await asyncio.to_thread(subprocess.run, cmd_mv_restart, check=True, shell=True)
-            log.info("GhostPersistence: Reconciliation complete. Remote service restarted.")
+            if local_height < remote_height:
+                # Local chain is lagging — perform PULL sync
+                log.info("GhostPersistence: Local chain is lagging. Fetching remote blocks...")
+                remote_blocks = await asyncio.to_thread(_get_json, "https://talacore.app/chain/blocks")
+                
+                log.info("GhostPersistence: Reconciling remote blocks into local node...")
+                result = await asyncio.to_thread(
+                    _post_json, 
+                    "http://127.0.0.1:8332/chain/reconcile", 
+                    {"chain": remote_blocks}
+                )
+                log.info("GhostPersistence: Pull reconciliation successful: %s", result)
+            else:
+                # Local chain is ahead or diverged — perform PUSH sync to VPS
+                log.info("GhostPersistence: Pushing local blocks to Weavor VPS Main Chain...")
+                local_blocks = await asyncio.to_thread(_get_json, "http://127.0.0.1:8332/chain/blocks")
+                
+                result = await asyncio.to_thread(
+                    _post_json,
+                    "https://talacore.app/chain/reconcile",
+                    {"chain": local_blocks}
+                )
+                log.info("GhostPersistence: Push reconciliation successful: %s", result)
             return True
         except Exception as sync_exc:
-            log.error("GhostPersistence: Reconciliation push failed: %s", sync_exc)
+            log.error("GhostPersistence: Reconciliation HTTP exchange failed: %s", sync_exc)
             return False
     else:
         log.info("GhostPersistence: Pre-flight check passed. Blockchain states are synchronized.")
@@ -278,7 +294,7 @@ def check_hash() -> str:
            - 'none' if in sync.
            - 'minor' if heartbeat missed or unreachable.
            - 'major' if heights/hashes mismatch.
-    """
+     """
     local_status = get_local_status()
     remote_status = get_remote_status()
 

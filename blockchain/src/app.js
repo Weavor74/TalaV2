@@ -841,6 +841,71 @@ const server = http.createServer((req, res) => {
     });
     return;
   }
+  
+  // Route: POST /chain/reconcile
+  if (url.pathname === '/chain/reconcile' && req.method === 'POST') {
+    readRequestBody(req).then(body => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        if (!payload.chain || !Array.isArray(payload.chain)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Missing or invalid chain array' }));
+          return;
+        }
+
+        // Create a temporary Blockchain instance to validate the incoming chain
+        const tempLedger = new Blockchain();
+        
+        // Reconstruct the incoming chain blocks & transactions
+        tempLedger.chain = payload.chain.map(b => {
+          const txs = b.transactions.map(t => new Transaction(
+            t.id, t.type, t.hash, t.creator, t.counterparty, t.timestamp, t.document ?? null, t.metadata ?? null, t.signature ?? null, t.public_key ?? null
+          ));
+          const block = new Block(b.index, b.previousHash, b.timestamp, txs, b.nonce, b.signature, b.public_key);
+          block.hash = b.hash;
+          return block;
+        });
+
+        // Validate the incoming chain structure, hashes, and signatures
+        if (!tempLedger.isValid()) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: 'Pushed blockchain is invalid (failed verification)' }));
+          return;
+        }
+
+        // Check consensus / height rule:
+        // Accept the valid chain if it has a greater or equal height
+        if (tempLedger.chain.length < talaLedger.chain.length) {
+          res.writeHead(409, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ 
+            error: `Conflict: Incoming chain height (${tempLedger.chain.length}) is shorter than VPS height (${talaLedger.chain.length})` 
+          }));
+          return;
+        }
+
+        // Valid and height is sufficient — overwrite and recalculate balances
+        talaLedger.chain = tempLedger.chain;
+        talaLedger.recalculateBalances();
+        talaLedger.saveChain();
+
+        console.log(`[Reconcile] Chain successfully synchronized to height ${talaLedger.chain.length}`);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ 
+          success: true, 
+          height: talaLedger.chain.length, 
+          latestBlockHash: talaLedger.getLatestBlock().hash 
+        }));
+      } catch (err) {
+        res.writeHead(500, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    }).catch(err => {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Unable to read request body' }));
+    });
+    return;
+  }
 
   // Route: POST /chain/mint
   if (url.pathname === '/chain/mint' && req.method === 'POST') {

@@ -1,7 +1,10 @@
+import sys
+from pathlib import Path
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+
 import pytest
 import os
 import json
-from pathlib import Path
 
 from sdk.agent.ghost_persistence import commit_to_ghost, restore_from_ghost
 from python.harness.db import init_pool, close_pool
