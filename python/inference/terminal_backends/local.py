@@ -1,3 +1,7 @@
+"""
+local.py - Auto-generated documentation base.
+"""
+
 import subprocess
 import os
 from typing import Optional

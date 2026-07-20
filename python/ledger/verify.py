@@ -1,3 +1,7 @@
+"""
+verify.py - Auto-generated documentation base.
+"""
+
 import sys
 from python.ledger.chain import LedgerChain
 

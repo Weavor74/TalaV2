@@ -518,12 +518,14 @@ async def top_up_wallet(amount: float, caller: str = "system") -> float:
     try:
         result = await loop.run_in_executor(None, mint_sync)
         new_balance = float(result.get("new_balance", 0.0))
+        tx_id = result.get("tx_id") or result.get("tx_hash") or result.get("hash")
 
         await log_to_db(
             "INFO",
             f"Wallet topped up by {amount:.4f} by '{caller}' via Blockchain mint. "
             f"New balance: {new_balance:.4f}",
             {"caller": caller, "amount": amount, "new_balance": new_balance},
+            tx_id=tx_id,
         )
         return new_balance
     except Exception as exc:

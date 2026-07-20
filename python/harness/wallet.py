@@ -1,3 +1,7 @@
+"""
+wallet.py - Auto-generated documentation base.
+"""
+
 import os
 import logging
 from pathlib import Path

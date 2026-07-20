@@ -3491,8 +3491,71 @@ async def _peer_can_resolve_node_reference(contact: dict[str, Any], node_names: 
     if not permissions.get("nodes"):
         return False, "contact_nodes_permission_disabled"
     access_rights = await _get_firewall_contact_access_rights(contact["wallet_address"])
-    if not _firewall_allows_node_name(access_rights, node_names):
+    if not access_rights:
         return False, "firewall_denied"
+
+    peer_clearance = int(access_rights.get("clearance_level", 0))
+    peer_categories = access_rights.get("allowed_categories") or []
+    if not isinstance(peer_categories, list):
+        peer_categories = []
+
+    # If the contact is granted full wildcard, skip granular checks
+    if "*" in peer_categories or "all" in peer_categories:
+        return True, None
+
+    for node_name in node_names:
+        # Check direct allowed categories/names configuration
+        if _firewall_allows_node_name(access_rights, {node_name}):
+            continue
+
+        # Resolve local node reference to check tags and clearance
+        resolved = await _resolve_local_html_nn_reference(node_name)
+        if not resolved:
+            continue
+
+        source_path = resolved.get("source_path")
+        if not source_path:
+            continue
+
+        from sdk.agent.parser import parse_file
+        try:
+            node_obj = parse_file(str(source_path))
+            state_data = node_obj.state_data or {}
+        except Exception:
+            node_obj = None
+            state_data = {}
+
+        if node_obj:
+            # Enforce Clearance Access level boundary [0-10]
+            req_clearance = state_data.get("clearance") or state_data.get("clearance_level") or state_data.get("required_clearance")
+            if req_clearance is not None:
+                try:
+                    req_clearance = int(req_clearance)
+                except (ValueError, TypeError):
+                    req_clearance = 0
+            else:
+                req_clearance = 0
+
+            if peer_clearance < req_clearance:
+                return False, f"clearance_level_insufficient: {peer_clearance} < {req_clearance}"
+
+            # Enforce Allowed Node Categories access
+            node_tags = state_data.get("tags") or state_data.get("categories") or state_data.get("category") or []
+            if isinstance(node_tags, str):
+                node_tags = [node_tags]
+            elif not isinstance(node_tags, list):
+                node_tags = []
+
+            normalized_node_tags = [str(t).lower().strip() for t in node_tags if str(t).strip()]
+            normalized_node_tags.append(str(node_obj.node_type or "").lower().strip())
+            normalized_node_tags.append(str(node_name).lower().strip())
+
+            peer_categories_lower = [str(cat).lower().strip() for cat in peer_categories if str(cat).strip()]
+
+            # Must have at least one intersecting allowed category or tag
+            if not any(cat in normalized_node_tags for cat in peer_categories_lower):
+                return False, f"category_access_denied: peer allowed={peer_categories_lower}, node tags={normalized_node_tags}"
+
     return True, None
 
 
@@ -5117,6 +5180,23 @@ async def handle_mcp_remove_server(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+async def handle_mcp_save_servers(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``mcp.save_servers`` — Replace/update the configured MCP servers registry list.
+    """
+    servers = params.get("servers")
+    if servers is None or not isinstance(servers, list):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'servers' (list) is required")
+
+    try:
+        from python.harness.mcp_manager import mcp_manager
+        await mcp_manager.save_servers(servers)
+        return _ok(req_id, {"success": True})
+    except Exception as exc:
+        logger.exception("mcp.save_servers error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_mcp_list_tools(params: dict[str, Any], req_id: Any) -> str:
     """
     ``mcp.list_tools`` — List tools from one MCP server, or all registered servers.
@@ -5450,21 +5530,29 @@ async def handle_git_get_providers(params: dict[str, Any], req_id: Any) -> str:
     """
     try:
         rows = await db.fetch(
-            "SELECT id, name, endpoint, username, api_key, priority, locked "
-            "FROM git_providers ORDER BY priority ASC"
+            "SELECT p.id, p.name, p.endpoint, p.username, p.api_key, p.priority, p.locked, p.credential_id, "
+            "c.config as cred_config "
+            "FROM git_providers p "
+            "LEFT JOIN auth_credentials c ON p.credential_id = c.id "
+            "ORDER BY p.priority ASC"
         )
-        providers = [
-            {
+        providers = []
+        for r in rows:
+            api_key = r["api_key"]
+            if r["credential_id"] and r["cred_config"]:
+                cred_cfg = dict(r["cred_config"]) if r["cred_config"] else {}
+                api_key = cred_cfg.get("api_key", api_key)
+
+            providers.append({
                 "id":       r["id"],
                 "name":     r["name"],
                 "endpoint": r["endpoint"],
                 "username": r["username"],
-                "api_key":  r["api_key"],
+                "api_key":  api_key,
                 "priority": r["priority"],
                 "locked":   r["locked"],
-            }
-            for r in rows
-        ]
+                "credential_id": r["credential_id"],
+            })
         return _ok(req_id, {"providers": providers})
     except Exception as exc:
         logger.exception("git.get_providers error")
@@ -5489,8 +5577,8 @@ async def handle_git_save_providers(params: dict[str, Any], req_id: Any) -> str:
                     await conn.execute(
                         '''
                         INSERT INTO git_providers
-                          (id, name, endpoint, username, api_key, priority, locked, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                          (id, name, endpoint, username, api_key, priority, locked, credential_id, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
                         ''',
                         p['id'],
                         p['name'],
@@ -5499,6 +5587,7 @@ async def handle_git_save_providers(params: dict[str, Any], req_id: Any) -> str:
                         p.get('api_key', ''),
                         idx + 1,
                         is_locked,
+                        p.get('credential_id'),
                     )
         try:
             await update_settings_git_node()
@@ -5541,8 +5630,8 @@ async def handle_search_save_providers(params: dict[str, Any], req_id: Any) -> s
                 for idx, p in enumerate(providers):
                     await conn.execute(
                         """
-                        INSERT INTO search_providers (id, name, endpoint, api_key, priority, locked, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
+                        INSERT INTO search_providers (id, name, endpoint, api_key, priority, locked, credential_id, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
                         """,
                         p["id"],
                         p["name"],
@@ -5550,6 +5639,7 @@ async def handle_search_save_providers(params: dict[str, Any], req_id: Any) -> s
                         p.get("api_key", ""),
                         idx + 1,
                         bool(p.get("locked", False)),
+                        p.get("credential_id"),
                     )
         try:
             await update_settings_search_node()
@@ -5585,7 +5675,7 @@ async def handle_storage_get_providers(params: dict[str, Any], req_id: Any) -> s
     """
     try:
         rows = await db.fetch(
-            "SELECT id, name, provider_type, credentials, priority "
+            "SELECT id, name, provider_type, credentials, priority, locked "
             "FROM storage_providers ORDER BY priority ASC"
         )
         providers = [
@@ -5595,6 +5685,7 @@ async def handle_storage_get_providers(params: dict[str, Any], req_id: Any) -> s
                 "provider_type": r["provider_type"],
                 "credentials":   dict(r["credentials"]) if r["credentials"] else {},
                 "priority":      r["priority"],
+                "locked":        r["locked"],
             }
             for r in rows
         ]
@@ -5620,17 +5711,19 @@ async def handle_storage_save_providers(params: dict[str, Any], req_id: Any) -> 
                 await conn.execute("DELETE FROM storage_providers")
                 for idx, p in enumerate(providers):
                     creds = p.get("credentials", {})
+                    is_locked = bool(p.get("locked", False))
                     await conn.execute(
                         """
                         INSERT INTO storage_providers
-                          (id, name, provider_type, credentials, priority, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4::jsonb, $5, NOW(), NOW())
+                          (id, name, provider_type, credentials, priority, locked, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4::jsonb, $5, $6, NOW(), NOW())
                         """,
                         p["id"],
                         p["name"],
                         p["provider_type"],
                         _json.dumps(creds),
                         idx + 1,
+                        is_locked,
                     )
         try:
             await update_settings_storage_node()
@@ -5642,13 +5735,38 @@ async def handle_storage_save_providers(params: dict[str, Any], req_id: Any) -> 
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+def parse_db_url(url: str) -> dict[str, Any]:
+    from urllib.parse import urlparse
+    try:
+        parsed = urlparse(url)
+        username = parsed.username or ""
+        password = parsed.password or ""
+        host = parsed.hostname or "localhost"
+        port = parsed.port or 5432
+        database = parsed.path.lstrip('/') if parsed.path else ""
+        endpoint = f"{host}:{port}"
+        return {
+            "endpoint": endpoint,
+            "username": username,
+            "password": password,
+            "database": database,
+        }
+    except Exception:
+        return {
+            "endpoint": "localhost:5432",
+            "username": "tala",
+            "password": "tala",
+            "database": "tala",
+        }
+
+
 async def handle_database_get_providers(params: dict[str, Any], req_id: Any) -> str:
     """
     ``database.get_providers`` — Retrieve all configured Database providers sorted by priority.
     """
     try:
         rows = await db.fetch(
-            "SELECT id, name, endpoint, username, password, database, priority "
+            "SELECT id, name, endpoint, username, password, database, priority, locked "
             "FROM database_providers ORDER BY priority ASC"
         )
         providers = [
@@ -5660,9 +5778,36 @@ async def handle_database_get_providers(params: dict[str, Any], req_id: Any) -> 
                 "password": r["password"],
                 "database": r["database"],
                 "priority": r["priority"],
+                "locked":   r["locked"],
             }
             for r in rows
         ]
+
+        # Auto-detect local database details from settings
+        from python.harness.config import settings
+        db_info = parse_db_url(settings.DB_URL)
+        has_local = any(
+            p["id"] == "local-db" or
+            (p["endpoint"] == db_info["endpoint"] and p["database"] == db_info["database"])
+            for p in providers
+        )
+
+        if not has_local:
+            local_provider = {
+                "id": "local-db",
+                "name": "Local Database (Primary)",
+                "endpoint": db_info["endpoint"],
+                "username": db_info["username"],
+                "password": db_info["password"],
+                "database": db_info["database"],
+                "priority": 1,
+                "locked": False,
+            }
+            providers.insert(0, local_provider)
+            # Recompute priorities
+            for idx, p in enumerate(providers):
+                p["priority"] = idx + 1
+
         return _ok(req_id, {"providers": providers})
     except Exception as exc:
         logger.exception("database.get_providers error")
@@ -5683,11 +5828,12 @@ async def handle_database_save_providers(params: dict[str, Any], req_id: Any) ->
             async with conn.transaction():
                 await conn.execute("DELETE FROM database_providers")
                 for idx, p in enumerate(providers):
+                    is_locked = bool(p.get("locked", False))
                     await conn.execute(
                         """
                         INSERT INTO database_providers
-                          (id, name, endpoint, username, password, database, priority, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7, NOW(), NOW())
+                          (id, name, endpoint, username, password, database, priority, locked, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, $7, $8, NOW(), NOW())
                         """,
                         p["id"],
                         p["name"],
@@ -5696,6 +5842,7 @@ async def handle_database_save_providers(params: dict[str, Any], req_id: Any) ->
                         p.get("password", ""),
                         p.get("database", ""),
                         idx + 1,
+                        is_locked,
                     )
         try:
             await update_settings_database_node()
@@ -5753,7 +5900,7 @@ async def handle_runtime_get_instances(params: dict[str, Any], req_id: Any) -> s
     """
     try:
         rows = await db.fetch(
-            "SELECT id, name, url, api_key, priority "
+            "SELECT id, name, url, api_key, priority, locked "
             "FROM runtime_instances ORDER BY priority ASC"
         )
         instances = []
@@ -5766,6 +5913,7 @@ async def handle_runtime_get_instances(params: dict[str, Any], req_id: Any) -> s
                 "api_key":  "***" if api_key else "",
                 "has_auth": bool(api_key),
                 "priority": r["priority"],
+                "locked":   r["locked"],
             })
         return _ok(req_id, {"instances": instances})
     except Exception as exc:
@@ -5796,17 +5944,19 @@ async def handle_runtime_save_instances(params: dict[str, Any], req_id: Any) -> 
                         return _err(req_id, JsonRpcError.INVALID_PARAMS, "runtime instances require id, name, and url")
                     raw_api_key = str(inst.get("api_key", "") or "")
                     api_key = existing_keys.get(inst_id, "") if raw_api_key == "***" else raw_api_key
+                    locked = bool(inst.get("locked", False))
                     await conn.execute(
                         """
                         INSERT INTO runtime_instances
-                          (id, name, url, api_key, priority, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, NOW(), NOW())
+                          (id, name, url, api_key, priority, locked, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
                         """,
                         inst_id,
                         name,
                         url,
                         api_key,
                         idx + 1,
+                        locked,
                     )
         try:
             await update_settings_runtime_node()
@@ -5824,7 +5974,7 @@ async def handle_auth_get_credentials(params: dict[str, Any], req_id: Any) -> st
     """
     try:
         rows = await db.fetch(
-            "SELECT id, name, auth_type, config, priority "
+            "SELECT id, name, auth_type, config, priority, locked "
             "FROM auth_credentials ORDER BY priority ASC"
         )
         credentials = []
@@ -5838,6 +5988,7 @@ async def handle_auth_get_credentials(params: dict[str, Any], req_id: Any) -> st
                 "config":    safe_cfg,
                 "has_secret": _auth_config_has_secret(cfg),
                 "priority":  r["priority"],
+                "locked":    r["locked"],
             })
         return _ok(req_id, {"credentials": credentials})
     except Exception as exc:
@@ -5871,17 +6022,19 @@ async def handle_auth_save_credentials(params: dict[str, Any], req_id: Any) -> s
                     if not cred_id or not name or auth_type not in {"ssh", "rdp", "api_key", "oauth"}:
                         return _err(req_id, JsonRpcError.INVALID_PARAMS, "credentials require id, name, and valid auth_type")
                     cfg = _merge_redacted_auth_config(c.get("config", {}), existing_configs.get(cred_id, {}))
+                    locked = bool(c.get("locked", False))
                     await conn.execute(
                         """
                         INSERT INTO auth_credentials
-                          (id, name, auth_type, config, priority, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4::jsonb, $5, NOW(), NOW())
+                          (id, name, auth_type, config, priority, locked, created_at, updated_at)
+                        VALUES ($1, $2, $3, $4::jsonb, $5, $6, NOW(), NOW())
                         """,
                         cred_id,
                         name,
                         auth_type,
                         _json.dumps(cfg),
                         idx + 1,
+                        locked,
                     )
         try:
             await update_settings_auth_node()
@@ -6056,7 +6209,7 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
         }
 
         # 2. Build filtered logs query
-        query = "SELECT id, level, message, trace, created_at FROM agent_log"
+        query = "SELECT id, level, message, trace, tx_id, created_at FROM agent_log"
         where_clauses = []
         query_args = []
         
@@ -6115,7 +6268,8 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
                 "subsystem": sub,
                 "event_type": infer_event_type(r["message"], trace_dict),
                 "message": r["message"],
-                "trace": trace_dict
+                "trace": trace_dict,
+                "tx_id": r["tx_id"]
             })
 
         return _ok(req_id, {"events": events, "metrics": metrics})
@@ -8439,6 +8593,7 @@ _HANDLERS: dict[str, Any] = {
     "mcp.connect_server": handle_mcp_connect_server,
     "mcp.list_servers":   handle_mcp_list_servers,
     "mcp.remove_server":  handle_mcp_remove_server,
+    "mcp.save_servers":   handle_mcp_save_servers,
     "mcp.list_tools":     handle_mcp_list_tools,
     "mcp.call_tool":      handle_mcp_call_tool,
     "guardrails.get":     handle_guardrails_get,

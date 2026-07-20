@@ -1,3 +1,7 @@
+"""
+tui.py - Auto-generated documentation base.
+"""
+
 from textual.app import App, ComposeResult
 from textual.widgets import Header, Footer, Log, Input
 from textual.containers import Vertical

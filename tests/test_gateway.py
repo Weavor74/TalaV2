@@ -1,3 +1,7 @@
+"""
+test_gateway.py - Auto-generated documentation base.
+"""
+
 import pytest
 import os
 import sys

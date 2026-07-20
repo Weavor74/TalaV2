@@ -1,3 +1,7 @@
+"""
+manager.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import logging
 from typing import Any

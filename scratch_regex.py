@@ -1,3 +1,7 @@
+"""
+scratch_regex.py - Auto-generated documentation base.
+"""
+
 import re
 _FILE_PATTERN = re.compile(
     r"(?:create|write|generate|make)\s+(?:an?\s+)?(?:empty\s+)?(?:[\w\-]+\s+)?(?:file|script)(?:\s+named|\s+called)?\s*['\"]?([\w./\\-]+)['\"]?",

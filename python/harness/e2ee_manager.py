@@ -1,3 +1,7 @@
+"""
+e2ee_manager.py - Auto-generated documentation base.
+"""
+
 import base64
 import json
 import logging

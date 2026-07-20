@@ -1,3 +1,7 @@
+"""
+test_agent_benchmarks.py - Auto-generated documentation base.
+"""
+
 import os
 import pytest
 import textwrap

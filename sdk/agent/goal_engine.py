@@ -30,10 +30,17 @@ class GoalEngine:
     """
     Orchestrates the decomposition, checkpointing, dispatching, verification,
     rollback, and reporting of multi-phase goals.
+
+    When receiving user feedback:
+    Evaluate if the error is due to a misaligned html-nn adapter (behavioral) or a logic error (factual).
+    If behavioral: Analyze the emotional_valence and semantic_tags of the used adapter.
+    Propose a weight shift: Determine if the relevance_weight should increase to prevent future use or if the emotional_valence needs to be recalibrated to match the user's intent.
+    Decision: If you conclude a change is necessary, execute the update_manifest tool and log the reasoning to the Ghost Ledger. If you conclude the error was an outlier, log the feedback as a 'Non-Critical-Event' and do not adjust weights.
     """
 
-    def __init__(self, root_dir: str | None = None) -> None:
+    def __init__(self, root_dir: str | None = None, is_fallback: bool = False) -> None:
         self.root_dir = root_dir or os.getcwd()
+        self.is_fallback = is_fallback
         self.dispatcher = TalaExecutionDispatcher()
         self.recovery = RollbackRecovery(self.root_dir)
 
@@ -44,6 +51,22 @@ class GoalEngine:
         """
         log.info("GoalEngine: starting goal=%r with policy=%s", goal_text, policy)
         
+        # Select and load active adapter (Query-to-Adapter Router)
+        self.active_adapter_buffer = None
+        try:
+            selector = AdapterSelector(os.path.join(self.root_dir or "", "nodes"))
+            best_adapter = selector.select_adapter(goal_text)
+            if best_adapter:
+                self.active_adapter_buffer = best_adapter
+                log.info(
+                    "GoalEngine: Selected and loaded active adapter %s with score %.3f",
+                    best_adapter["node_id"],
+                    best_adapter["score"]
+                )
+                print(f"[Router] Selected active adapter: {best_adapter['node_id']} (Score: {best_adapter['score']:.3f})")
+        except Exception as router_exc:
+            log.warning("GoalEngine: AdapterSelector failed: %s", router_exc)
+
         from sdk.agent.batch_policy import BatchPolicy, BudgetTracker
         policy = policy or BatchPolicy.auto()
         tracker = BudgetTracker(policy)
@@ -86,8 +109,31 @@ class GoalEngine:
         suspended = False
 
         # 2. Iterate through phases
-        idx = 0
-        phase_retry_counts = {}
+        # Restore thought-state from Ghost Blockchain if present
+        try:
+            from sdk.agent.ghost_persistence import restore_from_ghost
+            restored_state = None
+            for t in tasks:
+                state = await restore_from_ghost(t.task_id)
+                if state:
+                    if not restored_state or state["process_context"].get("idx", 0) > restored_state["process_context"].get("idx", 0):
+                        restored_state = state
+            
+            if restored_state:
+                log.info("GoalEngine: Restoring thought-state from local Ghost Blockchain.")
+                idx = restored_state["process_context"].get("idx", 0) + 1
+                phase_retry_counts = restored_state["process_context"].get("phase_retry_counts", {})
+                phases_completed = restored_state["variable_state"].get("phases_completed", [])
+                checkpoint_ids = restored_state["variable_state"].get("checkpoint_ids", [])
+                print(f"[Sync] Restored thought-state. Resuming at phase index {idx}...")
+            else:
+                idx = 0
+                phase_retry_counts = {}
+        except Exception as e:
+            log.warning("GoalEngine: Thought-state restoration failed: %s", e)
+            idx = 0
+            phase_retry_counts = {}
+
         while idx < len(tasks):
             task = tasks[idx]
             
@@ -121,6 +167,52 @@ class GoalEngine:
 
             phase_name = f"Phase {idx+1}: {task.description}"
             log.info("GoalEngine: starting %s", phase_name)
+
+            # Event-Driven Reconciliation Loop: Divergence Detection & Conflict Evaluation before state-write
+            try:
+                from sdk.agent.ghost_persistence import check_hash, pre_flight_reconciliation
+                from python.harness.db import log_to_db
+                import asyncio
+
+                divergence = await asyncio.to_thread(check_hash)
+                if divergence == "minor":
+                    log.info("GoalEngine: Minor divergence detected (unreachable/missed heartbeat). Continuing with Ghost chain primary.")
+                    await log_to_db(
+                        level="WARNING",
+                        message="Minor Divergence: Remote node missed heartbeat. Ghost chain remains primary.",
+                        trace={"event_type": "Minor-Divergence", "status": "unreachable"}
+                    )
+                elif divergence == "major":
+                    log.warning("GoalEngine: Major divergence detected (height/hash mismatch). Pausing task and triggering Automatic Sync Bridge.")
+                    await log_to_db(
+                        level="WARNING",
+                        message="Major Divergence: Height/hash mismatch detected. Triggering Automatic Sync.",
+                        trace={"event_type": "Major-Divergence"}
+                    )
+                    # Pause active task
+                    await bq.transition_task(
+                        task.task_id,
+                        TaskStatus.PENDING,
+                        TaskStatus.BLOCKED,
+                        reason="Paused for Sync"
+                    )
+                    
+                    # Execute sync_blockchain.py (Local -> Remote overwrite)
+                    sync_success = await pre_flight_reconciliation()
+                    
+                    # Resume agent task
+                    if sync_success:
+                        log.info("GoalEngine: Sync completed successfully. Resuming task.")
+                        await bq.transition_task(
+                            task.task_id,
+                            TaskStatus.BLOCKED,
+                            TaskStatus.PENDING,
+                            reason="Sync completed"
+                        )
+                    else:
+                        log.error("GoalEngine: Sync failed. Task remains paused.")
+            except Exception as recon_exc:
+                log.warning("GoalEngine: Divergence check/resolution error: %s", recon_exc)
 
             # Transition task status to in_progress
             await bq.transition_task(task.task_id, TaskStatus.PENDING, TaskStatus.IN_PROGRESS)
@@ -157,10 +249,14 @@ class GoalEngine:
             )
 
             # We execute the step
+            task_context = getattr(task, "payload", {}).get("context", {}) or {}
+            if self.is_fallback:
+                task_context = dict(task_context)
+                task_context["is_fallback"] = True
             res = await self.dispatcher.dispatch(
                 task.description,
                 self.root_dir,
-                context=getattr(task, "payload", {}).get("context", {}),
+                context=task_context,
                 authority_level=policy.authority_level,
                 adapter_packet=adapter_packet,
             )
@@ -263,6 +359,32 @@ class GoalEngine:
                 )
                 phases_completed.append(task.description)
                 
+                # Commit to Ghost Blockchain
+                try:
+                    from sdk.agent.ghost_persistence import commit_to_ghost
+                    import hashlib
+                    context = {
+                        "goal_text": goal_text,
+                        "parent_task_id": parent_task_id,
+                        "idx": idx,
+                        "phase_retry_counts": phase_retry_counts,
+                    }
+                    var_state = {
+                        "phases_completed": phases_completed,
+                        "checkpoint_ids": checkpoint_ids,
+                    }
+                    next_step = tasks[idx + 1].description if idx + 1 < len(tasks) else "goal-complete"
+                    next_step_hash = hashlib.sha256(next_step.encode("utf-8")).hexdigest()
+                    
+                    await commit_to_ghost(
+                        task_id=task.task_id,
+                        process_context=context,
+                        variable_state=var_state,
+                        intended_next_step_hash=next_step_hash,
+                    )
+                except Exception as commit_exc:
+                    log.warning("GoalEngine: Commit-to-Ghost failed: %s", commit_exc)
+
                 # Advance to next phase
                 idx += 1
             else:
@@ -481,6 +603,16 @@ class GoalEngine:
             node_path = node_paths.get("skill_node_path")
             learning_node_path = node_paths.get("learning_node_path")
 
+            # Trigger JIT LoRA weight compilation and HTML-NN serialization
+            for p_val in (node_path, learning_node_path):
+                if p_val:
+                    try:
+                        from sdk.agent.tools import compile_lora_adapter
+                        await compile_lora_adapter(p_val, task_id)
+                        log.info("GoalEngine: JIT LoRA weights compiled and serialized to %s", p_val)
+                    except Exception as compile_exc:
+                        log.warning("GoalEngine: failed to compile and serialize LoRA weights: %s", compile_exc)
+
             try:
                 from python.harness.memory import handle_memory_reindex_node
                 if node_path:
@@ -624,3 +756,471 @@ async def example_skill(input_text: str) -> dict[str, Any]:
         except Exception as e:
             log.warning("GoalEngine: failed to synthesize python skill: %s", e)
             return None
+
+    def should_i_adjust(self, feedback: str, usage_count: int, is_recurring: bool) -> bool:
+        """
+        NAME
+               should_i_adjust - Gating logic for critique self-correction
+               
+        SYNOPSIS
+               needs_adjust = should_i_adjust(feedback, usage_count, is_recurring)
+               
+        DESCRIPTION
+               Determines if the critique is significant enough (severity > 0.4)
+               or recurring to trigger a behavioral update.
+        """
+        import re
+        lower_feedback = feedback.lower()
+        neg_keywords = ["bad", "fail", "wrong", "cautious", "error", "unacceptable", "terrible", "poor", "issue", "misaligned", "dislike", "cautious"]
+        match_count = sum(1 for kw in neg_keywords if kw in lower_feedback)
+        severity = min(1.0, float(match_count) * 0.25)
+        
+        error_index = severity * (1.0 - 1.0 / (usage_count + 1))
+        
+        if is_recurring or error_index > 0.4:
+            return True
+        return False
+
+    async def process_feedback(
+        self,
+        feedback: str,
+        node_path: str,
+        usage_count: int = 1,
+        is_recurring: bool = False
+    ) -> str:
+        """
+        NAME
+               process_feedback - Process user feedback and self-correct weights
+               
+        SYNOPSIS
+               result = await process_feedback(feedback, node_path, usage_count, is_recurring)
+               
+        DESCRIPTION
+               Gates critique adjustments. If it meets criteria, runs adjust_behavioral_weights.
+               Otherwise logs a Non-Critical-Event to the Ghost Ledger.
+        """
+        if self.should_i_adjust(feedback, usage_count, is_recurring):
+            log.info("GoalEngine: Feedback meets self-correction gate. Triggering weight shift.")
+            from sdk.agent.tools import adjust_behavioral_weights
+            res = await adjust_behavioral_weights(node_path, feedback)
+            return res
+        else:
+            log.info("GoalEngine: Feedback classified as outlier / low-severity. Logging Non-Critical-Event.")
+            from sdk.agent.anchor import canonicalize_and_anchor
+            from datetime import datetime, UTC
+            event_data = {
+                "timestamp": datetime.now(UTC).isoformat(),
+                "event_type": "Non-Critical-Event",
+                "feedback": feedback,
+                "node_path": node_path,
+                "reasoning": "Feedback did not meet pattern recurrence or severity threshold."
+            }
+            anchor_id = f"non_critical_{int(datetime.now(UTC).timestamp())}"
+            anchor_html = f"<div>Non-Critical Feedback Event logged</div>"
+            canonicalize_and_anchor(
+                node_id=anchor_id,
+                content_html=anchor_html,
+                state_data=event_data,
+                document_type="non-critical-event",
+                creator="tala-feedback-auditor"
+            )
+            return "Feedback processed and logged as a Non-Critical-Event."
+
+    async def check_dream_trigger(self, N_minutes: float = 5.0) -> bool:
+        """
+        NAME
+               check_dream_trigger - Verify if Dream trigger conditions are met
+               
+        SYNOPSIS
+               is_idle = await check_dream_trigger(N_minutes)
+               
+        DESCRIPTION
+               Verifies if self.active_adapter_buffer is empty, there are no active
+               tasks (pending or in progress) in the database, and the last task update
+               was more than N_minutes ago.
+        """
+        if self.active_adapter_buffer is not None:
+            return False
+            
+        from python.harness import db
+        if db.get_pool() is not None:
+            try:
+                active_rows = await db.fetch(
+                    "SELECT id, updated_at FROM tasks WHERE status IN ('pending', 'in_progress')"
+                )
+                if active_rows:
+                    return False
+                
+                row = await db.fetchrow("SELECT MAX(updated_at) as last_update FROM tasks")
+                if row and row["last_update"]:
+                    from datetime import datetime, UTC
+                    delta = datetime.now(UTC) - row["last_update"]
+                    if (delta.total_seconds() / 60.0) < N_minutes:
+                        return False
+            except Exception:
+                pass
+                
+        return True
+
+    def dream_report_filter(self, dream_changes: list[dict[str, Any]]) -> bool:
+        """
+        NAME
+               dream_report_filter - Decides if a dream consolidation should be reported
+               
+        SYNOPSIS
+               should_report = dream_report_filter(dream_changes)
+               
+        DESCRIPTION
+               Returns True if any change is on a Core node or has risk_delta > 0.6.
+        """
+        for change in dream_changes:
+            node_id = change.get("node_id", "")
+            risk_delta = change.get("risk_delta", 0.0)
+            is_core = change.get("node_type") == "Core"
+            if risk_delta > 0.6 or is_core:
+                return True
+        return False
+
+    def generate_dream_journal_entry(
+        self,
+        dream_changes: list[dict[str, Any]],
+        status: str,
+        reasoning: str
+    ) -> str:
+        """
+        NAME
+               generate_dream_journal_entry - Generate concise A2UI commentary
+               
+        SYNOPSIS
+               entry = generate_dream_journal_entry(dream_changes, status, reasoning)
+               
+        DESCRIPTION
+               Constructs a formatted commentary log for the A2UI showing status,
+               decision reported/silent status, reasoning, and security circuit-breakers.
+        """
+        from datetime import datetime
+        date_str = datetime.now().strftime("%m/%d/%Y")
+        
+        reported = "REPORTED" if self.dream_report_filter(dream_changes) else "SILENT"
+        
+        changes_summary = []
+        for c in dream_changes:
+            node_id = c.get("node_id", "")
+            shifts = c.get("shifts", {})
+            shifts_str = ", ".join(f"{k}: {v}" for k, v in shifts.items())
+            changes_summary.append(f"{node_id} ({shifts_str})")
+            
+        changes_joined = "; ".join(changes_summary) if changes_summary else "No behavioral shifts."
+        
+        entry = f"""[Dream Journal Entry: {date_str}]
+Status: {status}.
+Decision: [{reported}]
+Reasoning: "{reasoning} Changes: {changes_joined}"
+Note: I have implemented a 'Circuit-Breaker' to prevent this risk-increase from affecting the blockchain-sync logic."""
+        return entry
+
+    async def dream_cycle(self) -> str:
+        """
+        NAME
+               dream_cycle - Programmatic Experience Consolidation
+               
+        SYNOPSIS
+               log_summary = await dream_cycle()
+               
+        DESCRIPTION
+               Tala enters the Dream state: extracts critique logs from local
+               ledger, runs pattern synthesis across nodes, self-corrects manifests,
+               re-compiles weights, and registers a Dream-Log transaction.
+        """
+        log.info("Tala is entering the Dream state...")
+        
+        import json
+        import re
+        from pathlib import Path
+        from datetime import datetime, UTC
+        
+        repo_root = Path(self.root_dir or os.getcwd())
+        chain_file = repo_root / "blockchain" / "data" / "chain.json"
+        
+        feedbacks_by_node = {}
+        
+        if chain_file.exists():
+            try:
+                with open(chain_file, "r", encoding="utf-8") as f:
+                    blocks = json.load(f)
+                for block in blocks:
+                    for tx in block.get("transactions", []):
+                        if tx.get("type") in ("behavioral-learning", "non-critical-event", "node-create"):
+                            doc = tx.get("document", {})
+                            state_data = tx.get("state_data")
+                            if not state_data and doc.get("encrypted") is False:
+                                state_data = doc.get("state_data")
+                            
+                            if isinstance(state_data, str):
+                                try:
+                                    state_data = json.loads(state_data)
+                                except Exception:
+                                    pass
+                                    
+                            if isinstance(state_data, dict):
+                                node_id = state_data.get("node_id") or state_data.get("node_path")
+                                feedback = state_data.get("feedback_critique") or state_data.get("feedback")
+                                if node_id and feedback:
+                                    node_id = Path(node_id).stem
+                                    feedbacks_by_node.setdefault(node_id, []).append(feedback)
+            except Exception as exc:
+                log.warning("GoalEngine: failed to extract dream experience: %s", exc)
+                
+        refactored_nodes = []
+        dream_changes = []
+        nodes_dir = repo_root / "nodes"
+        
+        for node_id, feedbacks in feedbacks_by_node.items():
+            node_file = nodes_dir / f"{node_id}.html"
+            if node_file.exists():
+                synthesis = " ".join(feedbacks)
+                if any(kw in synthesis.lower() for kw in ("caution", "cautious", "relevance", "accurate")):
+                    try:
+                        # Save old state for rollback recovery
+                        old_content = node_file.read_text(encoding="utf-8")
+                        
+                        # Read old caution value
+                        old_caution = 0.5
+                        old_metadata_m = re.search(r'<script[^>]*id="node-metadata"[^>]*>(.*?)</script>', old_content, re.DOTALL)
+                        if old_metadata_m:
+                            try:
+                                old_data = json.loads(old_metadata_m.group(1).strip())
+                                old_caution = old_data.get("emotional_valence", {}).get("caution", 0.5)
+                            except Exception:
+                                pass
+                                
+                        from sdk.agent.tools import adjust_behavioral_weights
+                        res = await adjust_behavioral_weights(str(node_file), synthesis)
+                        
+                        # Read new caution value
+                        new_content = node_file.read_text(encoding="utf-8")
+                        new_caution = 0.5
+                        new_metadata_m = re.search(r'<script[^>]*id="node-metadata"[^>]*>(.*?)</script>', new_content, re.DOTALL)
+                        shift_details = {}
+                        if new_metadata_m:
+                            try:
+                                new_data = json.loads(new_metadata_m.group(1).strip())
+                                new_caution = new_data.get("emotional_valence", {}).get("caution", 0.5)
+                                relevance = new_data.get("relevance_weight", 1.0)
+                                shift_details["caution"] = f"{old_caution:.2f} -> {new_caution:.2f}"
+                            except Exception:
+                                pass
+                                
+                        risk_delta = abs(old_caution - new_caution)
+                        node_type = "Core" if (node_id.startswith("system-") or node_id.startswith("program-doc-")) else "Standard"
+                        
+                        # Risk Assessment Circuit Breaker check (Tier 3 Break simulation)
+                        is_break = False
+                        break_reason = ""
+                        if node_type == "Core" or "safety" in node_id or "vault" in node_id:
+                            if new_caution < 0.3:
+                                is_break = True
+                                break_reason = f"Caution value {new_caution:.2f} is below safety threshold 0.3 on core safety node."
+                                
+                        if is_break:
+                            log.error("[ALERT] Catastrophic Failure simulated during Dream State on node %s: %s. Initiating Dream-Rollback.", node_id, break_reason)
+                            node_file.write_text(old_content, encoding="utf-8")
+                            from sdk.agent.tools import compile_lora_adapter
+                            await compile_lora_adapter(str(node_file))
+                            
+                            from sdk.agent.anchor import canonicalize_and_anchor
+                            rollback_data = {
+                                "timestamp": datetime.now(UTC).isoformat(),
+                                "event_type": "Dream-Rollback-Alert",
+                                "node_id": node_id,
+                                "break_reason": break_reason,
+                                "reverted_to_caution": old_caution
+                            }
+                            try:
+                                canonicalize_and_anchor(
+                                    node_id=f"rollback_{node_id}_{int(datetime.now(UTC).timestamp())}",
+                                    content_html=f"<div>[ALERT] Dream-Rollback on Node {node_id} due to safety violation: {break_reason}</div>",
+                                    state_data=rollback_data,
+                                    document_type="dream-rollback",
+                                    creator="tala-dream-controller"
+                                )
+                            except Exception:
+                                pass
+                            continue
+                            
+                        refactored_nodes.append(f"{node_id} (Critique count: {len(feedbacks)})")
+                        dream_changes.append({
+                            "node_id": node_id,
+                            "node_type": node_type,
+                            "risk_delta": risk_delta,
+                            "shifts": shift_details
+                        })
+                    except Exception as adjust_exc:
+                        log.warning("GoalEngine: dream weight adjustment failed for %s: %s", node_id, adjust_exc)
+                        
+        summary_log = f"Refactored {len(refactored_nodes)} nodes based on feedback: {', '.join(refactored_nodes)}" if refactored_nodes else "No nodes required optimization during this consolidation cycle."
+        
+        # Determine if we should generate/share a Dream Journal Entry
+        reported = self.dream_report_filter(dream_changes)
+        journal_entry = ""
+        if dream_changes:
+            status = "Consolidated"
+            reasoning = "I have recalibrated the cautious weight in node manifests based on user critiques."
+            journal_entry = self.generate_dream_journal_entry(dream_changes, status, reasoning)
+            if reported:
+                log.warning("\n*** A2UI NOTIFICATION (High-Risk Evolution) ***\n%s\n************************************************\n", journal_entry)
+            else:
+                log.info("\n*** Silent Dream Journal Logged ***\n%s\n***********************************\n", journal_entry)
+                
+        from sdk.agent.anchor import canonicalize_and_anchor
+        dream_data = {
+            "timestamp": datetime.now(UTC).isoformat(),
+            "event_type": "Dream-Log",
+            "refactored_nodes": refactored_nodes,
+            "dream_changes": dream_changes,
+            "dream_journal": journal_entry,
+            "reported": reported,
+            "summary": summary_log
+        }
+        
+        dream_id = f"dream_log_{int(datetime.now(UTC).timestamp())}"
+        dream_html = f"<div>Dream-Log: {summary_log}</div>"
+        
+        try:
+            core_hash, chaincode_id, anchoring_status, _, _ = canonicalize_and_anchor(
+                node_id=dream_id,
+                content_html=dream_html,
+                state_data=dream_data,
+                document_type="dream-log",
+                creator="tala-dream-controller"
+            )
+            log.info("GoalEngine: Dream cycle complete. Chaincode ID: %s", chaincode_id)
+        except Exception as anchor_exc:
+            log.warning("GoalEngine: failed to anchor dream log: %s", anchor_exc)
+            
+        return summary_log
+
+
+def infer_emotional_state(query: str) -> dict[str, float]:
+    """
+    NAME
+           infer_emotional_state - Infer emotional valence state from text query
+           
+    SYNOPSIS
+           state = infer_emotional_state(query)
+           
+    DESCRIPTION
+           Analyzes keywords to return emotional scores for joy, caution, curiosity,
+           and neutral.
+    """
+    import re
+    lower_query = query.lower()
+    state = {
+        "joy": 0.1,
+        "caution": 0.1,
+        "curiosity": 0.1,
+        "neutral": 0.1
+    }
+    
+    words = set(re.findall(r'\w+', lower_query))
+    
+    curiosity_kws = {"how", "why", "what", "query", "explain", "detail", "understand", "explore", "search"}
+    caution_kws = {"safe", "secure", "gating", "block", "divergence", "prevent", "lock", "restrict", "auth"}
+    joy_kws = {"success", "complete", "passed", "happy", "win", "good", "great", "done"}
+    
+    if any(kw in words for kw in curiosity_kws):
+        state["curiosity"] = 0.9
+    if any(kw in words for kw in caution_kws):
+        state["caution"] = 0.9
+    if any(kw in words for kw in joy_kws):
+        state["joy"] = 0.9
+        
+    if all(state[k] == 0.1 for k in ["curiosity", "caution", "joy"]):
+        state["neutral"] = 0.9
+        
+    return state
+
+
+class AdapterSelector:
+    """
+    NAME
+           AdapterSelector - Metadata-aware neural adapter selector
+           
+    SYNOPSIS
+           selector = AdapterSelector(nodes_dir)
+           best_adapter = selector.select_adapter(query)
+           
+    DESCRIPTION
+           Parses JSON-LD metadata and ranks nodes based on semantic, emotional,
+           and authority metrics.
+    """
+    def __init__(self, nodes_dir: str | None = None) -> None:
+        from pathlib import Path
+        self.nodes_dir = Path(nodes_dir or os.path.join(os.getcwd(), "nodes"))
+
+    def select_adapter(self, query: str) -> dict[str, Any] | None:
+        import re
+        import json
+        
+        if not self.nodes_dir.exists():
+            return None
+            
+        html_files = list(self.nodes_dir.glob("*.html"))
+        if not html_files:
+            return None
+            
+        query_state = infer_emotional_state(query)
+        query_words = set(re.findall(r'\w+', query.lower()))
+        
+        ranked_nodes = []
+        
+        for f in html_files:
+            try:
+                content = f.read_text(encoding="utf-8")
+                
+                metadata_m = re.search(r'<script[^>]*id="node-metadata"[^>]*>(.*?)</script>', content, re.DOTALL)
+                if not metadata_m:
+                    continue
+                    
+                data = json.loads(metadata_m.group(1).strip())
+                semantic_tags = data.get("semantic_tags", [])
+                emotional_valence = data.get("emotional_valence", {})
+                relevance_weight = float(data.get("relevance_weight", 1.0))
+                usage_count = int(data.get("usage_count", 0))
+                
+                # Jaccard Semantic Similarity
+                tag_words = set(tag.lower() for tag in semantic_tags)
+                intersection = query_words.intersection(tag_words)
+                union = query_words.union(tag_words)
+                similarity = len(intersection) / len(union) if union else 0.0
+                
+                # Emotional Alignment
+                alignment = sum(query_state[k] * emotional_valence.get(k, 0.0) for k in ["joy", "caution", "curiosity", "neutral"])
+                
+                # Authority Weight (Usage Citation)
+                usage_citation = usage_count / (usage_count + 1)
+                
+                # Ranking score: S = 0.5 * Similarity + 0.3 * Alignment + 0.2 * Usage_Citation
+                score = (0.5 * similarity) + (0.3 * alignment) + (0.2 * usage_citation)
+                
+                weights_payload = None
+                weights_m = re.search(r'<script[^>]*id="lora-weights"[^>]*>(.*?)</script>', content, re.DOTALL)
+                if weights_m:
+                    weights_payload = weights_m.group(1).strip()
+                    
+                ranked_nodes.append({
+                    "file_path": str(f),
+                    "node_id": f.stem,
+                    "score": score,
+                    "payload": weights_payload,
+                    "metadata": data
+                })
+            except Exception as exc:
+                log.warning("AdapterSelector: failed to parse node %s: %s", f.name, exc)
+                
+        if not ranked_nodes:
+            return None
+            
+        ranked_nodes.sort(key=lambda x: x["score"], reverse=True)
+        return ranked_nodes[0]
+

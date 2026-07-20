@@ -1,3 +1,7 @@
+"""
+patch_server.py - Auto-generated documentation base.
+"""
+
 import re
 
 code_to_inject = """

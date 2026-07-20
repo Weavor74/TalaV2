@@ -1,3 +1,7 @@
+/**
+ * test-download.js - Auto-generated documentation base.
+ */
+
 const https = require('https');
 const fs = require('fs');
 const os = require('os');

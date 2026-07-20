@@ -60,6 +60,10 @@ const HARNESS_URL   = `ws://${HARNESS_HOST}:${HARNESS_PORT}`;
 const MAX_RESTARTS  = 3;
 const RESTART_BASE_DELAY_MS = 1_500; // base for exponential back-off
 
+/**
+ * Resolves the absolute path to the Python executable within the local virtual environment.
+ * Handles cross-platform differences (Windows 'Scripts/python.exe' vs Unix 'bin/python').
+ */
 function venvPythonPath(basePath) {
   const venvBinDir = process.platform === 'win32' ? 'Scripts' : 'bin';
   const pythonName = process.platform === 'win32' ? 'python.exe' : 'python';
@@ -82,6 +86,14 @@ function firstRunEnv(appPath) {
   };
 }
 
+/**
+ * Ensures the first-run Python environment is fully bootstrapped before launching the engine.
+ * If the .venv or .env files are missing, it spawns the first_run.py script synchronously
+ * to install dependencies and configure local environment variables.
+ * 
+ * @param {string} appPath - The root path of the Tala application
+ * @returns {string} The path to the resolved Python executable
+ */
 function ensureFirstRun(appPath) {
   const runtimeBase = app.isPackaged ? app.getPath('userData') : appPath;
   const pythonPath = venvPythonPath(runtimeBase);
@@ -173,6 +185,14 @@ function initStore() {
    Window creation
    ────────────────────────────────────────────────────────────────── */
 
+/**
+ * Initializes and displays the primary Electron browser window.
+ * Enforces strict security constraints (sandbox: true, nodeIntegration: false)
+ * to ensure the renderer cannot execute arbitrary OS commands if compromised.
+ * 
+ * Intercepts network requests to bypass X-Frame-Options for external web views
+ * while enforcing a strict local Content-Security-Policy (CSP).
+ */
 function createWindow() {
   const bounds = store?.get('windowBounds') ?? { width: 1440, height: 900 };
 
@@ -273,7 +293,14 @@ function createWindow() {
    ────────────────────────────────────────────────────────────────── */
 
 /**
- * Spawn the Python harness server.
+ * Spawns the underlying Python harness (Tala Cognitive Engine Room) as a child process.
+ * 
+ * This python process runs the core AI workflows, token counting, and database connections.
+ * Standard output and standard error are captured and relayed to the renderer via IPC
+ * so users can view backend logs in real-time.
+ * 
+ * Includes an exponential back-off restart mechanism if the engine crashes unexpectedly.
+ * 
  * @param {number} attempt  — Current attempt number (0-indexed), used for back-off.
  */
 function spawnPython(attempt = 0) {
@@ -427,7 +454,11 @@ function connectWithRetry(attempt) {
 }
 
 /**
- * Spawn the Node.js Blockchain Node.
+ * Spawns the Node.js Blockchain Node for P2P networking and state distribution.
+ * 
+ * This process connects to the Tala mesh network to sync system prompts, configurations,
+ * and discover other peers. Logs are captured and piped to the UI renderer.
+ * 
  * @param {number} attempt  — Current attempt number (0-indexed), used for back-off.
  */
 function spawnBlockchain(attempt = 0) {
@@ -662,7 +693,10 @@ function sendLogToRenderer(channel, message) {
 
 /**
  * Spawns a persistent, interactive terminal shell process (PowerShell on Windows, bash on Unix).
- * Pre-injects the Python virtual environment (.venv) PATH context.
+ * 
+ * This allows the user to execute raw system commands from the UI.
+ * The terminal environment is pre-injected with the Python virtual environment (.venv) PATH context,
+ * ensuring commands like 'python' or 'pip' resolve correctly to the local sandbox.
  */
 function spawnTerminalShell() {
   if (shellProcess) {

@@ -1,3 +1,7 @@
+"""
+anchor.py - Auto-generated documentation base.
+"""
+
 import json
 import hashlib
 import urllib.request

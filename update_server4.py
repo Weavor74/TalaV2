@@ -1,3 +1,7 @@
+"""
+update_server4.py - Auto-generated documentation base.
+"""
+
 import sys
 
 with open("python/harness/server.py", "r", encoding="utf-8") as f:

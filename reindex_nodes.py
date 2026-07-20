@@ -1,3 +1,7 @@
+"""
+reindex_nodes.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import os
 import sys

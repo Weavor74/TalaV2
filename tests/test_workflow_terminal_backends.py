@@ -1,3 +1,7 @@
+"""
+test_workflow_terminal_backends.py - Auto-generated documentation base.
+"""
+
 import pytest
 
 from python.harness.workflow_executor import WorkflowExecutor

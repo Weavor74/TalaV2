@@ -1,3 +1,7 @@
+"""
+query_db.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import asyncpg
 import json

@@ -1,3 +1,7 @@
+"""
+safe_code_bridges.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import asyncio

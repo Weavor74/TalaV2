@@ -1,3 +1,7 @@
+"""
+test_ollama.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import httpx
 

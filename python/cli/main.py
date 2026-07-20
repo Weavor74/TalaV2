@@ -1,3 +1,7 @@
+"""
+main.py - Auto-generated documentation base.
+"""
+
 import argparse
 import sys
 import asyncio

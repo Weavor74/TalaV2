@@ -1,3 +1,7 @@
+"""
+test_goal_engine.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import pytest
@@ -28,8 +32,15 @@ def dummy_tasks():
 @patch("sdk.agent.persistence.TaskEventStore.append_event", new_callable=AsyncMock)
 @patch("sdk.agent.telemetry.LiveStatusReporter.broadcast_status", new_callable=AsyncMock)
 @patch("sdk.agent.goal_engine.GoalEngine._auto_document_skill", new_callable=AsyncMock)
-async def test_run_goal_success(mock_auto_doc, mock_broadcast, mock_append, mock_transition, mock_enqueue, mock_validate, mock_dispatch, mock_decompose, dummy_tasks):
+@patch("sdk.agent.ghost_persistence.restore_from_ghost", new_callable=AsyncMock)
+@patch("sdk.agent.ghost_persistence.check_hash", new_callable=MagicMock)
+async def test_run_goal_success(
+    mock_check_hash, mock_restore, mock_auto_doc, mock_broadcast, mock_append, 
+    mock_transition, mock_enqueue, mock_validate, mock_dispatch, mock_decompose, dummy_tasks
+):
     # Setup mock returns
+    mock_restore.return_value = None
+    mock_check_hash.return_value = "none"
     mock_decompose.return_value = dummy_tasks
     mock_dispatch.return_value = {"command": "echo", "stdout": "Success", "success": True}
     
@@ -59,7 +70,13 @@ async def test_run_goal_success(mock_auto_doc, mock_broadcast, mock_append, mock
 @patch("sdk.agent.queue.GoalTreeDecomposer.decompose", new_callable=AsyncMock)
 @patch("sdk.agent.dispatcher.TalaExecutionDispatcher.dispatch", new_callable=AsyncMock)
 @patch("sdk.agent.validator.PhaseValidator.validate", new_callable=MagicMock)
-async def test_run_goal_failure_and_rollback(mock_validate, mock_dispatch, mock_decompose, dummy_tasks):
+@patch("sdk.agent.ghost_persistence.restore_from_ghost", new_callable=AsyncMock)
+@patch("sdk.agent.ghost_persistence.check_hash", new_callable=MagicMock)
+async def test_run_goal_failure_and_rollback(
+    mock_check_hash, mock_restore, mock_validate, mock_dispatch, mock_decompose, dummy_tasks
+):
+    mock_restore.return_value = None
+    mock_check_hash.return_value = "none"
     mock_decompose.return_value = dummy_tasks
     
     call_count = {"dispatch": 0, "validate": 0}
@@ -82,10 +99,10 @@ async def test_run_goal_failure_and_rollback(mock_validate, mock_dispatch, mock_
     engine = GoalEngine()
     
     with patch.object(engine.recovery, "create_checkpoint", return_value="chk_123"):
-        with patch.object(engine.recovery, "restore_checkpoint") as mock_restore:
+        with patch.object(engine.recovery, "restore_checkpoint") as mock_restore_cp:
             result = await engine.run_goal("Test Goal")
             
             # Goal fails because second task fails and decomposer fails to generate a fix
             assert result["success"] is False
             assert "Crash" in result["error"]
-            assert mock_restore.call_count >= 1
+            assert mock_restore_cp.call_count >= 1

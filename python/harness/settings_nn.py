@@ -505,27 +505,29 @@ async def update_settings_git_node():
 
 async def update_settings_storage_node():
     try:
-        rows = await db.fetch("SELECT id, name, provider_type, priority FROM storage_providers ORDER BY priority ASC")
+        rows = await db.fetch("SELECT id, name, provider_type, priority, locked FROM storage_providers ORDER BY priority ASC")
         providers = []
         for r in rows:
             providers.append({
                 "id": r["id"],
                 "name": r["name"],
                 "provider_type": r["provider_type"],
-                "priority": r["priority"]
+                "priority": r["priority"],
+                "locked": r["locked"]
             })
             
         html_lines = [
             "<h2>Cloud Storage Providers</h2>",
             "<p>Configured remote / cloud file storage backends.</p>",
             "<table>",
-            "<thead><tr><th>Name</th><th>Type</th><th>Priority</th></tr></thead>",
+            "<thead><tr><th>Name</th><th>Type</th><th>Priority</th><th>Forced</th></tr></thead>",
             "<tbody>"
         ]
         for p in providers:
-            html_lines.append(f"<tr><td>{p['name']}</td><td>{p['provider_type']}</td><td>{p['priority']}</td></tr>")
+            forced_str = "Yes" if p["locked"] else "No"
+            html_lines.append(f"<tr><td>{p['name']}</td><td>{p['provider_type']}</td><td>{p['priority']}</td><td>{forced_str}</td></tr>")
         if not providers:
-            html_lines.append("<tr><td colspan='3'>No storage providers configured.</td></tr>")
+            html_lines.append("<tr><td colspan='4'>No storage providers configured.</td></tr>")
         html_lines.append("</tbody></table>")
         
         state_data = {
@@ -539,7 +541,7 @@ async def update_settings_storage_node():
 
 async def update_settings_database_node():
     try:
-        rows = await db.fetch("SELECT id, name, endpoint, username, database, priority FROM database_providers ORDER BY priority ASC")
+        rows = await db.fetch("SELECT id, name, endpoint, username, database, priority, locked FROM database_providers ORDER BY priority ASC")
         providers = []
         for r in rows:
             providers.append({
@@ -548,20 +550,22 @@ async def update_settings_database_node():
                 "endpoint": r["endpoint"],
                 "username": r["username"],
                 "database": r["database"],
-                "priority": r["priority"]
+                "priority": r["priority"],
+                "locked": r["locked"]
             })
             
         html_lines = [
             "<h2>External Databases</h2>",
             "<p>Configured external database connections and replica servers.</p>",
             "<table>",
-            "<thead><tr><th>Name</th><th>Endpoint</th><th>Database</th><th>Username</th><th>Priority</th></tr></thead>",
+            "<thead><tr><th>Name</th><th>Endpoint</th><th>Database</th><th>Username</th><th>Priority</th><th>Forced</th></tr></thead>",
             "<tbody>"
         ]
         for p in providers:
-            html_lines.append(f"<tr><td>{p['name']}</td><td><code>{p['endpoint']}</code></td><td>{p['database']}</td><td>{p['username']}</td><td>{p['priority']}</td></tr>")
+            forced_str = "Yes" if p["locked"] else "No"
+            html_lines.append(f"<tr><td>{p['name']}</td><td><code>{p['endpoint']}</code></td><td>{p['database']}</td><td>{p['username']}</td><td>{p['priority']}</td><td>{forced_str}</td></tr>")
         if not providers:
-            html_lines.append("<tr><td colspan='5'>No database providers configured.</td></tr>")
+            html_lines.append("<tr><td colspan='6'>No database providers configured.</td></tr>")
         html_lines.append("</tbody></table>")
         
         state_data = {
@@ -575,27 +579,29 @@ async def update_settings_database_node():
 
 async def update_settings_runtime_node():
     try:
-        rows = await db.fetch("SELECT id, name, url, priority FROM runtime_instances ORDER BY priority ASC")
+        rows = await db.fetch("SELECT id, name, url, priority, locked FROM runtime_instances ORDER BY priority ASC")
         instances = []
         for r in rows:
             instances.append({
                 "id": r["id"],
                 "name": r["name"],
                 "url": r["url"],
-                "priority": r["priority"]
+                "priority": r["priority"],
+                "locked": r["locked"]
             })
             
         html_lines = [
             "<h2>Runtime Instances</h2>",
             "<p>Configured remote HTML-NN node servers and active peer instances.</p>",
             "<table>",
-            "<thead><tr><th>Name</th><th>URL</th><th>Priority</th></tr></thead>",
+            "<thead><tr><th>Name</th><th>URL</th><th>Priority</th><th>Forced</th></tr></thead>",
             "<tbody>"
         ]
         for i in instances:
-            html_lines.append(f"<tr><td>{i['name']}</td><td><code>{i['url']}</code></td><td>{i['priority']}</td></tr>")
+            forced_str = "Yes" if i["locked"] else "No"
+            html_lines.append(f"<tr><td>{i['name']}</td><td><code>{i['url']}</code></td><td>{i['priority']}</td><td>{forced_str}</td></tr>")
         if not instances:
-            html_lines.append("<tr><td colspan='3'>No remote runtime instances configured.</td></tr>")
+            html_lines.append("<tr><td colspan='4'>No remote runtime instances configured.</td></tr>")
         html_lines.append("</tbody></table>")
         
         state_data = {
@@ -609,27 +615,29 @@ async def update_settings_runtime_node():
 
 async def update_settings_auth_node():
     try:
-        rows = await db.fetch("SELECT id, name, auth_type, priority FROM auth_credentials ORDER BY priority ASC")
+        rows = await db.fetch("SELECT id, name, auth_type, priority, locked FROM auth_credentials ORDER BY priority ASC")
         credentials = []
         for r in rows:
             credentials.append({
                 "id": r["id"],
                 "name": r["name"],
                 "auth_type": r["auth_type"],
-                "priority": r["priority"]
+                "priority": r["priority"],
+                "locked": r["locked"]
             })
             
         html_lines = [
             "<h2>Auth Credentials</h2>",
             "<p>Configured API keys, SSH keys, and server authentication protocols. <em>All private keys and secrets are redacted from the knowledge layer.</em></p>",
             "<table>",
-            "<thead><tr><th>Name</th><th>Auth Type</th><th>Priority</th></tr></thead>",
+            "<thead><tr><th>Name</th><th>Auth Type</th><th>Priority</th><th>Forced</th></tr></thead>",
             "<tbody>"
         ]
         for c in credentials:
-            html_lines.append(f"<tr><td>{c['name']}</td><td>{c['auth_type']}</td><td>{c['priority']}</td></tr>")
+            forced_str = "Yes" if c["locked"] else "No"
+            html_lines.append(f"<tr><td>{c['name']}</td><td>{c['auth_type']}</td><td>{c['priority']}</td><td>{forced_str}</td></tr>")
         if not credentials:
-            html_lines.append("<tr><td colspan='3'>No auth credentials configured.</td></tr>")
+            html_lines.append("<tr><td colspan='4'>No auth credentials configured.</td></tr>")
         html_lines.append("</tbody></table>")
         
         state_data = {

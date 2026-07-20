@@ -239,6 +239,7 @@ class TalaExecutionDispatcher:
                     name=tool_name,
                     arguments=tool_args,
                     authority_level=authority_level,
+                    bypass_confidence_gate=bool(context.get("is_fallback")),
                 )
 
                 # ── Confidence gate: skill degraded — re-enter goal planning ──
@@ -798,7 +799,7 @@ Response must contain ONLY the category name. No markdown, no explanations."""
             from sdk.agent.goal_engine import GoalEngine
             from sdk.agent.batch_policy import BatchPolicy
 
-            engine = GoalEngine(root_dir=root_dir)
+            engine = GoalEngine(root_dir=root_dir, is_fallback=True)
             policy = BatchPolicy.auto()
 
             # Propagate adapter_packet if the caller embedded it in context

@@ -1,3 +1,7 @@
+"""
+test_logic_bug.py - Auto-generated documentation base.
+"""
+
 def add_numbers(a, b):
     # FIX: Changed subtraction to addition
     return a + b

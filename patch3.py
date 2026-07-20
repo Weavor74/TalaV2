@@ -1,3 +1,7 @@
+"""
+patch3.py - Auto-generated documentation base.
+"""
+
 import sys
 
 def patch_renderer():

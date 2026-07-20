@@ -1,3 +1,7 @@
+"""
+provider.py - Auto-generated documentation base.
+"""
+
 from abc import ABC, abstractmethod
 from typing import Any
 

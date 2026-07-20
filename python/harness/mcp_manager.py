@@ -1,3 +1,7 @@
+"""
+mcp_manager.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import logging
@@ -59,30 +63,83 @@ class MCPManager:
         else:
             raise ValueError("MCP server config requires either 'command' or 'url'")
 
+        if "priority" not in server_config:
+            server_config["priority"] = len(self.servers) + 1
+        if "locked" not in server_config:
+            server_config["locked"] = False
+
         self._validate_server_config(name, server_config)
         self.servers[name] = server_config
         if persist:
-            self._save_registry()
+            await self._save_registry_async()
         logger.info("Registered MCP server %s via %s", name, server_config["transport"])
         return True
 
     def list_servers(self) -> list[dict[str, Any]]:
+        def sort_key(item):
+            name, config = item
+            return (config.get("priority", 999), name)
+
         return [
-            {"name": name, "config": self._redact_config(config)}
-            for name, config in sorted(self.servers.items())
+            {
+                "name": name,
+                "config": self._redact_config(config),
+                "priority": config.get("priority", 999),
+                "locked": config.get("locked", False)
+            }
+            for name, config in sorted(self.servers.items(), key=sort_key)
         ]
 
-    def remove_server(self, name: str) -> bool:
+    async def save_servers(self, servers_list: list[dict[str, Any]]) -> bool:
+        """
+        Save the entire MCP servers list (for reordering and setting priority/locked).
+        """
+        new_servers = {}
+        for s in servers_list:
+            name = s.get("name")
+            config = s.get("config") or {}
+            if name:
+                existing = self.servers.get(name, {})
+                for key, val in list(config.items()):
+                    if val == "***":
+                        config[key] = existing.get(key, "")
+                    elif isinstance(val, dict):
+                        existing_sub = existing.get(key, {})
+                        for sub_k, sub_v in list(val.items()):
+                            if sub_v == "***":
+                                val[sub_k] = existing_sub.get(sub_k, "")
+                config["priority"] = s.get("priority", 999)
+                config["locked"] = s.get("locked", False)
+                new_servers[name] = config
+        self.servers = new_servers
+        await self._save_registry_async()
+        return True
+
+    async def remove_server(self, name: str) -> bool:
         existed = name in self.servers
         if existed:
             self.servers.pop(name, None)
-            self._save_registry()
+            await self._save_registry_async()
         return existed
 
     async def list_tools(self, server_name: str | None = None) -> list[dict[str, Any]]:
         """List tools from one registered MCP server, or all registered servers."""
         server_names = [server_name] if server_name else list(self.servers)
         tools: list[dict[str, Any]] = []
+
+        # Always inject the sync_blockchain tool as a virtual MCP tool
+        if not server_name or server_name == "blockchain":
+            tools.append({
+                "name": "sync_blockchain",
+                "description": "Perform hash-integrity reconciliation between the local Ghost Blockchain and remote Main Blockchain.",
+                "inputSchema": {
+                    "type": "object",
+                    "properties": {},
+                    "required": []
+                },
+                "server_name": "blockchain",
+                "qualified_name": "blockchain__sync_blockchain"
+            })
 
         for name in server_names:
             if not name:
@@ -102,6 +159,20 @@ class MCPManager:
         """Call a tool on a registered MCP server using the real MCP SDK."""
         if not tool_name:
             raise ValueError("MCP tool_name is required")
+
+        if server_name == "blockchain" and tool_name == "sync_blockchain":
+            logger.info("Calling virtual MCP tool: sync_blockchain")
+            from sdk.agent.ghost_persistence import pre_flight_reconciliation
+            success = await pre_flight_reconciliation()
+            return {
+                "content": [
+                    {
+                        "type": "text",
+                        "text": f"Blockchain reconciliation completed. Success: {success}"
+                    }
+                ],
+                "isError": not success
+            }
 
         config = self._get_server_config(server_name)
         logger.info("Calling MCP tool %s on %s", tool_name, server_name)
@@ -174,6 +245,22 @@ class MCPManager:
         tmp_path = self.registry_path.with_suffix(self.registry_path.suffix + ".tmp")
         tmp_path.write_text(json.dumps(payload, indent=2, ensure_ascii=False), encoding="utf-8")
         tmp_path.replace(self.registry_path)
+
+    async def _save_registry_async(self) -> None:
+        """
+        NAME
+               _save_registry_async - Persist registered servers asynchronously
+               
+        SYNOPSIS
+               await self._save_registry_async()
+               
+        DESCRIPTION
+               Asynchronously saves the in-memory MCP servers configuration to the
+               JSON registry file using asyncio.to_thread to prevent blocking the
+               event loop.
+        """
+        import asyncio
+        await asyncio.to_thread(self._save_registry)
 
     def _redact_config(self, config: dict[str, Any]) -> dict[str, Any]:
         redacted = dict(config)

@@ -1,3 +1,7 @@
+"""
+test_ui_chat_tools.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import pytest

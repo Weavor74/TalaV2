@@ -1,3 +1,7 @@
+"""
+bump_version.py - Auto-generated documentation base.
+"""
+
 import os
 import json
 import re

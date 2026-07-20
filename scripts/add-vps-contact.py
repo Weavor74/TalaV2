@@ -1,3 +1,7 @@
+"""
+add-vps-contact.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import argparse

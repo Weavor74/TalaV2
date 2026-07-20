@@ -1,3 +1,7 @@
+"""
+server.py - Auto-generated documentation base.
+"""
+
 import json
 import logging
 from http.server import BaseHTTPRequestHandler, HTTPServer

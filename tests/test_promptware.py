@@ -1,3 +1,7 @@
+"""
+test_promptware.py - Auto-generated documentation base.
+"""
+
 import pytest
 from sdk.gateway.promptware import scan_for_injection, redact_and_scan
 

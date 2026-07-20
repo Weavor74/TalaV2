@@ -3286,6 +3286,13 @@ const LoggingManager = {
             <span class="inspector-detail-label">Timestamp</span>
             <span class="inspector-detail-value" style="font-family: var(--font-mono);">${new Date(event.timestamp).toLocaleString()}</span>
           </div>
+          
+          ${event.tx_id ? `
+          <div class="inspector-detail-row" style="background: rgba(174, 62, 201, 0.05); border: 1px dashed rgba(174, 62, 201, 0.2); border-radius: 4px; padding: var(--space-2); text-align: left;">
+            <span class="inspector-detail-label" style="color: var(--accent-purple); font-weight: 700; font-size: 0.68rem; text-transform: uppercase;">Blockchain Tx ID</span>
+            <span class="inspector-detail-value" style="font-family: var(--font-mono); color: var(--accent-purple); font-weight: 700; word-break: break-all; font-size: 0.74rem;">${event.tx_id}</span>
+          </div>
+          ` : ''}
 
           <div class="inspector-detail-row">
             <span class="inspector-detail-label">Event Message</span>
@@ -8529,6 +8536,19 @@ const WorkflowManager = {
       this._jsonEditor.addEventListener('input', () => this.syncJsonToWorkflow());
     }
 
+    // Direct goto auth posture handlers
+    document.addEventListener('click', (e) => {
+      const btn = e.target.closest('#btn-workflow-goto-auth, #btn-workflow-goto-auth-email');
+      if (btn) {
+        const tabs = document.querySelectorAll('#settings-tab-nav .settings-sub-tab');
+        tabs.forEach(t => {
+          if (t.dataset.panel === 'auth') {
+            t.click();
+          }
+        });
+      }
+    });
+
     // Load initial list
     this.load();
 
@@ -8977,8 +8997,6 @@ const WorkflowManager = {
     } else if (node.type === 'auth') {
       const authSec = qs('#config-auth-fields');
       if (authSec) authSec.style.display = 'block';
-      if (this._propAuthProvider) this._propAuthProvider.value = config.provider || 'smtp';
-      if (this._propAuthApikey) this._propAuthApikey.value = config.apiKey || '';
       
     } else if (node.type === 'interactive_prompt') {
       const intSec = qs('#config-interactive-fields');
@@ -8989,7 +9007,6 @@ const WorkflowManager = {
     } else if (node.type === 'email') {
       const emailSec = qs('#config-email-fields');
       if (emailSec) emailSec.style.display = 'block';
-      if (this._propEmailProvider) this._propEmailProvider.value = config.provider || 'SMTP';
       if (this._propEmailTo) this._propEmailTo.value = config.to || '';
       if (this._propEmailSubject) this._propEmailSubject.value = config.subject || '';
       if (this._propEmailBody) this._propEmailBody.value = config.body || '';
@@ -9055,15 +9072,14 @@ const WorkflowManager = {
       node.config.execution_authority = parseFloat(this._propTriggerAuth.value) || 1.0;
       
     } else if (node.type === 'auth') {
-      node.config.provider = this._propAuthProvider.value;
-      node.config.apiKey = this._propAuthApikey.value;
+      // Configured directly from the auth section
       
     } else if (node.type === 'interactive_prompt') {
       this._propInteractiveMessage = qs('#prop-interactive-message');
       if (this._propInteractiveMessage) node.config.message = this._propInteractiveMessage.value.trim();
       
     } else if (node.type === 'email') {
-      node.config.provider = this._propEmailProvider.value.trim();
+      // provider config is resolved dynamically from auth tab settings
       node.config.to = this._propEmailTo.value.trim();
       node.config.subject = this._propEmailSubject.value.trim();
       node.config.body = this._propEmailBody.value;

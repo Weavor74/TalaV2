@@ -1,3 +1,7 @@
+"""
+fix.py - Auto-generated documentation base.
+"""
+
 import sys
 with open('renderer/renderer.js', 'r', encoding='utf-8') as f:
     lines = f.readlines()

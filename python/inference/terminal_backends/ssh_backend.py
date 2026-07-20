@@ -1,3 +1,7 @@
+"""
+ssh_backend.py - Auto-generated documentation base.
+"""
+
 import subprocess
 import logging
 from typing import Optional

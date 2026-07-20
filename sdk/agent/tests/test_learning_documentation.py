@@ -1,3 +1,7 @@
+"""
+test_learning_documentation.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 from pathlib import Path

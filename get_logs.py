@@ -1,3 +1,7 @@
+"""
+get_logs.py - Auto-generated documentation base.
+"""
+
 import asyncpg
 import asyncio
 

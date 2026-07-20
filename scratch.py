@@ -1,3 +1,7 @@
+"""
+scratch.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import asyncpg
 

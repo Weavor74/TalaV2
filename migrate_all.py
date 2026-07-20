@@ -1,3 +1,7 @@
+"""
+migrate_all.py - Auto-generated documentation base.
+"""
+
 import os
 import re
 from pathlib import Path

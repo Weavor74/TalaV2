@@ -144,6 +144,7 @@ class NeuralNode:
     memory_type: str | None = None
     executable_code: str | None = None
     adapter: "AdapterPacket | None" = None
+    lora_adapter: str | None = None
 
 
 
@@ -418,6 +419,7 @@ def _parse_tree(
     content_hash: str = article.get("data-content-hash", "").strip() or None
     source: str = article.get("data-source", "").strip() or None
     trust_tier: str = article.get("data-trust-tier", "").strip() or None
+    lora_adapter: str | None = article.get("data-lora-adapter", "").strip() or None
     
     semantic_memory: str = _extract_semantic_memory(article)
     relationships: list[RelationshipAnchor] = _extract_relationships(article)
@@ -471,6 +473,7 @@ def _parse_tree(
         memory_type=memory_type,
         executable_code=executable_code,
         adapter=adapter,
+        lora_adapter=lora_adapter,
     )
 
 

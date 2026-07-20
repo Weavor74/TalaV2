@@ -21,6 +21,10 @@ logger = logging.getLogger(__name__)
 class WorkflowExecutor:
     """
     Stateless runner for executing JSON workflows.
+    
+    // Core Workflow Engine: Evaluates deterministic JSON-based state machines.
+    // Supports sequential execution of custom Python snippets, bash scripts (via secure SSH/Docker), 
+    // and MCP tool chains. Used by the Neural Nodes to automate multi-step technical tasks.
     """
 
     def __init__(
@@ -47,6 +51,10 @@ class WorkflowExecutor:
     async def execute(self, initial_inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Run the workflow starting from the first trigger node.
+        
+        // Execution Loop: Steps through nodes sequentially starting from the 'trigger' node type,
+        // following onSuccess/onFailure connections and executing node actions.
+        // Captures real-time node outputs (stdout/stderr) and bubbles them up to the UI.
 
         Parameters
         ----------
@@ -102,34 +110,81 @@ class WorkflowExecutor:
                     message = "Trigger captured input payload."
                     
                 elif node_type == "auth":
-                    provider = config.get("provider", "default")
-                    api_key = config.get("apiKey", "")
-                    node_logs.append(f"Initializing authentication for provider '{provider}'...")
-                    
-                    if not api_key:
-                        node_logs.append("Warning: API Key is empty. Downstream requests may fail.")
-                        # If auth requires key, fail it
-                        if provider in ("sendgrid", "mailgun", "smtp_secure"):
-                            success = False
-                            message = f"Auth failed: Missing credentials for '{provider}'."
-                            node_logs.append(message)
-                        else:
-                            result_data = {"auth_status": "anonymous"}
-                            message = f"Authenticated anonymously for '{provider}'."
-                    else:
-                        masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
-                        node_logs.append(f"Verifying credentials (key: {masked_key})...")
-                        await asyncio.sleep(0.3)  # mock auth latency
-                        result_data = {"auth_status": "verified", "token_type": "Bearer"}
-                        message = f"Successfully authenticated provider '{provider}'."
+                    from python.harness import db
+                    rows = await db.fetch(
+                        "SELECT name, auth_type, config, locked FROM auth_credentials ORDER BY priority ASC"
+                    )
+                    locked_rows = [r for r in rows if r["locked"]]
+                    active_credentials = locked_rows if locked_rows else rows
+
+                    if not active_credentials:
+                        success = False
+                        message = "Auth failed: No credentials configured in the Settings -> Auth tab."
                         node_logs.append(message)
+                    else:
+                        success = False
+                        for cred in active_credentials:
+                            cred_cfg = dict(cred["config"]) if cred["config"] else {}
+                            api_key = cred_cfg.get("api_key", "")
+                            provider = cred["name"]
+                            node_logs.append(f"Attempting authentication with Auth tab Provider '{provider}'...")
+                            
+                            if api_key:
+                                masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
+                                node_logs.append(f"Verifying credentials (key: {masked_key})...")
+                                await asyncio.sleep(0.3)  # mock auth latency
+                                result_data = {"auth_status": "verified", "token_type": "Bearer", "resolved_provider": provider}
+                                message = f"Successfully authenticated via provider '{provider}' from Auth section."
+                                node_logs.append(message)
+                                success = True
+                                break
+                            else:
+                                node_logs.append(f"Provider '{provider}' has no token config. Trying next...")
+
+                        if not success:
+                            success = False
+                            message = "Auth failed: None of the active credentials configured in Settings -> Auth tab succeeded."
+                            node_logs.append(message)
 
                 elif node_type == "email":
-                    provider = config.get("provider", "SMTP")
                     to_addr = config.get("to", "")
                     subject = config.get("subject", "Tala Flow Alert")
                     body = config.get("body", "This is an automated workflow message from Tala.")
                     
+                    from python.harness import db
+                    rows = await db.fetch(
+                        "SELECT name, auth_type, config, locked FROM auth_credentials ORDER BY priority ASC"
+                    )
+                    locked_rows = [r for r in rows if r["locked"]]
+                    active_credentials = locked_rows if locked_rows else rows
+
+                    email_cred = None
+                    for cred in active_credentials:
+                        cfg = dict(cred["config"]) if cred["config"] else {}
+                        service = (cfg.get("service") or "").lower()
+                        name = cred["name"].lower()
+                        if any(term in service or term in name for term in ("email", "smtp", "mail", "sendgrid", "mailgun")):
+                            email_cred = cred
+                            break
+
+                    if not email_cred and active_credentials:
+                        email_cred = active_credentials[0]
+
+                    provider = "SMTP"
+                    cred_cfg = {}
+                    if email_cred:
+                        provider = email_cred["name"]
+                        cred_cfg = dict(email_cred["config"]) if email_cred["config"] else {}
+                        node_logs.append(f"Loaded email auth settings from Auth tab Provider '{provider}'")
+                        result_data = {
+                            "resolved_credential": {
+                                "name": provider,
+                                "config": cred_cfg
+                            }
+                        }
+                    else:
+                        node_logs.append("Warning: No email-capable auth provider found in Auth section. Falling back to default SMTP.")
+
                     node_logs.append(f"Preparing mail package via {provider}...")
                     if not to_addr:
                         success = False
@@ -141,7 +196,9 @@ class WorkflowExecutor:
                         node_logs.append(f"Body snippet: {body[:60]}...")
                         await asyncio.sleep(0.5)  # simulate sending SMTP packet
                         msg_id = f"msg-{uuid.uuid4().hex[:12]}"
-                        result_data = {"message_id": msg_id, "sent_at": datetime_now_iso()}
+                        if not result_data:
+                            result_data = {}
+                        result_data.update({"message_id": msg_id, "sent_at": datetime_now_iso()})
                         message = f"Email dispatched successfully via {provider}."
                         node_logs.append(message)
 

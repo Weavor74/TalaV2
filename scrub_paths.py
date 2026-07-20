@@ -1,3 +1,7 @@
+"""
+scrub_paths.py - Auto-generated documentation base.
+"""
+
 import os
 import glob
 import re

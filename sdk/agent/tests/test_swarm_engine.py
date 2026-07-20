@@ -1,3 +1,7 @@
+"""
+test_swarm_engine.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import pytest

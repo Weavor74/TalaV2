@@ -1,3 +1,7 @@
+"""
+local_provider.py - Auto-generated documentation base.
+"""
+
 import logging
 from typing import Any
 

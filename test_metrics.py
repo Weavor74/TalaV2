@@ -1,3 +1,7 @@
+"""
+test_metrics.py - Auto-generated documentation base.
+"""
+
 import os
 import asyncio
 from pathlib import Path

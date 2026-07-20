@@ -25,19 +25,29 @@ async def get_search_providers() -> list[dict[str, Any]]:
     """Retrieve all configured search providers sorted by priority from DB."""
     try:
         rows = await db.fetch(
-            "SELECT id, name, endpoint, api_key, priority, locked FROM search_providers ORDER BY priority ASC"
+            "SELECT p.id, p.name, p.endpoint, p.api_key, p.priority, p.locked, p.credential_id, "
+            "c.config as cred_config "
+            "FROM search_providers p "
+            "LEFT JOIN auth_credentials c ON p.credential_id = c.id "
+            "ORDER BY p.priority ASC"
         )
-        return [
-            {
+        providers = []
+        for r in rows:
+            api_key = r["api_key"]
+            if r["credential_id"] and r["cred_config"]:
+                cred_cfg = dict(r["cred_config"]) if r["cred_config"] else {}
+                api_key = cred_cfg.get("api_key", api_key)
+
+            providers.append({
                 "id": r["id"],
                 "name": r["name"],
                 "endpoint": r["endpoint"],
-                "api_key": r["api_key"],
+                "api_key": api_key,
                 "priority": r["priority"],
                 "locked": r["locked"],
-            }
-            for r in rows
-        ]
+                "credential_id": r["credential_id"],
+            })
+        return providers
     except Exception as exc:
         logger.error("Failed to fetch search providers: %s", exc)
         return []

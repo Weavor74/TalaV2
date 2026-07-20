@@ -1,3 +1,7 @@
+"""
+fetch_logs.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import json
 from python.harness import db

@@ -1,3 +1,7 @@
+"""
+test_workflow_skill_distillation.py - Auto-generated documentation base.
+"""
+
 import pytest
 
 from python.harness.workflow_executor import WorkflowExecutor

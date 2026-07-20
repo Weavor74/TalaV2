@@ -1,3 +1,7 @@
+"""
+webrtc_manager.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import json
 import logging

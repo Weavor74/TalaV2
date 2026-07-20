@@ -1,3 +1,7 @@
+"""
+test_multimodal.py - Auto-generated documentation base.
+"""
+
 import pytest
 import asyncio
 from unittest.mock import patch

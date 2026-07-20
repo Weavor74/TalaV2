@@ -1,3 +1,7 @@
+"""
+test_mcp_manager.py - Auto-generated documentation base.
+"""
+
 import sys
 import textwrap
 import json
@@ -127,7 +131,7 @@ async def test_mcp_manager_persists_registered_servers(tmp_path):
     assert tools[0]["name"] == "echo"
     assert reloaded.list_servers()[0]["config"]["env"]["API_KEY"] == "***"
 
-    assert reloaded.remove_server("persisted") is True
+    assert await reloaded.remove_server("persisted") is True
     after_remove = MCPManager(registry_path=registry_path)
     assert after_remove.list_servers() == []
 

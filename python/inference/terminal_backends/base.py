@@ -1,3 +1,7 @@
+"""
+base.py - Auto-generated documentation base.
+"""
+
 import abc
 import shlex
 import uuid

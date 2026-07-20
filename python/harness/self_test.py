@@ -1,3 +1,7 @@
+"""
+self_test.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import json
@@ -89,7 +93,7 @@ def build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[str
         ("electron syntax check", ["node", "--check", "electron/main.js"], 30.0),
         (
             "python tests",
-            [python_exe, "-m", "pytest", "tests", "--ignore=tests/benchmarks", "-q"],
+            [python_exe, "-m", "pytest", "tests", "--ignore=tests/benchmarks", "--basetemp=data/pytest_temp", "-q"],
             120.0,
         ),
         ("javascript tests", ["npx", "jest", "--runInBand", "--passWithNoTests"], 60.0),

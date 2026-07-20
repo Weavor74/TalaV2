@@ -1,3 +1,7 @@
+"""
+rebuild_v2_nodes.py - Auto-generated documentation base.
+"""
+
 import os
 import re
 import json

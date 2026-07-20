@@ -143,6 +143,7 @@ _DDL_STATEMENTS: list[str] = [
             level       TEXT        NOT NULL DEFAULT 'INFO',
             message     TEXT        NOT NULL,
             trace       JSONB       NOT NULL DEFAULT '{}',
+            tx_id       TEXT,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """),
@@ -243,14 +244,15 @@ _DDL_STATEMENTS: list[str] = [
     # ------------------------------------------------------------------
     textwrap.dedent("""\
         CREATE TABLE IF NOT EXISTS search_providers (
-            id          TEXT        PRIMARY KEY,
-            name        TEXT        NOT NULL,
-            endpoint    TEXT        NOT NULL,
-            api_key     TEXT        NOT NULL DEFAULT '',
-            priority    INTEGER     NOT NULL,
-            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            id            TEXT        PRIMARY KEY,
+            name          TEXT        NOT NULL,
+            endpoint      TEXT        NOT NULL,
+            api_key       TEXT        NOT NULL DEFAULT '',
+            priority      INTEGER     NOT NULL,
+            locked        BOOLEAN     NOT NULL DEFAULT FALSE,
+            credential_id TEXT,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """),
     # ------------------------------------------------------------------
@@ -258,15 +260,16 @@ _DDL_STATEMENTS: list[str] = [
     # ------------------------------------------------------------------
     textwrap.dedent("""\
         CREATE TABLE IF NOT EXISTS git_providers (
-            id          TEXT        PRIMARY KEY,
-            name        TEXT        NOT NULL,
-            endpoint    TEXT        NOT NULL,
-            username    TEXT        NOT NULL DEFAULT '',
-            api_key     TEXT        NOT NULL DEFAULT '',
-            priority    INTEGER     NOT NULL,
-            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+            id            TEXT        PRIMARY KEY,
+            name          TEXT        NOT NULL,
+            endpoint      TEXT        NOT NULL,
+            username      TEXT        NOT NULL DEFAULT '',
+            api_key       TEXT        NOT NULL DEFAULT '',
+            priority      INTEGER     NOT NULL,
+            locked        BOOLEAN     NOT NULL DEFAULT FALSE,
+            credential_id TEXT,
+            created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """),
     # ------------------------------------------------------------------
@@ -280,6 +283,7 @@ _DDL_STATEMENTS: list[str] = [
             provider_type TEXT        NOT NULL,
             credentials   JSONB       NOT NULL DEFAULT '{}'::jsonb,
             priority      INTEGER     NOT NULL,
+            locked        BOOLEAN     NOT NULL DEFAULT FALSE,
             created_at    TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at    TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -296,6 +300,7 @@ _DDL_STATEMENTS: list[str] = [
             password    TEXT        NOT NULL DEFAULT '',
             database    TEXT        NOT NULL DEFAULT '',
             priority    INTEGER     NOT NULL,
+            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -310,6 +315,7 @@ _DDL_STATEMENTS: list[str] = [
             url         TEXT        NOT NULL,
             api_key     TEXT        NOT NULL DEFAULT '',
             priority    INTEGER     NOT NULL,
+            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -324,6 +330,7 @@ _DDL_STATEMENTS: list[str] = [
             auth_type   TEXT        NOT NULL, -- 'ssh', 'rdp', 'api_key', 'oauth'
             config      JSONB       NOT NULL DEFAULT '{}'::jsonb,
             priority    INTEGER     NOT NULL,
+            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
             created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
@@ -846,6 +853,7 @@ async def log_to_db(
     level: str,
     message: str,
     trace: dict[str, Any] | None = None,
+    tx_id: str | None = None,
 ) -> None:
     """
     Append a structured log entry to the ``agent_log`` table.
@@ -860,12 +868,13 @@ async def log_to_db(
         async with pool.acquire() as conn:
             await conn.execute(
                 """
-                INSERT INTO agent_log (level, message, trace)
-                VALUES ($1, $2, $3::jsonb)
+                INSERT INTO agent_log (level, message, trace, tx_id)
+                VALUES ($1, $2, $3::jsonb, $4)
                 """,
                 level.upper(),
                 message,
                 trace_json,
+                tx_id,
             )
     except Exception as exc:  # noqa: BLE001
         logger.warning("Failed to write to agent_log: %s", exc)
@@ -945,6 +954,13 @@ async def _run_migrations() -> None:
         async with pool.acquire() as conn:
             await conn.execute("ALTER TABLE search_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
             await conn.execute("ALTER TABLE git_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+            await conn.execute("ALTER TABLE storage_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+            await conn.execute("ALTER TABLE database_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+            await conn.execute("ALTER TABLE runtime_instances ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+            await conn.execute("ALTER TABLE auth_credentials ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
+            await conn.execute("ALTER TABLE search_providers ADD COLUMN IF NOT EXISTS credential_id TEXT;")
+            await conn.execute("ALTER TABLE git_providers ADD COLUMN IF NOT EXISTS credential_id TEXT;")
+            await conn.execute("ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS tx_id TEXT;")
     except Exception as exc:
         logger.warning("Failed to run dynamic migrations: %s", exc)
     try:

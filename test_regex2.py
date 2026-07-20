@@ -1,3 +1,7 @@
+"""
+test_regex2.py - Auto-generated documentation base.
+"""
+
 import re
 pattern = r'(\w+)\s*=\s*("[^"]*"|\'[^\']*\'|\[[^\]]*\]|{[^}]*})'
 attr_str = ' action="start" node_id="workflow-node_builder"'

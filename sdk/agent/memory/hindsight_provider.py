@@ -1,3 +1,7 @@
+"""
+hindsight_provider.py - Auto-generated documentation base.
+"""
+
 import httpx
 import logging
 from typing import Any

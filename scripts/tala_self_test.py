@@ -1,3 +1,7 @@
+"""
+tala_self_test.py - Auto-generated documentation base.
+"""
+
 from __future__ import annotations
 
 import sys

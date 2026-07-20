@@ -1,3 +1,7 @@
+"""
+test_semantic_rag.py - Auto-generated documentation base.
+"""
+
 import pytest
 import json
 from python.harness.server import handle_p2p_semantic_search

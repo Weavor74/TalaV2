@@ -1168,25 +1168,20 @@
                           </div>
 
                           <div id="config-auth-fields" class="dynamic-config-fields" style="display: none;">
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Provider Name</label>
-                              <select id="prop-auth-provider" style="width: 100%; padding: var(--space-2); background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
-                                <option value="smtp">SMTP (Mail Server)</option>
-                                <option value="sendgrid">SendGrid API</option>
-                                <option value="mailgun">Mailgun API</option>
-                                <option value="custom">Custom Auth</option>
-                              </select>
-                            </div>
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">API Key / Secret Token</label>
-                              <input type="password" id="prop-auth-apikey" placeholder="Enter credentials key..." style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
+                            <div style="background: rgba(138, 92, 246, 0.08); border: 1px solid rgba(138, 92, 246, 0.2); border-radius: 4px; padding: 12px; margin-bottom: 12px;">
+                              <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0 0 10px 0; line-height: 1.4;">
+                                Authentication credentials and priority rules are managed directly within the global Auth section. The workflow runner executes this node using active/locked configurations.
+                              </p>
+                              <button type="button" class="btn btn-primary" id="btn-workflow-goto-auth" style="width: 100%; font-size: 0.75rem; padding: 6px; cursor: pointer;">Configure Auth tab</button>
                             </div>
                           </div>
 
                           <div id="config-email-fields" class="dynamic-config-fields" style="display: none;">
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Email Provider</label>
-                              <input type="text" id="prop-email-provider" placeholder="e.g. SMTP, SendGrid" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
+                            <div style="background: rgba(138, 92, 246, 0.08); border: 1px solid rgba(138, 92, 246, 0.2); border-radius: 4px; padding: 12px; margin-bottom: 12px;">
+                              <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0 0 10px 0; line-height: 1.4;">
+                                SMTP and mail delivery settings are resolved dynamically from active/locked email-capable credentials configured in the global Auth section.
+                              </p>
+                              <button type="button" class="btn btn-primary" id="btn-workflow-goto-auth-email" style="width: 100%; font-size: 0.75rem; padding: 6px; cursor: pointer;">Configure Auth tab</button>
                             </div>
                             <div class="form-group" style="margin-bottom: var(--space-3);">
                               <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Recipient (To)</label>
@@ -2154,47 +2149,82 @@
                             <stop offset="100%" stop-color="#a78bfa" />
                           </linearGradient>
                         </defs>
-                        <!-- Top horizontal flow: UI -> Harness -> Inference -->
-                        <line class="flow-line" x1="16.6%" y1="25%" x2="50%" y2="25%" />
-                        <line class="flow-line-animated" x1="16.6%" y1="25%" x2="50%" y2="25%" />
-                        <line class="flow-line" x1="50%" y1="25%" x2="83.3%" y2="25%" />
-                        <line class="flow-line-animated" x1="50%" y1="25%" x2="83.3%" y2="25%" />
+                        <!-- Top-to-Mid vertical flows -->
+                        <line class="flow-line" x1="16.6%" y1="16.6%" x2="16.6%" y2="50%" />
+                        <line class="flow-line-animated" x1="16.6%" y1="16.6%" x2="16.6%" y2="50%" />
+                        <line class="flow-line" x1="50%" y1="16.6%" x2="50%" y2="50%" />
+                        <line class="flow-line-animated" x1="50%" y1="16.6%" x2="50%" y2="50%" />
+                        <line class="flow-line" x1="83.3%" y1="16.6%" x2="83.3%" y2="50%" />
+                        <line class="flow-line-animated" x1="83.3%" y1="16.6%" x2="83.3%" y2="50%" />
                         
-                        <!-- Vertical flow: Harness -> DB -->
-                        <line class="flow-line" x1="50%" y1="25%" x2="50%" y2="75%" />
-                        <line class="flow-line-animated" x1="50%" y1="25%" x2="50%" y2="75%" />
+                        <!-- Mid-to-Bottom flows -->
+                        <line class="flow-line" x1="16.6%" y1="50%" x2="16.6%" y2="83.3%" />
+                        <line class="flow-line-animated" x1="16.6%" y1="50%" x2="16.6%" y2="83.3%" />
+                        <line class="flow-line" x1="50%" y1="50%" x2="83.3%" y2="83.3%" />
+                        <line class="flow-line-animated" x1="50%" y1="50%" x2="83.3%" y2="83.3%" />
+                        <line class="flow-line" x1="83.3%" y1="50%" x2="50%" y2="83.3%" />
+                        <line class="flow-line-animated" x1="83.3%" y1="50%" x2="50%" y2="83.3%" />
                         
-                        <!-- Diagonal flow: Inference -> DB -->
-                        <line class="flow-line" x1="83.3%" y1="25%" x2="50%" y2="75%" />
-                        <line class="flow-line-animated" x1="83.3%" y1="25%" x2="50%" y2="75%" />
+                        <!-- Horizontal interconnect flows -->
+                        <line class="flow-line" x1="16.6%" y1="50%" x2="50%" y2="50%" />
+                        <line class="flow-line-animated" x1="16.6%" y1="50%" x2="50%" y2="50%" />
+                        <line class="flow-line" x1="83.3%" y1="50%" x2="16.6%" y2="50%" />
+                        <line class="flow-line-animated" x1="83.3%" y1="50%" x2="16.6%" y2="50%" />
+                        <line class="flow-line" x1="50%" y1="83.3%" x2="16.6%" y2="83.3%" />
+                        <line class="flow-line-animated" x1="50%" y1="83.3%" x2="16.6%" y2="83.3%" />
                       </svg>
                       
                       <div class="arch-grid">
-                        <!-- Top Row -->
+                        <!-- Row 1: Frontend and Interfaces -->
                         <div class="arch-node">
                           <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2" ry="2"/><line x1="8" y1="21" x2="16" y2="21"/><line x1="12" y1="17" x2="12" y2="21"/></svg></div>
                           <div class="arch-node-title">Tala Renderer</div>
                           <div class="arch-node-desc">Electron Frontend UI<br>& Context Canvas</div>
                         </div>
                         <div class="arch-node">
+                          <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><rect x="3" y="3" width="6" height="6" rx="1"/><rect x="15" y="3" width="6" height="6" rx="1"/><rect x="9" y="15" width="6" height="6" rx="1"/><path d="M6 9v3h6m0 0v3m0-3h6V9"/></svg></div>
+                          <div class="arch-node-title">Workflow Builder</div>
+                          <div class="arch-node-desc">Visual State-Machine<br>Pipeline Compiler</div>
+                        </div>
+                        <div class="arch-node">
+                          <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><circle cx="4" cy="4" r="2"/><circle cx="20" cy="4" r="2"/><circle cx="4" cy="20" r="2"/><circle cx="20" cy="20" r="2"/><line x1="5.4" y1="5.4" x2="9.9" y2="9.9"/><line x1="18.6" y1="5.4" x2="14.1" y2="9.9"/><line x1="5.4" y1="18.6" x2="9.9" y2="14.1"/><line x1="18.6" y1="18.6" x2="14.1" y2="14.1"/></svg></div>
+                          <div class="arch-node-title">P2P Mesh Router</div>
+                          <div class="arch-node-desc">Peer Node Handshakes<br>& Remote Instances</div>
+                        </div>
+                        
+                        <!-- Row 2: Orchestration and Gateways -->
+                        <div class="arch-node">
                           <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2L2 7l10 5 10-5-10-5z"/><path d="M2 17l10 5 10-5"/><path d="M2 12l10 5 10-5"/></svg></div>
                           <div class="arch-node-title">Harness Engine Room</div>
                           <div class="arch-node-desc">Python Async Server<br>& JSON-RPC Router</div>
+                        </div>
+                        <div class="arch-node">
+                          <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><polygon points="5 3 19 12 5 21 5 3"/><line x1="19" y1="5" x2="19" y2="19"/></svg></div>
+                          <div class="arch-node-title">Workflow Executor</div>
+                          <div class="arch-node-desc">State-machine steps<br>& Script Runner</div>
+                        </div>
+                        <div class="arch-node">
+                          <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
+                          <div class="arch-node-title">Blockchain Firewall</div>
+                          <div class="arch-node-desc">Clearance Levels &<br>Category Access checks</div>
+                        </div>
+
+                        <!-- Row 3: Data and Core Processing -->
+                        <div class="arch-node">
+                          <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
+                          <div class="arch-node-title">PostgreSQL Vector DB</div>
+                          <div class="arch-node-desc">Neural Nodes,<br>Profiles & Auth Keys</div>
+                        </div>
+                        <div class="arch-node">
+                          <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="12" r="3"/><circle cx="19" cy="12" r="3"/><circle cx="12" cy="19" r="3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
+                          <div class="arch-node-title">ChromaDB Node Index</div>
+                          <div class="arch-node-desc">Local Semantic RAG<br>& Vector Embeddings</div>
                         </div>
                         <div class="arch-node">
                           <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg></div>
                           <div class="arch-node-title">Inference Engine</div>
                           <div class="arch-node-desc">vLLM Streams &<br>Cloud API Routing</div>
                         </div>
-                        
-                        <!-- Bottom Row -->
-                        <div></div>
-                        <div class="arch-node">
-                          <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
-                          <div class="arch-node-title">PostgreSQL Vector DB</div>
-                          <div class="arch-node-desc">Neural Nodes,<br>Profiles & Auth Keys</div>
-                        </div>
-                        <div></div>
                       </div>
                     </div>
                   </div>
@@ -2976,7 +3006,13 @@
             <input class="form-field-input" id="search-prov-endpoint" type="text" placeholder="https://api.tavily.com/v1/search or http://searxng.local/search" required />
           </div>
           <div class="form-field-group">
-            <label class="form-field-label" for="search-prov-apikey">API Key <span class="label-optional">(optional)</span></label>
+            <label class="form-field-label" for="search-prov-credential-id">API Key Credential</label>
+            <select class="form-field-input form-select" id="search-prov-credential-id">
+              <option value="">None / Custom API Key</option>
+            </select>
+          </div>
+          <div class="form-field-group" id="search-prov-custom-key-row">
+            <label class="form-field-label" for="search-prov-apikey">Custom API Key <span class="label-optional">(optional)</span></label>
             <input class="form-field-input" id="search-prov-apikey" type="password" placeholder="Enter API key or credential token" autocomplete="new-password" />
           </div>
         </div>
@@ -3017,7 +3053,13 @@
           <div class="form-hint">Default username for authenticated operations.</div>
         </div>
         <div class="form-group">
-          <label class="form-label" for="git-prov-apikey">API Key / Personal Access Token</label>
+          <label class="form-label" for="git-prov-credential-id">API Key Credential</label>
+          <select class="form-input form-select" id="git-prov-credential-id">
+            <option value="">None / Custom Token</option>
+          </select>
+        </div>
+        <div class="form-group" id="git-prov-custom-key-row">
+          <label class="form-label" for="git-prov-apikey">Custom API Key / Personal Access Token</label>
           <input type="password" id="git-prov-apikey" class="form-input" placeholder="ghp_••••••••••••••••">
           <div class="form-hint">Leave blank for unauthenticated / public access.</div>
         </div>
@@ -3052,6 +3094,7 @@
               <option value="nfs">NFS Share</option>
               <option value="azure">Azure Blob Storage</option>
               <option value="sftp">SFTP / SSH</option>
+              <option value="ftp">FTP / FTPS</option>
               <option value="dropbox">Dropbox</option>
               <option value="onedrive">OneDrive</option>
               <option value="custom">Custom / Generic</option>
@@ -3172,6 +3215,35 @@
           <div class="form-group">
             <label class="form-label" for="stor-sftp-key">Private Key or Password</label>
             <textarea id="stor-sftp-key" class="form-input stor-textarea" rows="3" placeholder="Paste private key (PEM) or leave blank to use password prompt..."></textarea>
+          </div>
+        </div>
+
+        <!-- FTP fields -->
+        <div class="stor-fields" id="stor-fields-ftp" hidden>
+          <div class="stor-fields-divider">FTP / FTPS Configuration</div>
+          <div class="storage-modal-row">
+            <div class="form-group">
+              <label class="form-label" for="stor-ftp-host">Host <span class="required-star">*</span></label>
+              <input type="text" id="stor-ftp-host" class="form-input" placeholder="ftp.example.com">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="stor-ftp-port">Port</label>
+              <input type="number" id="stor-ftp-port" class="form-input" placeholder="21" value="21" min="1" max="65535">
+            </div>
+          </div>
+          <div class="storage-modal-row">
+            <div class="form-group">
+              <label class="form-label" for="stor-ftp-user">Username <span class="required-star">*</span></label>
+              <input type="text" id="stor-ftp-user" class="form-input" placeholder="anonymous">
+            </div>
+            <div class="form-group">
+              <label class="form-label" for="stor-ftp-path">Remote Base Path</label>
+              <input type="text" id="stor-ftp-path" class="form-input" placeholder="/tala/data">
+            </div>
+          </div>
+          <div class="form-group">
+            <label class="form-label" for="stor-ftp-pass">Password</label>
+            <input type="password" id="stor-ftp-pass" class="form-input" placeholder="••••••••••••">
           </div>
         </div>
 

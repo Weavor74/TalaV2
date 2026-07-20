@@ -1,3 +1,7 @@
+"""
+crypto.py - Auto-generated documentation base.
+"""
+
 import os
 import base64
 from pathlib import Path

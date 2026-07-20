@@ -1,3 +1,7 @@
+"""
+test_regex3.py - Auto-generated documentation base.
+"""
+
 import re
 
 # Case 1: Properly closed

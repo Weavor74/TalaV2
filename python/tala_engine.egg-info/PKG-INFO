@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: tala-engine
-Version: 0.1.9
+Version: 0.1.30
 Summary: Tala Cognitive Engine Room — local AI orchestration shell
 Author: Tala Project
 Requires-Python: >=3.10
@@ -14,9 +14,6 @@ Requires-Dist: python-dotenv==1.2.2
 Requires-Dist: pydantic==2.13.4
 Requires-Dist: openai==2.44.0
 Requires-Dist: google-generativeai==0.8.6
-Requires-Dist: transformers==5.12.1
-Requires-Dist: accelerate==1.14.0
-Requires-Dist: sentencepiece==0.2.1
 Requires-Dist: textual==8.2.7
 Requires-Dist: rich==15.0.0
 Requires-Dist: mcp==1.28.0
@@ -29,19 +26,50 @@ Requires-Dist: Pillow==12.2.0
 Requires-Dist: mnemonic==0.21
 Requires-Dist: aiortc==1.14.0
 Requires-Dist: lxml==6.1.1
+Requires-Dist: tqdm>=4.66.0
+Requires-Dist: huggingface_hub>=0.23.0
 Provides-Extra: test
 Requires-Dist: pytest==9.1.1; extra == "test"
 Requires-Dist: pytest-asyncio==1.4.0; extra == "test"
+Provides-Extra: transformers
+Requires-Dist: transformers==5.12.1; extra == "transformers"
+Requires-Dist: accelerate==1.14.0; extra == "transformers"
+Requires-Dist: sentencepiece==0.2.1; extra == "transformers"
+Provides-Extra: vllm
+Requires-Dist: vllm>=0.5.0; extra == "vllm"
+Provides-Extra: llamacpp
+Requires-Dist: llama-cpp-python>=0.2.79; extra == "llamacpp"
 Provides-Extra: voice
 Requires-Dist: openai-whisper>=20231117; extra == "voice"
 Requires-Dist: sounddevice>=0.4.6; extra == "voice"
 Requires-Dist: numpy<2.5.0,>=1.26.0; extra == "voice"
+Provides-Extra: mem0
+Requires-Dist: mem0ai>=0.1.29; extra == "mem0"
+Provides-Extra: astrology
+Requires-Dist: pyswisseph>=2.10.3.2; extra == "astrology"
 
 # Tala Cognitive Engine Room
 
-Tala is an offline-first, desktop-native AI orchestration shell built with Electron and a Python backend.
+Tala is an offline-first, desktop-native AI orchestration shell built with Electron and a Python backend. It serves as a secure, distributed, and highly-capable agentic ecosystem (conceptually similar to self-improving agents like Hermes, but fortified with enterprise-grade data persistence and peer-to-peer networking).
 
 This repository is intentionally committed as a blank slate: generated node files, local databases, snapshots, caches, and runtime blockchain state are excluded from source control.
+
+## Core Capabilities
+
+- **P2P Mesh Networking & Remote Orchestration:** Tala integrates a WebRTC mesh network (`aiortc`), enabling secure peer-to-peer JSON-RPC over DataChannels. This allows agents to seamlessly interact, orchestrate remote services, or perform secure remote desktop operations across distributed nodes.
+- **Tala Proof-of-Authority (PoA) Blockchain:** A localized blockchain ledger tracks trusted nodes, verifies peer identity during mesh orchestration, and anchors distilled marketplace skills. Tala operates a dual-mode token economy:
+  - **Ghost Tokens (local mode):** When the system is set to Stay Local, all interactions use ghost tokens — an unlimited internal accounting unit that never touches the blockchain. Every call is still logged to the immutable local `token_ledger` for audit purposes.
+  - **Real Tokens (connected mode):** When connected to a peer network (VPS mode), cross-node inference calls that consume another peer's resources settle on-chain as signed payment transactions. The counterparty receives the payment minus a configurable house fee. Insufficient real-token balance raises a hard gate before inference proceeds.
+- **HTML Neural Nodes (HTML-NN):** Tala's primary architecture for memory, logic, and self-documentation. These are human-readable HTML documents embedded with machine-readable semantic metadata and execution weights, allowing the AI to seamlessly parse, retrieve, and execute complex workflows or contextual data.
+- **Autonomous Skill Distillation:** Tala features an autonomous learning loop (`SkillDistiller`) that analyzes successful workflows and distills them into reusable YAML/Python plugins. These skills are automatically packaged as marketplace-ready manifests that can be anchored to the Tala blockchain for network distribution.
+- **Enterprise-Grade Memory (Mem0 + PostgreSQL):** Tala optionally integrates semantic vector memory (`mem0ai`) as a read-only fuzzy-search cache for deep historical context across sessions. The `Mem0ReadOnlyAdapter` enforces a hard architectural invariant: all durable state (nodes, ledger, vault) is authoritatively managed by a local PostgreSQL database; mem0 writes are blocked at the adapter level. Install the `[mem0]` extra to enable semantic recall.
+- **Astro Emotion Engine:** A dynamic personality and emotional state engine that drives contextual persona variance. It manages agent profiles and stateful emotional responses, ensuring highly dynamic, human-like interactions across different agents and users.
+- **Advanced Visual Builders:** The Electron interface provides interactive visual builders for zero-code orchestration:
+  - **Agent Builder:** Create and refine complex agent personas with specific capabilities.
+  - **Guardrail Builder:** Architect strict, rule-based safety, output, and behavior constraints.
+  - **Workflow Builder:** Design multi-step, multi-agent workflows and node graphs via an intuitive visual editor.
+- **Model Context Protocol (MCP) Integration:** Tala provides full support for the official MCP Python SDK, dynamically mapping and invoking external capabilities across both `stdio` (local subprocess) and `sse` (remote HTTP) transports.
+- **Bring-Your-Own-Everything (BYOE):** Fully abstracted access supporting multiple embedded or remote providers for inference (vLLM, OpenAI, Anthropic, OpenRouter), authentication, and storage endpoints, orchestrated via the Python backend's configuration.
 
 ## Architecture Documents
 
@@ -55,7 +83,7 @@ Tala's primary architecture docs are HTML Neural Nodes in `nodes/`. These are hu
 
 - `nodes/system-tala-self-updating-documentation-contract.html` - mandatory contract for updating Tala's HTML-NN repair docs whenever code, schema, UI, provider, workflow, guardrail, astro, packaging, or runtime behavior changes.
 - `nodes/system-tala-rpc-surface-reference.html` - JSON-RPC handler families, backend control surface, and self-repair rules for renderer/harness integration.
-- `nodes/system-tala-database-schema-reference.html` - SQLite persistence map for nodes, providers, agents, guardrails, profiles, contacts, tasks, memory, and research state.
+- `nodes/system-tala-database-schema-reference.html` - PostgreSQL persistence map for nodes, providers, agents, guardrails, profiles, contacts, tasks, memory, and research state.
 - `nodes/system-tala-embedded-inference-runtime.html` - embedded provider lifecycle, model cache/download behavior, dependency setup, and operator-facing inference boundaries.
 
 Supporting schema docs:

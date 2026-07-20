@@ -1,3 +1,7 @@
+"""
+build_bundles.py - Auto-generated documentation base.
+"""
+
 import os
 import zipfile
 import fnmatch

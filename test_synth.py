@@ -1,3 +1,7 @@
+"""
+test_synth.py - Auto-generated documentation base.
+"""
+
 import asyncio
 import logging
 from sdk.agent.goal_engine import GoalEngine

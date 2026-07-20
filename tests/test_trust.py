@@ -1,3 +1,7 @@
+"""
+test_trust.py - Auto-generated documentation base.
+"""
+
 import os
 import json
 import hashlib
