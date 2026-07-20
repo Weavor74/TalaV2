@@ -1388,8 +1388,9 @@ async def handle_inference_generate(
         logger.info("Router Mode active: Enqueued %d local/embedded and %d remote fallback providers.", len(local_providers), len(remote_providers))
 
     loop_count = 0
-    max_loops = 3
+    max_loops = 8  # Raised from 3 — complex agentic tasks need more turns
     all_responses = []
+    last_raw_assistant_text = ""  # Track last raw LLM output for accurate loop detection
     failed_endpoints = set()
 
     while loop_count < max_loops:
@@ -1601,10 +1602,11 @@ async def handle_inference_generate(
                     fallback_reason = None
                     if any(phrase in gen_lower for phrase in low_confidence_phrases):
                         fallback_reason = "Low confidence detected"
-                    elif all_responses:
-                        last_response = all_responses[-1]
+                    elif last_raw_assistant_text:
+                        # Compare the raw (pre-clean) LLM outputs so the <call:...> tags are
+                        # still present in both sides — cleaned all_responses strips the tags.
                         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
-                        last_tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', last_response, re.DOTALL)
+                        last_tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', last_raw_assistant_text, re.DOTALL)
                         if tool_match and last_tool_match and tool_match.group(0) == last_tool_match.group(0):
                             fallback_reason = "Identical tool call loop detected"
                             
@@ -1653,6 +1655,36 @@ async def handle_inference_generate(
         if not success:
             all_errors = "; ".join(errors)
             return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"All inference providers failed: {all_errors}")
+
+        # Normalize alternate tool-call formats that small models tend to emit instead of
+        # the canonical <call:tool_name attr="val" /> XML tag.  We convert:
+        #   ```xml\nCALL:tool.name(key="val")\n```   →  <call:tool.name key="val" />
+        #   `CALL:tool.name(key="val")`              →  <call:tool.name key="val" />
+        #   CALL:tool.name(key="val")                →  <call:tool.name key="val" />
+        def _normalize_tool_call_format(text: str) -> str:
+            def _reformat(m: re.Match) -> str:
+                name = m.group(1)
+                raw_args = m.group(2).strip().lstrip("(").rstrip(")")
+                return f'<call:{name} {raw_args} />'
+
+            # ```xml CALL:... ``` block (with or without newlines)
+            text = re.sub(
+                r'```(?:xml)?\s*CALL:([\w\.]+)\(([^)]*)\)\s*```',
+                _reformat, text, flags=re.DOTALL | re.IGNORECASE
+            )
+            # Inline backtick: `CALL:tool(args)`
+            text = re.sub(
+                r'`CALL:([\w\.]+)\(([^)]*)\)`',
+                _reformat, text, flags=re.IGNORECASE
+            )
+            # Bare CALL: not preceded by < (so we don't double-convert)
+            text = re.sub(
+                r'(?<!<)\bCALL:([\w\.]+)\(([^)]*)\)',
+                _reformat, text, flags=re.IGNORECASE
+            )
+            return text
+
+        generated_text = _normalize_tool_call_format(generated_text)
 
         # Parse tool calls
         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
@@ -1771,7 +1803,29 @@ async def handle_inference_generate(
                 tool_result = f"Error executing registry tool: {exc}"
 
         if tool_lower.startswith("docs."):
-            all_responses.append(json.dumps(tool_result, indent=2))
+            # Produce a human-readable confirmation instead of a raw JSON blob
+            if isinstance(tool_result, dict):
+                created = tool_result.get("created", False)
+                updated = tool_result.get("updated", False)
+                unchanged = tool_result.get("unchanged", False)
+                node_id = tool_result.get("node_id") or tool_result.get("result", {}).get("node_id", "")
+                errors_list = tool_result.get("errors", [])
+                validation = tool_result.get("validation_passed", tool_result.get("result", {}).get("validation_passed", None))
+
+                if errors_list:
+                    human_result = f"\u274c Documentation node operation failed: {'; '.join(str(e) for e in errors_list)}"
+                elif created:
+                    human_result = f"\u2705 Documentation node **{node_id}** created successfully" + (" (validation passed)" if validation else "")
+                elif updated:
+                    human_result = f"\u2705 Documentation node **{node_id}** updated successfully" + (" (validation passed)" if validation else "")
+                elif unchanged:
+                    human_result = f"\u2139\ufe0f Documentation node **{node_id}** is already up to date — no changes were needed."
+                else:
+                    human_result = json.dumps(tool_result, indent=2)
+            else:
+                human_result = str(tool_result) if tool_result else "\u26a0\ufe0f Documentation tool returned no result."
+
+            all_responses.append(human_result)
             break
 
         # Filter out the tag from user visible response
@@ -1793,6 +1847,8 @@ async def handle_inference_generate(
             {"tool": tool_name, "params": attrs}
         )
 
+        # Snapshot the raw LLM text so the loop detector can compare with real tags intact
+        last_raw_assistant_text = generated_text
         loop_count += 1
     else:
         # Loop limit reached, append final text

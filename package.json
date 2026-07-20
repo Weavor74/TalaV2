@@ -1,6 +1,6 @@
 {
   "name": "tala-engine",
-  "version": "0.1.31",
+  "version": "0.1.32",
   "description": "Tala Cognitive Engine Room \u2014 local AI orchestration shell",
   "main": "electron/main.js",
   "author": "Tala Project",
@@ -86,6 +86,10 @@
     "testMatch": [
       "**/tests/**/*.test.js",
       "**/?(*.)+(spec|test).js"
+    ],
+    "testPathIgnorePatterns": [
+      "/node_modules/",
+      "/.tala_snapshots/"
     ]
   }
 }
