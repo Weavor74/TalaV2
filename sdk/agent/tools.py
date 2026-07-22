@@ -1281,10 +1281,12 @@ async def write_files_tool(
         "Arbitrary shell commands are not allowed."
     ),
 )
-async def run_validation_tool(commands: list, timeout: float = 60.0) -> dict[str, Any]:
+async def run_validation_tool(commands: Any, timeout: float = 60.0) -> dict[str, Any]:
     from sdk.agent.safe_code_bridges import run_validation
 
     try:
+        if isinstance(commands, str):
+            commands = [cmd.strip() for cmd in commands.split(",") if cmd.strip()]
         return await run_validation(commands=commands, timeout=timeout)
     except Exception as exc:
         return {"success": False, "errors": [str(exc)], "results": []}
