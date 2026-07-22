@@ -1728,6 +1728,8 @@ async def handle_inference_generate(
         # Alias common LLM hallucinated tool names
         if tool_name.startswith("run_workflow"):
             tool_name = "run_workflow_node"
+        elif tool_name == "run_validation":
+            tool_name = "test.run_validation"
 
         # Parse attributes
         attrs = {}
