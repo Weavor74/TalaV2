@@ -1486,12 +1486,17 @@ async def handle_inference_generate(
                     if is_reasoning_model and adjusted_max_tokens < 2048:
                         adjusted_max_tokens = 2048
 
+                    actual_temp = temperature
+                    # Kimi/Moonshot models only support temperature=1.0. Lower/higher values trigger HTTP 400.
+                    if "kimi" in model_lower or "moonshot" in model_lower or (endpoint and ("kimi" in endpoint.lower() or "moonshot" in endpoint.lower())):
+                        actual_temp = 1.0
+
                     url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
                     payload = {
                         "model": model,
                         "messages": messages,
                         "max_tokens": adjusted_max_tokens,
-                        "temperature": temperature,
+                        "temperature": actual_temp,
                         "stream": stream
                     }
 
