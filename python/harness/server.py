@@ -1762,6 +1762,8 @@ async def handle_inference_generate(
                 attrs["goal"] = inner_content
             elif tool_name == "submit_agent_goal":
                 attrs["goal"] = inner_content
+            elif tool_name.lower() in {"run_workspace_command", "shell.run"}:
+                attrs["command"] = inner_content
             elif "content" not in attrs:
                 attrs["content"] = inner_content
 
