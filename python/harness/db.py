@@ -989,6 +989,29 @@ async def _run_migrations() -> None:
     """Apply all DDL statements idempotently (CREATE IF NOT EXISTS)."""
     pool = get_pool()
     async with pool.acquire() as conn:
+        # Check and drop legacy graph_nodes if missing task_id column
+        try:
+            table_exists = await conn.fetchval("""
+                SELECT EXISTS (
+                    SELECT 1 
+                    FROM information_schema.tables 
+                    WHERE table_name='graph_nodes'
+                );
+            """)
+            if table_exists:
+                col_exists = await conn.fetchval("""
+                    SELECT EXISTS (
+                        SELECT 1 
+                        FROM information_schema.columns 
+                        WHERE table_name='graph_nodes' AND column_name='task_id'
+                    );
+                """)
+                if not col_exists:
+                    logger.warning("Legacy graph_nodes table detected (missing task_id). Dropping and recreating it.")
+                    await conn.execute("DROP TABLE IF EXISTS graph_nodes CASCADE;")
+        except Exception as e:
+            logger.warning("Failed to check/drop legacy graph_nodes table: %s", e)
+
         for stmt in _DDL_STATEMENTS:
             try:
                 await conn.execute(stmt)
