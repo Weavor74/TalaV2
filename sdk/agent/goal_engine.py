@@ -253,13 +253,19 @@ class GoalEngine:
             if self.is_fallback:
                 task_context = dict(task_context)
                 task_context["is_fallback"] = True
-            res = await self.dispatcher.dispatch(
-                task.description,
-                self.root_dir,
-                context=task_context,
-                authority_level=policy.authority_level,
-                adapter_packet=adapter_packet,
-            )
+            # Execute the step using the DAG-Engineered execution engine
+            from sdk.agent.graph_engine import DAGExecutionEngine
+            graph_engine = DAGExecutionEngine(self.root_dir)
+            graph_res = await graph_engine.execute_task_as_dag(task, policy)
+            
+            res = {
+                "command": task.description,
+                "success": graph_res["success"],
+                "output": graph_res.get("output"),
+                "error": graph_res.get("error"),
+                "stdout": graph_res.get("stdout", ""),
+                "stderr": graph_res.get("stderr", ""),
+            }
             
             # Increment steps taken in budget tracker
             tracker.tick()

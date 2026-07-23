@@ -242,11 +242,19 @@ class ToolRegistry:
             }
 
         try:
-            log.info("ToolRegistry: executing tool %r with args %s", name, arguments)
-            if inspect.iscoroutinefunction(func):
-                result = await func(**arguments)
+            # Filter arguments to match the target function signature
+            sig = inspect.signature(func)
+            has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
+            if not has_kwargs:
+                filtered_args = {k: v for k, v in arguments.items() if k in sig.parameters}
             else:
-                result = func(**arguments)
+                filtered_args = arguments
+
+            log.info("ToolRegistry: executing tool %r with filtered args %s", name, filtered_args)
+            if inspect.iscoroutinefunction(func):
+                result = await func(**filtered_args)
+            else:
+                result = func(**filtered_args)
             
             # --- PROMPTWARE DEFENSE: Scan and redact output ---
             try:

@@ -7563,6 +7563,76 @@ async def handle_swarm_artifact_inspect(params: dict[str, Any], req_id: Any) -> 
     if not row: return _err(req_id, JsonRpcError.INVALID_PARAMS, "Artifact not found")
     return _ok(req_id, {"artifact": row["result"]})
 
+async def handle_swarm_fleet_status(params: dict[str, Any], req_id: Any) -> str:
+    try:
+        from sdk.agent.orchestrator_cli import get_active_tasks, get_port_allocations
+        from sdk.agent.sandbox import DockerSandbox
+        from sdk.agent.async_shell import AsyncShellExecutor
+        
+        tasks = await get_active_tasks()
+        ports = await get_port_allocations()
+        
+        sandbox = DockerSandbox()
+        docker_ok = await sandbox.check_docker_available()
+        
+        containers = {}
+        if docker_ok:
+            res = await AsyncShellExecutor.run_exec("docker", ["ps", "--filter", "name=tala-sandbox-", "--format", "{{.Names}} | {{.Status}}"], cwd=os.getcwd())
+            lines = res["stdout"].strip().split("\n")
+            for l in lines:
+                if "|" in l:
+                    name, status = l.split("|", 1)
+                    containers[name.strip()] = status.strip()
+                    
+        result_tasks = []
+        for t in tasks:
+            tid = t["id"]
+            c_name = sandbox.get_container_name(tid)
+            result_tasks.append({
+                "id": tid,
+                "description": t["description"],
+                "status": t["status"],
+                "worktree_path": t["worktree_path"],
+                "branch_name": t["branch_name"],
+                "port": ports.get(tid),
+                "container_status": containers.get(c_name, "Offline")
+            })
+            
+        return _ok(req_id, {"success": True, "tasks": result_tasks})
+    except Exception as exc:
+        logger.exception("swarm.fleet_status error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_swarm_fleet_pause(params: dict[str, Any], req_id: Any) -> str:
+    task_id = params.get("task_id")
+    if not task_id: return _err(req_id, JsonRpcError.INVALID_PARAMS, "task_id required")
+    try:
+        from sdk.agent.orchestrator_cli import pause_task
+        await pause_task(task_id)
+        return _ok(req_id, {"success": True})
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_swarm_fleet_resume(params: dict[str, Any], req_id: Any) -> str:
+    task_id = params.get("task_id")
+    if not task_id: return _err(req_id, JsonRpcError.INVALID_PARAMS, "task_id required")
+    try:
+        from sdk.agent.orchestrator_cli import resume_task
+        await resume_task(task_id)
+        return _ok(req_id, {"success": True})
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_swarm_fleet_terminate(params: dict[str, Any], req_id: Any) -> str:
+    task_id = params.get("task_id")
+    if not task_id: return _err(req_id, JsonRpcError.INVALID_PARAMS, "task_id required")
+    try:
+        from sdk.agent.orchestrator_cli import terminate_task
+        await terminate_task(task_id)
+        return _ok(req_id, {"success": True})
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
 async def handle_gateway_status(params: dict[str, Any], req_id: Any) -> str:
     from sdk.gateway.lifecycle import get_process_status
     
@@ -8969,6 +9039,10 @@ _HANDLERS: dict[str, Any] = {
     "task.set_model_override": handle_task_set_model_override,
     "task.create_worktree": handle_task_create_worktree,
     "swarm.workers.active": handle_swarm_workers_active,
+    "swarm.fleet.status": handle_swarm_fleet_status,
+    "swarm.fleet.pause": handle_swarm_fleet_pause,
+    "swarm.fleet.resume": handle_swarm_fleet_resume,
+    "swarm.fleet.terminate": handle_swarm_fleet_terminate,
     "swarm.topology.list": handle_swarm_topology_list,
     "swarm.start": handle_swarm_start,
     "swarm.pause": handle_swarm_pause,

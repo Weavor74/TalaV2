@@ -133,6 +133,60 @@ Output JSON array only, wrapped in a Markdown code block like:
         if not user_goal or not user_goal.strip():
             raise ValueError("user_goal must not be empty")
 
+        # ToT Ideation Interceptor: Intercept architectural or task-decomposition prompts before execution
+        from sdk.agent.tot_ideation import is_architectural_or_decomposition_prompt, run_tot_ideation
+        if is_architectural_or_decomposition_prompt(user_goal):
+            log.info("GoalTreeDecomposer: Intercepted prompt for ToT Ideation: %r", user_goal)
+            try:
+                shortlist = await run_tot_ideation(user_goal)
+                
+                # Write structured JSON shortlist to tot_shortlist.json
+                try:
+                    with open("tot_shortlist.json", "w", encoding="utf-8") as f:
+                        json.dump(shortlist, f, indent=2)
+                    log.info("GoalTreeDecomposer: Wrote structured shortlist to tot_shortlist.json")
+                except Exception as file_exc:
+                    log.warning("GoalTreeDecomposer: Failed to write tot_shortlist.json: %s", file_exc)
+                
+                # Feed the top ranked approach into the TalaV2 execution pipeline
+                if shortlist:
+                    top_approach = shortlist[0]
+                    tasks = []
+                    prev_id = None
+                    for idx, step_desc in enumerate(top_approach.get("tasks", [])):
+                        deterministic_id = generate_deterministic_id(
+                            {"description": step_desc, "goal": user_goal},
+                            salt=f"tot-{idx}",
+                        )
+                        deps = [prev_id] if prev_id else []
+                        task = TaskItem(
+                            task_id=deterministic_id,
+                            description=step_desc,
+                            dependencies=deps,
+                        )
+                        task.parent_id = parent_id
+                        task.payload = {
+                            "id": deterministic_id,
+                            "description": step_desc,
+                            "dependencies": deps,
+                            "parent_id": parent_id,
+                            "tot_metadata": {
+                                "approach_name": top_approach.get("approach_name"),
+                                "frame": top_approach.get("frame"),
+                                "score": top_approach.get("score"),
+                                "risk_matrix": top_approach.get("risk_matrix"),
+                                "trap_list": top_approach.get("trap_list"),
+                            }
+                        }
+                        tasks.append(task)
+                        prev_id = deterministic_id
+                    
+                    if tasks:
+                        log.info("GoalTreeDecomposer: Generated %d tasks from top-scored ToT approach %r", len(tasks), top_approach.get("approach_name"))
+                        return tasks
+            except Exception as tot_exc:
+                log.exception("GoalTreeDecomposer: ToT ideation execution failed, falling back: %s", tot_exc)
+
         prompt_hash = self._get_prompt_hash()
 
         # 1. Query semantic cache of decompositions to avoid re-decomposing identical or similar goals

@@ -777,8 +777,109 @@ const SettingsDashboard = {
     if (panelId === 'logging' && !LoggingManager._initialized) {
       LoggingManager.init();
     }
+    if (panelId === 'architecture') {
+      SwarmDashboardManager.init();
+    }
   },
 };
+
+/* ═══════════════════════════════════════════════════════════════════
+   SwarmDashboardManager — Swarm Orchestrator status panel
+   ═══════════════════════════════════════════════════════════════════ */
+const SwarmDashboardManager = {
+  _initialized: false,
+  init() {
+    if (this._initialized) return;
+    this._initialized = true;
+    
+    const refreshBtn = document.getElementById('btn-refresh-swarm');
+    if (refreshBtn) {
+      refreshBtn.addEventListener('click', () => this.refresh());
+    }
+    
+    // Auto-refresh every 5 seconds when visible
+    setInterval(() => {
+      const panel = document.getElementById('settings-panel-architecture');
+      if (panel && !panel.hidden) {
+        this.refresh();
+      }
+    }, 5000);
+    
+    this.refresh();
+  },
+  
+  async refresh() {
+    try {
+      const res = await window.tala.invoke('swarm.fleet.status', {});
+      const tbody = document.getElementById('swarm-tbody');
+      if (!tbody) return;
+      
+      if (!res.success || !res.tasks || res.tasks.length === 0) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" style="padding: var(--space-3); text-align: center; color: var(--text-muted);">No active background swarm worktrees found. Click Refresh to probe.</td>
+          </tr>
+        `;
+        return;
+      }
+      
+      tbody.innerHTML = res.tasks.map(t => `
+        <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
+          <td style="padding: var(--space-2); color: var(--accent-light); font-family: monospace;">${t.id}</td>
+          <td style="padding: var(--space-2); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${t.description}</td>
+          <td style="padding: var(--space-2); font-family: monospace;">${t.branch_name || 'N/A'}</td>
+          <td style="padding: var(--space-2); font-family: monospace;">${t.port || 'N/A'}</td>
+          <td style="padding: var(--space-2);">
+            <span style="display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; 
+                         background: ${t.container_status.includes('Up') ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}; 
+                         color: ${t.container_status.includes('Up') ? '#22c55e' : '#ef4444'};">
+              ${t.container_status}
+            </span>
+          </td>
+          <td style="padding: var(--space-2); text-align: right;">
+            <div style="display: flex; gap: 4px; justify-content: flex-end;">
+              <button onclick="SwarmDashboardManager.pauseTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #eab308; border-color: #eab308; color: #1e1e24;">Pause</button>
+              <button onclick="SwarmDashboardManager.resumeTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #22c55e; border-color: #22c55e; color: #1e1e24;">Resume</button>
+              <button onclick="SwarmDashboardManager.terminateTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #ef4444; border-color: #ef4444; color: white;">Kill</button>
+            </div>
+          </td>
+        </tr>
+      `).join('');
+    } catch (err) {
+      console.error("Swarm Dashboard Refresh error:", err);
+    }
+  },
+  
+  async pauseTask(taskId) {
+    try {
+      await window.tala.invoke('swarm.fleet.pause', { task_id: taskId });
+      this.refresh();
+    } catch (err) {
+      alert("Pause failed: " + err);
+    }
+  },
+  
+  async resumeTask(taskId) {
+    try {
+      await window.tala.invoke('swarm.fleet.resume', { task_id: taskId });
+      this.refresh();
+    } catch (err) {
+      alert("Resume failed: " + err);
+    }
+  },
+  
+  async terminateTask(taskId) {
+    if (!confirm("Are you sure you want to terminate task " + taskId + " and prune its resources?")) return;
+    try {
+      await window.tala.invoke('swarm.fleet.terminate', { task_id: taskId });
+      this.refresh();
+    } catch (err) {
+      alert("Termination failed: " + err);
+    }
+  }
+};
+
+window.SwarmDashboardManager = SwarmDashboardManager;
 
 /* ═══════════════════════════════════════════════════════════════════
    InferenceManager — provider CRUD, priority chain, add modal

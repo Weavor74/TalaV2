@@ -659,6 +659,52 @@ _DDL_STATEMENTS: list[str] = [
             created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """),
+    # ------------------------------------------------------------------
+    # graph_nodes — execution graph nodes for Graph-Engineered tasks
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS graph_nodes (
+            id               TEXT        PRIMARY KEY,
+            task_id          TEXT        NOT NULL REFERENCES tasks(id) ON DELETE CASCADE,
+            node_type        TEXT        NOT NULL,
+            description      TEXT        NOT NULL,
+            status           TEXT        NOT NULL DEFAULT 'pending',
+            dependencies     TEXT[]      NOT NULL DEFAULT '{}',
+            inputs           JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            outputs          JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            success_criteria JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            retry_count      INTEGER     NOT NULL DEFAULT 0,
+            created_at       TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at       TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_graph_nodes_task_id ON graph_nodes(task_id);
+    """),
+    textwrap.dedent("""\
+        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM pg_trigger
+                WHERE tgname = 'trg_graph_nodes_updated_at'
+            ) THEN
+                CREATE TRIGGER trg_graph_nodes_updated_at
+                BEFORE UPDATE ON graph_nodes
+                FOR EACH ROW EXECUTE FUNCTION tala_set_updated_at();
+            END IF;
+        END;
+        $$;
+    """),
+    # ------------------------------------------------------------------
+    # port_allocations — Fleet execution dynamic port mapping
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS port_allocations (
+            task_id      TEXT        PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+            port         INTEGER     NOT NULL UNIQUE,
+            allocated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
 ]
 
 

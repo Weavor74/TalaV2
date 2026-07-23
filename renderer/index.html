@@ -2263,6 +2263,40 @@
                     </div>
                   </div>
 
+                  <!-- Swarm Orchestrator Dashboard Section -->
+                  <div style="margin-top: var(--space-4); border-top: 1px solid rgba(255,255,255,0.1); padding-top: var(--space-4);">
+                    <h2 class="arch-section-title" style="display: flex; justify-content: space-between; align-items: center;">
+                      <span style="display: flex; align-items: center; gap: var(--space-2);">
+                        <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1zM4 22v-7"/></svg>
+                        Fleet Swarm Orchestrator Dashboard
+                      </span>
+                      <button id="btn-refresh-swarm" class="btn-primary" style="font-size: 0.75rem; padding: 4px 10px;">Refresh Swarm</button>
+                    </h2>
+                    
+                    <div id="swarm-dashboard-content" style="margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2);">
+                      <!-- Dynamically populated Swarm Worktrees, Docker Sandboxes, and Ports status table -->
+                      <div class="table-container" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: var(--space-3); overflow-x: auto;">
+                        <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem;">
+                          <thead>
+                            <tr style="border-bottom: 1px solid rgba(255,255,255,0.1); color: var(--text-muted);">
+                              <th style="padding: var(--space-2);">Task ID</th>
+                              <th style="padding: var(--space-2);">Description</th>
+                              <th style="padding: var(--space-2);">Git Branch</th>
+                              <th style="padding: var(--space-2);">Port</th>
+                              <th style="padding: var(--space-2);">Container</th>
+                              <th style="padding: var(--space-2); text-align: right;">Actions</th>
+                            </tr>
+                          </thead>
+                          <tbody id="swarm-tbody">
+                            <tr>
+                              <td colspan="6" style="padding: var(--space-3); text-align: center; color: var(--text-muted);">No active background swarm worktrees found. Click Refresh to probe.</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+                    </div>
+                  </div>
+
                 </div>
               </div>
 
