@@ -87,6 +87,19 @@ class TaskEventStore:
                 payload_str = json.dumps(sanitized_payload)
                 event_id = await db.fetchval(query, task_id, event_type, payload_str)
                 log.debug("Event appended to DB for task %s (type: %s, ID: %s)", task_id, event_type, event_id)
+
+                # Broadcast live status update notification to connected UI clients
+                try:
+                    from python.harness.server import broadcast_notification
+                    await broadcast_notification("task.event", {
+                        "task_id": task_id,
+                        "event_type": event_type,
+                        "payload": sanitized_payload,
+                        "created_at": datetime.now(UTC).isoformat()
+                    })
+                except Exception:
+                    pass
+
                 return int(event_id)
             except Exception as exc:
                 log.error("Failed to append event to database, writing to memory fallback: %s", exc)
@@ -104,6 +117,19 @@ class TaskEventStore:
         }
         _in_memory_event_store[task_id].append(event_record)
         log.debug("Event appended to memory for task %s (type: %s, ID: %s)", task_id, event_type, event_record["id"])
+
+        # Broadcast live status update notification to connected UI clients
+        try:
+            from python.harness.server import broadcast_notification
+            await broadcast_notification("task.event", {
+                "task_id": task_id,
+                "event_type": event_type,
+                "payload": sanitized_payload,
+                "created_at": datetime.now(UTC).isoformat()
+            })
+        except Exception:
+            pass
+
         return event_record["id"]
 
     @classmethod

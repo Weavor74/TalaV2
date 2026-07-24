@@ -11748,7 +11748,22 @@ document.addEventListener('DOMContentLoaded', () => {
     // Listen for server updates
     try {
         window.tala.on('python:notification', async (msg) => {
-            if (msg && msg.method === 'system.update_available') {
+            if (msg && msg.method === 'task.event') {
+                const p = msg.params || {};
+                const evt = p.event_type;
+                const payload = p.payload || {};
+                let statusText = '';
+                if (evt === 'phase_start') {
+                    statusText = `[Phase Started] ${payload.phase || ''}`;
+                } else if (evt === 'state_transition') {
+                    statusText = `[Task State] ${payload.from_status || 'init'} -> ${payload.to_status || ''}${payload.reason ? ' (' + payload.reason + ')' : ''}`;
+                } else if (evt === 'task_init') {
+                    statusText = `[Task Initialized] ${payload.description || ''}`;
+                }
+                if (statusText) {
+                    console.log(`[TaskEvent] ${statusText}`);
+                }
+            } else if (msg && msg.method === 'system.update_available') {
                 const confirmed = confirm('A server update is available from the VPS. Do you want to download and apply it now?');
                 if (confirmed) {
                     try {
@@ -11854,27 +11869,9 @@ document.addEventListener('DOMContentLoaded', () => {
             if (!localResp || !localResp.version) return;
             const localVersion = localResp.version;
 
-            // Determine remote update check endpoint
-            let updateUrl = 'https://talacore.app/version.json';
-            let vpsBaseUrl = '';
-            try {
-                const status = await invoke('python:rpc', { method: 'chain.connection_get', params: {} });
-                const connection = status?.connection || {};
-                if (connection.mode === 'vps' && connection.chain_endpoint_url) {
-                    vpsBaseUrl = connection.chain_endpoint_url;
-                    // strip trailing slash if present
-                    if (vpsBaseUrl.endsWith('/')) {
-                        vpsBaseUrl = vpsBaseUrl.slice(0, -1);
-                    }
-                    updateUrl = `${vpsBaseUrl}/version.json`;
-                    console.log('[updater] Connected to VPS. Checking updates at:', updateUrl);
-                }
-            } catch (connErr) {
-                console.warn('Failed to query VPS connection status for update check, falling back to public default:', connErr);
-            }
 
             // Get remote version
-            const remoteResp = await fetch(updateUrl, { cache: 'no-store' });
+            const remoteResp = await fetch('https://talacore.app/version.json', { cache: 'no-store' });
             if (!remoteResp.ok) return;
             const remoteData = await remoteResp.json();
             if (!remoteData || !remoteData.version) return;
@@ -11901,29 +11898,15 @@ document.addEventListener('DOMContentLoaded', () => {
                     banner.onclick = async () => {
                         vSpan.textContent = 'Downloading update... please wait';
                         banner.style.pointerEvents = 'none';
+                        let url = remoteData.downloads.windows;
+                        if (navigator.userAgent.indexOf('Mac') !== -1) url = remoteData.downloads.macos;
+                        if (navigator.userAgent.indexOf('Linux') !== -1) url = remoteData.downloads.linux;
                         
-                        let zipName = 'tala-windows.zip';
-                        if (navigator.userAgent.indexOf('Mac') !== -1) zipName = 'tala-macos.zip';
-                        if (navigator.userAgent.indexOf('Linux') !== -1) zipName = 'tala-linux.zip';
-
-                        let url;
-                        if (vpsBaseUrl) {
-                            // Resolve dynamically relative to the connected VPS
-                            url = `${vpsBaseUrl}/${zipName}`;
-                        } else {
-                            // Fallback to parsed or default public URL
-                            url = remoteData.downloads.windows;
-                            if (navigator.userAgent.indexOf('Mac') !== -1) url = remoteData.downloads.macos;
-                            if (navigator.userAgent.indexOf('Linux') !== -1) url = remoteData.downloads.linux;
-                        }
-                        
-                        console.log('[updater] Downloading platform update from:', url);
                         try {
                             await invoke('app.update', { url: url });
                         } catch (err) {
                             console.error('Update failed:', err);
                             vSpan.textContent = 'Update failed. Check console.';
-                            banner.style.pointerEvents = 'auto';
                         }
                     };
                 }
