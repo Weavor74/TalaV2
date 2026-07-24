@@ -894,12 +894,17 @@ async def handle_inference_generate(
                     # Its output is injected into the prompt context before the LLM responds.
                     _WORKFLOW_AUTO_THRESHOLD = 0.15
                     workflow_context_parts: list[str] = []
+                    executed_flow_ids: set[str] = set()
                     for _wf_node, _wf_score in top_active:
                         if _wf_node.node_type == "workflow" and _wf_score >= _WORKFLOW_AUTO_THRESHOLD:
                             # Derive the flow_id from node_id — compiler prefixes with "flow-"
                             _flow_id = _wf_node.node_id
                             if _flow_id.startswith("flow-"):
                                 _flow_id = _flow_id[5:]
+
+                            if _flow_id in executed_flow_ids:
+                                continue
+                            executed_flow_ids.add(_flow_id)
 
                             from python.harness.workflows_util import resolve_workflow_file
                             _json_path = resolve_workflow_file(_flow_id)
