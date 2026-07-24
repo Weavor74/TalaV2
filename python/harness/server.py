@@ -9726,7 +9726,7 @@ async def _startup_background() -> None:
 
     # 6b. Initialise settings panels as HTML Neural Nodes (HTML-NN)
     try:
-        pass
+        await sync_settings_to_nodes()
     except Exception as exc:
         logger.warning("Could not sync settings to HTML-NN nodes: %s", exc)
 

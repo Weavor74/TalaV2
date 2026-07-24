@@ -890,15 +890,17 @@ async def read_neural_node(node_id: str) -> dict[str, Any]:
     
     """
     from sdk.agent.parser import parse_file
+    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
     workspace_root = _get_workspace_root()
-    nodes_dir = workspace_root / "nodes"
+    candidate_dirs = [workspace_root / "nodes", resolve_active_nodes_dir()]
 
-    # Candidate filenames
-    candidates = [
-        nodes_dir / f"{node_id}.html",
-        nodes_dir / f"sdk_agent_{node_id}.html",
-        nodes_dir / f"{node_id.replace('-', '_')}.html",
-    ]
+    candidates = []
+    for d in candidate_dirs:
+        candidates.extend([
+            d / f"{node_id}.html",
+            d / f"sdk_agent_{node_id}.html",
+            d / f"{node_id.replace('-', '_')}.html",
+        ])
 
     node_path = None
     for cand in candidates:
@@ -939,24 +941,26 @@ async def update_neural_node(node_id: str, sections: dict[str, str]) -> dict[str
     """
     NAME
            update_neural_node - Update specific section contents of an HTML Neural Node.
-           
+    
     SYNOPSIS
            update_neural_node(node_id: str, sections: Any) -> dict[str, Any]
-           
+    
     DESCRIPTION
            Update section definitions inside the target HTML Neural Node.
     
     """
     from sdk.agent.wiki import WikiUpdater
+    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
     workspace_root = _get_workspace_root()
-    nodes_dir = workspace_root / "nodes"
+    candidate_dirs = [workspace_root / "nodes", resolve_active_nodes_dir()]
 
-    # Candidate filenames
-    candidates = [
-        nodes_dir / f"{node_id}.html",
-        nodes_dir / f"sdk_agent_{node_id}.html",
-        nodes_dir / f"{node_id.replace('-', '_')}.html",
-    ]
+    candidates = []
+    for d in candidate_dirs:
+        candidates.extend([
+            d / f"{node_id}.html",
+            d / f"sdk_agent_{node_id}.html",
+            d / f"{node_id.replace('-', '_')}.html",
+        ])
 
     node_path = None
     for cand in candidates:
@@ -966,7 +970,7 @@ async def update_neural_node(node_id: str, sections: dict[str, str]) -> dict[str
 
     if not node_path:
         # Scaffolding path
-        node_path = nodes_dir / f"sdk_agent_{node_id}.html"
+        node_path = candidate_dirs[0] / f"sdk_agent_{node_id}.html"
 
     try:
         updater = WikiUpdater(backup=True)
