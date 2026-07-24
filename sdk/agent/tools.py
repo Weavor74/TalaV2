@@ -1322,6 +1322,93 @@ async def registry_list_tool(prefix: str | None = None) -> dict[str, Any]:
 
 
 @register_tool(
+    name="workflow.generate_from_tot",
+    description="Generate a sequential workflow from ToT (Tree-of-Thought) ideation steps for a given goal.",
+)
+async def generate_workflow_from_tot_tool(
+    prompt: str,
+    name: str | None = None,
+    description: str | None = None,
+) -> dict[str, Any]:
+    import uuid
+    from sdk.agent.tot_ideation import run_tot_ideation
+    from python.harness.workflows_util import save_workflow_data
+
+    try:
+        shortlist = await run_tot_ideation(prompt)
+        if not shortlist:
+            return {"success": False, "error": "ToT ideation returned no architectural approaches."}
+        
+        top_approach = shortlist[0]
+        flow_id = f"tot-flow-{uuid.uuid4().hex[:8]}"
+        flow_name = name or top_approach.get("approach_name") or f"ToT Flow: {prompt[:30]}"
+        flow_desc = description or top_approach.get("architectural_strategy") or f"Auto-generated sequence for: {prompt}"
+
+        nodes = []
+        # Node 0: Trigger Node
+        nodes.append({
+            "id": "start-trigger",
+            "type": "trigger",
+            "label": "Start Trigger",
+            "config": {
+                "description": f"Trigger node to initiate: {flow_name}"
+            },
+            "connections": {
+                "onSuccess": "step-0" if top_approach.get("tasks") else "output-node"
+            }
+        })
+
+        # Intermediate Nodes: Step Tasks
+        tasks_list = top_approach.get("tasks", [])
+        for idx, task_desc in enumerate(tasks_list):
+            node_id = f"step-{idx}"
+            next_node_id = f"step-{idx+1}" if idx < len(tasks_list) - 1 else "output-node"
+            nodes.append({
+                "id": node_id,
+                "type": "custom_script",
+                "label": f"Step {idx+1}: {task_desc[:40]}...",
+                "config": {
+                    "description": task_desc,
+                    "code": f"result = 'Completed step {idx+1}'"
+                },
+                "connections": {
+                    "onSuccess": next_node_id
+                }
+            })
+
+        # Node N: Output Node
+        nodes.append({
+            "id": "output-node",
+            "type": "output",
+            "label": "Flow Output",
+            "config": {
+                "description": "Workflow completed successfully."
+            },
+            "connections": {}
+        })
+
+        workflow = {
+            "flow_id": flow_id,
+            "name": flow_name,
+            "description": flow_desc,
+            "tags": ["tot-generated", "auto-sequence"],
+            "trigger_keywords": [prompt.lower()],
+            "nodes": nodes
+        }
+
+        await save_workflow_data(workflow)
+
+        return {
+            "success": True,
+            "flow_id": flow_id,
+            "name": flow_name,
+            "workflow": workflow
+        }
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@register_tool(
     name="test.run_validation",
     description=(
         "Run allowlisted validation commands such as python -m py_compile or pytest. "

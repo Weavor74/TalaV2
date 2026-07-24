@@ -6,6 +6,7 @@ import os
 import json
 import logging
 from pathlib import Path
+from typing import Any, Dict, List
 
 logger = logging.getLogger(__name__)
 
@@ -79,3 +80,75 @@ def get_all_workflows() -> list[dict]:
             logger.warning("Could not load workflow file %s: %s", f, e)
 
     return workflows
+
+
+async def save_workflow_data(workflow: dict[str, Any]) -> str:
+    """
+    Save a workflow configuration JSON, compile it to HTML-NN, and anchor it.
+    Returns the flow_id.
+    """
+    import uuid
+    flow_id = workflow.get("flow_id")
+    if not flow_id:
+        flow_id = str(uuid.uuid4())
+        workflow["flow_id"] = flow_id
+
+    name = workflow.get("name", "Unnamed Flow")
+
+    # 1. Resolve directories
+    user_data = os.environ.get("TALA_USER_DATA")
+    if user_data:
+        workflows_dir = Path(user_data) / "workflows"
+        nodes_dir = Path(user_data) / "nodes"
+    else:
+        appdata = os.environ.get("APPDATA")
+        if appdata:
+            workflows_dir = Path(appdata) / "tala-engine" / "workflows"
+            nodes_dir = Path(appdata) / "tala-engine" / "nodes"
+        else:
+            workflows_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "workflows"
+            nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+
+    # Fallbacks for dev env
+    if not workflows_dir.exists() and not user_data:
+        workflows_dir = _ROOT_DIR / "workflows"
+    if not nodes_dir.exists() and not user_data:
+        nodes_dir = _ROOT_DIR / "nodes"
+
+    workflows_dir.mkdir(parents=True, exist_ok=True)
+    nodes_dir.mkdir(parents=True, exist_ok=True)
+
+    # 2. Save JSON file
+    json_path = workflows_dir / f"{flow_id}.json"
+    json_path.write_text(json.dumps(workflow, indent=2, ensure_ascii=False), encoding="utf-8")
+
+    # 3. Compile to HTML-NN and save to nodes/
+    from sdk.agent.workflow_compiler import compile_workflow_to_html
+    html_nn = compile_workflow_to_html(workflow)
+    html_path = nodes_dir / f"flow-{flow_id}.html"
+    html_path.write_text(html_nn, encoding="utf-8")
+
+    try:
+        from sdk.agent.anchor import canonicalize_and_anchor
+        canonicalize_and_anchor(
+            f"flow-{flow_id}",
+            html_nn,
+            workflow,
+            None,
+            creator="tala-system",
+            document_type="html-nn",
+        )
+    except Exception as anchor_exc:
+        logger.warning("Failed to anchor workflow %s on blockchain: %s", flow_id, anchor_exc)
+
+    # Log action to DB
+    from python.harness import db
+    await db.log_to_db("INFO", f"Saved workflow '{name}' (ID: {flow_id}) and compiled HTML-NN", {"flow_id": flow_id})
+    try:
+        from python.harness.settings_nn import update_settings_workflows_node
+        await update_settings_workflows_node()
+    except Exception as exc:
+        logger.warning("Failed to update workflows settings node: %s", exc)
+
+    return flow_id
+
