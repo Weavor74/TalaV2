@@ -1164,31 +1164,58 @@ async def handle_inference_generate(
 
         try:
             from sdk.agent.tools import ToolRegistry
+            from sdk.agent.tot_ideation import get_tot_mode
             dyn_tools = ToolRegistry.get_tools()
             if dyn_tools:
-                dyn_desc = "\n\n[Agent Capability: Dynamic Registered Tools (ToolRegistry)]\n"
-                dyn_desc += "You also have access to the following dynamic tools. You MUST strictly follow the Usage syntax provided for each tool. DO NOT write conversational text before or after the tag. DO NOT wrap your tool calls in markdown backticks (```). Output ONLY the raw XML tag directly.\n\n"
-                dyn_desc += "Example of CORRECT tool usage:\n<call:web_search query=\"how to bake a cake\" />\n\n"
-                dyn_desc += "Example of INCORRECT tool usage:\nHere is the search:\n```xml\n<call:web_search query=\"how to bake a cake\" />\n```\n\n"
-                for idx, t in enumerate(dyn_tools, 1):
-                    schema = t.get("schema", {})
-                    props = schema.get("properties", {})
-                    reqs = schema.get("required", [])
-                    
-                    attr_params = []
-                    inner_param = None
-                    for k in props.keys():
-                        if k in ("detailed_markdown", "content", "goal"):
-                            inner_param = k
+                tot_mode_detect = await get_tot_mode()
+                use_compact = tot_mode_detect in ("fast", "programmatic")
+                
+                if use_compact:
+                    dyn_desc = "\n\n[Tools Registry]\n"
+                    for t in dyn_tools:
+                        schema = t.get("schema", {})
+                        props = schema.get("properties", {})
+                        reqs = schema.get("required", [])
+                        
+                        attr_params = []
+                        inner_param = None
+                        for k in props.keys():
+                            if k in ("detailed_markdown", "content", "goal"):
+                                inner_param = k
+                            else:
+                                attr_params.append(f'{k}="value"' + ("*" if k in reqs else ""))
+                        
+                        params_str = " ".join(attr_params)
+                        if inner_param:
+                            syntax = f"<call:{t['name']} {params_str}>[{inner_param}]</call:{t['name']}>"
                         else:
-                            attr_params.append(f'{k}="value"' + (" (required)" if k in reqs else " (optional)"))
-                    
-                    params_str = " ".join(attr_params)
-                    dyn_desc += f"{idx}. **{t['name']}**: {t['description']}\n"
-                    if inner_param:
-                        dyn_desc += f"   Usage: `<call:{t['name']} {params_str}>\n[your {inner_param} here]\n</call:{t['name']}>`\n"
-                    else:
-                        dyn_desc += f"   Usage: `<call:{t['name']} {params_str} />`\n"
+                            syntax = f"<call:{t['name']} {params_str} />"
+                        
+                        dyn_desc += f"- {t['name']}: {t['description']} Syntax: `{syntax}`\n"
+                else:
+                    dyn_desc = "\n\n[Agent Capability: Dynamic Registered Tools (ToolRegistry)]\n"
+                    dyn_desc += "You also have access to the following dynamic tools. You MUST strictly follow the Usage syntax provided for each tool. DO NOT write conversational text before or after the tag. DO NOT wrap your tool calls in markdown backticks (```). Output ONLY the raw XML tag directly.\n\n"
+                    dyn_desc += "Example of CORRECT tool usage:\n<call:web_search query=\"how to bake a cake\" />\n\n"
+                    dyn_desc += "Example of INCORRECT tool usage:\nHere is the search:\n```xml\n<call:web_search query=\"how to bake a cake\" />\n```\n\n"
+                    for idx, t in enumerate(dyn_tools, 1):
+                        schema = t.get("schema", {})
+                        props = schema.get("properties", {})
+                        reqs = schema.get("required", [])
+                        
+                        attr_params = []
+                        inner_param = None
+                        for k in props.keys():
+                            if k in ("detailed_markdown", "content", "goal"):
+                                inner_param = k
+                            else:
+                                attr_params.append(f'{k}="value"' + (" (required)" if k in reqs else " (optional)"))
+                        
+                        params_str = " ".join(attr_params)
+                        dyn_desc += f"{idx}. **{t['name']}**: {t['description']}\n"
+                        if inner_param:
+                            dyn_desc += f"   Usage: `<call:{t['name']} {params_str}>\n[your {inner_param} here]\n</call:{t['name']}>`\n"
+                        else:
+                            dyn_desc += f"   Usage: `<call:{t['name']} {params_str} />`\n"
                 tool_instructions += dyn_desc
         except Exception as e:
             logger.warning("Could not append dynamic tools to system prompt: %s", e)

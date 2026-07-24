@@ -249,6 +249,41 @@ def _generate_fallback_shortlist(problem: str, evaluated: list[dict[str, Any]]) 
     return shortlist
 
 # ---------------------------------------------------------------------------
+async def get_tot_mode() -> str:
+    """
+    Returns the resolved ToT mode ('full', 'fast', 'programmatic', 'disabled').
+    Resolves environment variable TALA_TOT_MODE first, then auto-detects based on active model.
+    """
+    mode = os.environ.get("TALA_TOT_MODE", "auto").strip().lower()
+    if mode in ("full", "fast", "programmatic", "fallback", "disabled"):
+        if mode == "fallback":
+            return "programmatic"
+        return mode
+
+    # Auto-detect mode based on active model
+    try:
+        from python.harness import db
+        # Get active or highest priority provider
+        row = await db.fetchrow(
+            "SELECT config FROM inference_providers WHERE status = 'active' OR priority = 1 LIMIT 1"
+        )
+        if row and row["config"]:
+            cfg = row["config"]
+            if isinstance(cfg, str):
+                cfg = json.loads(cfg)
+            model_name = str(cfg.get("model", "")).lower()
+            
+            # Check for very small models or local names
+            if any(term in model_name for term in ("0.5b", "1b", "1.5b", "3b", "gemma-2-2b", "gemma2b", "qwen2.5-0.5b", "qwen2.5-1.5b", "phi-3", "phi3")):
+                return "programmatic"
+            elif any(term in model_name for term in ("7b", "8b", "llama3", "llama3.1", "llama3.2", "mistral", "qwen", "local")):
+                return "fast"
+    except Exception as e:
+        log.warning("ToT auto-detection failed: %s", e)
+    
+    return "fast"
+
+# ---------------------------------------------------------------------------
 # Core Tree-of-Thought Execution Pipeline
 # ---------------------------------------------------------------------------
 async def run_tot_ideation(problem: str) -> list[dict[str, Any]]:
@@ -257,8 +292,67 @@ async def run_tot_ideation(problem: str) -> list[dict[str, Any]]:
     Spawns isolated child contexts for each cognitive lens, evaluates
     via a strict Critic Agent, and outputs a structured shortlist.
     """
-    log.info("ToT Ideation: Initiating ideation pipeline for prompt: %r", problem)
+    tot_mode = await get_tot_mode()
+    log.info("ToT Ideation: Initiating ideation pipeline (mode=%s) for prompt: %r", tot_mode, problem)
     
+    if tot_mode == "disabled":
+        return []
+    elif tot_mode == "programmatic":
+        approaches = _generate_fallback_approaches(problem)
+        evaluated = []
+        for app in approaches:
+            evaluated.append({
+                "frame": app["frame"],
+                "approach": app,
+                "evaluation": _generate_fallback_critic_eval(app)
+            })
+        return _generate_fallback_shortlist(problem, evaluated)
+    elif tot_mode == "fast":
+        system_prompt = (
+            "You are a principal software architect. Given a problem, propose four architectural strategies "
+            "corresponding to these four conceptual lenses: Extreme Modularity, High Performance, Fault Tolerance, and Minimalism. "
+            "For each approach, describe the strategy, list the tasks, evaluate it (novelty, viability, and fit scores out of 10), "
+            "and provide a risk matrix and trap list. Output your response strictly as a JSON array matching the specified shortlist schema. "
+            "DO NOT generate any explanatory text before or after the JSON block."
+        )
+        
+        prompt = (
+            f"Problem: \"{problem}\"\n\n"
+            f"Format the response strictly as a JSON array of objects, where each object has the following keys:\n"
+            f"- \"approach_name\" (str)\n"
+            f"- \"frame\" (one of: \"Extreme Modularity\", \"High Performance\", \"Fault Tolerance\", \"Minimalism\")\n"
+            f"- \"score\" (float, average of novelty, viability, fit)\n"
+            f"- \"architectural_strategy\" (str)\n"
+            f"- \"tasks\" (list of str)\n"
+            f"- \"risk_matrix\" (list of objects, each containing keys: \"risk\", \"impact\", \"likelihood\", \"mitigation\")\n"
+            f"- \"trap_list\" (list of str)\n\n"
+            f"Output ONLY valid JSON matching the schema description above."
+        )
+        
+        shortlist_res = await _call_llm(prompt, system_prompt)
+        shortlist = None
+        if shortlist_res:
+            try:
+                json_match = re.search(r"```json\s*(.*?)\s*```", shortlist_res, re.DOTALL | re.IGNORECASE)
+                json_str = json_match.group(1) if json_match else shortlist_res
+                shortlist = json.loads(json_str.strip())
+            except Exception:
+                pass
+        
+        if not shortlist:
+            log.warning("ToT Ideation: LLM failed for fast shortlist. Triggering shortlist fallback.")
+            approaches = _generate_fallback_approaches(problem)
+            evaluated = []
+            for app in approaches:
+                evaluated.append({
+                    "frame": app["frame"],
+                    "approach": app,
+                    "evaluation": _generate_fallback_critic_eval(app)
+                })
+            shortlist = _generate_fallback_shortlist(problem, evaluated)
+        return shortlist
+
+    # Original "full" 9-turn mode loop
     generated_approaches = []
     
     # 1. Spawn isolated generation contexts for each lens
@@ -365,3 +459,4 @@ async def run_tot_ideation(problem: str) -> list[dict[str, Any]]:
         shortlist = _generate_fallback_shortlist(problem, evaluated_approaches)
 
     return shortlist
+

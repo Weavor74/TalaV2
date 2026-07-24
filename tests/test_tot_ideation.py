@@ -81,3 +81,37 @@ async def test_goal_tree_decomposer_intercept(tmp_path):
     # Clean up
     if os.path.exists("tot_shortlist.json"):
         os.remove("tot_shortlist.json")
+
+@pytest.mark.asyncio
+async def test_tot_mode_switching():
+    from sdk.agent.tot_ideation import get_tot_mode, run_tot_ideation, COGNITIVE_FRAMES
+    import os
+
+    # 1. Test manual environment variables
+    with patch.dict(os.environ, {"TALA_TOT_MODE": "disabled"}):
+        mode = await get_tot_mode()
+        assert mode == "disabled"
+        res = await run_tot_ideation("Refactor database schema")
+        assert res == []
+
+    with patch.dict(os.environ, {"TALA_TOT_MODE": "programmatic"}):
+        mode = await get_tot_mode()
+        assert mode == "programmatic"
+        res = await run_tot_ideation("Refactor database schema")
+        assert len(res) == len(COGNITIVE_FRAMES)
+        assert res[0]["frame"] == "Extreme Modularity"
+
+    # 2. Test auto-detection mapping
+    with patch.dict(os.environ, {"TALA_TOT_MODE": "auto"}):
+        # Mock DB returning a 7B model
+        mock_row = {"config": json.dumps({"model": "Qwen/Qwen2.5-7B-Instruct-AWQ"})}
+        with patch("python.harness.db.fetchrow", return_value=mock_row):
+            mode = await get_tot_mode()
+            assert mode == "fast"
+
+        # Mock DB returning a tiny 0.5B model
+        mock_row_tiny = {"config": json.dumps({"model": "Qwen/Qwen2.5-0.5B-Instruct"})}
+        with patch("python.harness.db.fetchrow", return_value=mock_row_tiny):
+            mode = await get_tot_mode()
+            assert mode == "programmatic"
+

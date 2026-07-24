@@ -134,9 +134,10 @@ Output JSON array only, wrapped in a Markdown code block like:
             raise ValueError("user_goal must not be empty")
 
         # ToT Ideation Interceptor: Intercept architectural or task-decomposition prompts before execution
-        from sdk.agent.tot_ideation import is_architectural_or_decomposition_prompt, run_tot_ideation
-        if is_architectural_or_decomposition_prompt(user_goal):
-            log.info("GoalTreeDecomposer: Intercepted prompt for ToT Ideation: %r", user_goal)
+        from sdk.agent.tot_ideation import is_architectural_or_decomposition_prompt, run_tot_ideation, get_tot_mode
+        tot_mode = await get_tot_mode()
+        if tot_mode != "disabled" and is_architectural_or_decomposition_prompt(user_goal):
+            log.info("GoalTreeDecomposer: Intercepted prompt for ToT Ideation (mode=%s): %r", tot_mode, user_goal)
             try:
                 shortlist = await run_tot_ideation(user_goal)
                 
