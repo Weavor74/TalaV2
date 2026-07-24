@@ -498,12 +498,6 @@ async def handle_inference_generate(
     raw_prompt = bool(params.get("raw_prompt", False))
     if raw_prompt:
         active_system_prompt = params.get("system_prompt", "You are a precise, helpful software engineering assistant. Output code blocks or clean answers as requested.")
-        import platform
-        os_info = f"[System Info: OS Platform: {platform.system()}]"
-        if active_system_prompt:
-            active_system_prompt = f"{os_info}\n{active_system_prompt}"
-        else:
-            active_system_prompt = os_info
         messages = []
         if active_system_prompt:
             messages.append({"role": "system", "content": active_system_prompt})
@@ -529,9 +523,8 @@ async def handle_inference_generate(
             
                 # Inject current local time metadata for context awareness
                 from datetime import datetime
-                import platform
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                time_metadata = f"[Current Date & Time: {current_time}]\n[System Info: OS Platform: {platform.system()}]"
+                time_metadata = f"[Current Date & Time: {current_time}]"
                 if active_system_prompt:
                     active_system_prompt = f"{time_metadata}\n{active_system_prompt}"
                 else:
@@ -6965,12 +6958,6 @@ async def fetch_webpage_text(url: str) -> str:
 
 async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
     """Non-streaming LLM generation traversing configuration priority list with fallback routing."""
-    import platform
-    os_info = f"[System Info: OS Platform: {platform.system()}]"
-    if system_prompt:
-        system_prompt = f"{os_info}\n{system_prompt}"
-    else:
-        system_prompt = os_info
     messages = []
     if system_prompt:
         messages.append({"role": "system", "content": system_prompt})
