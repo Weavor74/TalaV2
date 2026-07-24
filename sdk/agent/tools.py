@@ -878,6 +878,63 @@ async def write_workspace_file(file_path: str, content: str) -> dict[str, Any]:
         }
 
 
+@register_tool(
+    name="read_workspace_file",
+    description="Read the text content of a file path within the workspace directory.",
+)
+async def read_workspace_file(file_path: str, start_line: int | None = None, end_line: int | None = None) -> dict[str, Any]:
+    """
+    NAME
+           read_workspace_file - Read the text content of a file path within the workspace directory.
+           
+    SYNOPSIS
+           read_workspace_file(file_path: str, start_line: int | None, end_line: int | None) -> dict[str, Any]
+           
+    DESCRIPTION
+           Reads text content from a file located relative to the workspace root. Supports optional line range slicing.
+    
+    """
+    workspace_root = _get_workspace_root()
+    target = (workspace_root / file_path).resolve()
+
+    if not str(target).startswith(str(workspace_root)):
+        return {
+            "status": "failed",
+            "error": f"Reading path {file_path!r} outside workspace boundary is blocked.",
+        }
+
+    if not target.exists() or not target.is_file():
+        return {
+            "status": "failed",
+            "error": f"File {file_path!r} does not exist or is not a file.",
+        }
+
+    try:
+        raw = target.read_text(encoding="utf-8", errors="ignore")
+        lines = raw.splitlines()
+        total_lines = len(lines)
+
+        if start_line is not None or end_line is not None:
+            s = (start_line - 1) if (start_line and start_line > 0) else 0
+            e = end_line if (end_line and end_line > 0) else total_lines
+            lines = lines[s:e]
+            content = "\n".join(lines)
+        else:
+            content = raw
+
+        return {
+            "status": "success",
+            "file_path": file_path,
+            "total_lines": total_lines,
+            "content": content,
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+        }
+
+
 def _find_neural_node_path(node_id: str) -> Path | None:
     from pathlib import Path
     import re

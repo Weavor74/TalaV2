@@ -26,7 +26,7 @@ def enforce_tool_permissions(plugin_manifest: Dict[str, Any], tool_name: str, ar
     """
     Given a tool invocation, enforce that the plugin holds the necessary capability.
     """
-    if tool_name.startswith("fs_") or tool_name in ("read_file", "write_file", "list_dir", "write_workspace_file", "read_neural_node", "update_neural_node"):
+    if tool_name.startswith("fs_") or tool_name in ("read_file", "write_file", "list_dir", "write_workspace_file", "read_workspace_file", "read_neural_node", "update_neural_node"):
         if "write" in tool_name or tool_name == "update_neural_node":
             check_permission(plugin_manifest, "fs:write")
         else:
