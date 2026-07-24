@@ -242,8 +242,13 @@ class ToolRegistry:
             }
 
         try:
-            # Filter arguments to match the target function signature
+            # Dynamically map 'content' key to expected target parameter if missing
             sig = inspect.signature(func)
+            mappable_params = ["command", "goal", "plan", "detailed_markdown", "semantic_memory"]
+            target_param = next((p for p in mappable_params if p in sig.parameters), None)
+            if target_param and "content" in arguments and target_param not in arguments:
+                arguments[target_param] = arguments["content"]
+
             has_kwargs = any(p.kind == inspect.Parameter.VAR_KEYWORD for p in sig.parameters.values())
             if not has_kwargs:
                 filtered_args = {k: v for k, v in arguments.items() if k in sig.parameters}
