@@ -878,6 +878,67 @@ async def write_workspace_file(file_path: str, content: str) -> dict[str, Any]:
         }
 
 
+def _find_neural_node_path(node_id: str) -> Path | None:
+    from pathlib import Path
+    import re
+    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+    workspace_root = _get_workspace_root()
+    clean_id = node_id.strip()
+    if clean_id.endswith(".html"):
+        clean_id = clean_id[:-5]
+
+    clean_id_path = clean_id.replace("\\", "/")
+    stem_id = Path(clean_id_path).name
+
+    # 1. Direct path relative to workspace_root
+    direct_candidates = [
+        workspace_root / node_id,
+        workspace_root / f"{clean_id}.html",
+    ]
+    for cand in direct_candidates:
+        if cand.is_file():
+            return cand
+
+    # 2. Candidate directory search
+    candidate_dirs = [
+        workspace_root / "nodes",
+        resolve_active_nodes_dir(),
+        workspace_root / "sdk" / "identity",
+        workspace_root,
+    ]
+
+    for d in candidate_dirs:
+        if not d.exists():
+            continue
+        cands = [
+            d / f"{stem_id}.html",
+            d / f"{clean_id_path}.html",
+            d / f"sdk_agent_{stem_id}.html",
+            d / f"{stem_id.replace('-', '_')}.html",
+        ]
+        for cand in cands:
+            if cand.is_file():
+                return cand
+
+    # 3. Fallback: Search data-node-id in html files across candidate directories
+    node_id_pattern = re.compile(r'data-node-id=["\']([^"\']+)["\']', re.IGNORECASE)
+    target_ids = {node_id.lower(), clean_id.lower(), stem_id.lower()}
+
+    for d in candidate_dirs:
+        if not d.exists():
+            continue
+        for html_file in d.glob("*.html"):
+            try:
+                content = html_file.read_text(encoding="utf-8", errors="ignore")
+                match = node_id_pattern.search(content)
+                if match and match.group(1).lower() in target_ids:
+                    return html_file
+            except Exception:
+                pass
+
+    return None
+
+
 @register_tool(
     name="read_neural_node",
     description="Read the HTML content or metadata of a specific HTML Neural Node.",
@@ -895,23 +956,7 @@ async def read_neural_node(node_id: str) -> dict[str, Any]:
     
     """
     from sdk.agent.parser import parse_file
-    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
-    workspace_root = _get_workspace_root()
-    candidate_dirs = [workspace_root / "nodes", resolve_active_nodes_dir()]
-
-    candidates = []
-    for d in candidate_dirs:
-        candidates.extend([
-            d / f"{node_id}.html",
-            d / f"sdk_agent_{node_id}.html",
-            d / f"{node_id.replace('-', '_')}.html",
-        ])
-
-    node_path = None
-    for cand in candidates:
-        if cand.exists():
-            node_path = cand
-            break
+    node_path = _find_neural_node_path(node_id)
 
     if not node_path:
         return {
@@ -939,6 +984,66 @@ async def read_neural_node(node_id: str) -> dict[str, Any]:
 
 
 @register_tool(
+    name="list_neural_nodes",
+    description="List all available HTML Neural Nodes in the workspace and active directories.",
+)
+async def list_neural_nodes() -> dict[str, Any]:
+    """
+    NAME
+           list_neural_nodes - List available HTML Neural Nodes.
+
+    SYNOPSIS
+           list_neural_nodes() -> dict[str, Any]
+
+    DESCRIPTION
+           Discovers and enumerates all HTML Neural Nodes across workspace nodes, sdk identity, and roaming node stores.
+
+    """
+    from sdk.agent.parser import parse_file
+    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+
+    workspace_root = _get_workspace_root()
+    candidate_dirs = [
+        workspace_root / "nodes",
+        resolve_active_nodes_dir(),
+        workspace_root / "sdk" / "identity",
+    ]
+
+    found_nodes = []
+    seen_paths = set()
+
+    for d in candidate_dirs:
+        if not d.exists():
+            continue
+        for html_file in d.glob("*.html"):
+            resolved = html_file.resolve()
+            if resolved in seen_paths:
+                continue
+            seen_paths.add(resolved)
+
+            node_info = {
+                "file_name": html_file.name,
+                "relative_path": str(html_file.relative_to(workspace_root)) if html_file.is_relative_to(workspace_root) else str(html_file),
+            }
+            try:
+                parsed = parse_file(str(html_file))
+                node_info["node_id"] = parsed.node_id
+                node_info["node_type"] = parsed.node_type
+                node_info["execution_authority"] = parsed.execution_authority
+            except Exception:
+                node_info["node_id"] = html_file.stem
+                node_info["node_type"] = "unknown"
+
+            found_nodes.append(node_info)
+
+    return {
+        "status": "success",
+        "total_count": len(found_nodes),
+        "nodes": found_nodes,
+    }
+
+
+@register_tool(
     name="update_neural_node",
     description="Update specific section contents of an HTML Neural Node.",
 )
@@ -957,25 +1062,11 @@ async def update_neural_node(node_id: str, sections: dict[str, str]) -> dict[str
     from sdk.agent.wiki import WikiUpdater
     from sdk.agent.documentation_nodes import resolve_active_nodes_dir
     workspace_root = _get_workspace_root()
-    candidate_dirs = [workspace_root / "nodes", resolve_active_nodes_dir()]
-
-    candidates = []
-    for d in candidate_dirs:
-        candidates.extend([
-            d / f"{node_id}.html",
-            d / f"sdk_agent_{node_id}.html",
-            d / f"{node_id.replace('-', '_')}.html",
-        ])
-
-    node_path = None
-    for cand in candidates:
-        if cand.exists():
-            node_path = cand
-            break
+    node_path = _find_neural_node_path(node_id)
 
     if not node_path:
         # Scaffolding path
-        node_path = candidate_dirs[0] / f"sdk_agent_{node_id}.html"
+        node_path = workspace_root / "nodes" / f"sdk_agent_{node_id}.html"
 
     try:
         updater = WikiUpdater(backup=True)
