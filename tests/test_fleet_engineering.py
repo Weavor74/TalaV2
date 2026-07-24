@@ -186,3 +186,47 @@ async def test_tool_registry_argument_filtering():
     # Assert execution succeeds and extra arguments were filtered out
     assert res["success"] is True
     assert res["output"] == "a:hello"
+
+@pytest.mark.asyncio
+async def test_dynamic_xml_payload_mapping():
+    from sdk.agent.tools import ToolRegistry
+    import re
+    import json
+
+    # Register mock self_improvement.dry_run_goal in ToolRegistry
+    @ToolRegistry.register(name="self_improvement.dry_run_goal", description="Mock dry run")
+    async def mock_dry_run_goal(goal: str, target_files: list | None = None) -> dict:
+        return {"goal_received": goal}
+
+    # Simulate parsing in server.py
+    generated_text = "<call:self_improvement.dry_run_goal>Clean all nodes</call:self_improvement.dry_run_goal>"
+    tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
+    assert tool_match is not None
+
+    tool_name = tool_match.group(1)
+    attr_str = tool_match.group(2)
+    inner_content = tool_match.group(3)
+
+    attrs = {}
+    if inner_content:
+        inner_content = inner_content.strip()
+        mapped = False
+        tool_entry = ToolRegistry._tools.get(tool_name.lower())
+        if tool_entry:
+            func = tool_entry.get("func")
+            if func:
+                import inspect
+                sig = inspect.signature(func)
+                params = sig.parameters
+                if "goal" in params:
+                    attrs["goal"] = inner_content
+                    mapped = True
+
+    assert mapped is True
+    assert attrs["goal"] == "Clean all nodes"
+
+    # Invoke it via ToolRegistry
+    res = await ToolRegistry.run_tool(tool_name, attrs)
+    assert res["success"] is True
+    assert res["output"]["goal_received"] == "Clean all nodes"
+

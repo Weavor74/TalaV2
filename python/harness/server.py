@@ -1747,25 +1747,61 @@ async def handle_inference_generate(
                     
         if inner_content:
             inner_content = inner_content.strip()
-            if tool_name == "generate_detailed_neural_node":
-                attrs["detailed_markdown"] = inner_content
-            elif tool_name == "write_workspace_file":
-                attrs["content"] = inner_content
-            elif tool_name in {"docs.create_documentation_node", "docs.register_program_target"}:
-                attrs["semantic_memory"] = inner_content
-            elif tool_name == "self_improvement.execute_plan":
-                try:
-                    attrs["plan"] = json.loads(inner_content)
-                except Exception:
-                    attrs["plan"] = {"raw": inner_content}
-            elif tool_name == "self_improvement.create_plan":
-                attrs["goal"] = inner_content
-            elif tool_name == "submit_agent_goal":
-                attrs["goal"] = inner_content
-            elif tool_name.lower() in {"run_workspace_command", "shell.run"}:
-                attrs["command"] = inner_content
-            elif "content" not in attrs:
-                attrs["content"] = inner_content
+            # Try to resolve parameter names dynamically from the tool signature in the registry
+            mapped = False
+            try:
+                from sdk.agent.tools import ToolRegistry
+                tool_entry = ToolRegistry._tools.get(tool_name.lower())
+                if tool_entry:
+                    func = tool_entry.get("func")
+                    if func:
+                        import inspect
+                        sig = inspect.signature(func)
+                        params = sig.parameters
+                        if "goal" in params:
+                            attrs["goal"] = inner_content
+                            mapped = True
+                        elif "command" in params:
+                            attrs["command"] = inner_content
+                            mapped = True
+                        elif "content" in params:
+                            attrs["content"] = inner_content
+                            mapped = True
+                        elif "detailed_markdown" in params:
+                            attrs["detailed_markdown"] = inner_content
+                            mapped = True
+                        elif "semantic_memory" in params:
+                            attrs["semantic_memory"] = inner_content
+                            mapped = True
+                        elif "plan" in params:
+                            try:
+                                attrs["plan"] = json.loads(inner_content)
+                            except Exception:
+                                attrs["plan"] = {"raw": inner_content}
+                            mapped = True
+            except Exception as e:
+                logger.warning("Error resolving tool signature dynamically for mapping: %s", e)
+
+            if not mapped:
+                if tool_name == "generate_detailed_neural_node":
+                    attrs["detailed_markdown"] = inner_content
+                elif tool_name == "write_workspace_file":
+                    attrs["content"] = inner_content
+                elif tool_name in {"docs.create_documentation_node", "docs.register_program_target"}:
+                    attrs["semantic_memory"] = inner_content
+                elif tool_name == "self_improvement.execute_plan":
+                    try:
+                        attrs["plan"] = json.loads(inner_content)
+                    except Exception:
+                        attrs["plan"] = {"raw": inner_content}
+                elif tool_name == "self_improvement.create_plan":
+                    attrs["goal"] = inner_content
+                elif tool_name == "submit_agent_goal":
+                    attrs["goal"] = inner_content
+                elif tool_name.lower() in {"run_workspace_command", "shell.run"}:
+                    attrs["command"] = inner_content
+                elif "content" not in attrs:
+                    attrs["content"] = inner_content
 
         tool_lower = tool_name.lower()
         parts = tool_lower.split(".")
