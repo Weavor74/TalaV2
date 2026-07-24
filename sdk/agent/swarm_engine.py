@@ -200,7 +200,7 @@ class ZombieReaper:
     Reclaims zombie workers and processes that have timed out.
     """
     @classmethod
-    async def reclaim_zombies(cls, timeout_minutes: int = 5) -> int:
+    async def reclaim_zombies(cls, timeout_minutes: int = 30) -> int:
         from python.harness import db
         from sdk.agent.queue import BatchQueue, TaskStatus
         from datetime import datetime, timezone, timedelta

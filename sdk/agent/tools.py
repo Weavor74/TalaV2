@@ -914,9 +914,23 @@ async def read_workspace_file(file_path: str, start_line: int | None = None, end
         lines = raw.splitlines()
         total_lines = len(lines)
 
-        if start_line is not None or end_line is not None:
-            s = (start_line - 1) if (start_line and start_line > 0) else 0
-            e = end_line if (end_line and end_line > 0) else total_lines
+        # Convert string parameters to ints if necessary
+        s_line = None
+        e_line = None
+        if start_line is not None:
+            try:
+                s_line = int(start_line)
+            except (ValueError, TypeError):
+                s_line = None
+        if end_line is not None:
+            try:
+                e_line = int(end_line)
+            except (ValueError, TypeError):
+                e_line = None
+
+        if s_line is not None or e_line is not None:
+            s = (s_line - 1) if (s_line and s_line > 0) else 0
+            e = e_line if (e_line and e_line > 0) else total_lines
             lines = lines[s:e]
             content = "\n".join(lines)
         else:

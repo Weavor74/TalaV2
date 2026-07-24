@@ -380,7 +380,7 @@ class HeartbeatScheduler:
         """Check which jobs are due and spawn them."""
         try:
             from sdk.agent.swarm_engine import ZombieReaper
-            count = await ZombieReaper.reclaim_zombies()
+            count = await ZombieReaper.reclaim_zombies(timeout_minutes=30)
             if count > 0:
                 log.info("HeartbeatScheduler: Reclaimed %d zombie task(s).", count)
         except Exception as exc:
