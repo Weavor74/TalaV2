@@ -1569,7 +1569,7 @@ async def handle_inference_generate(
                                     logger.warning("Failed to update status for failing provider '%s': %s", p_name, status_exc)
                             continue
 
-                    _read_timeout = 300.0 if p_type == "local" else 120.0
+                    _read_timeout = float(params.get("timeout_seconds", 1800.0 if p_type == "local" else 600.0))
                     async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout, connect=5.0)) as client:
                         if stream:
                             chunks = []

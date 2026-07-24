@@ -643,13 +643,22 @@ bash "${startScript}" &
     const request = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
     return new Promise((resolve) => {
-      const timeoutMs = (method === 'inference.generate' || 
-                         method === 'workflow.execute' ||
-                         method === 'task.submit' ||
-                         method === 'task.list' ||
-                         method === 'task.get_telemetry') ? 300_000
-                       : method === 'research.crawl_and_summarize' ? 300_000
-                       : 60_000;
+      let customTimeout = params && (params.timeout_ms || params.timeoutMs || params._timeoutMs);
+      const longRunningMethods = new Set([
+        'inference.generate',
+        'workflow.execute',
+        'task.submit',
+        'task.list',
+        'task.get_telemetry',
+        'research.crawl_and_summarize',
+        'self_improvement.execute_goal',
+        'self_improvement.execute_plan',
+        'code.generate',
+        'code.repair'
+      ]);
+      const timeoutMs = customTimeout ? Number(customTimeout)
+                       : longRunningMethods.has(method) ? 1_800_000
+                       : 300_000;
       const timer = setTimeout(() => {
         pendingRpcCalls.delete(id);
         resolve({
