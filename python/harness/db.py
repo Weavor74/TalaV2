@@ -1037,6 +1037,13 @@ async def _run_migrations() -> None:
     except Exception as exc:
         logger.warning("Failed to seed approved VPS memory context after migrations: %s", exc)
 
+    try:
+        from sdk.agent.code_registry import CodeRegistry
+        await CodeRegistry.seed_registry(pool)
+    except Exception as exc:
+        logger.warning("Failed to seed CodeRegistry: %s", exc)
+
+
 
 def _redact_url(url: str) -> str:
     """Replace password in a DSN string with '***' for safe logging."""

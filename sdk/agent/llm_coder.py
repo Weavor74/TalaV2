@@ -145,7 +145,7 @@ class LLMCodeGenerator:
             log.info("LLMCodeGenerator: LLM unavailable, falling back to template for %s", target.name)
             class_name = target.stem.replace("_", " ").title().replace(" ", "")
             try:
-                code = CodeGenerator.generate_template(language if language in ("python", "javascript", "typescript", "html-nn") else "python", class_name)
+                code = await CodeGenerator.generate_template(language if language in ("python", "javascript", "typescript", "html-nn") else "python", class_name)
             except ValueError:
                 code = f"# {goal}\n"
 

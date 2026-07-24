@@ -24,52 +24,52 @@ class CodeGenerator:
     """
 
     @staticmethod
-    def generate_template(file_type: str, class_name: str, options: dict[str, Any] | None = None) -> str:
+    async def generate_template(file_type: str, class_name: str, options: dict[str, Any] | None = None) -> str:
         """
-        Generate boilerplate template contents.
+        Generate boilerplate template contents from the CodeRegistry.
         """
         opts = options or {}
         description = opts.get("description", f"{class_name} implementation")
         
+        from sdk.agent.code_registry import CodeRegistry
+        
         if file_type == "python":
-            return f'''"""
-{description}
-"""
-
-class {class_name}:
-    def __init__(self) -> None:
-        pass
-'''
+            template = await CodeRegistry.get("tala.code.template.python.class")
         elif file_type == "javascript" or file_type == "typescript":
-            ext = "ts" if file_type == "typescript" else "js"
-            return f'''/**
- * {description}
- */
-
-export class {class_name} {{
-    constructor() {{}}
-}}
-'''
+            template = await CodeRegistry.get("tala.code.template.nodejs.class")
         elif file_type == "html-nn":
-            return f'''<!DOCTYPE html>
-<html lang="en">
-<head>
-  <meta charset="UTF-8">
-  <meta name="generator" content="Tala CodeGenerator">
-  <title>{class_name}</title>
-</head>
-<body>
-  <article data-node-id="{class_name.lower()}-node" data-node-type="concept" data-execution-authority="user">
-    <h1>{class_name}</h1>
-    <section id="description">
-      <p>{description}</p>
-    </section>
-  </article>
-</body>
-</html>
-'''
+            template = (
+                '<!DOCTYPE html>\n'
+                '<html lang="en">\n'
+                '<head>\n'
+                '  <meta charset="UTF-8">\n'
+                '  <meta name="generator" content="Tala CodeGenerator">\n'
+                '  <title>{class_name}</title>\n'
+                '</head>\n'
+                '<body>\n'
+                '  <article data-node-id="{class_name_lower}-node" data-node-type="concept" data-execution-authority="user">\n'
+                '    <h1>{class_name}</h1>\n'
+                '    <section id="description">\n'
+                '      <p>{description}</p>\n'
+                '    </section>\n'
+                '  </article>\n'
+                '</body>\n'
+                '</html>\n'
+            )
         else:
-            raise ValueError(f"Unsupported file type for generation: {file_type}")
+            template = await CodeRegistry.get(f"tala.code.template.{file_type}")
+            if not template:
+                raise ValueError(f"Unsupported file type for generation: {file_type}")
+
+        module_name = class_name.lower()
+        file_name = f"{module_name}.js" if file_type in ("javascript", "typescript") else f"{module_name}.py"
+        
+        formatted = template.replace("{class_name}", class_name) \
+                            .replace("{class_name_lower}", class_name.lower()) \
+                            .replace("{description}", description) \
+                            .replace("{module_name}", module_name) \
+                            .replace("{file_name}", file_name)
+        return formatted
 
 
 class CodeRepair:

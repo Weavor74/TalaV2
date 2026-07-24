@@ -1283,6 +1283,45 @@ async def write_files_tool(
 
 
 @register_tool(
+    name="code.registry_get",
+    description="Retrieve a specific code style or template key from the registry (e.g. tala.code.style.python.naming).",
+)
+async def registry_get_tool(key: str) -> dict[str, Any]:
+    from sdk.agent.code_registry import CodeRegistry
+    try:
+        val = await CodeRegistry.get(key)
+        return {"success": True, "key": key, "value": val}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@register_tool(
+    name="code.registry_set",
+    description="Set or update a specific code style or template key in the registry.",
+)
+async def registry_set_tool(key: str, value: Any) -> dict[str, Any]:
+    from sdk.agent.code_registry import CodeRegistry
+    try:
+        await CodeRegistry.set(key, value)
+        return {"success": True, "key": key, "value": value}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@register_tool(
+    name="code.registry_list",
+    description="List all code styles and template keys matching a prefix.",
+)
+async def registry_list_tool(prefix: str | None = None) -> dict[str, Any]:
+    from sdk.agent.code_registry import CodeRegistry
+    try:
+        keys = await CodeRegistry.list_keys(prefix)
+        return {"success": True, "keys": keys}
+    except Exception as exc:
+        return {"success": False, "error": str(exc)}
+
+
+@register_tool(
     name="test.run_validation",
     description=(
         "Run allowlisted validation commands such as python -m py_compile or pytest. "

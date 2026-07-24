@@ -7987,7 +7987,7 @@ async def handle_code_generate(params: dict[str, Any], req_id: Any) -> str:
         
     try:
         from sdk.agent.coder import CodeGenerator
-        code = CodeGenerator.generate_template(file_type, class_name, params.get("options"))
+        code = await CodeGenerator.generate_template(file_type, class_name, params.get("options"))
         return _ok(req_id, {"code": code})
     except Exception as exc:
         logger.exception("code.generate error")
@@ -8102,6 +8102,54 @@ async def handle_code_write_files(params: dict[str, Any], req_id: Any) -> str:
     except Exception as exc:
         logger.exception("code.write_files error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_code_registry_get(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``code.registry_get`` — Retrieve a key from CodeRegistry.
+    """
+    key = params.get("key")
+    if not key or not isinstance(key, str):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'key' is required")
+    try:
+        from sdk.agent.code_registry import CodeRegistry
+        val = await CodeRegistry.get(key)
+        return _ok(req_id, {"key": key, "value": val})
+    except Exception as exc:
+        logger.exception("code.registry_get error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_code_registry_set(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``code.registry_set`` — Set a key in CodeRegistry.
+    """
+    key = params.get("key")
+    value = params.get("value")
+    if not key or not isinstance(key, str):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'key' is required")
+    try:
+        from sdk.agent.code_registry import CodeRegistry
+        await CodeRegistry.set(key, value)
+        return _ok(req_id, {"key": key, "value": value})
+    except Exception as exc:
+        logger.exception("code.registry_set error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_code_registry_list(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``code.registry_list`` — List keys matching prefix in CodeRegistry.
+    """
+    prefix = params.get("prefix")
+    try:
+        from sdk.agent.code_registry import CodeRegistry
+        keys = await CodeRegistry.list_keys(prefix)
+        return _ok(req_id, {"keys": keys})
+    except Exception as exc:
+        logger.exception("code.registry_list error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
 
 
 async def handle_test_run_validation(params: dict[str, Any], req_id: Any) -> str:
@@ -9137,6 +9185,9 @@ _HANDLERS: dict[str, Any] = {
     "code.apply_patch": handle_code_apply_patch,
     "code.propose_file_write": handle_code_propose_file_write,
     "code.write_files": handle_code_write_files,
+    "code.registry_get": handle_code_registry_get,
+    "code.registry_set": handle_code_registry_set,
+    "code.registry_list": handle_code_registry_list,
     "test.generate": handle_test_generate,
     "test.run_validation": handle_test_run_validation,
     "self_improvement.create_plan": handle_self_improvement_create_plan,
