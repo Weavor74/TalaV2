@@ -9556,15 +9556,40 @@ const MissionControl = {
           if (t.status === 'complete') statusColor = '#8be9fd';
           if (t.status === 'blocked') statusColor = '#ff79c6';
 
-          return `
-            <div class="task-item-card" style="padding: var(--space-2); margin-bottom: var(--space-2); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-sm); display: flex; justify-content: space-between; align-items: center;">
-              <div>
-                <strong style="font-size: 0.8rem; color: var(--text-primary);">${t.description}</strong>
-                <div style="font-size: 0.7rem; color: var(--text-muted);">ID: ${t.id.slice(0,8)}...</div>
+          let bodyContent = '';
+          if (t.status === 'in_progress') {
+            bodyContent = `
+              <div style="margin-top: 6px; font-size: 0.75rem; color: #50fa7b; display: flex; align-items: center; gap: 6px;">
+                <span style="width: 8px; height: 8px; border-radius: 50%; background: #50fa7b; display: inline-block; box-shadow: 0 0 6px #50fa7b;"></span>
+                <span>Active Step: Executing phase tasks & ToT reasoning...</span>
               </div>
-              <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; text-transform: uppercase;">
-                ${t.status}
-              </span>
+            `;
+          } else if (t.status === 'complete' && t.result) {
+            const phases = t.result.phases_completed || [];
+            const summaryText = phases.length > 0 ? `Completed ${phases.length} phase(s): ${phases.slice(-2).join(', ')}` : 'Goal completed successfully.';
+            bodyContent = `
+              <div style="margin-top: 6px; font-size: 0.75rem; color: #8be9fd;">
+                <strong>Final Result:</strong> ${summaryText}
+                <details style="margin-top: 4px; color: var(--text-muted); cursor: pointer;">
+                  <summary style="font-size: 0.7rem; color: var(--text-muted);">View Execution Steps</summary>
+                  <div style="padding-top: 4px; font-size: 0.7rem; font-family: monospace;">${JSON.stringify(t.result, null, 2)}</div>
+                </details>
+              </div>
+            `;
+          }
+
+          return `
+            <div class="task-item-card" style="padding: var(--space-3); margin-bottom: var(--space-2); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-sm);">
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                  <strong style="font-size: 0.85rem; color: var(--text-primary);">${t.description}</strong>
+                  <div style="font-size: 0.7rem; color: var(--text-muted);">ID: ${t.id.slice(0,8)}...</div>
+                </div>
+                <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; text-transform: uppercase;">
+                  ${t.status}
+                </span>
+              </div>
+              ${bodyContent}
             </div>
           `;
         }).join('');

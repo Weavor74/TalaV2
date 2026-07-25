@@ -7424,7 +7424,7 @@ async def handle_task_list(params: dict[str, Any], req_id: Any) -> str:
     ``task.list`` — Fetch all queued/executing tasks.
     """
     try:
-        records = await db.fetch("SELECT id, parent_id, description, status, payload, assigned_agent_id, model_override, worktree_path, branch_name FROM tasks ORDER BY created_at DESC LIMIT 50")
+        records = await db.fetch("SELECT id, parent_id, description, status, payload, result, assigned_agent_id, model_override, worktree_path, branch_name FROM tasks ORDER BY created_at DESC LIMIT 50")
         task_list = []
         for r in records:
             task_list.append({
@@ -7436,7 +7436,8 @@ async def handle_task_list(params: dict[str, Any], req_id: Any) -> str:
                 "model_override": json.loads(r["model_override"]) if isinstance(r["model_override"], str) else r["model_override"],
                 "worktree_path": r["worktree_path"],
                 "branch_name": r["branch_name"],
-                "payload": json.loads(r["payload"]) if isinstance(r["payload"], str) else r["payload"]
+                "payload": json.loads(r["payload"]) if isinstance(r["payload"], str) else r["payload"],
+                "result": json.loads(r["result"]) if isinstance(r["result"], str) else r["result"]
             })
         return _ok(req_id, {"tasks": task_list})
     except Exception as exc:
