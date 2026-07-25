@@ -4601,11 +4601,22 @@ const AgentChat = {
     this._visionProviderId = localStorage.getItem('tala.chat.vision_provider_id') || '';
     
     this.loadHistory();
+    this.renderSessionSelect();
 
     const btnNew = qs('#btn-chat-new');
     if (btnNew) {
       btnNew.addEventListener('click', () => {
         this.startNewChat();
+      });
+    }
+
+    const sessionSelect = qs('#chat-session-select');
+    if (sessionSelect) {
+      sessionSelect.addEventListener('change', () => {
+        const targetId = sessionSelect.value;
+        if (targetId && targetId !== this._sessionId) {
+          this.switchSession(targetId);
+        }
       });
     }
 
@@ -4828,6 +4839,68 @@ const AgentChat = {
 
   saveHistory() {
     localStorage.setItem(`tala.chat.history_data.${this._sessionId}`, JSON.stringify(this._history));
+    let title = '';
+    if (Array.isArray(this._history) && this._history.length > 0) {
+      const firstUser = this._history.find(m => m.role === 'user');
+      if (firstUser && firstUser.content) {
+        title = firstUser.content.slice(0, 26).trim() + (firstUser.content.length > 26 ? '...' : '');
+      }
+    }
+    this.registerSession(this._sessionId, title);
+  },
+
+  registerSession(sessionId, title) {
+    if (!sessionId) return;
+    let list = [];
+    try {
+      list = JSON.parse(localStorage.getItem('tala.chat.sessions_list') || '[]');
+    } catch (_) { list = []; }
+
+    let existing = list.find(s => s.id === sessionId);
+    if (existing) {
+      if (title) existing.title = title;
+      existing.updatedAt = new Date().toISOString();
+    } else {
+      list.unshift({
+        id: sessionId,
+        title: title || `Chat ${new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'})}`,
+        updatedAt: new Date().toISOString()
+      });
+    }
+    if (list.length > 50) list = list.slice(0, 50);
+    localStorage.setItem('tala.chat.sessions_list', JSON.stringify(list));
+    this.renderSessionSelect();
+  },
+
+  renderSessionSelect() {
+    const selectEl = qs('#chat-session-select');
+    if (!selectEl) return;
+    let list = [];
+    try {
+      list = JSON.parse(localStorage.getItem('tala.chat.sessions_list') || '[]');
+    } catch (_) { list = []; }
+
+    selectEl.innerHTML = '<option value="" disabled>History</option>';
+    list.forEach(s => {
+      const opt = document.createElement('option');
+      opt.value = s.id;
+      opt.textContent = s.title || s.id;
+      if (s.id === this._sessionId) {
+        opt.selected = true;
+      }
+      selectEl.appendChild(opt);
+    });
+  },
+
+  switchSession(targetId) {
+    if (Array.isArray(this._history) && this._history.length > 0) {
+      this.saveHistory();
+    }
+    this._sessionId = targetId;
+    localStorage.setItem('tala.chat.session_id', this._sessionId);
+    this.loadHistory();
+    this.renderSessionSelect();
+    IPCLog.append('ok', `Restored chat session: ${targetId}`);
   },
 
   startNewChat() {
@@ -4839,6 +4912,7 @@ const AgentChat = {
     this._history = [];
     this.saveHistory();
     this.loadHistory();
+    this.renderSessionSelect();
     IPCLog.append('ok', 'Started fresh zero-context chat session.');
   },
 
