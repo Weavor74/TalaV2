@@ -497,11 +497,7 @@ async def handle_inference_generate(
 
     raw_prompt = bool(params.get("raw_prompt", False))
     if raw_prompt:
-        import platform, sys
-        _os = platform.system()
-        _sh = "PowerShell (powershell.exe / cmd.exe)" if _os == "Windows" else "Bash/Zsh"
-        _sys_hdr = f"[Host System Environment: OS={_os} {platform.release()} ({sys.platform}), Shell={_sh}, Python={sys.version.split()[0]}]"
-        active_system_prompt = f"{_sys_hdr}\n" + params.get("system_prompt", "You are a precise, helpful software engineering assistant. Output code blocks or clean answers as requested.")
+        active_system_prompt = params.get("system_prompt", "You are a precise, helpful software engineering assistant. Output code blocks or clean answers as requested.")
         messages = []
         if active_system_prompt:
             messages.append({"role": "system", "content": active_system_prompt})
@@ -525,23 +521,14 @@ async def handle_inference_generate(
                     cfg = json.loads(cfg)
                 active_system_prompt = cfg.get("system_prompt", "")
             
-                # Inject current local time and OS/system metadata for context awareness
+                # Inject current local time metadata for context awareness
                 from datetime import datetime
-                import platform
-                import sys
-
                 current_time = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
-                host_os = platform.system()
-                os_ver = platform.release()
-                shell_type = "PowerShell (powershell.exe / cmd.exe)" if host_os == "Windows" else "Bash/Zsh"
-                system_metadata = (
-                    f"[Current Date & Time: {current_time}]\n"
-                    f"[Host System Environment: OS={host_os} {os_ver} ({sys.platform}), Shell={shell_type}, Python={sys.version.split()[0]}]"
-                )
+                time_metadata = f"[Current Date & Time: {current_time}]"
                 if active_system_prompt:
-                    active_system_prompt = f"{system_metadata}\n{active_system_prompt}"
+                    active_system_prompt = f"{time_metadata}\n{active_system_prompt}"
                 else:
-                    active_system_prompt = system_metadata
+                    active_system_prompt = time_metadata
             
                 background_file = cfg.get("background_file", "")
                 if background_file:
