@@ -1646,6 +1646,13 @@ async def handle_inference_generate(
                             else:
                                 generated_text = content
 
+                if not generated_text or not generated_text.strip():
+                    err_msg = f"Provider '{p_name}' ({p_type}) returned empty response text."
+                    logger.warning(err_msg)
+                    errors.append(err_msg)
+                    success = False
+                    continue
+
                 # Router Checks
                 is_forced_provider = (forced_provider and provider["id"] == forced_provider["id"])
                 is_requested_provider = (request_provider and provider["id"] == request_provider["id"])
