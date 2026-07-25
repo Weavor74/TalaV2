@@ -553,6 +553,7 @@ function registerPythonRpcHandler() {
           const zipPath = path.join(os.tmpdir(), 'tala-update.zip');
           const startScript = path.join(appRoot, 'scripts', 'start-tala.ps1');
           const scriptContent = `
+[Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " Tala Cognitive Engine Room Updater" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan
@@ -561,7 +562,18 @@ Write-Host "Waiting for Tala to close..."
 Start-Sleep -Seconds 3
 
 Write-Host "Downloading update from ${url}..." -ForegroundColor Yellow
-Invoke-WebRequest -Uri "${url}" -OutFile "${zipPath}"
+try {
+    Invoke-WebRequest -Uri "${url}" -OutFile "${zipPath}" -UseBasicParsing -ErrorAction Stop
+} catch {
+    Write-Host "Invoke-WebRequest failed, retrying with WebClient..." -ForegroundColor Yellow
+    (New-Object System.Net.WebClient).DownloadFile("${url}", "${zipPath}")
+}
+
+if (-not (Test-Path "${zipPath}") -or (Get-Item "${zipPath}").Length -lt 1000) {
+    Write-Host "Download failed or file corrupted." -ForegroundColor Red
+    Start-Sleep -Seconds 5
+    exit
+}
 
 Write-Host "Extracting update to ${appRoot}..." -ForegroundColor Yellow
 try {
