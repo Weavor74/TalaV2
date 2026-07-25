@@ -1579,10 +1579,11 @@ async def handle_inference_generate(
                         if all_tools:
                             openai_tools = []
                             for t in all_tools:
+                                clean_func_name = re.sub(r'[^a-zA-Z0-9_-]', '_', t["name"])
                                 openai_tools.append({
                                     "type": "function",
                                     "function": {
-                                        "name": t["name"],
+                                        "name": clean_func_name,
                                         "description": t["description"],
                                         "parameters": t.get("schema", {"type": "object", "properties": {}})
                                     }
@@ -1835,11 +1836,21 @@ async def handle_inference_generate(
         if attr_str.endswith('/'):
             attr_str = attr_str[:-1]
 
-        # Alias common LLM hallucinated tool names
+        # Alias common LLM hallucinated tool names or sanitized function names (e.g. docs_create_documentation_node)
         if tool_name.startswith("run_workflow"):
             tool_name = "run_workflow_node"
         elif tool_name == "run_validation":
             tool_name = "test.run_validation"
+        else:
+            try:
+                from sdk.agent.tools import ToolRegistry
+                if tool_name.lower() not in ToolRegistry._tools:
+                    for orig_name in ToolRegistry._tools.keys():
+                        if re.sub(r'[^a-zA-Z0-9_-]', '_', orig_name) == tool_name.lower():
+                            tool_name = orig_name
+                            break
+            except Exception:
+                pass
 
         # Parse attributes
         attrs = {}
