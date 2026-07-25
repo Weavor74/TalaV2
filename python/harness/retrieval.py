@@ -31,15 +31,18 @@ try:
         name="tala_neural_nodes",
         metadata={"hnsw:space": "cosine"}
     )
-except Exception as exc:
+except BaseException as exc:
     logger.error(f"Failed to initialize ChromaDB: {exc}")
     node_collection = None
 
 
+_INDEXED_MTIMES: dict[str, float] = {}
+
 def index_nodes(nodes_dir: Path) -> None:
     """
-    Parse all HTML Neural Nodes and embed them into the ChromaDB collection.
+    Parse new or modified HTML Neural Nodes and embed them into ChromaDB incrementally.
     """
+    global _INDEXED_MTIMES
     if not node_collection:
         logger.error("Cannot index nodes: ChromaDB collection not initialized.")
         return
@@ -49,11 +52,19 @@ def index_nodes(nodes_dir: Path) -> None:
         return
 
     nodes: list[NeuralNode] = []
+    updated_mtimes: dict[str, float] = {}
+
     for filepath in nodes_dir.glob("*.html"):
         if "_archive_legacy" in str(filepath):
             continue
         try:
-            node = parse_file(str(filepath))
+            mtime = filepath.stat().st_mtime
+            path_str = str(filepath)
+            updated_mtimes[path_str] = mtime
+            if path_str in _INDEXED_MTIMES and _INDEXED_MTIMES[path_str] == mtime:
+                continue
+
+            node = parse_file(path_str)
             nodes.append(node)
         except InvalidNodeSchemaError as exc:
             logger.warning("Skipping invalid node file %s: %s", filepath.name, exc)
@@ -61,6 +72,7 @@ def index_nodes(nodes_dir: Path) -> None:
             logger.error("Failed to parse node file %s: %s", filepath.name, exc)
 
     if not nodes:
+        _INDEXED_MTIMES.update(updated_mtimes)
         return
 
     ids = []
@@ -94,6 +106,7 @@ def index_nodes(nodes_dir: Path) -> None:
                 documents=documents,
                 metadatas=metadatas
             )
+            _INDEXED_MTIMES.update(updated_mtimes)
             logger.info(f"Successfully indexed {len(ids)} Neural Nodes into ChromaDB.")
         except Exception as exc:
             logger.error(f"Failed to upsert nodes into ChromaDB: {exc}")
