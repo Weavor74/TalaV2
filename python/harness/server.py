@@ -1267,7 +1267,7 @@ async def handle_inference_generate(
             logger.warning("Could not append dynamic tools to system prompt: %s", e)
 
         if active_system_prompt:
-            active_system_prompt += tool_instructions
+            active_system_prompt = f"{tool_instructions.strip()}\n\n{active_system_prompt}"
         else:
             active_system_prompt = tool_instructions.strip()
         # Append a strong recency-focused system reminder to the end of the user prompt
@@ -1564,7 +1564,6 @@ async def handle_inference_generate(
                     if "kimi" in model_lower or "moonshot" in model_lower or (endpoint and ("kimi" in endpoint.lower() or "moonshot" in endpoint.lower())):
                         actual_temp = 1.0
 
-                    url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
                     payload = {
                         "model": model,
                         "messages": messages,
@@ -1572,6 +1571,25 @@ async def handle_inference_generate(
                         "temperature": actual_temp,
                         "stream": stream
                     }
+
+                    try:
+                        from sdk.agent.tools import ToolRegistry
+                        all_tools = ToolRegistry.get_tools()
+                        if all_tools:
+                            openai_tools = []
+                            for t in all_tools:
+                                openai_tools.append({
+                                    "type": "function",
+                                    "function": {
+                                        "name": t["name"],
+                                        "description": t["description"],
+                                        "parameters": t.get("schema", {"type": "object", "properties": {}})
+                                    }
+                                })
+                            if openai_tools:
+                                payload["tools"] = openai_tools
+                    except Exception as t_exc:
+                        logger.warning("Could not append OpenAI tools array to payload: %s", t_exc)
 
                     if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
                         payload["options"] = {"num_ctx": 8192}
