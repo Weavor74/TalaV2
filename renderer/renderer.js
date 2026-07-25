@@ -4602,6 +4602,13 @@ const AgentChat = {
     
     this.loadHistory();
 
+    const btnNew = qs('#btn-chat-new');
+    if (btnNew) {
+      btnNew.addEventListener('click', () => {
+        this.startNewChat();
+      });
+    }
+
     this._btnScreenshot = qs('#btn-chat-screenshot');
     if (this._btnScreenshot) {
       this._btnScreenshot.addEventListener('click', () => {
@@ -4821,6 +4828,18 @@ const AgentChat = {
 
   saveHistory() {
     localStorage.setItem(`tala.chat.history_data.${this._sessionId}`, JSON.stringify(this._history));
+  },
+
+  startNewChat() {
+    if (Array.isArray(this._history) && this._history.length > 0) {
+      this.saveHistory();
+    }
+    this._sessionId = `chat-${Date.now()}`;
+    localStorage.setItem('tala.chat.session_id', this._sessionId);
+    this._history = [];
+    this.saveHistory();
+    this.loadHistory();
+    IPCLog.append('ok', 'Started fresh zero-context chat session.');
   },
 
   async sendMessage() {
