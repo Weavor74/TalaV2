@@ -894,26 +894,38 @@ async def handle_inference_generate(
                     # Its output is injected into the prompt context before the LLM responds.
                     _WORKFLOW_AUTO_THRESHOLD = 0.15
                     workflow_context_parts: list[str] = []
-                    executed_flow_ids: set[str] = set()
+                    executed_workflow_paths: set[str] = set()
                     for _wf_node, _wf_score in top_active:
                         if _wf_node.node_type == "workflow" and _wf_score >= _WORKFLOW_AUTO_THRESHOLD:
                             # Derive the flow_id from node_id — compiler prefixes with "flow-"
                             _flow_id = _wf_node.node_id
                             if _flow_id.startswith("flow-"):
                                 _flow_id = _flow_id[5:]
-
-                            if _flow_id in executed_flow_ids:
-                                continue
-                            executed_flow_ids.add(_flow_id)
+                            elif _flow_id.startswith("skill-workflow_"):
+                                _flow_id = _flow_id[15:]
+                            elif _flow_id.startswith("learning-workflow-"):
+                                parts = _flow_id.split("-")
+                                if len(parts) >= 3:
+                                    _flow_id = "_".join(parts[2:-3]) if "_" in _flow_id else "-".join(parts[2:-3])
 
                             from python.harness.workflows_util import resolve_workflow_file
                             _json_path = resolve_workflow_file(_flow_id)
+                            if not _json_path:
+                                # Try with underscores replaced by hyphens or vice versa
+                                _alt_id = _flow_id.replace("_", "-") if "_" in _flow_id else _flow_id.replace("-", "_")
+                                _json_path = resolve_workflow_file(_alt_id)
+
                             if not _json_path:
                                 logger.warning(
                                     "Auto-eval gate: workflow JSON not found for node '%s'",
                                     _wf_node.node_id
                                 )
                                 continue
+
+                            canonical_path = str(_json_path.resolve())
+                            if canonical_path in executed_workflow_paths:
+                                continue
+                            executed_workflow_paths.add(canonical_path)
 
                             try:
                                 _wf_data = json.loads(_json_path.read_text(encoding="utf-8"))
