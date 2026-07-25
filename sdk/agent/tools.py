@@ -1358,6 +1358,33 @@ async def list_program_targets_tool() -> dict[str, Any]:
 
 
 @register_tool(
+    name="get_system_info",
+    description="Query live host hardware specs, OS platform details, software versions, and service health directly from the Tala harness.",
+)
+async def get_system_info_tool() -> dict[str, Any]:
+    try:
+        from python.harness.server import handle_system_info
+        import json
+        res_str = await handle_system_info({}, None)
+        parsed = json.loads(res_str) if isinstance(res_str, str) else res_str
+        if isinstance(parsed, dict) and "result" in parsed and "info" in parsed["result"]:
+            return parsed["result"]["info"]
+        elif isinstance(parsed, dict) and "result" in parsed:
+            return parsed["result"]
+        return parsed if isinstance(parsed, dict) else {"raw": parsed}
+    except Exception as exc:
+        import platform, sys
+        return {
+            "status": "error",
+            "os": platform.system(),
+            "os_version": platform.release(),
+            "architecture": platform.machine(),
+            "python_version": sys.version.split()[0],
+            "error": str(exc)
+        }
+
+
+@register_tool(
     name="code.propose_patch",
     description=(
         "Propose a bounded exact-replacement patch inside the workspace. "
