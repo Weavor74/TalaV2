@@ -805,21 +805,68 @@ async def trigger_vps_update() -> dict[str, Any]:
 
 
 @register_tool(
+    name="search_workspace_files",
+    description="Search for a text string or regex pattern across workspace files using fast native Python search.",
+)
+async def search_workspace_files(query: str, file_pattern: str = "*") -> dict[str, Any]:
+    """
+    Fast, cross-platform native Python search across workspace files.
+    """
+    import re
+    workspace_root = _get_workspace_root()
+    matches = []
+    try:
+        regex = re.compile(query, re.IGNORECASE)
+    except Exception:
+        regex = re.compile(re.escape(query), re.IGNORECASE)
+
+    ignore_dirs = {".git", "node_modules", "dist", "data", ".venv", "__pycache__", ".tala_snapshots"}
+    count = 0
+
+    for path in workspace_root.rglob(file_pattern or "*"):
+        if count >= 50:
+            break
+        if any(part in ignore_dirs for part in path.parts):
+            continue
+        if path.is_file() and path.suffix in (".html", ".js", ".py", ".json", ".css", ".md"):
+            try:
+                content = path.read_text(encoding="utf-8", errors="ignore")
+                for idx, line in enumerate(content.splitlines(), start=1):
+                    if regex.search(line):
+                        rel_path = str(path.relative_to(workspace_root))
+                        matches.append(f"{rel_path}:{idx}: {line.strip()[:120]}")
+                        count += 1
+                        if count >= 50:
+                            break
+            except Exception:
+                pass
+
+    return {
+        "status": "success",
+        "query": query,
+        "matches_count": len(matches),
+        "matches": matches,
+    }
+
+
+@register_tool(
     name="run_workspace_command",
-    description="Run a shell command asynchronously in the workspace root. Optional env dict securely injects secrets without logging them in the command string.",
+    description="Run a shell command asynchronously in the workspace root.",
 )
 async def run_workspace_command(command: str, env: dict[str, str] | None = None) -> dict[str, Any]:
     """
     NAME
-           run_workspace_command - Run a shell command asynchronously in the workspace root. Optional env dict securely injects secrets without logging them in the command string.
-           
-    SYNOPSIS
-           run_workspace_command(command: str, env: Any) -> dict[str, Any]
-           
-    DESCRIPTION
-           Execute a command asynchronously in the workspace directory.
-    
+           run_workspace_command - Run a shell command asynchronously in the workspace root.
     """
+    # Intercept 'grep' on Windows and transparently execute native Python search
+    import re
+    cmd_str = (command or "").strip()
+    if os.name == "nt" and (cmd_str.startswith("grep ") or cmd_str == "grep"):
+        m = re.search(r"grep(?:\s+-[a-zA-Z]+)*\s+['\"]?([^'\"]+)['\"]?", cmd_str)
+        q = m.group(1) if m else cmd_str.replace("grep", "").strip()
+        log.info("Intercepted Windows 'grep' command, rerouting to native search_workspace_files: %s", q)
+        return await search_workspace_files(query=q)
+
     from sdk.agent.async_shell import AsyncShellExecutor
     workspace_root = str(_get_workspace_root())
     try:
