@@ -8645,6 +8645,7 @@ const WorkflowManager = {
 
     // Console logs panel
     this._logsPanel = qs('#workflow-logs-panel');
+    this._logsCopyBtn = qs('#btn-console-copy');
     this._logsClearBtn = qs('#btn-workflow-logs-clear');
     this._logsToggleBtn = qs('#btn-workflow-logs-toggle');
     this._logsConsole = qs('#workflow-execution-logs');
@@ -8667,6 +8668,21 @@ const WorkflowManager = {
     if (this._btnJsonToggle) this._btnJsonToggle.addEventListener('click', () => this.switchTab('json'));
 
     // Console controls
+    if (this._logsCopyBtn) {
+      this._logsCopyBtn.addEventListener('click', () => {
+        const textToCopy = this._logsConsole ? (this._logsConsole.innerText || this._logsConsole.textContent || '') : '';
+        navigator.clipboard.writeText(textToCopy).then(() => {
+          if (typeof IPCLog !== 'undefined' && IPCLog.append) {
+            IPCLog.append('ok', 'Console logs copied to clipboard.');
+          }
+        }).catch(() => {
+          navigator.clipboard.writeText(textToCopy);
+          if (typeof IPCLog !== 'undefined' && IPCLog.append) {
+            IPCLog.append('ok', 'Console logs copied to clipboard.');
+          }
+        });
+      });
+    }
     if (this._logsClearBtn) {
       this._logsClearBtn.addEventListener('click', () => {
         this._logsConsole.innerHTML = '<div class="log-row info-row">Console cleared.</div>';
