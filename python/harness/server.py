@@ -1602,6 +1602,17 @@ async def handle_inference_generate(
                             failed_endpoints.add(_norm_check_base)
                             probe_desc = f"{type(_probe_exc).__name__}: {_probe_exc}" if str(_probe_exc) else type(_probe_exc).__name__
                             errors.append(f"Provider '{p_name}' skipped: {probe_desc}")
+                            if provider["id"] != "embedded-builtin":
+                                try:
+                                    await db.execute(
+                                        "UPDATE inference_providers SET status = 'offline', updated_at = NOW() WHERE id = $1",
+                                        provider["id"]
+                                    )
+                                    from python.harness.settings_nn import update_settings_inference_node
+                                    await update_settings_inference_node()
+                                    await broadcast_notification("inference.providers_changed")
+                                except Exception as status_exc:
+                                    logger.warning("Failed to update status for failing provider '%s': %s", p_name, status_exc)
                             continue
 
                     _read_timeout = float(params.get("timeout_seconds", 1800.0 if p_type == "local" else 600.0))
@@ -1623,8 +1634,8 @@ async def handle_inference_generate(
                                             choices = data_json.get("choices", [])
                                             if choices:
                                                 delta = choices[0].get("delta", {})
-                                                reasoning_chunk = delta.get("reasoning") or delta.get("reasoning_content") or delta.get("thinking") or ""
-                                                content_chunk = delta.get("content", "") or ""
+                                                reasoning_chunk = delta.get("reasoning", "")
+                                                content_chunk = delta.get("content", "")
                                                 
                                                 chunk = ""
                                                 if reasoning_chunk:
@@ -1658,36 +1669,9 @@ async def handle_inference_generate(
                             resp_json = response.json()
                             choice = resp_json["choices"][0]["message"]
                             content = choice.get("content", "") or ""
-                            reasoning = choice.get("reasoning") or choice.get("reasoning_content") or choice.get("thinking") or ""
-                            
-                            # Support standard OpenAI tool_calls format if content is empty
-                            tool_calls = choice.get("tool_calls")
-                            if tool_calls and isinstance(tool_calls, list):
-                                formatted_calls = []
-                                for tc in tool_calls:
-                                    fn = tc.get("function", {})
-                                    fn_name = fn.get("name", "")
-                                    fn_args_raw = fn.get("arguments", "")
-                                    attr_str = ""
-                                    if isinstance(fn_args_raw, dict):
-                                        attr_str = " ".join(f'{k}="{v}"' for k, v in fn_args_raw.items())
-                                    elif isinstance(fn_args_raw, str) and fn_args_raw.strip():
-                                        try:
-                                            args_dict = json.loads(fn_args_raw)
-                                            if isinstance(args_dict, dict):
-                                                attr_str = " ".join(f'{k}="{v}"' for k, v in args_dict.items())
-                                            else:
-                                                attr_str = fn_args_raw
-                                        except Exception:
-                                            attr_str = fn_args_raw
-                                    if fn_name:
-                                        formatted_calls.append(f'<call:{fn_name} {attr_str}/>' if attr_str else f'<call:{fn_name}/>')
-                                if formatted_calls:
-                                    tool_calls_text = "\n".join(formatted_calls)
-                                    content = f"{content}\n{tool_calls_text}".strip() if content else tool_calls_text
-
+                            reasoning = choice.get("reasoning", "") or ""
                             if reasoning:
-                                generated_text = f"<thinking>\n{reasoning}\n</thinking>\n\n{content}".strip()
+                                generated_text = f"<thinking>\n{reasoning}\n</thinking>\n\n{content}"
                             else:
                                 generated_text = content
 
@@ -1747,6 +1731,17 @@ async def handle_inference_generate(
                     err_msg,
                     {"session_id": session_id, "provider_id": provider["id"], "error": str(exc)}
                 )
+                if provider["id"] != "embedded-builtin":
+                    try:
+                        await db.execute(
+                            "UPDATE inference_providers SET status = 'offline', updated_at = NOW() WHERE id = $1",
+                            provider["id"]
+                        )
+                        from python.harness.settings_nn import update_settings_inference_node
+                        await update_settings_inference_node()
+                        await broadcast_notification("inference.providers_changed")
+                    except Exception as status_exc:
+                        logger.warning("Failed to update status for failing provider '%s': %s", p_name, status_exc)
 
         if not success:
             all_errors = "; ".join(errors)
@@ -1798,13 +1793,14 @@ async def handle_inference_generate(
         # Parse tool calls
         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
         if not tool_match:
-            # If prompt implies action/search/fix/remove and model spoke prose without emitting a tool call on Turn 0:
-            if loop_count == 0 and any(k in prompt.lower() for k in ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create")):
-                logger.info("Model stated intent without emitting tool call tag on action prompt. Auto-continuing turn...")
+            # If prompt implies action/search/fix/remove and model spoke prose without emitting a tool call:
+            action_terms = ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create", "turn", "convert", "refactor", "build", "implement")
+            if loop_count < 3 and any(k in prompt.lower() for k in action_terms):
+                logger.info(f"Model stated intent without emitting tool call tag on action prompt (Turn {loop_count}). Auto-continuing turn...")
                 messages.append({"role": "assistant", "content": generated_text})
                 messages.append({
                     "role": "user",
-                    "content": "[SYSTEM DIRECTIVE]: You stated your intention to search, locate, or edit, but you did NOT output a tool call tag `<call:...>`. Execute your intent NOW by outputting the required tool call tag."
+                    "content": "[SYSTEM DIRECTIVE]: You stated your intention to search, locate, or edit, but you did NOT output a tool call tag `<call:...>`. Execute your intent NOW by outputting the required tool call tag (e.g. `<call:search_workspace_files query=\"...\" />`)."
                 })
                 loop_count += 1
                 continue

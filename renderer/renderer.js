@@ -4715,6 +4715,43 @@ const AgentChat = {
     }).catch(err => {
       console.warn('[AgentChat] Failed to retrieve chat mode on startup:', err);
     });
+
+    // Listen for live task telemetry status updates and render in Chat window
+    if (window.tala && typeof window.tala.on === 'function') {
+      window.tala.on('python:notification', (msg) => {
+        if (!msg) return;
+        const method = msg.method;
+        const params = msg.params || {};
+
+        if (method === 'task.live_status' || params.type === 'task_status_update') {
+          const phase = params.phase || params.message || '';
+          const status = params.status || 'in_progress';
+          const message = params.message || '';
+
+          if (message || phase) {
+            let statusBubble = document.getElementById('chat-task-status-bubble');
+            if (!statusBubble) {
+              statusBubble = document.createElement('div');
+              statusBubble.id = 'chat-task-status-bubble';
+              statusBubble.className = 'chat-message agent';
+              if (this._messages) this._messages.appendChild(statusBubble);
+            }
+            const timeStr = typeof fmtTime === 'function' ? fmtTime() : new Date().toLocaleTimeString();
+            statusBubble.innerHTML = `
+              <div class="message-meta">Tala • ${timeStr} [Live Task Execution]</div>
+              <div class="message-content" style="border-left: 3px solid #38bdf8; padding-left: 8px; font-family: monospace; font-size: 0.85rem;">
+                <strong>${phase ? phase + ': ' : ''}</strong>${message} <span style="font-size:0.75rem; opacity:0.8;">[${status.toUpperCase()}]</span>
+              </div>
+            `;
+            if (this._messages) this._messages.scrollTop = this._messages.scrollHeight;
+
+            if (status === 'complete' || status === 'failed') {
+              statusBubble.id = ''; // Disassociate so subsequent tasks get a fresh bubble
+            }
+          }
+        }
+      });
+    }
   },
 
   parsePeerMention(text) {
@@ -5221,9 +5258,46 @@ const AgentChat = {
         }
       } catch (err) {
         removeLoading();
-        this.appendMessage('agent', 'Tala', `Error executing command: ${err.message || err}`);
       }
       return;
+    }
+
+    // Auto-delegate action / refactoring / coding tasks to Goal Engine background worker
+    const lowerText = text.toLowerCase();
+    const actionVerbs = ['turn ', 'convert ', 'refactor', 'create ', 'build ', 'implement ', 'add ', 'remove ', 'delete ', 'modify ', 'update ', 'replace ', 'change '];
+    const isActionPrompt = actionVerbs.some(verb => lowerText.includes(verb));
+
+    if (isActionPrompt) {
+      const loadingId = 'chat-loading-' + Date.now();
+      const loadingBubble = document.createElement('div');
+      loadingBubble.className = 'chat-message agent';
+      loadingBubble.id = loadingId;
+      loadingBubble.innerHTML = `
+        <div class="message-meta">Tala • ${typeof fmtTime === 'function' ? fmtTime() : new Date().toLocaleTimeString()}</div>
+        <div class="message-content">Starting background task for goal: "${text.slice(0, 60)}..."</div>
+      `;
+      this._messages.appendChild(loadingBubble);
+      this._messages.scrollTop = this._messages.scrollHeight;
+
+      try {
+        const result = await invoke('python:rpc', {
+          method: 'task.submit',
+          params: { goal: text, authority_level: 'auto' }
+        });
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) this._messages.removeChild(loadingEl);
+
+        if (result && result.success) {
+          this.appendMessage('agent', 'Tala', `Goal task enqueued and running in Goal Engine. Task ID: ${result.task_id} (${result.subtasks_count ?? 1} subtasks). Live status streaming below:`);
+          if (typeof MissionControl !== 'undefined' && typeof MissionControl.loadTasks === 'function') {
+            MissionControl.loadTasks();
+          }
+          return;
+        }
+      } catch (err) {
+        const loadingEl = document.getElementById(loadingId);
+        if (loadingEl) this._messages.removeChild(loadingEl);
+      }
     }
 
     this.sendInferenceRequest(text);
@@ -8645,7 +8719,6 @@ const WorkflowManager = {
 
     // Console logs panel
     this._logsPanel = qs('#workflow-logs-panel');
-    this._logsCopyBtn = qs('#btn-console-copy');
     this._logsClearBtn = qs('#btn-workflow-logs-clear');
     this._logsToggleBtn = qs('#btn-workflow-logs-toggle');
     this._logsConsole = qs('#workflow-execution-logs');
@@ -8668,21 +8741,6 @@ const WorkflowManager = {
     if (this._btnJsonToggle) this._btnJsonToggle.addEventListener('click', () => this.switchTab('json'));
 
     // Console controls
-    if (this._logsCopyBtn) {
-      this._logsCopyBtn.addEventListener('click', () => {
-        const textToCopy = this._logsConsole ? (this._logsConsole.innerText || this._logsConsole.textContent || '') : '';
-        navigator.clipboard.writeText(textToCopy).then(() => {
-          if (typeof IPCLog !== 'undefined' && IPCLog.append) {
-            IPCLog.append('ok', 'Console logs copied to clipboard.');
-          }
-        }).catch(() => {
-          navigator.clipboard.writeText(textToCopy);
-          if (typeof IPCLog !== 'undefined' && IPCLog.append) {
-            IPCLog.append('ok', 'Console logs copied to clipboard.');
-          }
-        });
-      });
-    }
     if (this._logsClearBtn) {
       this._logsClearBtn.addEventListener('click', () => {
         this._logsConsole.innerHTML = '<div class="log-row info-row">Console cleared.</div>';

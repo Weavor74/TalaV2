@@ -68,6 +68,12 @@ class LiveStatusReporter:
             except Exception as e:
                 log.warning("LiveStatusReporter: failed broadcasting to websocket: %s", e)
 
+        try:
+            from python.harness.server import broadcast_notification
+            await broadcast_notification("task.live_status", payload)
+        except Exception:
+            pass
+
 
 import asyncio
 from sdk.agent.persistence import TaskEventStore
