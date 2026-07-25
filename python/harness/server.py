@@ -1764,6 +1764,16 @@ async def handle_inference_generate(
         # Parse tool calls
         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
         if not tool_match:
+            # If prompt implies action/search/fix/remove and model spoke prose without emitting a tool call on Turn 0:
+            if loop_count == 0 and any(k in prompt.lower() for k in ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create")):
+                logger.info("Model stated intent without emitting tool call tag on action prompt. Auto-continuing turn...")
+                messages.append({"role": "assistant", "content": generated_text})
+                messages.append({
+                    "role": "user",
+                    "content": "[SYSTEM DIRECTIVE]: You stated your intention to search, locate, or edit, but you did NOT output a tool call tag `<call:...>`. Execute your intent NOW by outputting the required tool call tag."
+                })
+                loop_count += 1
+                continue
             all_responses.append(generated_text)
             break
 
