@@ -850,6 +850,63 @@ async def search_workspace_files(query: str, file_pattern: str = "*") -> dict[st
 
 
 @register_tool(
+    name="get_system_settings_info",
+    description="Retrieve live System Settings & Hardware Specifications from the System Settings node.",
+)
+async def get_system_settings_info(node_id: str = "settings-system") -> dict[str, Any]:
+    """
+    Retrieve live system specifications and harness settings from settings Neural Nodes.
+    """
+    target_id = node_id.strip() if node_id else "settings-system"
+    if not target_id.startswith("settings-"):
+        target_id = f"settings-{target_id}"
+
+    try:
+        from python.harness.settings_nn import update_all_settings_nodes
+        await update_all_settings_nodes()
+    except Exception as exc:
+        pass
+
+    try:
+        from pathlib import Path
+        from sdk.agent.parser import parse_file
+        workspace_root = _get_workspace_root()
+        appdata = os.environ.get("APPDATA")
+        appdata_dir = Path(appdata) / "tala-engine" / "nodes" if appdata else Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        candidate_paths = [
+            appdata_dir / f"{target_id}.html",
+            workspace_root / "nodes" / f"{target_id}.html",
+        ]
+        node = None
+        for cp in candidate_paths:
+            if cp.exists():
+                node = parse_file(str(cp))
+                break
+
+        if not node and target_id == "settings-system":
+            from python.harness.settings_nn import update_settings_system_node
+            try:
+                await update_settings_system_node()
+            except Exception:
+                pass
+            for cp in candidate_paths:
+                if cp.exists():
+                    node = parse_file(str(cp))
+                    break
+
+        if node:
+            return {
+                "status": "success",
+                "node_id": target_id,
+                "semantic_memory": node.semantic_memory,
+                "state_data": node.state_data,
+            }
+    except Exception as exc:
+        log.warning("Could not load %s settings node: %s", target_id, exc)
+    return {"status": "error", "error": f"Could not load {node_id} settings node."}
+
+
+@register_tool(
     name="run_workspace_command",
     description="Run a shell command asynchronously in the workspace root.",
 )

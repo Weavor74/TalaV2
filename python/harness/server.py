@@ -1166,25 +1166,37 @@ async def handle_inference_generate(
             except Exception as exc:
                 logger.error("Failed to compute cognitive graph context: %s", exc)
 
-        # Inject tool-use instructions for research tools
-        import platform
-        host_os = platform.system()
-        host_arch = platform.machine()
-        os_info = f"{host_os} {host_arch} (sys.platform={sys.platform})"
-
-        os_directive = (
-            f"\n\n=== HOST OPERATING SYSTEM & ENVIRONMENT ===\n"
-            f"Host Operating System: {os_info}\n"
-            f"Shell Context: {'Windows PowerShell / CMD' if host_os == 'Windows' else 'Linux Bash / Zsh'}\n"
-            f"ENVIRONMENT DIRECTIVES & PLATFORM TOOL RULES:\n"
-            f"1. You are running natively on {host_os}. ALWAYS tailor your actions and file searching to {host_os}.\n"
-            f"2. Use native Python tools (`search_workspace_files`, `read_workspace_file`, `write_workspace_file`) for file inspection and edits instead of shell utilities.\n"
-            f"3. CRITICAL: Do NOT attempt to run Linux shell commands like 'grep', 'ls', 'cat', or 'find' via `run_workspace_command` on Windows! If searching files, call `<call:search_workspace_files query=\"...\" />` directly.\n"
-            f"===========================================\n"
-        )
+        # Dynamically load all 12 Harness Settings Panel Neural Nodes (Settings Tabs)
+        system_settings_context = ""
+        try:
+            from python.harness.settings_nn import update_all_settings_nodes
+            await update_all_settings_nodes()
+            from sdk.agent.parser import parse_file
+            appdata = os.environ.get("APPDATA")
+            nodes_dir = Path(appdata) / "tala-engine" / "nodes" if appdata else Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+            
+            settings_snapshots = []
+            for node_id in ("settings-system", "settings-inference", "settings-runtime", "settings-agent"):
+                node_p = nodes_dir / f"{node_id}.html"
+                if not node_p.exists():
+                    node_p = Path(_ROOT_DIR) / "nodes" / f"{node_id}.html"
+                if node_p.exists():
+                    sys_node = parse_file(str(node_p))
+                    if sys_node and sys_node.semantic_memory:
+                        title = (sys_node.state_data.get('title') if sys_node.state_data else None) or node_id
+                        settings_snapshots.append(f"[{title}]\n{sys_node.semantic_memory.strip()}")
+                    
+            if settings_snapshots:
+                system_settings_context = (
+                    f"\n\n=== LIVE HARNESS SETTINGS & SYSTEM SNAPSHOTS ===\n"
+                    f"{'\n\n'.join(settings_snapshots)}\n"
+                    f"================================================\n"
+                )
+        except Exception as sys_exc:
+            logger.warning("Could not dynamically load settings nodes: %s", sys_exc)
 
         tool_instructions = (
-            f"{os_directive}\n"
+            f"{system_settings_context}\n"
             "[Agent Capability: Autonomous Web Search & Crawling]\n"
             "You can search the web and crawl pages using the following XML-like tool calls:\n"
             "1. Search: `<call:research.search query=\"your search term\" />`\n"
