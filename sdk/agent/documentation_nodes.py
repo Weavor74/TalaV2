@@ -572,10 +572,7 @@ def _learning_topic_slug(topic: str) -> str:
 
 
 def _learning_node_id(topic: str, semantic_memory: str) -> str:
-    stamp = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S%f")
-    digest = hashlib.sha256(f"{topic}\x00{semantic_memory}".encode("utf-8")).hexdigest()[:10]
-    nonce = uuid.uuid4().hex[:8]
-    return f"learning-{_learning_topic_slug(topic)[:32]}-{stamp}-{digest}-{nonce}"
+    return f"learning-{_learning_topic_slug(topic)[:60]}"
 
 
 def create_learning_documentation_node(

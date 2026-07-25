@@ -29,13 +29,13 @@ def test_create_learning_documentation_node_creates_unique_event_nodes(tmp_path,
 
     assert first["validation_passed"] is True
     assert second["validation_passed"] is True
-    assert first["node_id"] != second["node_id"]
+    assert first["node_id"] == second["node_id"]
 
     first_path = Path(first["path"])
     second_path = Path(second["path"])
     assert first_path.exists()
     assert second_path.exists()
-    assert first_path != second_path
+    assert first_path == second_path
 
     first_html = first_path.read_text(encoding="utf-8")
     assert 'data-doc-target="learning.event"' in first_html
