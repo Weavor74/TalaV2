@@ -1167,8 +1167,25 @@ async def handle_inference_generate(
                 logger.error("Failed to compute cognitive graph context: %s", exc)
 
         # Inject tool-use instructions for research tools
+        import platform
+        host_os = platform.system()
+        host_arch = platform.machine()
+        os_info = f"{host_os} {host_arch} (sys.platform={sys.platform})"
+
+        os_directive = (
+            f"\n\n=== HOST OPERATING SYSTEM & ENVIRONMENT ===\n"
+            f"Host Operating System: {os_info}\n"
+            f"Shell Context: {'Windows PowerShell / CMD' if host_os == 'Windows' else 'Linux Bash / Zsh'}\n"
+            f"ENVIRONMENT DIRECTIVES & PLATFORM TOOL RULES:\n"
+            f"1. You are running natively on {host_os}. ALWAYS tailor your actions and file searching to {host_os}.\n"
+            f"2. Use native Python tools (`search_workspace_files`, `read_workspace_file`, `write_workspace_file`) for file inspection and edits instead of shell utilities.\n"
+            f"3. CRITICAL: Do NOT attempt to run Linux shell commands like 'grep', 'ls', 'cat', or 'find' via `run_workspace_command` on Windows! If searching files, call `<call:search_workspace_files query=\"...\" />` directly.\n"
+            f"===========================================\n"
+        )
+
         tool_instructions = (
-            "\n\n[Agent Capability: Autonomous Web Search & Crawling]\n"
+            f"{os_directive}\n"
+            "[Agent Capability: Autonomous Web Search & Crawling]\n"
             "You can search the web and crawl pages using the following XML-like tool calls:\n"
             "1. Search: `<call:research.search query=\"your search term\" />`\n"
             "   Use this to search DuckDuckGo. Returns titles, snippets, and URLs of top matching pages. Automatically syncs the user's browser view.\n"

@@ -1,6 +1,6 @@
 {
   "name": "tala-engine",
-  "version": "0.1.65",
+  "version": "0.1.66",
   "description": "Tala Cognitive Engine Room \u2014 local AI orchestration shell",
   "main": "electron/main.js",
   "author": "Tala Project",
