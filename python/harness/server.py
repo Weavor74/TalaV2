@@ -1564,6 +1564,7 @@ async def handle_inference_generate(
                     if "kimi" in model_lower or "moonshot" in model_lower or (endpoint and ("kimi" in endpoint.lower() or "moonshot" in endpoint.lower())):
                         actual_temp = 1.0
 
+                    url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
                     payload = {
                         "model": model,
                         "messages": messages,
