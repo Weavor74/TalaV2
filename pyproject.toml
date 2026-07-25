@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "tala-engine"
-version = "0.1.58"
+version = "0.1.59"
 description = "Tala Cognitive Engine Room — local AI orchestration shell"
 authors = [
   { name="Tala Project" }

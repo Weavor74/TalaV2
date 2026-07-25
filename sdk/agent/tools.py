@@ -1783,6 +1783,26 @@ async def refresh_node_grid_tool() -> dict[str, Any]:
 
 
 @register_tool(
+    name="tree_of_thought_ideation",
+    description="Run Tree-of-Thought (ToT) ideation on a goal to evaluate multiple cognitive lenses and produce ranked architectural strategies.",
+)
+async def tree_of_thought_ideation(goal: str) -> dict[str, Any]:
+    from sdk.agent.tot_ideation import run_tot_ideation
+    try:
+        shortlist = await run_tot_ideation(goal)
+        return {
+            "status": "success",
+            "goal": goal,
+            "branches": shortlist,
+        }
+    except Exception as exc:
+        return {
+            "status": "error",
+            "error": str(exc),
+        }
+
+
+@register_tool(
     name="submit_agent_goal",
     description="Submit a multi-phase goal to the autonomous GoalEngine and wait for execution.",
 )
