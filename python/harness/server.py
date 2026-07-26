@@ -1682,14 +1682,29 @@ async def handle_inference_generate(
                             if in_reasoning:
                                 chunks.append("\n</thinking>\n\n")
                             generated_text = "".join(chunks)
-                        else:
                             response = await client.post(url, headers=headers, json=payload)
                             if response.status_code != 200:
                                 raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
                             resp_json = response.json()
                             choice = resp_json["choices"][0]["message"]
                             content = choice.get("content", "") or ""
-                            reasoning = choice.get("reasoning", "") or ""
+                            reasoning = choice.get("reasoning", "") or choice.get("reasoning_content", "") or choice.get("thinking", "") or ""
+                            tool_calls = choice.get("tool_calls", [])
+
+                            if tool_calls and not content:
+                                tc_tags = []
+                                for tc in tool_calls:
+                                    fn = tc.get("function", {})
+                                    fname = fn.get("name", "")
+                                    fargs_raw = fn.get("arguments", "")
+                                    try:
+                                        fargs = json.loads(fargs_raw) if isinstance(fargs_raw, str) else fargs_raw
+                                        args_str = " ".join(f'{k}="{v}"' for k, v in fargs.items()) if isinstance(fargs, dict) else fargs_raw
+                                    except Exception:
+                                        args_str = fargs_raw
+                                    tc_tags.append(f'<call:{fname} {args_str} />')
+                                content = "\n".join(tc_tags)
+
                             if reasoning:
                                 generated_text = f"<thinking>\n{reasoning}\n</thinking>\n\n{content}"
                             else:

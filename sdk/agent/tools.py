@@ -256,6 +256,25 @@ class ToolRegistry:
                 filtered_args = arguments
 
             log.info("ToolRegistry: executing tool %r with filtered args %s", name, filtered_args)
+            try:
+                from sdk.agent.telemetry import LiveStatusReporter
+                import asyncio
+                name_lower = name.lower()
+                action_type = 'read_file' if ('read' in name_lower or 'explore' in name_lower) else ('write_file' if ('write' in name_lower or 'edit' in name_lower) else ('search_workspace' if ('search' in name_lower or 'query' in name_lower) else ('run_command' if 'command' in name_lower else 'thinking')))
+                target_val = str(filtered_args.get("query", filtered_args.get("path", filtered_args.get("file_path", filtered_args.get("command", list(filtered_args.values())[0] if filtered_args else "")))))
+                asyncio.create_task(LiveStatusReporter.broadcast_status(
+                    task_id="active_tool",
+                    phase=f"Executing {name}",
+                    status="in_progress",
+                    message=f"Executing tool {name}",
+                    details={
+                        "action_type": action_type,
+                        "target": target_val
+                    }
+                ))
+            except Exception:
+                pass
+
             if inspect.iscoroutinefunction(func):
                 result = await func(**filtered_args)
             else:
