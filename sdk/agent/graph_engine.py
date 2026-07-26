@@ -378,6 +378,19 @@ class DAGExecutionEngine:
         allocated_port: int,
         sandbox: DockerSandbox
     ) -> bool:
+        try:
+            from sdk.agent.telemetry import LiveStatusReporter
+            action_type = "search_workspace" if node.node_type == "research" else ("thinking" if node.node_type == "synthesis" else ("write_file" if node.node_type == "writing" else "run_command"))
+            await LiveStatusReporter.broadcast_status(
+                task_id=node.task_id,
+                phase=f"DAG Node: {node.node_type.upper()}",
+                status="in_progress",
+                message=node.description,
+                details={"action_type": action_type, "target": str(node.inputs.get("target_file", ""))}
+            )
+        except Exception:
+            pass
+
         if node.node_type == "research":
             # Research Logic: Gather codebase references
             problem = node.inputs.get("problem", "")

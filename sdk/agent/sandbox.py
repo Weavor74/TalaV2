@@ -39,10 +39,13 @@ class DockerSandbox:
             return False
 
         try:
-            res = await self._run_docker(["info"])
+            res = await asyncio.wait_for(self._run_docker(["info"]), timeout=3.0)
             self._docker_available = res["success"]
             if not self._docker_available:
                 log.warning("DockerSandbox: docker daemon is not running. Defaulting to host execution fallback.")
+        except asyncio.TimeoutError:
+            log.warning("DockerSandbox: docker daemon check timed out after 3.0s. Defaulting to host execution fallback.")
+            self._docker_available = False
         except Exception as exc:
             log.warning("DockerSandbox: Failed to verify docker availability: %s", exc)
             self._docker_available = False
