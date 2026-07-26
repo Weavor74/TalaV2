@@ -4727,27 +4727,112 @@ const AgentChat = {
           const phase = params.phase || params.message || '';
           const status = params.status || 'in_progress';
           const message = params.message || '';
+          const details = params.details || {};
+          const actionType = details.action_type || params.action_type || '';
+          const target = details.target || params.target || '';
 
-          if (message || phase) {
-            let statusBubble = document.getElementById('chat-task-status-bubble');
-            if (!statusBubble) {
-              statusBubble = document.createElement('div');
-              statusBubble.id = 'chat-task-status-bubble';
-              statusBubble.className = 'chat-message agent';
-              if (this._messages) this._messages.appendChild(statusBubble);
+          if (!this._activeTaskState || (params.task_id && this._activeTaskState.taskId !== params.task_id)) {
+            if (this._activeTaskTimerInterval) {
+              clearInterval(this._activeTaskTimerInterval);
             }
+            this._activeTaskState = {
+              taskId: params.task_id || ('task-' + Date.now()),
+              startTime: Date.now(),
+              filesExplored: 0,
+              searches: 0,
+              filesEdited: 0,
+              commands: 0,
+              steps: []
+            };
+          }
+
+          const state = this._activeTaskState;
+
+          // Track action types & metrics
+          if (actionType === 'read_file' || actionType === 'explore') {
+            state.filesExplored++;
+            state.steps.push({ icon: '📄', text: `Explored file: ${target || message}` });
+          } else if (actionType === 'search_workspace' || actionType === 'search') {
+            state.searches++;
+            state.steps.push({ icon: '🔍', text: `Search: "${target || message}"` });
+          } else if (actionType === 'edit_file' || actionType === 'write_file') {
+            state.filesEdited++;
+            state.steps.push({ icon: '✏️', text: `Edited file: ${target || message}` });
+          } else if (actionType === 'run_command' || actionType === 'command') {
+            state.commands++;
+            state.steps.push({ icon: '⚡', text: `Executed command: ${target || message}` });
+          } else if (message || phase) {
+            state.steps.push({ icon: '💭', text: `${phase ? phase + ': ' : ''}${message}` });
+          }
+
+          let statusBubble = document.getElementById('chat-task-status-bubble');
+          if (!statusBubble) {
+            statusBubble = document.createElement('div');
+            statusBubble.id = 'chat-task-status-bubble';
+            statusBubble.className = 'chat-message agent';
+            if (this._messages) this._messages.appendChild(statusBubble);
+          }
+
+          const updateBubbleContent = () => {
+            const elapsedSec = Math.floor((Date.now() - state.startTime) / 1000);
             const timeStr = typeof fmtTime === 'function' ? fmtTime() : new Date().toLocaleTimeString();
+
+            let metricsStr = `⏱️ Worked for ${elapsedSec}s`;
+            const metricParts = [];
+            if (state.filesExplored > 0) metricParts.push(`Explored ${state.filesExplored} file${state.filesExplored > 1 ? 's' : ''}`);
+            if (state.searches > 0) metricParts.push(`${state.searches} search${state.searches > 1 ? 'es' : ''}`);
+            if (state.filesEdited > 0) metricParts.push(`Edited ${state.filesEdited} file${state.filesEdited > 1 ? 's' : ''}`);
+            if (state.commands > 0) metricParts.push(`Ran ${state.commands} command${state.commands > 1 ? 's' : ''}`);
+            
+            if (metricParts.length > 0) {
+              metricsStr += ' • ' + metricParts.join(' • ');
+            }
+
+            const latestStep = state.steps[state.steps.length - 1];
+            const latestMsg = latestStep ? `${latestStep.icon} ${latestStep.text}` : (message || phase);
+
+            const isComplete = (status === 'complete' || status === 'completed');
+            const isFailed = (status === 'failed');
+            const statusBadge = isComplete ? '✅ COMPLETE' : (isFailed ? '❌ FAILED' : '⚡ IN PROGRESS');
+            const statusColor = isComplete ? '#4ade80' : (isFailed ? '#f87171' : '#38bdf8');
+
+            const stepsHtml = state.steps.map(s => `<div style="margin-bottom:3px; opacity:0.9;">${s.icon} ${s.text}</div>`).join('');
+
             statusBubble.innerHTML = `
-              <div class="message-meta">Tala • ${timeStr} [Live Task Execution]</div>
-              <div class="message-content" style="border-left: 3px solid #38bdf8; padding-left: 8px; font-family: monospace; font-size: 0.85rem;">
-                <strong>${phase ? phase + ': ' : ''}</strong>${message} <span style="font-size:0.75rem; opacity:0.8;">[${status.toUpperCase()}]</span>
+              <div class="message-meta">Tala • ${timeStr} [Live Task Thought & Execution]</div>
+              <div class="message-content" style="border-left: 3px solid ${statusColor}; padding: 8px 12px; background: rgba(15, 23, 42, 0.6); border-radius: 6px; font-family: system-ui, -apple-system, sans-serif; font-size: 0.85rem;">
+                <div style="font-weight: 600; color: ${statusColor}; margin-bottom: 4px;">
+                  ${metricsStr} <span style="font-size: 0.75rem; float: right; opacity: 0.8;">${statusBadge}</span>
+                </div>
+                <div style="font-size: 0.8rem; color: #cbd5e1; margin-bottom: 6px;">
+                  ${latestMsg}
+                </div>
+                <details style="margin-top: 6px; border-top: 1px solid rgba(255,255,255,0.1); padding-top: 4px;">
+                  <summary style="cursor: pointer; color: #38bdf8; font-size: 0.75rem; user-select: none;">
+                    ▶ Activity Stream (${state.steps.length} steps)
+                  </summary>
+                  <div style="margin-top: 6px; max-height: 160px; overflow-y: auto; font-family: monospace; font-size: 0.75rem; background: rgba(0,0,0,0.3); padding: 6px; border-radius: 4px;">
+                    ${stepsHtml}
+                  </div>
+                </details>
               </div>
             `;
             if (this._messages) this._messages.scrollTop = this._messages.scrollHeight;
+          };
 
-            if (status === 'complete' || status === 'failed') {
-              statusBubble.id = ''; // Disassociate so subsequent tasks get a fresh bubble
-            }
+          updateBubbleContent();
+
+          if (this._activeTaskTimerInterval) {
+            clearInterval(this._activeTaskTimerInterval);
+          }
+
+          if (status !== 'complete' && status !== 'completed' && status !== 'failed') {
+            this._activeTaskTimerInterval = setInterval(() => {
+              updateBubbleContent();
+            }, 1000);
+          } else {
+            statusBubble.id = '';
+            this._activeTaskState = null;
           }
         }
       });
