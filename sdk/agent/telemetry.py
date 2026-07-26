@@ -74,6 +74,13 @@ class LiveStatusReporter:
         except Exception:
             pass
 
+        try:
+            if task_id and task_id != "active_tool":
+                from sdk.agent.queue import TaskEventStore
+                await TaskEventStore.append_event(task_id, "heartbeat", {"phase": phase, "status": status})
+        except Exception:
+            pass
+
 
 import asyncio
 from sdk.agent.persistence import TaskEventStore
