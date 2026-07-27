@@ -1682,6 +1682,7 @@ async def handle_inference_generate(
                             if in_reasoning:
                                 chunks.append("\n</thinking>\n\n")
                             generated_text = "".join(chunks)
+                        else:
                             response = await client.post(url, headers=headers, json=payload)
                             if response.status_code != 200:
                                 raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
