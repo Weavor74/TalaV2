@@ -154,6 +154,12 @@ class DAGExecutionEngine:
         log.info("DAGExecutionEngine: Executing task %r as sub-graph DAG", task.task_id)
 
         task_id = task.task_id
+        try:
+            from sdk.agent.goal_engine import register_active_task, unregister_active_task
+            register_active_task(task_id)
+        except Exception:
+            pass
+
         res_node_id = f"research-{task_id}"
         syn_node_id = f"synthesis-{task_id}"
         wri_node_id = f"writing-{task_id}"

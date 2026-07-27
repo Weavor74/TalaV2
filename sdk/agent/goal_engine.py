@@ -25,6 +25,19 @@ from sdk.agent.repair_policy import RepairPolicyEngine, RepairContext
 
 log = logging.getLogger(__name__)
 
+_ACTIVE_TASK_IDS: set[str] = set()
+
+def register_active_task(task_id: str) -> None:
+    if task_id:
+        _ACTIVE_TASK_IDS.add(task_id)
+
+def unregister_active_task(task_id: str) -> None:
+    if task_id:
+        _ACTIVE_TASK_IDS.discard(task_id)
+
+def get_active_task_ids() -> set[str]:
+    return set(_ACTIVE_TASK_IDS)
+
 
 class GoalEngine:
     """

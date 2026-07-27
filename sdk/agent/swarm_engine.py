@@ -224,14 +224,24 @@ class ZombieReaper:
         rows = await db.fetch(query)
         reclaimed_count = 0
         now = datetime.now(timezone.utc)
+
+        try:
+            from sdk.agent.goal_engine import get_active_task_ids
+            active_ids = get_active_task_ids()
+        except Exception:
+            active_ids = set()
         
         for row in rows:
+            task_id = row["id"]
+            if task_id in active_ids:
+                # Task is actively executing in memory! Do not mark as zombie!
+                continue
+
             last_event_time = row["last_event_time"]
             if not last_event_time:
                 continue
                 
             if (now - last_event_time) > timedelta(minutes=timeout_minutes):
-                task_id = row["id"]
                 log.warning(f"ZombieReaper: Reclaiming zombie task {task_id}. No heartbeat for {timeout_minutes} minutes.")
                 await BatchQueue.transition_task(
                     task_id=task_id,
