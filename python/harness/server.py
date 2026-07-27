@@ -9969,14 +9969,24 @@ async def _run_server() -> None:
     _install_signal_handlers(loop)
 
     # ── 1. Bind the WebSocket server immediately so Electron can connect ──
-    _server = await websockets.serve(
-        _handle_connection,
-        settings.WS_HOST,
-        settings.WS_PORT,
-        ping_interval=30,
-        ping_timeout=10,
-        max_size=16 * 1024 * 1024,
-    )
+    _server = None
+    for bind_attempt in range(5):
+        try:
+            _server = await websockets.serve(
+                _handle_connection,
+                settings.WS_HOST,
+                settings.WS_PORT,
+                ping_interval=30,
+                ping_timeout=10,
+                max_size=16 * 1024 * 1024,
+            )
+            break
+        except OSError as exc:
+            if getattr(exc, 'errno', None) == 10048 or "10048" in str(exc):
+                logger.warning("Port %s is busy/TIME_WAIT (attempt %d/5). Retrying in 1s...", settings.WS_PORT, bind_attempt + 1)
+                await asyncio.sleep(1.0)
+            else:
+                raise
 
     logger.info(
         "WebSocket JSON-RPC 2.0 server listening on %s", settings.ws_uri

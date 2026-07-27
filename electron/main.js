@@ -320,6 +320,25 @@ function spawnPython(attempt = 0) {
     const appPath = app.getAppPath();
     const scriptPath = path.join(appPath, 'python', 'harness', 'server.py');
     const pythonExe = ensureFirstRun(appPath);
+
+    if (process.platform === 'win32') {
+      try {
+        const stdout = spawnSync('netstat', ['-ano'], { encoding: 'utf8' }).stdout || '';
+        const lines = stdout.split('\n');
+        for (const line of lines) {
+          if (line.includes(`:${HARNESS_PORT}`) && line.includes('LISTENING')) {
+            const parts = line.trim().split(/\s+/);
+            const pid = parts[parts.length - 1];
+            if (pid && pid !== '0' && pid !== String(process.pid)) {
+              console.log(`[main] Port ${HARNESS_PORT} is occupied by PID ${pid}. Killing it...`);
+              spawnSync('taskkill', ['/F', '/PID', pid]);
+            }
+          }
+        }
+      } catch (err) {
+        console.warn(`[main] Stale port cleanup failed: ${err.message}`);
+      }
+    }
     
     console.log(`[main] Spawning Python harness: "${pythonExe}" "${scriptPath}"`);
 
