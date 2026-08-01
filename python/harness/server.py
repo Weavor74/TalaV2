@@ -1852,6 +1852,11 @@ async def handle_inference_generate(
 
         generated_text = _normalize_tool_call_format(generated_text)
 
+        # When raw_prompt is requested (e.g. for code synthesis), return raw text immediately on Turn 0
+        if bool(params.get("raw_prompt", False)):
+            all_responses.append(generated_text)
+            break
+
         # Parse tool calls
         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
         if not tool_match:
