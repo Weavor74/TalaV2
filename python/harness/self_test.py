@@ -125,7 +125,7 @@ def build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[str
         (
             "python tests",
             [python_exe, "-m", "pytest", "tests", "--ignore=tests/benchmarks", "--basetemp=data/pytest_temp", "-q"],
-            120.0,
+            600.0,
         ),
         ("javascript tests", ["npx", "jest", "--runInBand", "--passWithNoTests"], 60.0),
     ]

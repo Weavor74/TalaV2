@@ -1,0 +1,90 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  self-test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+
+    # Postgres service containers are only supported on Linux-hosted runners,
+    # which is why this job runs on ubuntu-latest rather than windows-latest
+    # even though most local development on this project happens on Windows.
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: tala
+          POSTGRES_PASSWORD: tala
+          POSTGRES_DB: tala
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U tala"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+
+    env:
+      TALA_DB_URL: postgresql://tala:tala@localhost:5432/tala
+      TALA_CHAIN_BIND_HOST: 127.0.0.1
+      TALA_CHAIN_BIND_PORT: "8332"
+      TALA_CHAIN_STANDALONE: "1"
+      WS_HOST: 127.0.0.1
+      WS_PORT: "8765"
+      LOG_LEVEL: INFO
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Install Node dependencies
+        run: npm ci
+
+      - name: Install Python dependencies
+        # Installs the base runtime deps plus the [test] extra (pytest,
+        # pytest-asyncio) and [transformers] extra. The transformers extra
+        # gives the DAG-synthesis tests (test_graph_engine.py etc.) the same
+        # local-model fallback path used in dev, since CI has no Ollama/vLLM
+        # installed. First run downloads a small model from Hugging Face Hub,
+        # so this job needs outbound internet access.
+        run: pip install ".[test,transformers]"
+
+      - name: Start local blockchain node (standalone)
+        run: |
+          nohup node blockchain/src/app.js > blockchain-node.log 2>&1 &
+          for i in $(seq 1 20); do
+            if curl -sf http://127.0.0.1:8332/chain/status > /dev/null; then
+              echo "Blockchain node is up."
+              exit 0
+            fi
+            sleep 1
+          done
+          echo "Blockchain node did not become ready in time." >&2
+          cat blockchain-node.log
+          exit 1
+
+      - name: Run self-test suite
+        # --no-audit: npm audit currently fails on pre-existing transitive
+        # dev-dependency vulnerabilities (js-yaml, tar) unrelated to app code.
+        # Run `npm audit fix` separately to resolve those, then drop this flag
+        # to bring vulnerability scanning into CI too.
+        run: python scripts/tala_self_test.py --no-audit
+
+      - name: Upload blockchain node log on failure
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: blockchain-node-log
+          path: blockchain-node.log
