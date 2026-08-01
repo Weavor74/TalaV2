@@ -1848,12 +1848,16 @@ async def handle_inference_generate(
         #   ```xml\nCALL:tool.name(key="val")\n```   →  <call:tool.name key="val" />
         #   `CALL:tool.name(key="val")`              →  <call:tool.name key="val" />
         #   CALL:tool.name(key="val")                →  <call:tool.name key="val" />
+        #   SEARCH_WORKSPACE_FILES(query="val")      →  <call:search_workspace_files query="val" />
         def _normalize_tool_call_format(text: str) -> str:
             call_match = re.search(r'\bCALL:([\w\.]+)\(([^)]*)\)', text, re.IGNORECASE)
             if not call_match:
+                call_match = re.search(r'\b([A-Z0-9_]{4,})\(([^)]*)\)', text)
+                
+            if not call_match:
                 return text
                 
-            tool_name = call_match.group(1)
+            tool_name = call_match.group(1).lower()
             raw_args = call_match.group(2).strip().lstrip("(").rstrip(")")
             
             start_pos = call_match.start()
@@ -1895,16 +1899,18 @@ async def handle_inference_generate(
         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
         if not tool_match:
             # If prompt implies action/search/fix/remove and model spoke prose without emitting a tool call:
-            action_terms = ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create", "turn", "convert", "refactor", "build", "implement")
-            if loop_count < 3 and any(k in prompt.lower() for k in action_terms):
-                logger.info(f"Model stated intent without emitting tool call tag on action prompt (Turn {loop_count}). Auto-continuing turn...")
-                messages.append({"role": "assistant", "content": generated_text})
-                messages.append({
-                    "role": "user",
-                    "content": "[SYSTEM DIRECTIVE]: You stated your intention to search, locate, or edit, but you did NOT output a tool call tag `<call:...>`. Execute your intent NOW by outputting the required tool call tag (e.g. `<call:search_workspace_files query=\"...\" />`)."
-                })
-                loop_count += 1
-                continue
+            casual_terms = ("roleplay", "hey", "hello", "hi", "sexy", "baby", "love", "honey", "sweetheart")
+            if not any(c in prompt.lower() for c in casual_terms):
+                action_terms = ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create", "turn", "convert", "refactor", "build", "implement")
+                if loop_count < 3 and any(k in prompt.lower() for k in action_terms):
+                    logger.info(f"Model stated intent without emitting tool call tag on action prompt (Turn {loop_count}). Auto-continuing turn...")
+                    messages.append({"role": "assistant", "content": generated_text})
+                    messages.append({
+                        "role": "user",
+                        "content": "[SYSTEM DIRECTIVE]: You stated your intention to search, locate, or edit, but you did NOT output a tool call tag `<call:...>`. Execute your intent NOW by outputting the required tool call tag (e.g. `<call:search_workspace_files query=\"...\" />`)."
+                    })
+                    loop_count += 1
+                    continue
             all_responses.append(generated_text)
             break
 
@@ -2103,8 +2109,6 @@ async def handle_inference_generate(
         clean_generated = clean_generated.replace('**Tool Call:**', '').strip()
         if clean_generated:
             all_responses.append(clean_generated)
-        else:
-            all_responses.append(f"*(Executing {tool_name}...)*")
 
         # Append to message history for next LLM turn
         messages.append({"role": "assistant", "content": generated_text})
