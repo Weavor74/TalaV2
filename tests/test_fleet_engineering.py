@@ -9,6 +9,9 @@ from sdk.agent.sandbox import LocalSandbox, DockerSandbox  # DockerSandbox is an
 from sdk.agent.orchestrator_cli import get_active_tasks, get_port_allocations, show_status, pause_task, resume_task, terminate_task
 from sdk.agent.graph_engine import DAGExecutionEngine, GraphNode
 from sdk.agent.planner import TaskItem
+from sdk.agent.queue import BatchQueue
+from python.harness.db import init_pool, close_pool
+from python.harness import db
 
 @pytest.mark.asyncio
 async def test_port_router_allocation():
@@ -72,18 +75,26 @@ async def test_orchestrator_cli_pause_resume():
 @pytest.mark.asyncio
 async def test_graph_engine_fleet_integration(tmp_path):
     """execute_task_as_dag runs worktree spinup and port allocation, no Docker."""
-    engine = DAGExecutionEngine(root_dir=str(tmp_path))
-    task = TaskItem(description="Write test to scratch/test_integrate.py")
-    task.task_id = "test-fleet-integrate"
+    await init_pool()
+    try:
+        engine = DAGExecutionEngine(root_dir=str(tmp_path))
+        task = TaskItem(description="Write test to scratch/test_integrate.py")
+        task.task_id = "test-fleet-integrate"
+        # Drop any leftover row from a prior run of this fixed task_id so the
+        # DAG can't short-circuit on stale "already completed" state.
+        await db.execute("DELETE FROM tasks WHERE id = $1", task.task_id)
+        await BatchQueue.enqueue_task(task.task_id, task.description)
 
-    with patch("python.harness.server.handle_task_create_worktree",
-               return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})) as mock_wt, \
-         patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=9005) as mock_port:
+        with patch("python.harness.server.handle_task_create_worktree",
+                   return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})) as mock_wt, \
+             patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=9005) as mock_port:
 
-        res = await engine.execute_task_as_dag(task)
-        assert res["success"] is True
-        assert mock_wt.called
-        assert mock_port.called
+            res = await engine.execute_task_as_dag(task)
+            assert res["success"] is True
+            assert mock_wt.called
+            assert mock_port.called
+    finally:
+        await close_pool()
 
 @pytest.mark.asyncio
 async def test_swarm_fleet_rpc_endpoints():
