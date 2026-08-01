@@ -3,10 +3,12 @@ from sdk.agent.tools import generate_workflow_from_tot_tool
 from python.harness.workflows_util import resolve_workflow_file
 
 @pytest.mark.asyncio
-async def test_generate_workflow_from_tot():
+async def test_generate_workflow_from_tot(tmp_path, monkeypatch):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+
     # Test target prompt
     prompt = "Create modular python microservice and build container"
-    
+
     result = await generate_workflow_from_tot_tool(prompt, name="Test Microservice Flow")
     
     assert result.get("success") is True
