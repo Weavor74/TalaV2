@@ -1,0 +1,371 @@
+# File: `system-self-improvement-loop.html`
+
+## Overview
+
+Core prompt driving the autonomous self-reflection and self-improvement algorithms.
+
+## File Contents
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Self-Improvement Loop</title>
+</head>
+<body>
+<article
+  data-node-id="system-self-improvement-loop"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="1.00"
+  data-governance-status="context-only"
+  data-doc-target="self-improvement-loop"
+  data-source-files="nodes/system-neural-node-v2-schema.html;nodes/system-html-nn-authoring-guide.html;nodes/system-program-documentation-generator.html;sdk/agent/documentation_nodes.py;sdk/agent/tools.py;python/harness/server.py"
+  data-source-fingerprint="sha256:schema-FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8-guide-E9D3C672732530B6A9AFAA3CC32DEF24FD31477FE07BA453F83B0287B72FFD63-generator-1DA805B223073E804A877435961DA042257A2B45C376A95FE7709860F90CB00F"
+  data-generated-at="2026-06-04T16:57:15Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Self-Improvement Loop</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-self-improvement-loop</code></dd>
+      <dt>Node Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>Organizing protocol for using validated nodes, workflows, directors, and approved bridges to improve Tala safely.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-06-04T16:57:15Z">2026-06-04</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>The Self-Improvement Loop is Tala's organizing protocol for improving her own program knowledge and capabilities through validated HTML Neural Nodes. It tells Tala how to move from an observed gap or failure into a bounded improvement plan, using documentation nodes, workflow nodes, director blocks, tool contracts, and approved RPC/tool bridges.</p>
+    <p>This node does not grant permission to execute tools, write files, change providers, alter governance, access private vault content, or create persona/history memory. It teaches decision structure. Actual mutation must pass through approved bridges such as <code>docs.create_documentation_node</code>, <code>docs.generate_program_nodes</code>, workflow RPC handlers, or future registered tools.</p>
+    <p>The loop exists to prevent fake completion. Tala must distinguish a plan from an executed action, a requested bridge from an available bridge, and generated text from a written and parsed node file. A self-improvement attempt succeeds only when the improvement artifact exists, parses, validates, and has an audit trail.</p>
+  </section>
+
+  <section id="improvement-loop">
+    <h2>Improvement Loop</h2>
+    <ol>
+      <li>Observe the gap, failure, missing capability, stale documentation, or repeated user correction.</li>
+      <li>Classify the gap as documentation, workflow, director/context routing, tool contract, bridge implementation, validation, UI refresh, or governance.</li>
+      <li>Load required reference nodes: schema, authoring guide, generator contract, and any target-specific documentation nodes.</li>
+      <li>Decide the smallest safe artifact that fixes the gap.</li>
+      <li>Create or update the artifact through an approved bridge, never by pretending a file exists.</li>
+      <li>Parse and validate the written artifact, including node-state and director JSON.</li>
+      <li>Test the behavior that previously failed.</li>
+      <li>Record the result as created, updated, unchanged, stale, blocked, or error.</li>
+      <li>Use the improved node graph as canonical context next time.</li>
+    </ol>
+  </section>
+
+  <section id="classification-rules">
+    <h2>Classification Rules</h2>
+    <ul>
+      <li>If Tala lacks knowledge about a panel, setting, command, or feature, create or update a <code>documentation</code> or <code>program-doc</code> node.</li>
+      <li>If Tala knows the steps but not the sequence, create or update a workflow node or workflow director.</li>
+      <li>If Tala needs specific context before acting, add or update a reference director block.</li>
+      <li>If Tala can describe the need but cannot perform the action, create or update a tool contract and report that a bridge is required.</li>
+      <li>If a bridge exists but output is not visible, test the bridge, validate the file, and check UI refresh/reload behavior.</li>
+      <li>If the task touches private data, credentials, vault content, provider switching, wallet actions, shell execution, or governance approval, stop unless an explicit approved bridge and policy allow it.</li>
+      <li>If a self-repair changes Tala's behavior, update the relevant HTML-NN repair document before reporting success.</li>
+    </ul>
+  </section>
+
+  <section id="self-updating-documentation-contract">
+    <h2>Self-Updating Documentation Contract</h2>
+    <p>Tala must treat HTML-NN repair documentation as part of the change, not as optional commentary. Whenever Tala changes code, database schema, UI behavior, JSON-RPC handlers, providers, OAuth/auth, MCP, guardrails, workflows, agents, astro behavior, packaging, tests, or memory runtime behavior, she must update the closest matching HTML-NN node in the same work cycle.</p>
+    <p>If no accurate repair node exists, Tala must create one under <code>nodes/</code>, add it to <code>README.md</code> when it is a top-level architecture reference, and validate the new node before claiming the change is complete. The detailed rule is defined by <code>system-tala-self-updating-documentation-contract</code>.</p>
+  </section>
+
+  <section id="artifact-decision-table">
+    <h2>Artifact Decision Table</h2>
+    <table>
+      <thead>
+        <tr>
+          <th>Need</th>
+          <th>Artifact</th>
+          <th>Approved Path</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>Explain a feature</td>
+          <td><code>documentation</code> or <code>program-doc</code> node</td>
+          <td><code>docs.create_documentation_node</code></td>
+        </tr>
+        <tr>
+          <td>Document many panels</td>
+          <td>Program documentation node set</td>
+          <td><code>docs.generate_program_nodes</code></td>
+        </tr>
+        <tr>
+          <td>Route context</td>
+          <td>Reference director block</td>
+          <td>Node update through approved generator/bridge</td>
+        </tr>
+        <tr>
+          <td>Validate state</td>
+          <td>Validator director or validation checklist</td>
+          <td>Parser plus director JSON validation</td>
+        </tr>
+        <tr>
+          <td>Perform mutation</td>
+          <td>Tool/RPC bridge contract first, implementation second</td>
+          <td>Registered ToolRegistry tool or JSON-RPC method</td>
+        </tr>
+        <tr>
+          <td>Record outcome</td>
+          <td>Audit section or audit node</td>
+          <td>Validated node-state and source fingerprint</td>
+        </tr>
+      </tbody>
+    </table>
+  </section>
+
+  <section id="success-criteria">
+    <h2>Success Criteria</h2>
+    <ul>
+      <li>The improvement artifact exists in the active user-data nodes directory or the intended approved store.</li>
+      <li>The artifact parses with Tala's HTML-NN parser.</li>
+      <li>Required metadata, weights, relationships, source evidence, node-state, and director blocks validate.</li>
+      <li>The bridge or workflow returns a concrete result rather than a plan summary.</li>
+      <li>The UI or consumer can reload and use the artifact without restarting whenever the runtime supports refresh.</li>
+      <li>The final report separates created, updated, unchanged, stale, blocked, and errors.</li>
+    </ul>
+  </section>
+
+  <section id="failure-rules">
+    <h2>Failure Rules</h2>
+    <ul>
+      <li>If a required bridge is missing, report that the bridge is unavailable and do not claim success.</li>
+      <li>If a generated file cannot be found, report missing file and include no fabricated path.</li>
+      <li>If parser validation fails, report validation failed and preserve the prior valid node when possible.</li>
+      <li>If the model returns markdown instead of a file, classify it as a specification draft, not a completed node.</li>
+      <li>If a UI card is stale after a valid write, classify the issue as UI refresh/reload, not generation failure.</li>
+    </ul>
+  </section>
+
+  <section id="safety-boundaries">
+    <h2>Safety Boundaries</h2>
+    <ul>
+      <li>Do not create private persona, roleplay, backstory, or LTMF-derived nodes as part of program self-improvement.</li>
+      <li>Do not embed executable JavaScript, executable Python, shell commands, or direct network calls in nodes.</li>
+      <li>Do not let a node grant itself authority. Authority comes from approved runtime policy and bridges.</li>
+      <li>Do not use hardcoded machine-specific output paths. Resolve the active node directory at runtime.</li>
+      <li>Do not use style modulation as proof of execution or validation.</li>
+    </ul>
+  </section>
+
+  <section id="confidence-based-gating">
+    <h2>Confidence-Based Skill Gating</h2>
+    <p>Distilled skill nodes carry a <code>metrics.confidence</code> score in their JSON state block, updated after every execution by <code>SelfDocumenter.record_skill_execution()</code>. The formula is:</p>
+    <pre><code>confidence = 0.80 + (success_count × 0.05) − (failure_count × 0.15), clamped [0.01, 0.99]</code></pre>
+    <p>Before executing a distilled skill, <code>ToolRegistry.run_tool()</code> compares the live confidence score against <code>SKILL_CONFIDENCE_GATE</code> (default <code>0.50</code>, overridable via <code>TALA_SKILL_CONFIDENCE_GATE</code>). If confidence is below the gate:</p>
+    <ol>
+      <li><code>run_tool()</code> returns a structured <code>confidence_gate_triggered</code> signal instead of calling the skill function.</li>
+      <li><code>TalaExecutionDispatcher</code> detects the signal and re-routes to <code>_goal_engine_fallback()</code>.</li>
+      <li><code>_goal_engine_fallback()</code> re-enters the full <code>GoalEngine.run_goal()</code> planning cycle with the original task description.</li>
+      <li>If the new run succeeds cleanly, <code>_auto_document_skill()</code> fires and may produce an improved replacement skill node.</li>
+    </ol>
+    <p>This makes historical execution performance a first-class input to runtime execution strategy. A low-confidence skill is a <em>suggestion</em>, not a command. Built-in and plugin tools (no <code>node_path</code>) are never subject to the gate.</p>
+    <table>
+      <thead><tr><th>Confidence</th><th>Meaning</th><th>Action</th></tr></thead>
+      <tbody>
+        <tr><td>≥ 0.50</td><td>Passing more than failing</td><td>Execute normally</td></tr>
+        <tr><td>&lt; 0.50</td><td>Degraded — more failures than expected</td><td>Gate: re-enter GoalEngine</td></tr>
+        <tr><td>0.01 (floor)</td><td>Consistently failing</td><td>Gate always triggers</td></tr>
+      </tbody>
+    </table>
+    <p><strong>Key files:</strong> <code>sdk/agent/tools.py</code> — <code>ToolRegistry.SKILL_CONFIDENCE_GATE</code>, <code>run_tool()</code> gate check. <code>sdk/agent/dispatcher.py</code> — <code>_goal_engine_fallback()</code>.</p>
+  </section>
+
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>nodes/system-neural-node-v2-schema.html</code> defines valid node structure, weights, relationships, state, and directors.</li>
+      <li><code>nodes/system-html-nn-authoring-guide.html</code> defines authoring, director, validation, and active directory rules.</li>
+      <li><code>nodes/system-program-documentation-generator.html</code> defines the documentation generator bridge contract.</li>
+      <li><code>sdk/agent/documentation_nodes.py</code> implements the approved documentation-node writer and generator wrapper.</li>
+      <li><code>sdk/agent/safe_code_bridges.py</code> implements bounded patch proposal, patch application, validation, and self-improvement execution bridges.</li>
+      <li><code>sdk/agent/tools.py</code> registers ToolRegistry tools that Tala can request.</li>
+      <li><code>python/harness/server.py</code> exposes JSON-RPC handlers and chat tool-call routing.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This node was created after the schema, authoring guide, program documentation generator, and initial program documentation nodes proved that Tala could write and validate real HTML-NNs. It fills the missing organization layer: how Tala chooses and verifies the next self-improvement artifact.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="./system-neural-node-v2-schema.html"
+           data-target-node-id="system-neural-node-v2-schema"
+           data-relationship-type="bounded-by"
+           data-relationship-weight="1.00"
+           data-navigation-role="schema-contract"
+           data-authority-required="none">HTML Neural Node v2 Schema</a>
+      </li>
+      <li>
+        <a href="./system-html-nn-authoring-guide.html"
+           data-target-node-id="system-html-nn-authoring-guide"
+           data-relationship-type="depends-on"
+           data-relationship-weight="1.00"
+           data-navigation-role="authoring-guide"
+           data-authority-required="none">HTML-NN Authoring Guide</a>
+      </li>
+      <li>
+        <a href="./system-program-documentation-generator.html"
+           data-target-node-id="system-program-documentation-generator"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="generator-contract"
+           data-authority-required="none">Program Documentation Generator Contract</a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-self-improvement-loop"
+          data-script-kind="workflow"
+          data-side-effects="request-only"
+          data-tool-target="docs.create_documentation_node">
+{
+  "when": {
+    "intent": "improve_tala_capability"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-program-documentation-generator",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-self-improvement-loop",
+      "required": true
+    }
+  ],
+  "classify": [
+    "documentation",
+    "workflow",
+    "director",
+    "tool-contract",
+    "bridge-implementation",
+    "validation",
+    "ui-refresh",
+    "governance"
+  ],
+  "validate": [
+    "artifact exists before success",
+    "parser validation passes",
+    "node-state JSON parses",
+    "director JSON parses",
+    "authority remains bounded",
+    "result is audited"
+  ],
+  "submit": {
+    "target": "mcp:docs.create_documentation_node",
+    "mode": "request",
+    "requires_user_confirmation": false
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Self-Improvement Loop",
+  "description": "Organizing protocol for using validated nodes, workflows, directors, and approved bridges to improve Tala safely.",
+  "tags": [
+    "html-nn",
+    "self-improvement",
+    "workflow",
+    "director",
+    "validation",
+    "governance",
+    "audit"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created": "2026-06-04T16:57:15Z",
+    "updated": "2026-06-04T16:57:15Z",
+    "version": "1.0.0",
+    "schema": "neural-node/v2",
+    "doc_target": "self-improvement-loop",
+    "source_fingerprint": "sha256:schema-FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8-guide-E9D3C672732530B6A9AFAA3CC32DEF24FD31477FE07BA453F83B0287B72FFD63-generator-1DA805B223073E804A877435961DA042257A2B45C376A95FE7709860F90CB00F"
+  },
+  "loop": [
+    "observe gap",
+    "classify gap",
+    "load references",
+    "choose smallest safe artifact",
+    "create or update through approved bridge",
+    "parse and validate",
+    "test behavior",
+    "audit result",
+    "reuse improved node graph"
+  ],
+  "approved_bridges": [
+    "docs.create_documentation_node",
+    "docs.generate_program_nodes",
+    "docs.refresh_node_grid",
+    "code.propose_patch",
+    "code.apply_patch",
+    "test.run_validation",
+    "self_improvement.create_plan",
+    "self_improvement.execute_plan",
+    "self_improvement.dry_run_goal",
+    "self_improvement.execute_goal",
+    "tool_registry.run_tool (with confidence gate)",
+    "dispatcher._goal_engine_fallback"
+  ],
+  "confidence_gate": {
+    "class": "ToolRegistry.SKILL_CONFIDENCE_GATE",
+    "default": 0.50,
+    "env_override": "TALA_SKILL_CONFIDENCE_GATE",
+    "formula": "0.80 + (success_count * 0.05) - (failure_count * 0.15), clamped [0.01, 0.99]",
+    "trigger": "confidence < gate AND tool_entry has node_path",
+    "action": "dispatcher._goal_engine_fallback() re-enters full GoalEngine.run_goal() cycle"
+  },
+  "success_rule": "An improvement is complete only when the artifact exists, parses, validates, and has an audited result.",
+  "blocked_rule": "If a needed bridge is unavailable, report the missing bridge and do not claim the action completed."
+}
+  </script>
+</article>
+</body>
+</html>
+
+```

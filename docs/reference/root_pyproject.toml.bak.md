@@ -1,0 +1,69 @@
+# File: `pyproject.toml.bak`
+
+## Overview
+
+This file contains generic configuration or data.
+
+## File Contents
+
+```bak
+[build-system]
+requires = ["setuptools>=61.0", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "tala-engine"
+version = "0.1.0"
+description = "Tala Cognitive Engine Room — local AI orchestration shell"
+authors = [
+  { name="Tala Project" }
+]
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "websockets>=12.0",
+    "asyncpg>=0.29",
+    "markdown>=3.0",
+    "PyYAML>=6.0",
+    "tiktoken>=0.7",
+    "python-dotenv>=1.0",
+    "pydantic>=2.7",
+    "openai>=1.0",
+    "google-generativeai>=0.5",
+    "transformers>=4.42",
+    "accelerate>=0.30",
+    "sentencepiece>=0.2",
+    "textual>=0.40.0",
+    "rich>=13.0.0",
+    "mcp>=1.5.0",
+    "click>=8.1",
+    "httpx-sse>=0.4",
+    "cryptography>=42.0",
+    "chromadb>=0.4.0",
+    "pyautogui>=0.9.54",
+    "Pillow>=10.0.0",
+    "mnemonic>=0.20",
+    "aiortc>=1.7.0",
+    "lxml>=5.0.0",
+]
+
+[project.optional-dependencies]
+test = [
+    "pytest>=8.0",
+    "pytest-asyncio>=0.23"
+]
+voice = [
+    "openai-whisper>=20231117",
+    "sounddevice>=0.4.6",
+    "numpy>=1.26.0",
+]
+
+[project.scripts]
+tala = "cli.main:main"
+tala-tui = "cli.tui:main"
+
+[tool.setuptools]
+package-dir = {"" = "python"}
+packages = ["cli", "harness", "inference", "astrology"]
+
+```

@@ -1,0 +1,227 @@
+# File: `system-tala-html-nn-memory-runtime.html`
+
+## Overview
+
+Explains how the AI can store and retrieve data from its long-term html-based memory bank.
+
+## File Contents
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="system-tala-html-nn-memory-runtime">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-06-08T00:00:00Z">
+  <meta name="tala-author" content="codex-review">
+  <title>Neural Node: Tala HTML-NN Memory Runtime</title>
+</head>
+<body>
+<article
+  data-node-id="system-tala-html-nn-memory-runtime"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.94"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.95"
+  data-governance-status="context-only"
+  data-doc-target="tala.html-nn.memory-runtime"
+  data-source-files="sdk/agent/parser.py;python/harness/retrieval.py;python/harness/server.py;python/harness/memory.py;sdk/agent/activation.py;sdk/agent/memory/manager.py;sdk/agent/memory/local_provider.py;sdk/agent/documentation_nodes.py;python/harness/settings_nn.py;nodes/system-neural-node-v2-schema.html"
+  data-source-fingerprint="sha256:manual-review-2026-06-08-tala-html-nn-memory-runtime"
+  data-generated-at="2026-06-08T00:00:00Z"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tala HTML-NN Memory Runtime</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-tala-html-nn-memory-runtime</code></dd>
+      <dt>Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>Documentation for Tala's primary HTML-NN memory graph, activation, relationship propagation, workflow auto-evaluation, memory index, and prompt injection path.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-06-08T00:00:00Z">2026-06-08</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>HTML Neural Nodes are Tala's primary memory primitive. A node is a normal HTML document containing one parser-readable <code>&lt;article&gt;</code> with identity, type, authority fields, weights, trust metadata, privacy labels, semantic memory text, typed relationship anchors, JSON state, provenance, and optional inert director blocks. The semantic memory section is the main human-readable content that Tala searches, activates, injects, summarizes, and distills.</p>
+    <p>At inference time, Tala resolves the active nodes directory from <code>TALA_USER_DATA</code>, platform app-data paths, or the repo nodes fallback. It parses every valid <code>.html</code> node, filters settings nodes unless the prompt asks about settings/providers, filters agent-specific nodes by active agent tags, computes TF-IDF relevance over node ID, title, and semantic memory, then scores activation through the activation engine.</p>
+    <p>Activation is a product of semantic match, relevance weight, confidence weight, freshness, provider trust, and governance multiplier. Tala then propagates activation across typed relationship links for two hops using each relationship weight. Active nodes above the threshold are sorted and selected for prompt injection. In assistant mode, up to five active nodes can be injected as HTML Neural Net activated context. In roleplay or hybrid mode, up to two active memory nodes are cleaned and injected as first-person dynamic personal memories.</p>
+    <p>Workflow nodes participate in this same memory graph. When an active workflow node crosses the auto-evaluation threshold, Tala resolves the corresponding workflow JSON and executes or summarizes it before the model responds. Settings-type workflows collect live database snapshots so configuration answers come from current provider and settings tables rather than model guesses.</p>
+    <p>When Tala learns durable new information, the memory system should create a fresh learning-event node, link it back to the canonical topic node when one exists, and then index the new node so later activation can retrieve the lesson directly from memory. Completed assistant turns that contain explicit durable-learning cues should trigger that node creation automatically.</p>
+    <p>Tala also maintains a database-backed memory provider ecosystem. Conversation turns, task events, profiles, nodes, workflows, and distilled research can be indexed into <code>memory_index</code> and searched through PostgreSQL full-text search. A Hindsight provider can add external local context. Memory browsing applies promptware redaction and injection scanning before returning context.</p>
+  </section>
+
+  <section id="html-nn-fields">
+    <h2>HTML-NN Fields</h2>
+    <ul>
+      <li><code>data-node-id</code>: stable node identifier used for retrieval, relationships, provenance, and UI display.</li>
+      <li><code>data-node-type</code>: node category such as documentation, settings, workflow, concept, tool, memory, persona, or rule.</li>
+      <li><code>data-execution-authority</code>: immutable authority value required by the parser; documentation nodes should remain zero.</li>
+      <li><code>data-memory-authority</code>, <code>data-provider-authority</code>, <code>data-wallet-authority</code>, <code>data-tool-authority</code>: bounded influence markers for memory, providers, wallet operations, and tools.</li>
+      <li><code>data-weight-relevance</code> and <code>data-weight-confidence</code>: retrieval and activation weights.</li>
+      <li><code>section#semantic-memory</code>: primary textual memory content used for search and context assembly.</li>
+      <li><code>a[data-relationship-type]</code>: typed weighted graph edges used for propagation and explanation.</li>
+      <li><code>script#node-state</code>: JSON-only structured state parsed with <code>json.loads</code>.</li>
+      <li><code>script#adapter-packet</code> and <code>script#node-provenance</code>: optional structured adapter and provenance metadata.</li>
+      <li><code>script[type="application/tala-director+json"]</code>: inert JSON director instructions for reference routing, validation, request preparation, or audit, never direct execution.</li>
+    </ul>
+  </section>
+
+  <section id="activation-flow">
+    <h2>Activation Flow</h2>
+    <ol>
+      <li>Resolve active node directory from user-data, app-data, or repo fallback.</li>
+      <li>Parse valid HTML-NNs with <code>sdk.agent.parser.parse_file</code>.</li>
+      <li>Filter private or irrelevant node classes according to prompt and active agent tags.</li>
+      <li>Build retrieval text from recent conversation context plus current prompt.</li>
+      <li>Score TF-IDF relevance over node ID, title, and semantic memory.</li>
+      <li>Compute base activation with <code>ActivationEngine.score</code>.</li>
+      <li>Propagate activation across relationship anchors for two hops.</li>
+      <li>Execute activated workflow nodes above the auto-evaluation threshold.</li>
+      <li>Inject selected active semantic memory into the system prompt.</li>
+      <li>Log injected node IDs, scores, and workflow collection events to the database.</li>
+    </ol>
+  </section>
+
+  <section id="memory-index">
+    <h2>Memory Index</h2>
+    <p>The <code>memory_index</code> table is the local searchable text index for session, task, node, workflow, and profile memory. It stores source type, reference ID, title, content text, trust label, creation timestamp, and a generated PostgreSQL tsvector. Ranking boosts profiles, nodes, tasks, verified trust, profile trust, private trust when explicitly allowed, and recent entries.</p>
+    <p>HTML-NNs can be reindexed by parsing the file and storing their semantic memory, title, trust label, and relationships. Profiles can be chunked into identity/about, skills, projects, preferences, relationships, and private PII-protected memory chunks. Completed conversation turns are written to both <code>conversation_turns</code> and <code>memory_index</code> with duplicate control, and durable learning turns also create a fresh learning-event node that is reindexed into memory.</p>
+  </section>
+
+  <section id="governance-boundary">
+    <h2>Governance Boundary</h2>
+    <p>Activation selects context; it does not grant permission. A high-scoring documentation node can influence explanation, evidence, and retrieval, but it cannot authorize tool execution, shell commands, provider changes, vault reads, wallet actions, governance approval, or file writes. Mutations must pass through registered RPC, gateway, permission, promptware, and governance checks.</p>
+    <p>This node is documentation only and carries zero execution authority, memory authority, provider authority, wallet authority, and tool authority.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="./system-neural-node-v2-schema.html"
+           data-target-node-id="system-neural-node-v2-schema"
+           data-relationship-type="depends-on"
+           data-relationship-weight="0.98"
+           data-navigation-role="schema-contract"
+           data-authority-required="none">HTML-NN v2 Schema</a>
+      </li>
+      <li>
+        <a href="./system-html-nn-authoring-guide.html"
+           data-target-node-id="system-html-nn-authoring-guide"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="authoring-guide"
+           data-authority-required="none">HTML-NN Authoring Guide</a>
+      </li>
+      <li>
+        <a href="./system-tala-agent-architecture.html"
+           data-target-node-id="system-tala-agent-architecture"
+           data-relationship-type="supports"
+           data-relationship-weight="0.94"
+           data-navigation-role="architecture-overview"
+           data-authority-required="none">Tala Agent Architecture</a>
+      </li>
+      <li>
+        <a href="./system-tala-configurable-provider-surface.html"
+           data-target-node-id="system-tala-configurable-provider-surface"
+           data-relationship-type="supports"
+           data-relationship-weight="0.86"
+           data-navigation-role="settings-memory"
+           data-authority-required="none">Tala Configurable Provider Surface</a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-html-nn-memory-runtime"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "explain_html_nn_memory_or_activation"
+  },
+  "reference": [
+    { "type": "html-nn", "node_id": "system-tala-html-nn-memory-runtime", "required": true },
+    { "type": "html-nn", "node_id": "system-neural-node-v2-schema", "required": false },
+    { "type": "html-nn", "node_id": "system-tala-agent-architecture", "required": false }
+  ],
+  "then": {
+    "instruction": "Explain HTML-NN as Tala's primary governed memory primitive, including parser fields, activation, propagation, workflow auto-evaluation, and database memory indexing."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tala HTML-NN Memory Runtime",
+  "description": "Documentation for Tala's HTML Neural Node memory graph, activation path, workflow auto-evaluation, and database-backed memory provider ecosystem.",
+  "tags": [
+    "documentation",
+    "html-nn",
+    "memory",
+    "activation",
+    "retrieval",
+    "workflow",
+    "prompt-context",
+    "governance"
+  ],
+  "metadata": {
+    "author": "codex-review",
+    "created": "2026-06-08T00:00:00Z",
+    "updated": "2026-06-08T00:00:00Z",
+    "version": "1.0.0",
+    "schema": "neural-node/v2",
+    "source_fingerprint": "sha256:manual-review-2026-06-08-tala-html-nn-memory-runtime"
+  },
+  "activation_terms": [
+    "semantic_match",
+    "relevance_weight",
+    "confidence_weight",
+    "freshness_weight",
+    "provider_trust_multiplier",
+    "governance_multiplier"
+  ],
+  "memory_sources": [
+    "html-neural-nodes",
+    "conversation_turns",
+    "task_event_store",
+    "profiles",
+    "workflows",
+    "research_distillations",
+    "hindsight"
+  ],
+  "verification": {
+    "parser_required": true,
+    "execution_authority": "0.00",
+    "side_effects": "none"
+  }
+}
+  </script>
+</article>
+</body>
+</html>
+
+```

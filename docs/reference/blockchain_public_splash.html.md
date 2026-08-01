@@ -1,0 +1,200 @@
+# File: `splash.html`
+
+## Overview
+
+A splash screen displayed during initial application load.
+
+## File Contents
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>T.A.L.A. System | Maintenance Mode</title>
+  <style>
+    :root {
+      --bg-color: #050505;
+      --text-main: #f0f0f0;
+      --text-muted: #a0a0a0;
+      --accent-1: #00f0ff;
+      --ui-bg: rgba(10, 20, 30, 0.4);
+      --ui-border: rgba(0, 240, 255, 0.3);
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      background-color: var(--bg-color);
+      background-image: url('bg_scene.png?v=3');
+      background-size: cover;
+      background-position: left center;
+      background-attachment: fixed;
+      color: var(--text-main);
+      font-family: 'Inter', system-ui, -apple-system, sans-serif;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: row;
+      align-items: center;
+      justify-content: flex-end;
+      padding-right: 8vw;
+      overflow: hidden;
+      line-height: 1.6;
+    }
+
+    .ui-pane {
+      width: 45vw;
+      min-width: 400px;
+      max-width: 650px;
+      height: 60vh;
+      min-height: 400px;
+      background: var(--ui-bg);
+      border: 1px solid var(--ui-border);
+      border-radius: 16px;
+      backdrop-filter: blur(4px);
+      -webkit-backdrop-filter: blur(4px);
+      display: flex;
+      flex-direction: column;
+      position: relative;
+    }
+    
+    .ui-pane::before {
+      content: "";
+      position: absolute;
+      top: 10px; left: 10px; right: 10px; bottom: 10px;
+      border: 1px solid rgba(0, 240, 255, 0.1);
+      border-radius: 8px;
+      pointer-events: none;
+    }
+
+    .tabs {
+      display: flex;
+      justify-content: space-between;
+      padding: 1.5rem;
+      border-bottom: 1px solid rgba(0, 240, 255, 0.1);
+      gap: 0.5rem;
+    }
+
+    .tab {
+      flex: 1;
+      padding: 0.5rem;
+      text-align: center;
+      font-size: 0.75rem;
+      letter-spacing: 2px;
+      color: var(--text-muted);
+      border: 1px solid rgba(0, 240, 255, 0.2);
+      border-radius: 4px;
+      background: rgba(0, 0, 0, 0.3);
+      text-transform: uppercase;
+    }
+
+    .tab.active {
+      color: var(--text-main);
+      border-color: var(--accent-1);
+      box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.2);
+    }
+
+    .content {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 3rem;
+      text-align: center;
+    }
+
+    .logo {
+      font-size: 2rem;
+      font-weight: 800;
+      letter-spacing: 6px;
+      color: #fff;
+      margin-bottom: 0.5rem;
+    }
+
+    .subtitle {
+      font-size: 0.7rem;
+      letter-spacing: 3px;
+      color: var(--accent-1);
+      margin-bottom: 2.5rem;
+      text-transform: uppercase;
+      font-weight: 600;
+    }
+
+    h1 {
+      font-size: 1.2rem;
+      font-weight: 400;
+      margin-bottom: 1.5rem;
+      color: var(--text-main);
+      text-transform: uppercase;
+      letter-spacing: 4px;
+    }
+
+    .btn-group {
+      display: flex;
+      gap: 1rem;
+      margin-top: 2rem;
+    }
+
+    .btn {
+      padding: 0.8rem 2rem;
+      border: 1px solid rgba(0, 240, 255, 0.4);
+      background: rgba(0, 20, 40, 0.6);
+      color: var(--text-muted);
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.8rem;
+      letter-spacing: 2px;
+      text-transform: uppercase;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+    }
+    
+    .btn.primary {
+      color: var(--accent-1);
+      border-color: var(--accent-1);
+      box-shadow: inset 0 0 10px rgba(0, 240, 255, 0.1);
+    }
+  </style>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;600;800&display=swap" rel="stylesheet">
+</head>
+<body>
+
+  <div class="ui-pane">
+    <div class="tabs">
+      <div class="tab">SYSTEM</div>
+      <div class="tab">NETWORK</div>
+      <div class="tab">SECURITY</div>
+      <div class="tab">MEMORY</div>
+      <div class="tab active">STATUS</div>
+    </div>
+    
+    <div class="content">
+      <div class="logo">T.A.L.A.</div>
+      <div class="subtitle">Tactical • Autonomous • Learning • Architecture</div>
+      
+      <h1>SYSTEM MAINTENANCE IN PROGRESS</h1>
+      <div style="color: var(--text-muted); font-size: 0.9rem; letter-spacing: 1px; max-width: 80%;">
+        Primary intelligence matrix offline.<br>Awaiting connection to core...
+      </div>
+      
+      <div class="btn-group">
+        <div class="btn">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z"></path><polyline points="17 21 17 13 7 13 7 21"></polyline><polyline points="7 3 7 8 15 8"></polyline></svg>
+          LOG
+        </div>
+        <div class="btn primary">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"></circle><polyline points="12 6 12 12 16 14"></polyline></svg>
+          AWAIT
+        </div>
+      </div>
+    </div>
+  </div>
+
+</body>
+</html>
+
+```

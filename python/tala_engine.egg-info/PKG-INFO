@@ -1,6 +1,6 @@
 Metadata-Version: 2.4
 Name: tala-engine
-Version: 0.1.31
+Version: 0.1.80
 Summary: Tala Cognitive Engine Room — local AI orchestration shell
 Author: Tala Project
 Requires-Python: >=3.10

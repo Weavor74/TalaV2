@@ -1,0 +1,101 @@
+# File: `package.json`
+
+## Overview
+
+The NPM project configuration. Defines dependencies for the UI, build scripts (e.g. 'npm run package'), and Electron metadata.
+
+## File Contents
+
+```json
+{
+  "name": "tala-engine",
+  "version": "0.1.19",
+  "description": "Tala Cognitive Engine Room \u2014 local AI orchestration shell",
+  "main": "electron/main.js",
+  "author": "Tala Project",
+  "license": "MIT",
+  "private": true,
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "test": "jest --passWithNoTests",
+    "test:js": "jest --runInBand --passWithNoTests",
+    "test:py": "node scripts/run_venv_python.js -m pytest tests --ignore=tests/benchmarks -q",
+    "self-test": "node scripts/run_venv_python.js scripts/tala_self_test.py",
+    "rebuild": "electron-rebuild",
+    "pack": "electron-builder --dir",
+    "package": "electron-builder",
+    "package:win": "electron-builder --win",
+    "package:mac": "electron-builder --mac",
+    "package:linux": "electron-builder --linux"
+  },
+  "dependencies": {
+    "electron-store": "^10.0.0",
+    "ws": "^8.18.0",
+    "xterm": "^5.3.0"
+  },
+  "devDependencies": {
+    "@electron/rebuild": "^4.0.4",
+    "electron": "^42.3.3",
+    "electron-builder": "^26.15.2",
+    "jest": "^29.7.0"
+  },
+  "build": {
+    "appId": "com.tala.engine",
+    "productName": "Tala Cognitive Engine Room",
+    "directories": {
+      "output": "dist"
+    },
+    "files": [
+      "electron/**/*",
+      "renderer/**/*",
+      "python/**/*",
+      "sdk/**/*",
+      "scripts/**/*",
+      "nodes/**/*",
+      "workflows/**/*.json",
+      "package.json",
+      "README.md",
+      "INSTALL.md",
+      ".env.example",
+      "!**/__pycache__/**",
+      "!**/*.pyc",
+      "!**/.pytest_cache/**",
+      "!**/.tala_snapshots/**",
+      "!**/node_modules/.cache/**",
+      "!vault/**",
+      "!data/**",
+      "!scratch/**",
+      "!dist/**"
+    ],
+    "asar": false,
+    "win": {
+      "target": [
+        "nsis",
+        "zip"
+      ]
+    },
+    "mac": {
+      "target": [
+        "dmg",
+        "zip"
+      ]
+    },
+    "linux": {
+      "target": [
+        "AppImage",
+        "deb",
+        "tar.gz"
+      ],
+      "category": "Utility"
+    }
+  },
+  "jest": {
+    "testEnvironment": "node",
+    "testMatch": [
+      "**/tests/**/*.test.js",
+      "**/?(*.)+(spec|test).js"
+    ]
+  }
+}
+```

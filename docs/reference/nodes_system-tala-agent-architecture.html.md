@@ -1,0 +1,202 @@
+# File: `system-tala-agent-architecture.html`
+
+## Overview
+
+Comprehensive system prompt outlining the agent's own capabilities, subsystems, and swarm topology.
+
+## File Contents
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="system-tala-agent-architecture">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-06-08T00:00:00Z">
+  <meta name="tala-author" content="codex-review">
+  <title>Neural Node: Tala Agent Architecture</title>
+</head>
+<body>
+<article
+  data-node-id="system-tala-agent-architecture"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.92"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.85"
+  data-governance-status="context-only"
+  data-doc-target="tala.agent.architecture"
+  data-source-files="README.md;python/harness/server.py;python/harness/db.py;renderer/renderer.js;electron/main.js;sdk/agent/*.py;sdk/gateway/*.py;nodes/system-neural-node-v2-schema.html"
+  data-source-fingerprint="sha256:manual-review-2026-06-08-tala-agent-architecture"
+  data-generated-at="2026-06-08T00:00:00Z"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tala Agent Architecture</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-tala-agent-architecture</code></dd>
+      <dt>Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>High-level map of Tala as an offline-first desktop agent workbench with HTML-NN memory, configurable providers, JSON-RPC backend, workflows, MCP tools, and governed local execution.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-06-08T00:00:00Z">2026-06-08</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>Tala is an offline-first, desktop-native AI orchestration shell. The Electron main process owns the window, preload bridge, persistent terminal process, local Python harness process, and WebSocket relay. The renderer presents the working surfaces: neural nodes, research, browser, blockchain ledger, vault, contacts, settings, logs, mission control, agent builder, workflows, profiles, and terminal output.</p>
+    <p>The Python harness is the central JSON-RPC backend. It exposes inference, database access, token accounting, graph activation, vault status, provider settings, agents, profiles, workflows, MCP servers and tools, search, logging, research, tasks, swarm execution, gateway status, plugins, repo tools, shell execution, code generation and repair, test validation, self-improvement, wiki operations, heartbeats, memory search, and unified research. This RPC layer is the operational spine used by the desktop UI and internal workflow execution.</p>
+    <p>Durable authority is PostgreSQL. Runtime configuration and user-modifiable surfaces are stored as database rows, then important settings are mirrored into private HTML Neural Nodes so Tala can read its own configuration as governed memory. HTML-NN files are not passive notes: they carry semantic memory, relationships, authority weights, trust metadata, privacy labels, state JSON, provenance, and optional inert director blocks.</p>
+    <p>The SDK under <code>sdk/agent</code> supplies the agent substrate: planner, dispatcher, queue, goal engine, governance gates, recovery, verification, scanner, linter, coder, shell, workflow compiler, telemetry, memory providers, safe code bridges, trust registry, and swarm engine. The SDK under <code>sdk/gateway</code> supplies plugin validation, permission checks, promptware redaction, lifecycle tracking, and gateway resolver behavior.</p>
+    <p>Tala is therefore closer to an agent operating environment than a single chat app. The correct mental model is a local cognitive engine with a desktop control room, configurable provider fabric, HTML-NN memory graph, workflow executor, and governed bridge layer for tools, shell, code, MCP, research, and external endpoints.</p>
+  </section>
+
+  <section id="runtime-layers">
+    <h2>Runtime Layers</h2>
+    <ul>
+      <li>Electron main process: desktop lifecycle, security policy, Python harness spawning, WebSocket relay, terminal process, local file IPC, and blockchain process lifecycle.</li>
+      <li>Renderer: user-facing control surfaces for nodes, settings, workflows, research, logs, profiles, mission control, agent builder, and terminal panes.</li>
+      <li>Python harness: JSON-RPC backend, provider routing, inference, memory activation, workflow execution, MCP client manager, search, logging, profile sync, and task orchestration.</li>
+      <li>PostgreSQL: authoritative durable state for nodes, providers, profiles, settings, memory index, conversations, tasks, events, token ledger, credentials, contacts, and logs.</li>
+      <li>HTML-NN filesystem: governed memory and documentation graph stored as parseable HTML files in the active user-data nodes directory, with repo nodes used as development fallback.</li>
+      <li>SDK and gateway: reusable agent operations, governance, plugin manifests, promptware scanning, code bridges, repo tooling, telemetry, and swarm abstractions.</li>
+    </ul>
+  </section>
+
+  <section id="comparison-position">
+    <h2>Comparison Position</h2>
+    <p>Compared with Hermes Agent, Tala already owns many of the same conceptual primitives: desktop shell, configurable model/provider endpoints, MCP integration, memory, workflows, local tool execution, and admin surfaces. Tala's distinctive edge is the HTML-NN memory graph, where docs, settings, workflows, profiles, concepts, and system memories can share one governed node format.</p>
+    <p>The remaining maturity gap is mostly release discipline and productization: dependency health, first-run setup, packaged installers, self-update behavior, web/admin parity, onboarding copy, release smoke tests, tighter CI, and explicit documentation of the HTML-NN-centered architecture.</p>
+  </section>
+
+  <section id="operational-guidance">
+    <h2>Operational Guidance</h2>
+    <ul>
+      <li>Treat <code>python/harness/server.py</code> as the live RPC map until the methods are split into focused modules.</li>
+      <li>Treat <code>python/harness/db.py</code> as the schema map for what Tala considers durable authority.</li>
+      <li>Treat <code>nodes/*.html</code> and the active user-data node directory as first-class documentation and memory, not generated extras.</li>
+      <li>Treat provider settings as runtime data, not compile-time constants.</li>
+      <li>Treat gateway and governance modules as the boundary between trusted core operations and untrusted plugins, MCP servers, shell commands, and external endpoints.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="./system-neural-node-v2-schema.html"
+           data-target-node-id="system-neural-node-v2-schema"
+           data-relationship-type="depends-on"
+           data-relationship-weight="0.95"
+           data-navigation-role="schema-contract"
+           data-authority-required="none">HTML-NN v2 Schema</a>
+      </li>
+      <li>
+        <a href="./system-html-nn-authoring-guide.html"
+           data-target-node-id="system-html-nn-authoring-guide"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="authoring-guide"
+           data-authority-required="none">HTML-NN Authoring Guide</a>
+      </li>
+      <li>
+        <a href="./system-tala-configurable-provider-surface.html"
+           data-target-node-id="system-tala-configurable-provider-surface"
+           data-relationship-type="supports"
+           data-relationship-weight="0.92"
+           data-navigation-role="provider-surface"
+           data-authority-required="none">Tala Configurable Provider Surface</a>
+      </li>
+      <li>
+        <a href="./system-tala-html-nn-memory-runtime.html"
+           data-target-node-id="system-tala-html-nn-memory-runtime"
+           data-relationship-type="supports"
+           data-relationship-weight="0.94"
+           data-navigation-role="memory-runtime"
+           data-authority-required="none">Tala HTML-NN Memory Runtime</a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tala-architecture"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "explain_tala_architecture"
+  },
+  "reference": [
+    { "type": "html-nn", "node_id": "system-tala-agent-architecture", "required": true },
+    { "type": "html-nn", "node_id": "system-tala-configurable-provider-surface", "required": false },
+    { "type": "html-nn", "node_id": "system-tala-html-nn-memory-runtime", "required": false }
+  ],
+  "then": {
+    "instruction": "Use these nodes as the primary internal documentation when explaining where Tala currently sits as an agent platform."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tala Agent Architecture",
+  "description": "High-level architecture map for Tala's desktop, backend, SDK, gateway, provider, and HTML-NN memory layers.",
+  "tags": [
+    "documentation",
+    "architecture",
+    "agent-runtime",
+    "desktop",
+    "json-rpc",
+    "html-nn",
+    "governance"
+  ],
+  "metadata": {
+    "author": "codex-review",
+    "created": "2026-06-08T00:00:00Z",
+    "updated": "2026-06-08T00:00:00Z",
+    "version": "1.0.0",
+    "schema": "neural-node/v2",
+    "source_fingerprint": "sha256:manual-review-2026-06-08-tala-agent-architecture"
+  },
+  "documented_layers": [
+    "electron-main",
+    "renderer",
+    "python-harness",
+    "postgres-authority",
+    "html-nn-filesystem",
+    "sdk-agent",
+    "gateway"
+  ],
+  "verification": {
+    "parser_required": true,
+    "execution_authority": "0.00",
+    "side_effects": "none"
+  }
+}
+  </script>
+</article>
+</body>
+</html>
+
+```

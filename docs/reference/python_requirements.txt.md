@@ -1,0 +1,109 @@
+# File: `requirements.txt`
+
+## Overview
+
+This is a text or documentation file.
+
+## File Contents
+
+```text
+# Tala Cognitive Engine Room — Python Dependencies
+# =================================================
+# Install with:  pip install -r requirements.txt
+#
+# Recommended: use a Python 3.13 virtual environment.
+#
+#   python -m venv .venv
+#   .venv\Scripts\activate      (Windows)
+#   source .venv/bin/activate   (Linux/macOS)
+#   pip install -r python/requirements.txt
+
+# ---------------------------------------------------------------------------
+# Core harness — always required
+# ---------------------------------------------------------------------------
+
+# JSON-RPC 2.0 WebSocket server
+websockets>=12.0
+
+# Async PostgreSQL driver (connection pooling, JSONB codecs)
+asyncpg>=0.29
+
+# Markdown rendering and YAML parsing for memory importing
+markdown>=3.0
+PyYAML>=6.0
+
+# Token counting (OpenAI cl100k_base encoding as universal fallback)
+tiktoken>=0.7
+
+# .env file loading
+python-dotenv>=1.0
+
+# Typed settings / data validation
+pydantic>=2.7
+
+# Local blockchain document payload encryption
+cryptography>=42.0
+
+# BIP39 seed phrase generation for non-custodial wallet
+mnemonic>=0.20
+
+# Model Context Protocol client support
+mcp>=1.5.0
+click>=8.1
+httpx-sse>=0.4
+
+# ---------------------------------------------------------------------------
+# Remote APIs
+# ---------------------------------------------------------------------------
+openai>=1.0
+google-generativeai>=0.5
+
+# ---------------------------------------------------------------------------
+# PyTorch — required for device detection and transformers fallback
+# ---------------------------------------------------------------------------
+
+# CPU-only wheel (works on any machine, no CUDA needed):
+#   pip install torch>=2.3 --index-url https://download.pytorch.org/whl/cpu
+#
+# CUDA 12.x wheel (NVIDIA GPU):
+#   pip install torch>=2.3 --index-url https://download.pytorch.org/whl/cu121
+#
+# Listed here as a base requirement; override the index-url for your hardware.
+torch>=2.3
+
+# HuggingFace transformers — CPU/MPS inference fallback when vLLM unavailable
+transformers>=4.42
+
+# Accelerate — required by transformers device_map auto-placement
+accelerate>=0.30
+
+# Sentencepiece — required by many open-source models (Mistral, LLaMA, etc.)
+sentencepiece>=0.2
+
+# ---------------------------------------------------------------------------
+# Testing
+# ---------------------------------------------------------------------------
+
+pytest>=8.0
+pytest-asyncio>=0.23
+
+# ---------------------------------------------------------------------------
+# Optional — GPU Inference (maximum throughput)
+# ---------------------------------------------------------------------------
+
+# vLLM: high-throughput LLM serving with PagedAttention
+# Requires CUDA 12.x and an NVIDIA GPU.
+# Install SEPARATELY after the above:
+#   pip install vllm>=0.5.0
+#
+# Do NOT uncomment this line unless you have GPU hardware;
+# the pip build will fail on CPU-only machines.
+#
+# vllm>=0.5.0
+
+# ---------------------------------------------------------------------------
+# Astrology / Ephemeris
+# ---------------------------------------------------------------------------
+pyswisseph>=2.10
+
+```
