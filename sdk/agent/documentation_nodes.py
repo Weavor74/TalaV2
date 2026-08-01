@@ -21,7 +21,7 @@ from sdk.agent.anchor import canonicalize_and_anchor
 from sdk.agent.parser import parse_file
 
 
-ALLOWED_NODE_TYPES = {"documentation", "program-doc"}
+ALLOWED_NODE_TYPES = {"documentation", "program-doc", "function-doc"}
 DEFAULT_REFERENCE_NODES = (
     "system-neural-node-v2-schema",
     "system-html-nn-authoring-guide",
