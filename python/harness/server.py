@@ -1637,7 +1637,7 @@ async def handle_inference_generate(
 
                         try:
                             import httpx as _httpx_check
-                            async with _httpx_check.AsyncClient(timeout=30.0) as _probe:
+                            async with _httpx_check.AsyncClient(timeout=3.0) as _probe:
                                 _probe_resp = await _probe.post(
                                     f"{_check_base}/api/show",
                                     json={"name": model},
@@ -1654,8 +1654,8 @@ async def handle_inference_generate(
                             errors.append(f"Provider '{p_name}' skipped: {probe_desc}")
                             continue
 
-                    _read_timeout = float(params.get("timeout_seconds", 1800.0 if p_type == "local" else 600.0))
-                    async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout, connect=5.0)) as client:
+                    _read_timeout = float(params.get("timeout_seconds", 30.0 if p_type == "local" else 120.0))
+                    async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout, connect=3.0)) as client:
                         if stream:
                             chunks = []
                             in_reasoning = False
