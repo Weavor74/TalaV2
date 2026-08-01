@@ -47,6 +47,18 @@ Built in-house using native Node.js APIs (zero external dependencies).
 
 The chain binds to `127.0.0.1` by default. On the permanent VPS, set `TALA_CHAIN_BIND_HOST=0.0.0.0` so other Tala clients can discover peers through the public discovery node.
 
+## Release Integrity
+
+`public/version.json` carries a `sha256` map alongside `downloads`. The desktop
+app's auto-updater (`app.update` in `electron/main.js`) fetches this file
+directly (never trusting a renderer-supplied hash) and refuses to install an
+update whose downloaded zip doesn't match the published hash for that
+platform. **Whoever cuts a release must compute the real SHA-256 of each
+platform's zip and fill in `sha256` before publishing** — an empty/missing
+entry means the updater proceeds without integrity verification (logged as a
+warning), not that the check silently passes. The updater also only ever
+downloads from `https://talacore.app/`; any other host is rejected outright.
+
 ## How to Run
 
 Run directly with Node.js:

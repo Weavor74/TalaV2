@@ -5,5 +5,10 @@
     "windows": "https://talacore.app/tala-windows.zip",
     "macos": "https://talacore.app/tala-macos.zip",
     "linux": "https://talacore.app/tala-linux.zip"
+  },
+  "sha256": {
+    "windows": "",
+    "macos": "",
+    "linux": ""
   }
 }

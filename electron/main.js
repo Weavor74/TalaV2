@@ -553,6 +553,67 @@ let rpcIdCounter = 1;
    Bridges renderer RPC calls through the WebSocket to Python.
    ────────────────────────────────────────────────────────────────── */
 
+/**
+ * Reads (or generates, on first run) the local admin secret shared with the
+ * Python harness via a file on disk. Both processes run on the same machine
+ * and resolve the same path, so no network transport of the secret is ever
+ * needed. Mirrors the vault/.keys/ convention used elsewhere in the codebase
+ * (e.g. sdk/agent/anchor.py's blockchain document key).
+ */
+function getHarnessAdminSecret() {
+  const envSecret = process.env.TALA_HARNESS_ADMIN_SECRET;
+  if (envSecret) return envSecret;
+
+  const configuredPath = process.env.TALA_HARNESS_ADMIN_SECRET_FILE;
+  const userData = process.env.TALA_USER_DATA;
+  const secretPath = configuredPath
+    ? path.resolve(configuredPath)
+    : userData
+      ? path.join(path.resolve(userData), 'vault', '.keys', 'harness_admin_secret.txt')
+      : path.join(path.resolve(__dirname, '..'), 'vault', '.keys', 'harness_admin_secret.txt');
+
+  if (fs.existsSync(secretPath)) {
+    return fs.readFileSync(secretPath, 'utf8').trim();
+  }
+
+  const secret = require('node:crypto').randomBytes(32).toString('hex');
+  fs.mkdirSync(path.dirname(secretPath), { recursive: true });
+  fs.writeFileSync(secretPath, secret, 'utf8');
+  return secret;
+}
+
+/**
+ * Fetches the published sha256 hash for a given platform's release zip from
+ * the pinned update host's version.json (independently of whatever the
+ * renderer may have already fetched — never trust renderer-supplied hashes
+ * for an integrity check). Returns null if unavailable or not yet published;
+ * callers must treat null as "cannot verify," not "verified."
+ */
+function fetchExpectedUpdateHash(platformKey) {
+  return new Promise((resolve) => {
+    const https = require('https');
+    const req = https.get('https://talacore.app/version.json', { timeout: 5000 }, (response) => {
+      if (response.statusCode !== 200) {
+        response.resume();
+        return resolve(null);
+      }
+      let body = '';
+      response.on('data', (chunk) => { body += chunk; });
+      response.on('end', () => {
+        try {
+          const data = JSON.parse(body);
+          const hash = data && data.sha256 && data.sha256[platformKey];
+          resolve(typeof hash === 'string' && hash ? hash : null);
+        } catch {
+          resolve(null);
+        }
+      });
+    });
+    req.on('error', () => resolve(null));
+    req.on('timeout', () => { req.destroy(); resolve(null); });
+  });
+}
+
 function registerPythonRpcHandler() {
   ipcMain.handle('python:rpc', async (_event, payload) => {
     const { method, params = {} } = payload ?? {};
@@ -562,19 +623,51 @@ function registerPythonRpcHandler() {
     }
 
     if (method === 'app.update') {
+      const url = params.url;
+      if (!url) return { __rpcError: true, error: 'No url provided for update' };
+
+      // Trust boundary: only ever download from the pinned release host.
+      // Without this, any code running in the renderer (e.g. via XSS) could
+      // pass an arbitrary URL and get Tala to download-and-extract-over-itself
+      // whatever is there.
+      const UPDATE_HOST = 'talacore.app';
+      let parsedUrl;
+      try {
+        parsedUrl = new URL(url);
+      } catch {
+        return { __rpcError: true, error: 'Invalid update URL.' };
+      }
+      if (parsedUrl.protocol !== 'https:' || parsedUrl.hostname !== UPDATE_HOST) {
+        return { __rpcError: true, error: `Refusing update: URL host must be https://${UPDATE_HOST}/...` };
+      }
+
+      const platformKey = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
+      const expectedHash = await fetchExpectedUpdateHash(platformKey);
+      if (!expectedHash) {
+        console.warn(`[main] No published sha256 for platform "${platformKey}" in ${UPDATE_HOST}/version.json — proceeding without integrity verification. Publish a sha256 map alongside each release to enable it.`);
+      }
+
       return new Promise((resolve, reject) => {
-        const url = params.url;
-        if (!url) return reject('No url provided for update');
         const fs = require('fs');
         const os = require('os');
         const { spawn } = require('child_process');
         const path = require('path');
+        const crypto = require('crypto');
         const appRoot = path.resolve(__dirname, '..');
 
         if (process.platform === 'win32') {
           const scriptPath = path.join(os.tmpdir(), 'tala-update.ps1');
           const zipPath = path.join(os.tmpdir(), 'tala-update.zip');
           const startScript = path.join(appRoot, 'scripts', 'start-tala.ps1');
+          const hashCheckBlock = expectedHash ? `
+$actualHash = (Get-FileHash -Path "${zipPath}" -Algorithm SHA256).Hash
+if ($actualHash.ToLower() -ne "${expectedHash.toLowerCase()}") {
+    Write-Host "Downloaded update failed integrity check (hash mismatch). Aborting." -ForegroundColor Red
+    Start-Sleep -Seconds 5
+    exit
+}
+Write-Host "Integrity check passed." -ForegroundColor Green
+` : '';
           const scriptContent = `
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Write-Host "========================================" -ForegroundColor Cyan
@@ -597,7 +690,7 @@ if (-not (Test-Path "${zipPath}") -or (Get-Item "${zipPath}").Length -lt 1000) {
     Start-Sleep -Seconds 5
     exit
 }
-
+${hashCheckBlock}
 Write-Host "Extracting update to ${appRoot}..." -ForegroundColor Yellow
 try {
     Expand-Archive -Path "${zipPath}" -DestinationPath "${appRoot}" -Force
@@ -631,6 +724,13 @@ exit
             response.pipe(file);
             file.on('finish', () => {
               file.close(() => {
+                if (expectedHash) {
+                  const actualHash = crypto.createHash('sha256').update(fs.readFileSync(zipPath)).digest('hex');
+                  if (actualHash.toLowerCase() !== expectedHash.toLowerCase()) {
+                    fs.unlinkSync(zipPath);
+                    return reject('Downloaded update failed integrity check (hash mismatch).');
+                  }
+                }
                 const scriptPath = path.join(os.tmpdir(), 'tala-update.sh');
                 const startScript = path.join(appRoot, 'scripts', 'start-tala.sh');
                 const scriptContent = `#!/bin/bash
@@ -655,6 +755,14 @@ bash "${startScript}" &
 
     if (method === 'app.version') {
       return { version: require('../package.json').version };
+    }
+
+    // system.trigger_update / system.download_update pull or repackage the
+    // repo for a redeploy — gated on the harness admin secret so only this
+    // local Electron process (which reads the same on-disk file the Python
+    // harness does) can invoke them, not an arbitrary remote WS peer.
+    if (method === 'system.trigger_update' || method === 'system.download_update') {
+      params.harness_secret = getHarnessAdminSecret();
     }
 
     // If WS is not connected, return a degraded stub for known health checks

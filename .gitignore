@@ -16,6 +16,7 @@ data/*.db
 data/*.sqlite
 data/*.sqlite3
 blockchain/data/*.json
+blockchain/data/admin_secret.txt
 nodes/*.html
 nodes/*.html.bak
 nodes/_archive_legacy/

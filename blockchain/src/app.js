@@ -25,6 +25,7 @@ const DATA_DIR = path.join(__dirname, '..', 'data');
 const CHAIN_FILE = path.join(DATA_DIR, 'chain.json');
 const KEYS_FILE = path.join(DATA_DIR, 'poa_keys.json');
 const PEERS_FILE = path.join(DATA_DIR, 'peers.json');
+const ADMIN_SECRET_FILE = path.join(DATA_DIR, 'admin_secret.txt');
 
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
@@ -82,6 +83,34 @@ if (fs.existsSync(KEYS_FILE)) {
   poaPublicKey = publicKey;
   fs.writeFileSync(KEYS_FILE, JSON.stringify({ privateKey, publicKey }, null, 2), 'utf8');
   console.log('[Tala Chain] Generated new Ed25519 PoA key pair.');
+}
+
+// Local admin secret — required on every state-mutating administrative route
+// (chain reconcile, treasury mint). Auto-generated on first run and persisted
+// alongside the PoA keys so any locally-running, trusted caller (the Python
+// harness) can read the same file and authenticate without manual setup.
+// This is a locally-scoped bearer secret, not a cryptographic identity: it
+// proves "this caller can read files on this machine," which is the actual
+// trust boundary these routes need on a VPS bound to 0.0.0.0.
+let adminSecret = process.env.TALA_CHAIN_ADMIN_SECRET || '';
+if (!adminSecret) {
+  if (fs.existsSync(ADMIN_SECRET_FILE)) {
+    adminSecret = fs.readFileSync(ADMIN_SECRET_FILE, 'utf8').trim();
+  } else {
+    adminSecret = crypto.randomBytes(32).toString('hex');
+    fs.writeFileSync(ADMIN_SECRET_FILE, adminSecret, 'utf8');
+    console.log('[Tala Chain] Generated new local admin secret.');
+  }
+}
+
+function requireAdminSecret(req, res) {
+  const provided = req.headers['x-tala-chain-secret'];
+  if (provided && provided === adminSecret) {
+    return true;
+  }
+  res.writeHead(401, { 'Content-Type': 'application/json' });
+  res.end(JSON.stringify({ error: 'Unauthorized: missing or invalid admin secret.' }));
+  return false;
 }
 
 // ---------------------------------------------------------------------------
@@ -513,10 +542,21 @@ const peerDirectory = new PeerDirectory();
 // ---------------------------------------------------------------------------
 
 const server = http.createServer((req, res) => {
-  // CORS Headers for Electron integration compatibility
-  res.setHeader('Access-Control-Allow-Origin', '*');
-  res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
-  res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  // CORS: only ever open for GET (read-only chain status/blocks, used by the
+  // Electron renderer's viewer). State-mutating routes are POST-only and must
+  // never be reachable from an arbitrary cross-origin browser context — this
+  // node has no other request-origin check, so a wildcard here on POST would
+  // let any webpage the user has open silently call treasury/chain-mutating
+  // endpoints. Tala's own backend talks to this node server-to-server and
+  // neither sends nor needs CORS headers.
+  const requestedMethod = req.method === 'OPTIONS'
+    ? (req.headers['access-control-request-method'] || '').toUpperCase()
+    : req.method;
+  if (requestedMethod === 'GET' || requestedMethod === '') {
+    res.setHeader('Access-Control-Allow-Origin', '*');
+    res.setHeader('Access-Control-Allow-Methods', 'GET, OPTIONS');
+    res.setHeader('Access-Control-Allow-Headers', 'Content-Type');
+  }
 
   if (req.method === 'OPTIONS') {
     res.writeHead(204);
@@ -615,66 +655,16 @@ const server = http.createServer((req, res) => {
   }
 
   // Route: POST /checkout
+  // Disabled: this previously credited TalaCoin for a client-supplied amount
+  // with no real payment verification behind it, while the UI (buy.html)
+  // displayed a Stripe-branded "Payment Successful" confirmation. No payment
+  // processor is actually integrated yet, so this must not appear to work
+  // until one is.
   if (url.pathname === '/checkout' && req.method === 'POST') {
-    readRequestBody(req).then(body => {
-      try {
-        const payload = JSON.parse(body || '{}');
-        const username = String(payload.username || '').trim();
-        const amount = parseFloat(payload.amount || 0);
-
-        if (!username || amount <= 0) {
-          res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Invalid username or amount' }));
-          return;
-        }
-
-        const peer = peerDirectory.find(username);
-        if (!peer) {
-          res.writeHead(404, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'User not found on the network. Make sure your desktop client is running.' }));
-          return;
-        }
-
-        // Direct treasury transfer from tala-network
-        const txId = crypto.randomUUID();
-        const tx = new Transaction(
-          txId,
-          'payment', // Internal treasury transfer
-          crypto.randomBytes(32).toString('hex'), // Mock hash since it's internally verified
-          'tala-network',
-          peer.wallet_address,
-          new Date().toISOString(),
-          null,
-          { amount: amount, house_fee_percent: 0 }
-        );
-
-        // Bypass client signature requirements for the centralized treasury transfer
-        // Note: we just push it into a block directly on the VPS
-        const prevHash = talaLedger.getLatestBlock().hash;
-        const block = new Block(
-          talaLedger.chain.length,
-          prevHash,
-          new Date().toISOString(),
-          [tx],
-          0,
-          null, // No signature needed for internal PoA injection
-          'tala-network'
-        );
-        block.hash = block.calculateHash();
-        
-        talaLedger.chain.push(block);
-        talaLedger.recalculateBalances();
-        talaLedger.saveChain();
-
-        console.log(`[Treasury] Transferred ${amount} TalaCoins to ${username} (${peer.wallet_address})`);
-
-        res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ success: true, amount, to: username, tx_id: txId }));
-      } catch (err) {
-        res.writeHead(500, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ error: err.message }));
-      }
-    });
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'Payments are not yet available. Top-up via card purchase has not been implemented — no funds were charged or credited.',
+    }));
     return;
   }
 
@@ -844,6 +834,7 @@ const server = http.createServer((req, res) => {
   
   // Route: POST /chain/reconcile
   if (url.pathname === '/chain/reconcile' && req.method === 'POST') {
+    if (!requireAdminSecret(req, res)) return;
     readRequestBody(req).then(body => {
       try {
         const payload = JSON.parse(body || '{}');
@@ -909,6 +900,7 @@ const server = http.createServer((req, res) => {
 
   // Route: POST /chain/mint
   if (url.pathname === '/chain/mint' && req.method === 'POST') {
+    if (!requireAdminSecret(req, res)) return;
     let body = '';
     req.on('data', chunk => { body += chunk; });
     req.on('end', () => {

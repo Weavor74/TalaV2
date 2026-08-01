@@ -49,6 +49,7 @@ import urllib.request
 import uuid
 import hashlib
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -506,10 +507,20 @@ async def top_up_wallet(amount: float, caller: str = "system") -> float:
 
     def mint_sync() -> dict:
         payload = {"address": wallet_address, "amount": amount}
+        secret = os.environ.get("TALA_CHAIN_ADMIN_SECRET", "")
+        if not secret:
+            secret_path = Path(__file__).resolve().parents[2] / "blockchain" / "data" / "admin_secret.txt"
+            try:
+                secret = secret_path.read_text(encoding="utf-8").strip()
+            except OSError:
+                secret = ""
+        headers = {"Content-Type": "application/json"}
+        if secret:
+            headers["X-Tala-Chain-Secret"] = secret
         req = urllib.request.Request(
             f"{base_url}/chain/mint",
             data=json.dumps(payload).encode("utf-8"),
-            headers={"Content-Type": "application/json"},
+            headers=headers,
             method="POST",
         )
         with urllib.request.urlopen(req) as response:

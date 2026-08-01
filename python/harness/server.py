@@ -5462,6 +5462,26 @@ async def handle_docs_generate_and_verify_program_nodes(params: dict[str, Any], 
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+async def handle_docs_generate_function_nodes(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``docs.generate_function_nodes`` — Generate/refresh paired technical +
+    plain-English HTML-NN nodes for registered tools. Skips (no LLM call,
+    no file write) any tool whose source hasn't changed since it was last
+    documented, unless ``force`` is set.
+    """
+    try:
+        from sdk.agent.function_documenter import document_registered_tools
+
+        result = await document_registered_tools(
+            tool_names=params.get("tool_names"),
+            force=bool(params.get("force", False)),
+        )
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("docs.generate_function_nodes error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_docs_register_program_target(params: dict[str, Any], req_id: Any) -> str:
     """
     ``docs.register_program_target`` — Register a new documentation target.
@@ -8376,11 +8396,53 @@ async def handle_system_self_test(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+def _harness_admin_secret_path() -> Path:
+    configured = os.environ.get("TALA_HARNESS_ADMIN_SECRET_FILE")
+    if configured:
+        return Path(configured).expanduser().resolve()
+
+    user_data = os.environ.get("TALA_USER_DATA")
+    if user_data:
+        return Path(user_data).expanduser().resolve() / "vault" / ".keys" / "harness_admin_secret.txt"
+
+    return Path(_ROOT_DIR) / "vault" / ".keys" / "harness_admin_secret.txt"
+
+
+def _load_or_create_harness_admin_secret() -> str:
+    env_secret = os.environ.get("TALA_HARNESS_ADMIN_SECRET")
+    if env_secret:
+        return env_secret
+
+    path = _harness_admin_secret_path()
+    if path.exists():
+        return path.read_text(encoding="utf-8").strip()
+
+    import secrets
+    secret = secrets.token_hex(32)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(secret, encoding="utf-8")
+    return secret
+
+
+def _require_harness_admin_secret(params: dict[str, Any]) -> bool:
+    """
+    Gate for admin-level self-modification RPC methods (code pull/redeploy).
+    Only the local Electron main process (which reads the same file from the
+    same machine) knows this secret — any other WebSocket client, including a
+    remote peer on a shared/VPS deployment, is rejected.
+    """
+    provided = str(params.get("harness_secret", ""))
+    expected = _load_or_create_harness_admin_secret()
+    return bool(provided) and provided == expected
+
+
 async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> str:
     """
     ``system.trigger_update`` — Pull latest code from the repository and notify clients.
     """
     import asyncio
+    if not _require_harness_admin_secret(params):
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, "Unauthorized: missing or invalid harness admin secret.")
     try:
         proc = await asyncio.create_subprocess_shell(
             "git pull",
@@ -8407,6 +8469,8 @@ async def handle_system_download_update(params: dict[str, Any], req_id: Any) -> 
     import asyncio
     import base64
     import os
+    if not _require_harness_admin_secret(params):
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, "Unauthorized: missing or invalid harness admin secret.")
     try:
         zip_path = "update_payload.zip"
         # Use git archive to securely package the committed state without virtualenvs or node_modules
@@ -9337,6 +9401,7 @@ _HANDLERS: dict[str, Any] = {
     "docs.verify_documentation_nodes": handle_docs_verify_documentation_nodes,
     "docs.generate_and_verify_program_nodes": handle_docs_generate_and_verify_program_nodes,
     "docs.register_program_target": handle_docs_register_program_target,
+    "docs.generate_function_nodes": handle_docs_generate_function_nodes,
     "docs.list_program_targets": handle_docs_list_program_targets,
     "docs.refresh_node_grid": handle_docs_refresh_node_grid,
     "task.submit": handle_task_submit,
