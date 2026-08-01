@@ -103,7 +103,7 @@ class PortRouter:
                 # Ensure schema exists just in case
                 await db.execute("""
                     CREATE TABLE IF NOT EXISTS port_allocations (
-                        task_id      TEXT        PRIMARY KEY REFERENCES tasks(id) ON DELETE CASCADE,
+                        task_id      TEXT        PRIMARY KEY,
                         port         INTEGER     NOT NULL UNIQUE,
                         allocated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     );

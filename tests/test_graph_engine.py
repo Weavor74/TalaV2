@@ -62,9 +62,8 @@ async def test_dag_execution_success(tmp_path):
         }
     }
     
-    # Mock Fleet worktree and sandbox initialization to run on host tmp_path
+    # Mock Fleet worktree and port allocation; no sandbox patching needed (runs locally)
     with patch("python.harness.server.handle_task_create_worktree", return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})), \
-         patch("sdk.agent.sandbox.DockerSandbox.check_docker_available", return_value=False), \
          patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=14000), \
          patch("sdk.agent.port_router.PortRouter.release_port", return_value=True):
              
@@ -73,6 +72,7 @@ async def test_dag_execution_success(tmp_path):
         # Should run research -> synthesis -> writing -> validation
         assert res["success"] is True
         assert (scratch_dir / "run.py").exists()
+
 
 @pytest.mark.asyncio
 async def test_validation_failure_triggers_rollback_and_retry(tmp_path):
@@ -94,17 +94,16 @@ async def test_validation_failure_triggers_rollback_and_retry(tmp_path):
     
     attempts = {}
     
-    async def mock_execute_node(node: GraphNode, nodes: dict[str, GraphNode], backups: dict[str, str | None], worktree_path: str, allocated_port: int, sandbox: Any) -> bool:
+    async def mock_execute_node(node: GraphNode, nodes: dict[str, GraphNode], backups: dict[str, str | None], worktree_path: str, allocated_port: int) -> bool:
         if node.node_type == "validation":
             attempts[node.id] = attempts.get(node.id, 0) + 1
             if attempts[node.id] == 1:
                 node.outputs = {"error": "Simulated syntax error on first validation run"}
                 return False
-        return await original_execute_node(node, nodes, backups, worktree_path, allocated_port, sandbox)
+        return await original_execute_node(node, nodes, backups, worktree_path, allocated_port)
         
     with patch.object(engine, "_execute_node", side_effect=mock_execute_node), \
          patch("python.harness.server.handle_task_create_worktree", return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})), \
-         patch("sdk.agent.sandbox.DockerSandbox.check_docker_available", return_value=False), \
          patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=14001), \
          patch("sdk.agent.port_router.PortRouter.release_port", return_value=True):
              

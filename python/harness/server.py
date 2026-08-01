@@ -123,15 +123,23 @@ def save_current_chat_mode(mode: str):
 # Logging setup
 # ---------------------------------------------------------------------------
 
+class UnbufferedStreamHandler(logging.StreamHandler):
+    def emit(self, record: logging.LogRecord) -> None:
+        super().emit(record)
+        self.flush()
+
 def _configure_logging() -> None:
-    """Configure root logger to match settings.LOG_LEVEL."""
+    """Configure root logger to match settings.LOG_LEVEL with instant flush."""
     level = getattr(logging, settings.LOG_LEVEL, logging.INFO)
-    logging.basicConfig(
-        level=level,
-        format="%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
-        datefmt="%Y-%m-%dT%H:%M:%S",
-        stream=sys.stdout,
-    )
+    handler = UnbufferedStreamHandler(sys.stdout)
+    handler.setFormatter(logging.Formatter(
+        fmt="%(asctime)s [%(levelname)-8s] %(name)s: %(message)s",
+        datefmt="%Y-%m-%dT%H:%M:%S"
+    ))
+    root_logger = logging.getLogger()
+    root_logger.setLevel(level)
+    root_logger.handlers = [handler]
+
     # Quieten noisy libraries
     logging.getLogger("websockets").setLevel(logging.WARNING)
     logging.getLogger("asyncio").setLevel(logging.WARNING)
@@ -375,6 +383,12 @@ def _maybe_handle_documentation_nl(prompt: str) -> str | None:
     if lowered.startswith("/"):
         return None
 
+    has_doc_context = any(term in lowered for term in ("doc", "docs", "documentation", "html-nn", "neural node", "program target")) or bool(
+        re.search(r"\bdocument\b", lowered)
+    )
+    if not has_doc_context:
+        return None
+
     wants_docs = any(term in lowered for term in ("generate doc", "create doc", "update doc", "regenerate doc", "html-nn documentation")) or bool(
         re.search(r"\bdocument\b", lowered)
     )
@@ -397,6 +411,7 @@ def _maybe_handle_documentation_nl(prompt: str) -> str | None:
 
     if not (wants_docs or wants_verify or wants_list):
         return None
+
 
     from sdk.agent.documentation_nodes import (
         generate_and_verify_program_nodes,
@@ -460,11 +475,14 @@ async def handle_inference_generate(
     except (SafetyGuardrailViolation, PiiAccessBlockedError) as exc:
         err_msg = f"Guardrail blocked prompt: {exc.message}"
         logger.warning(err_msg)
-        await db.log_to_db(
-            "WARNING",
-            err_msg,
-            {"session_id": session_id, "error_type": type(exc).__name__, "payload": exc.payload}
-        )
+        try:
+            await db.log_to_db(
+                "WARNING",
+                err_msg,
+                {"session_id": session_id, "error_type": type(exc).__name__, "payload": exc.payload}
+            )
+        except Exception:
+            pass
         return _err(
             req_id,
             JsonRpcError.INTERNAL_ERROR,
@@ -474,6 +492,9 @@ async def handle_inference_generate(
                 "payload": exc.payload,
             }
         )
+    except Exception as exc:
+        logger.debug("Guardrails check skipped: %s", exc)
+
 
     if not bool(params.get("raw_prompt", False)):
         documentation_response = _maybe_handle_documentation_nl(prompt)
@@ -602,7 +623,12 @@ async def handle_inference_generate(
                             path = Path(background_file)
                             if not path.is_absolute():
                                 path = Path(_ROOT_DIR) / path
-                            raw_html = path.read_text(encoding="utf-8")
+                            try:
+                                raw_html = path.read_text(encoding="utf-8")
+                            except FileNotFoundError:
+                                raw_html = ""
+                                logger.debug("Background file %s not found on disk, skipping", path)
+
                     
                         from sdk.agent.parser import parse_html
                         node = parse_html(raw_html)
@@ -1868,19 +1894,22 @@ async def handle_inference_generate(
             except Exception:
                 pass
 
-        # Parse attributes
+        # Parse attributes (handles double quotes, single quotes, escaped quotes, and unquoted values)
         attrs = {}
-        pattern = r'(\w+)\s*=\s*("[^"]*"|\'[^\']*\'|\[[^\]]*\]|{[^}]*})'
+        pattern = r'(\w+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|(\S+))'
         for match in re.finditer(pattern, attr_str):
-            k, v = match.groups()
-            v = v.strip()
-            if (v.startswith('"') and v.endswith('"')) or (v.startswith("'") and v.endswith("'")):
-                attrs[k] = v[1:-1]
-            else:
+            k = match.group(1)
+            v_dq, v_sq, v_uq = match.group(2), match.group(3), match.group(4)
+            if v_dq is not None:
+                attrs[k] = v_dq.replace('\\"', '"').replace('\\\\', '\\')
+            elif v_sq is not None:
+                attrs[k] = v_sq.replace("\\'", "'").replace('\\\\', '\\')
+            elif v_uq is not None:
                 try:
-                    attrs[k] = json.loads(v.replace("'", '"'))
+                    attrs[k] = json.loads(v_uq.replace("'", '"'))
                 except Exception:
-                    attrs[k] = v
+                    attrs[k] = v_uq
+
                     
         if inner_content:
             inner_content = inner_content.strip()
@@ -7498,8 +7527,40 @@ async def handle_task_submit(params: dict[str, Any], req_id: Any) -> str:
                 pass
         
         async def run_goal_engine():
-            await engine.run_goal(goal, policy=policy, adapter_packet=adapter_packet)
-            
+            try:
+                await engine.run_goal(
+                    goal,
+                    policy=policy,
+                    adapter_packet=adapter_packet,
+                    pre_decomposed_tasks=task_items,  # avoid a second LLM decomposition round-trip
+                )
+            except Exception as _bg_exc:
+                logger.exception(
+                    "task.submit: GoalEngine background task crashed for task_id=%s", parent_task_id
+                )
+                # Mark the parent task as FAILED so the UI doesn't hang on "in_progress"
+                try:
+                    _err_payload = json.dumps({"error": str(_bg_exc)})
+                    await db.execute(
+                        "UPDATE tasks SET status='failed', result=$1::jsonb WHERE id=$2",
+                        _err_payload,
+                        parent_task_id,
+                    )
+                except Exception:
+                    pass
+                # Broadcast failure to the UI
+                try:
+                    from sdk.agent.telemetry import LiveStatusReporter
+                    await LiveStatusReporter.broadcast_status(
+                        task_id=parent_task_id,
+                        phase="goal_engine",
+                        status="failed",
+                        message=f"Task engine crashed: {_bg_exc}",
+                        details={"error": str(_bg_exc), "traceback": traceback.format_exc()},
+                    )
+                except Exception:
+                    pass
+
         asyncio.create_task(run_goal_engine())
         
         return _ok(req_id, {
@@ -7709,38 +7770,22 @@ async def handle_swarm_artifact_inspect(params: dict[str, Any], req_id: Any) -> 
 async def handle_swarm_fleet_status(params: dict[str, Any], req_id: Any) -> str:
     try:
         from sdk.agent.orchestrator_cli import get_active_tasks, get_port_allocations
-        from sdk.agent.sandbox import DockerSandbox
-        from sdk.agent.async_shell import AsyncShellExecutor
-        
+
         tasks = await get_active_tasks()
         ports = await get_port_allocations()
-        
-        sandbox = DockerSandbox()
-        docker_ok = await sandbox.check_docker_available()
-        
-        containers = {}
-        if docker_ok:
-            res = await AsyncShellExecutor.run_exec("docker", ["ps", "--filter", "name=tala-sandbox-", "--format", "{{.Names}} | {{.Status}}"], cwd=os.getcwd())
-            lines = res["stdout"].strip().split("\n")
-            for l in lines:
-                if "|" in l:
-                    name, status = l.split("|", 1)
-                    containers[name.strip()] = status.strip()
-                    
-        result_tasks = []
-        for t in tasks:
-            tid = t["id"]
-            c_name = sandbox.get_container_name(tid)
-            result_tasks.append({
-                "id": tid,
+
+        result_tasks = [
+            {
+                "id": t["id"],
                 "description": t["description"],
                 "status": t["status"],
                 "worktree_path": t["worktree_path"],
                 "branch_name": t["branch_name"],
-                "port": ports.get(tid),
-                "container_status": containers.get(c_name, "Offline")
-            })
-            
+                "port": ports.get(t["id"]),
+            }
+            for t in tasks
+        ]
+
         return _ok(req_id, {"success": True, "tasks": result_tasks})
     except Exception as exc:
         logger.exception("swarm.fleet_status error")

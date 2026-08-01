@@ -827,7 +827,8 @@ async def trigger_vps_update() -> dict[str, Any]:
     name="search_workspace_files",
     description="Search for a text string or regex pattern across workspace files using fast native Python search.",
 )
-async def search_workspace_files(query: str, file_pattern: str = "*") -> dict[str, Any]:
+async def search_workspace_files(query: str = "", file_pattern: str = "*") -> dict[str, Any]:
+
     """
     Fast, cross-platform native Python search across workspace files.
     """

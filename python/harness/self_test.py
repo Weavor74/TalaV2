@@ -1,5 +1,36 @@
 """
-self_test.py - Auto-generated documentation base.
+NAME
+       self_test.py - repeatable self-test suite for the Tala Cognitive Engine Room
+
+SYNOPSIS
+       python scripts/tala_self_test.py [--no-audit]
+       npm run self-test
+       /self-test [--no-audit]  (from Tala chat)
+
+DESCRIPTION
+       Runs a fixed sequence of health checks against the current checkout and
+       reports a structured JSON result. Each step is run as a subprocess so
+       failures are isolated and clearly attributed. Steps executed (in order):
+
+       1. python dependency import smoke — imports asyncpg, websockets, mcp,
+          httpx_sse, and pytest to confirm the virtualenv is correctly populated.
+       2. python syntax compile — py_compile checks on server.py, self_test.py,
+          sdk/agent/command_parser.py, and sdk/agent/recovery.py.
+       3. renderer syntax check — node --check on renderer/renderer.js.
+       4. electron syntax check — node --check on electron/main.js.
+       5. python tests — pytest over tests/ (excluding tests/benchmarks).
+       6. javascript tests — jest --runInBand --passWithNoTests.
+       7. npm audit (optional) — npm audit --audit-level=moderate.
+
+       Options:
+         --no-audit    Skip step 7 (npm audit) for a faster inner-loop run.
+
+       Exit codes:
+         0   All steps passed.
+         1   One or more steps failed (JSON result contains per-step details).
+
+SEE ALSO
+       scripts/first_run.py(1), INSTALL.md, RELEASE_CHECKLIST.md
 """
 
 from __future__ import annotations

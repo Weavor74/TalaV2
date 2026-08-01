@@ -1,5 +1,36 @@
 """
-first_run.py - Auto-generated documentation base.
+NAME
+       first_run.py - prepare Tala for first run on any supported OS
+
+SYNOPSIS
+       uv run python scripts/first_run.py [OPTIONS]
+
+DESCRIPTION
+       Idempotent bootstrap script that prepares a Tala checkout for its first
+       run (or repairs a broken one). Executes the following steps in order:
+
+       1. Ensure local runtime directories (vault, nodes, workflows, data, scratch)
+       2. Generate .env with safe local defaults (never overwrites an existing one)
+       3. Install Node.js dependencies via npm ci / npm install
+       4. Install Python dependencies via uv sync (core + test extras; voice/transformers
+          are attempted but non-fatal because they carry heavy optional requirements)
+       5. Initialize (or migrate) the PostgreSQL database schema
+
+       Options:
+         --skip-node     Skip step 3 (npm dependency install).
+         --skip-python   Skip step 4 (Python virtualenv / dependency install).
+         --skip-db       Skip step 5 (database schema initialization).
+         --self-test     Run the Tala self-test suite after setup.
+         --no-audit      Skip npm audit when --self-test is used.
+
+       Environment overrides (all optional):
+         TALA_INSTALL_ROOT    Repository root (default: parent of this script).
+         TALA_USER_DATA_ROOT  User-data directory (default: same as install root).
+         TALA_VENV_DIR        Path to the Python virtualenv (default: .venv in data root).
+         TALA_ENV_PATH        Path to the .env file (default: .env in data root).
+
+SEE ALSO
+       scripts/doctor.ps1(1), scripts/doctor.sh(1), INSTALL.md
 """
 
 from __future__ import annotations
@@ -91,15 +122,34 @@ def install_node_dependencies() -> None:
 def install_python_dependencies() -> None:
     uv = shutil.which("uv")
     if uv:
-        _run([uv, "sync", "--extra", "voice"])
+        # Core deps + test (pytest must be present for the self-test suite).
+        _run([uv, "sync", "--extra", "test"])
+        # Voice deps require numba which is incompatible with Python >= 3.13.
+        # Treat as non-fatal so the installer does not abort on newer Pythons.
+        print("  - Attempting to install voice features (requires Python < 3.13)...")
+        result = _run([uv, "sync", "--extra", "test", "--extra", "voice"], check=False)
+        if result.returncode != 0:
+            print(
+                "  - Voice feature install failed (likely Python >= 3.13 / numba incompatibility).\n"
+                "  - Core Tala will work fine. To enable voice, use Python < 3.13 and run:\n"
+                "  -   uv pip install -e .[voice]"
+            )
         print("  - Attempting to install embedded engine (transformers)...")
-        _run([uv, "sync", "--extra", "voice", "--extra", "transformers"], check=False)
+        _run([uv, "sync", "--extra", "test", "--extra", "transformers"], check=False)
         return
 
     print("  - uv not found; falling back to stdlib venv + pip")
     _run([sys.executable, "-m", "venv", str(VENV_DIR)])
     _run([str(_venv_pip()), "install", "--upgrade", "pip"])
-    _run([str(_venv_pip()), "install", "-e", ".[voice]"])
+    _run([str(_venv_pip()), "install", "-e", ".[test]"])
+    print("  - Attempting to install voice features (requires Python < 3.13)...")
+    result = _run([str(_venv_pip()), "install", "-e", ".[voice]"], check=False)
+    if result.returncode != 0:
+        print(
+            "  - Voice feature install failed (likely Python >= 3.13 / numba incompatibility).\n"
+            "  - Core Tala will work fine. To enable voice, use Python < 3.13 and run:\n"
+            "  -   pip install -e .[voice]"
+        )
     print("  - Attempting to install embedded engine (transformers)...")
     _run([str(_venv_pip()), "install", "-e", ".[transformers]"], check=False)
 

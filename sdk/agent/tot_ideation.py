@@ -117,51 +117,48 @@ def _generate_fallback_approaches(problem: str) -> list[dict[str, Any]]:
             approaches.append({
                 "frame": frame_name,
                 "approach_name": f"Decoupled Interface-Driven {topic}",
-                "architectural_strategy": f"Isolate components of {topic} into independent modules. Abstract interfaces decouple execution from declaration.",
+                "architectural_strategy": f"Implement {problem} using modular interfaces.",
                 "tasks": [
-                    f"Define abstract base classes/interfaces for {topic}.",
-                    f"Implement independent storage and logic engines for {topic}.",
-                    "Write automated contract verification tests."
+                    f"Implement solution: {problem}",
+                    f"Verify and compile solution: {problem}"
                 ],
-                "key_trade_offs": "Pros: Pluggable and easy to unit test. Cons: High initial boilerplate."
+                "key_trade_offs": "Pros: Clean implementation. Cons: Initial setup overhead."
             })
         elif frame_name == "High Performance":
             approaches.append({
                 "frame": frame_name,
-                "approach_name": f"Lock-Free Lockless Concurrent {topic}",
-                "architectural_strategy": f"Optimize execution path of {topic} using thread-safe non-blocking primitives and pre-allocated memory pools.",
+                "approach_name": f"High-Performance {topic}",
+                "architectural_strategy": f"Optimize implementation of {problem} for performance.",
                 "tasks": [
-                    f"Implement lock-free storage mappings for {topic}.",
-                    "Avoid memory allocations in hot code loops.",
-                    "Verify throughput via concurrency benchmarks."
+                    f"Implement solution: {problem}",
+                    f"Verify and compile solution: {problem}"
                 ],
-                "key_trade_offs": "Pros: Extremely high throughput. Cons: High implementation complexity."
+                "key_trade_offs": "Pros: High performance. Cons: Higher complexity."
             })
         elif frame_name == "Fault Tolerance":
             approaches.append({
                 "frame": frame_name,
-                "approach_name": f"Active-Replica Self-Healing {topic}",
-                "architectural_strategy": f"Establish crash isolation zones and circuit breakers. Use replica nodes and persistent logs to reconstruct state.",
+                "approach_name": f"Fault-Tolerant {topic}",
+                "architectural_strategy": f"Build robust implementation of {problem} with error handling.",
                 "tasks": [
-                    f"Wrap critical {topic} calls in circuit breakers.",
-                    "Implement a transaction journal to rebuild state on reboot.",
-                    "Simulate container crashes to test recovery times."
+                    f"Implement solution: {problem}",
+                    f"Verify and compile solution: {problem}"
                 ],
-                "key_trade_offs": "Pros: Safe and resilient. Cons: High latency overhead."
+                "key_trade_offs": "Pros: High resilience. Cons: Slightly larger codebase."
             })
         else: # Minimalism
             approaches.append({
                 "frame": frame_name,
-                "approach_name": f"Zero-Dependency Standard-Library {topic}",
-                "architectural_strategy": f"Minimize codebase footprint by relying exclusively on Python built-ins. Code stays under 150 lines.",
+                "approach_name": f"Direct Minimalist {topic}",
+                "architectural_strategy": f"Directly fulfill: {problem}",
                 "tasks": [
-                    f"Write a single-file implementation of {topic}.",
-                    "Remove all third-party package dependencies.",
-                    "Review code for simplicity and remove unused functions."
+                    f"Implement solution: {problem}",
+                    f"Verify and compile solution: {problem}"
                 ],
-                "key_trade_offs": "Pros: Simple to audit. Cons: Missing advanced optimizations."
+                "key_trade_offs": "Pros: Simple and direct. Cons: None."
             })
     return approaches
+
 
 def _generate_fallback_critic_eval(approach: dict[str, Any]) -> dict[str, Any]:
     frame = approach["frame"]

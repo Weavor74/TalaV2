@@ -57,10 +57,23 @@ class GoalEngine:
         self.dispatcher = TalaExecutionDispatcher()
         self.recovery = RollbackRecovery(self.root_dir)
 
-    async def run_goal(self, goal_text: str, policy: BatchPolicy | None = None, adapter_packet: "AdapterPacket | None" = None) -> dict[str, Any]:
+    async def run_goal(
+        self,
+        goal_text: str,
+        policy: BatchPolicy | None = None,
+        adapter_packet: "AdapterPacket | None" = None,
+        pre_decomposed_tasks: list | None = None,
+    ) -> dict[str, Any]:
         """
         Decompose a high-level goal, execute it phase-by-phase with checkpoints,
         and verify completion.
+
+        Parameters
+        ----------
+        pre_decomposed_tasks:
+            Optional list of already-decomposed ``TaskItem`` objects.  When
+            provided the internal ``GoalTreeDecomposer`` call is skipped,
+            saving a full LLM round-trip (critical on CPU-only inference).
         """
         log.info("GoalEngine: starting goal=%r with policy=%s", goal_text, policy)
         
@@ -84,13 +97,17 @@ class GoalEngine:
         policy = policy or BatchPolicy.auto()
         tracker = BudgetTracker(policy)
 
-        # 1. Decompose goal
-        decomposer = GoalTreeDecomposer()
-        try:
-            tasks = await decomposer.decompose(goal_text)
-        except Exception as exc:
-            log.error("GoalEngine: decomposition failed: %s", exc)
-            return {"success": False, "error": f"Decomposition failed: {exc}"}
+        # 1. Decompose goal (skip if pre-decomposed tasks were supplied by the caller)
+        if pre_decomposed_tasks is not None:
+            tasks = pre_decomposed_tasks
+            log.info("GoalEngine: using %d pre-decomposed task(s) (skipping LLM decomposition)", len(tasks))
+        else:
+            decomposer = GoalTreeDecomposer()
+            try:
+                tasks = await decomposer.decompose(goal_text)
+            except Exception as exc:
+                log.error("GoalEngine: decomposition failed: %s", exc)
+                return {"success": False, "error": f"Decomposition failed: {exc}"}
 
         if not tasks:
             log.warning("GoalEngine: decomposition produced no tasks")
@@ -103,13 +120,23 @@ class GoalEngine:
         try:
             await bq.enqueue_task(parent_task_id, goal_text, "in_progress")
             for idx, task in enumerate(tasks):
+                task_payload = getattr(task, "payload", {}) or {}
+                if not isinstance(task_payload, dict):
+                    task_payload = {}
+                task_payload.update({
+                    "dependencies": task.dependencies,
+                    "priority": idx,
+                    "goal": goal_text,
+                })
+                task.payload = task_payload
                 await bq.enqueue_task(
                     task.task_id,
                     task.description,
                     "pending",
                     parent_id=parent_task_id,
-                    payload={"dependencies": task.dependencies, "priority": idx},
+                    payload=task_payload,
                 )
+
         except Exception as exc:
             log.error("GoalEngine: database enqueuing failed: %s", exc)
 
@@ -213,17 +240,21 @@ class GoalEngine:
                     # Execute sync_blockchain.py (Local -> Remote overwrite)
                     sync_success = await pre_flight_reconciliation()
                     
-                    # Resume agent task
+                    # Resume agent task (unblock regardless of remote VPS status to maintain offline-first execution)
                     if sync_success:
-                        log.info("GoalEngine: Sync completed successfully. Resuming task.")
+                        log.info("GoalEngine: Remote sync completed successfully.")
+                    else:
+                        log.warning("GoalEngine: Remote sync failed or timed out; unblocking for local-primary execution.")
+
+                    try:
                         await bq.transition_task(
                             task.task_id,
                             TaskStatus.BLOCKED,
                             TaskStatus.PENDING,
-                            reason="Sync completed"
+                            reason="Sync completed or bypassed for local execution"
                         )
-                    else:
-                        log.error("GoalEngine: Sync failed. Task remains paused.")
+                    except Exception as tr_exc:
+                        log.warning("GoalEngine: Transition from BLOCKED to PENDING failed: %s", tr_exc)
             except Exception as recon_exc:
                 log.warning("GoalEngine: Divergence check/resolution error: %s", recon_exc)
 

@@ -31,9 +31,6 @@ async def test_tot_graph_fleet_unified_workflow(tmp_path):
     with patch("os.getcwd", return_value=str(root_dir)), \
          patch("python.harness.server.handle_task_create_worktree", return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path / "worktree_dir")}})), \
          patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=13000), \
-         patch("sdk.agent.sandbox.DockerSandbox.start_container", return_value=True), \
-         patch("sdk.agent.sandbox.DockerSandbox.execute_command", return_value={"success": True, "stdout": "test passed"}) as mock_sb_exec, \
-         patch("sdk.agent.sandbox.DockerSandbox.stop_container", return_value=True) as mock_sb_stop, \
          patch("sdk.agent.port_router.PortRouter.release_port", return_value=True) as mock_port_release:
              
         # Mock handle_inference_generate to bypass LLM calls during tests

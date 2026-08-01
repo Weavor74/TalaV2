@@ -1,54 +1,184 @@
-# Tala Cognitive Engine Room - Installation Guide
+# Tala Cognitive Engine Room — Installation Guide
 
-Tala uses a **Native Transparent Deployment** strategy. Instead of hiding bundled binaries in black-box folders, Tala installs directly into your host machine using official package managers (`winget`, `brew`, `apt`). 
+Tala uses a **Native Transparent Deployment** strategy. Instead of hiding bundled
+binaries in a black box, Tala installs directly into your host machine using official
+package managers (`winget`, `brew`, `apt`/`dnf`/`xbps`). This keeps your machine
+clean, standardized, and fully inspectable.
 
-This keeps your machine clean, standardized, and easily inspectable.
+**Nothing needs to be running before you start.** The installer provisions everything
+from scratch — including PostgreSQL — on a bare machine. All you need is an internet
+connection and the permissions described below.
 
 ---
 
-## 1. Installation
+## Contents
 
-Choose your platform below. The installer will perform preflight health checks, install any missing dependencies (`Node.js`, `Python uv`, `PostgreSQL`), configure your `.env`, and bootstrap the database securely.
+1. [Prerequisites](#1-prerequisites)
+2. [Get the Code](#2-get-the-code)
+3. [Windows Installation](#3-windows-installation)
+4. [macOS Installation](#4-macos-installation)
+5. [Linux Installation](#5-linux-installation)
+6. [First Launch](#6-first-launch)
+7. [Configuration Reference](#7-configuration-reference)
+8. [Verify Your Installation](#8-verify-your-installation)
+9. [Optional Features](#9-optional-features)
+10. [Tala Doctor — Diagnostics](#10-tala-doctor--diagnostics)
+11. [Uninstall](#11-uninstall)
 
-Dependency detection is explicit:
+---
 
-- **Node.js** is installed when `node`/`npm` are missing.
-- **Python tooling** is installed as `uv`; if no system Python is available, the installer asks `uv` to install Python 3.11.
-- **PostgreSQL** is installed when `psql` is missing, then the database role and database are bootstrapped.
-- **Configuration** is owned by `scripts/first_run.py`; installers do not overwrite an existing `.env`.
+## 1. Prerequisites
 
-### Voice Features (Optional)
-If you want to use local voice commands, you must manually install the `[voice]` dependencies after the initial installation. *Note: this requires Python < 3.13 due to `numba` restrictions.*
+| Requirement | Windows | macOS | Linux |
+|---|---|---|---|
+| **Permissions** | PowerShell as **Administrator** | Terminal (no root required) | `sudo` or root |
+| **Internet** | Required | Required | Required |
+| `winget` | Built into Windows 11 | — | — |
+| `Xcode Command Line Tools` | — | Installed automatically by Homebrew prompt | — |
+
+> **No other software needs to be pre-installed.** Node.js, Python, and PostgreSQL are
+> all provisioned by the installer if they are missing.
+
+---
+
+## 2. Get the Code
+
+Clone or download the repository to a local directory of your choice:
+
 ```bash
-uv pip install -e .[voice]
+git clone https://github.com/your-org/TalaV2.git
+cd TalaV2
 ```
 
-### Windows
-Open PowerShell as **Administrator** and run:
+Or extract the zip archive and open a terminal in the resulting directory.
+
+---
+
+## 3. Windows Installation
+
+### Step 1 — Open PowerShell as Administrator
+
+Right-click the Start button → **Windows Terminal (Admin)** or **PowerShell (Admin)**.
+
+> The installer requires Administrator rights to install PostgreSQL and to register
+> its Windows service. You will see a UAC prompt.
+
+### Step 2 — Allow Script Execution (if needed)
+
+If you have never run PowerShell scripts before, set the execution policy once:
+
+```powershell
+Set-ExecutionPolicy -ExecutionPolicy RemoteSigned -Scope CurrentUser
+```
+
+### Step 3 — Navigate to the repository
+
+```powershell
+cd C:\path\to\TalaV2
+```
+
+### Step 4 — Run the installer
+
 ```powershell
 .\install-windows.ps1
 ```
-*(Uses `winget` to provision dependencies, requires Administrator privileges)*
 
-### macOS
-Open your Terminal and run:
-```bash
-./install-macos.sh
-```
-*(Uses Homebrew to provision dependencies)*
+The installer runs these steps automatically:
 
-### Linux
-Open your Terminal and run:
-```bash
-./install-linux.sh
+| Step | What Happens |
+|---|---|
+| **[1/6] Preflight** | `scripts\doctor.ps1` checks Node.js, Python, PostgreSQL, and ports. Reports what is missing. |
+| **[2/6] Dependencies** | Installs any missing tools via `winget`: Node.js LTS, `uv` (Python package manager), PostgreSQL 17. |
+| **[3/6] Database** | Starts the PostgreSQL Windows service, then creates the `tala` role and `tala` database. Prompts for the Postgres superuser password if peer auth is not set up. |
+| **[4/6] Configuration** | Generates `.env` with local defaults if one does not already exist. Never overwrites an existing `.env`. |
+| **[5/6] First-Run Setup** | Installs all Node and Python dependencies, then initializes the database schema. |
+| **[6/6] Policy Check** | Confirms PowerShell execution policy is not `Restricted`. |
+
+**When it finishes you will see:**
 ```
-*(Uses `apt-get` on Debian/Ubuntu or `xbps-install` on Void Linux to provision dependencies. On Void, `xbps-install` must already be available.)*
+========================================================
+ Installation Complete!
+ Run Tala by executing: .\scripts\start-tala.ps1
+========================================================
+```
 
 ---
 
-## 2. Launching Tala
+## 4. macOS Installation
 
-Once installed, simply run the start script to boot both the Python cognitive backend and the Electron UI:
+### Step 1 — Open Terminal
+
+Press `⌘ Space`, type `Terminal`, press Enter.
+
+### Step 2 — Navigate to the repository
+
+```bash
+cd /path/to/TalaV2
+```
+
+### Step 3 — Run the installer
+
+```bash
+./install-macos.sh
+```
+
+The installer runs these steps automatically:
+
+| Step | What Happens |
+|---|---|
+| **[1/6] Preflight** | `scripts/doctor.sh` checks Node.js, Python, PostgreSQL, and ports. |
+| **[2/6] Dependencies** | If Homebrew is missing, **asks your permission** before downloading and running the official Homebrew installer. Then installs `node@20`, `uv`, and `postgresql@16` via `brew`. |
+| **[3/6] Database** | Runs `brew services start postgresql@16`, then creates the `tala` role and `tala` database. |
+| **[4/6] Configuration** | Generates `.env` with local defaults if one does not already exist. |
+| **[5/6] First-Run Setup** | Installs all Node and Python dependencies, then initializes the database schema. |
+| **[6/6] Final Checks** | Confirms everything looks healthy. |
+
+---
+
+## 5. Linux Installation
+
+### Supported Distributions
+
+| Distribution | Package Manager |
+|---|---|
+| Ubuntu 20.04+, Debian 11+ | `apt-get` |
+| AlmaLinux 8+, RHEL 8+, Fedora 38+ | `dnf` |
+| Void Linux | `xbps-install` |
+
+### Step 1 — Open a terminal in the repository directory
+
+```bash
+cd /path/to/TalaV2
+```
+
+### Step 2 — Make the script executable (if needed)
+
+```bash
+chmod +x install-linux.sh
+```
+
+### Step 3 — Run the installer
+
+```bash
+./install-linux.sh
+```
+
+The installer runs these steps automatically:
+
+| Step | What Happens |
+|---|---|
+| **[1/6] Preflight** | `scripts/doctor.sh` checks Node.js, Python, PostgreSQL, and ports. |
+| **[2/6] Dependencies** | Installs `nodejs`, `npm`, and `postgresql` via your distro's package manager. For `uv`, **asks your permission** before running the official `astral.sh` installer script. |
+| **[3/6] Database** | Enables and starts the PostgreSQL system service (`systemctl` or `sv`), then creates the `tala` role and `tala` database. |
+| **[4/6] Configuration** | Generates `.env` with local defaults if one does not already exist. |
+| **[5/6] First-Run Setup** | Installs all Node and Python dependencies, then initializes the database schema. |
+| **[6/6] Final Checks** | Confirms everything looks healthy. |
+
+---
+
+## 6. First Launch
+
+Once installation completes, start Tala with a single command.
 
 **Windows:**
 ```powershell
@@ -60,47 +190,175 @@ Once installed, simply run the start script to boot both the Python cognitive ba
 ./scripts/start-tala.sh
 ```
 
-The launch scripts are also first-run aware. If `.env` or `.venv` is missing, they run `scripts/first_run.py` before booting the backend.
+The start script:
 
-### Manual First-Run Bootstrap
-Use this if you already installed Node.js, `uv`, and PostgreSQL yourself. If those tools are missing, use the platform installer instead so Tala can provision them:
+1. Checks that `.env` and `.venv` exist. If either is missing, it runs first-run setup automatically before booting.
+2. Starts the **Python cognitive backend** (`python.harness.server`) in the background.
+3. Starts the **Electron desktop UI** (`npm start`).
+4. When you close the Electron window, the script traps the exit signal and shuts down the backend cleanly.
 
-**Windows:**
-```powershell
-uv run python scripts/first_run.py --self-test
+> **Ports used:**
+> - `5432` — PostgreSQL (database)
+> - `8765` — Tala WebSocket harness (backend ↔ UI)
+> - `8000` — vLLM inference engine (only when `INFERENCE_MODE=local`)
+
+---
+
+## 7. Configuration Reference
+
+Tala reads its configuration from `.env` in the repository root. This file is generated
+automatically during installation. To customize it, open it in any text editor.
+
+A fully-annotated template is at `.env.example`.
+
+### Inference Mode
+
+This is the most important setting. It controls where AI inference happens.
+
+| `INFERENCE_MODE` | What it does |
+|---|---|
+| `local` | Uses an embedded or locally running vLLM server at `VLLM_HOST:VLLM_PORT`. Default. |
+| `openai` | Sends requests to the OpenAI API. Set `OPENAI_API_KEY` in `.env`. |
+| `gemini` | Sends requests to the Google Gemini API. Set `GOOGLE_API_KEY` in `.env`. |
+
+**To use OpenAI:**
+```env
+INFERENCE_MODE=openai
+OPENAI_API_KEY=sk-...
 ```
 
-**macOS / Linux:**
-```bash
-uv run python scripts/first_run.py --self-test
+**To use Gemini:**
+```env
+INFERENCE_MODE=gemini
+GOOGLE_API_KEY=AIza...
 ```
 
-For a faster repair pass without npm audit, run:
-```bash
-uv run python scripts/first_run.py --self-test --no-audit
+**To use a local model (default):**
+```env
+INFERENCE_MODE=local
+VLLM_HOST=127.0.0.1
+VLLM_PORT=8000
+VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+```
+
+### Full `.env` Reference
+
+```env
+# ── Database ──────────────────────────────────────────────────────────────────
+# Connection string for the local PostgreSQL instance.
+# Created automatically by the installer. Change only for remote DB setups.
+TALA_DB_URL=postgresql://tala:tala@localhost:5432/tala
+
+# ── Inference ─────────────────────────────────────────────────────────────────
+INFERENCE_MODE=local             # local | openai | gemini
+
+# vLLM (only used when INFERENCE_MODE=local)
+VLLM_HOST=127.0.0.1
+VLLM_PORT=8000
+VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+VLLM_TENSOR_PARALLEL_SIZE=1     # Number of GPUs for tensor parallelism
+
+# ── WebSocket Harness ─────────────────────────────────────────────────────────
+WS_HOST=127.0.0.1               # Change to 0.0.0.0 for VPS/LAN access
+WS_PORT=8765
+
+# ── Identity & Networking ─────────────────────────────────────────────────────
+TALA_WALLET_ADDRESS=local-tala  # Unique identifier for this node on the mesh
+TALA_CHAIN_BIND_HOST=127.0.0.1  # Blockchain discovery node bind address
+TALA_CHAIN_BIND_PORT=8332
+TALA_VPS_ACCEPT_ANY_TALA=0      # Set to 1 only on a VPS peer node
+
+# ── Storage ───────────────────────────────────────────────────────────────────
+VAULT_PATH=./vault              # Where profiles and memories are stored locally
+
+# ── Token Economy ─────────────────────────────────────────────────────────────
+TOKEN_COST_PER_TOKEN=0.0000001
+INITIAL_AI_TOKEN_BALANCE=1000.0
+
+# ── Logging ───────────────────────────────────────────────────────────────────
+LOG_LEVEL=INFO                  # DEBUG | INFO | WARNING | ERROR | CRITICAL
 ```
 
 ---
 
-## 3. Packaging Desktop Builds
+## 8. Verify Your Installation
 
-Tala packages with `electron-builder`. Runtime state is not baked into the app; packaged first-run setup creates `.env`, `.venv`, `vault/`, `data/`, and scratch space under Electron's per-user `userData` directory.
+Run the self-test suite to confirm every component is healthy:
 
 ```bash
-npm run pack          # unpacked app directory for smoke testing
-npm run package       # installer/archive for the current OS
-npm run package:win   # Windows NSIS + zip
-npm run package:mac   # macOS dmg + zip
-npm run package:linux # Linux AppImage + deb + tar.gz
+npm run self-test
 ```
 
-Run `npm run self-test` before packaging and after installing a package on a clean machine.
+Or from inside the Tala chat interface:
+```
+/self-test
+```
+
+For a faster check without the npm security audit:
+```
+/self-test --no-audit
+```
+
+**What the self-test checks:**
+
+| Check | Description |
+|---|---|
+| Python dependency import | Imports `asyncpg`, `websockets`, `mcp`, `httpx_sse`, `pytest` to confirm the virtualenv is complete |
+| Python syntax compile | `py_compile` on the harness server, SDK, and renderer source files |
+| Renderer syntax | `node --check` on `renderer/renderer.js` |
+| Electron syntax | `node --check` on `electron/main.js` |
+| Python tests | `pytest tests/` (97 tests, excluding benchmarks) |
+| JavaScript tests | `jest --runInBand --passWithNoTests` |
+| npm audit *(optional)* | `npm audit --audit-level=moderate` |
+
+A passing run looks like:
+```
+97 passed, 0 failed   ←  Python tests
+No tests found, exiting with code 0  ←  Jest
+```
 
 ---
 
-## 4. Support & Diagnostics (Tala Doctor)
+## 9. Optional Features
 
-If you encounter issues during installation or launch, run the **Tala Doctor**. It will scan your OS, admin rights, dependencies, and check for port conflicts on `5432` (Postgres), `8000` (Backend), and `8765` (WebSockets).
+### Voice Commands
+
+Voice recognition requires Python **< 3.13** due to a `numba` restriction.
+
+```bash
+uv pip install -e .[voice]
+```
+
+If you see a failure during installation mentioning `numba`, this is why. Voice is not
+required for Tala to function — all other features work on Python 3.13+.
+
+### Semantic Memory (Mem0)
+
+Tala can optionally use `mem0ai` as a read-only fuzzy-search cache for deep historical
+context across sessions. The adapter enforces a hard invariant: all durable writes still
+go to PostgreSQL; `mem0` is recall-only.
+
+```bash
+uv pip install -e .[mem0]
+```
+
+### Permanent VPS Peer
+
+To run an always-on Tala peer for P2P handshakes and peer discovery, see `docs/vps-peer.md`.
+
+**Quick summary:**
+1. Install Tala on a Linux VPS using `./install-linux.sh`.
+2. Edit `.env` and set `WS_HOST=0.0.0.0`, `TALA_VPS_ACCEPT_ANY_TALA=1`, and a unique `TALA_WALLET_ADDRESS`.
+3. Start the VPS peer: `./scripts/start-tala-vps.sh`
+4. For automatic startup: `sudo cp deploy/tala-vps.service /etc/systemd/system/ && sudo systemctl enable --now tala-vps`
+5. On your desktop Tala, choose **Connect to Tala VPS** after saving your user profile.
+
+---
+
+## 10. Tala Doctor — Diagnostics
+
+If the installer fails or Tala will not start, run the Doctor. It checks your OS,
+admin rights, all required tools, the `.env` file, and port availability.
 
 **Windows:**
 ```powershell
@@ -112,22 +370,54 @@ If you encounter issues during installation or launch, run the **Tala Doctor**. 
 ./scripts/doctor.sh
 ```
 
+**Exit codes:**
+
+| Code | Meaning |
+|---|---|
+| `0` | Environment is healthy |
+| `1` | Missing dependencies (installer can fix these) |
+| `2` | Critical issue, e.g. port conflict (must be resolved manually) |
+
+**Common issues:**
+
+| Symptom | Likely Cause | Fix |
+|---|---|---|
+| `[FAIL] PostgreSQL` | `psql` not in PATH | Re-run installer; on Windows, close and reopen the terminal so the new PATH takes effect |
+| `[IN USE] Port 8765` | Tala is already running | Close the existing instance before installing or starting a second one |
+| `[IN USE] Port 8000` | Another process is using the inference port | Stop the conflicting process or change `VLLM_PORT` in `.env` |
+| `npm ci` fails with `EPERM` | Electron DLL is locked by a running instance | Close Tala before running `npm ci` or the full installer |
+| `uv sync` fails with Access Denied | `.pyd` files are locked by a running backend | Stop the Python backend process first |
+
 ---
 
-## 5. Rollback and Uninstall Notes
+## 11. Uninstall
 
-Because Tala uses a transparent deployment, it doesn't leave behind a monolithic black box. If you ever need to uninstall Tala, here is exactly what it touched:
+Because Tala uses transparent deployment, there is no monolithic uninstaller.
+Here is exactly what to clean up:
 
-### What Tala Created (Safe to Delete)
-- **`.env`**: Your local environment configuration file.
-- **`vault/`**: Where your profiles, memories, and node graphs are stored locally.
-- **`.venv/`**: Tala's Python virtual environment.
-- **`data/` and `scratch/`**: Local runtime data and temporary working files.
-- **Database Schema**: Tala creates a Postgres role named `tala` and a database named `tala`.
-  - *To remove:* Run `psql -U postgres -c "DROP DATABASE tala; DROP ROLE tala;"`
+### Remove Tala's Data (Safe to Delete)
 
-### What Tala Installed (Leaves your system standard)
-The installers only add these tools if you did not already have them. If you want to remove them, use your system's package manager:
-- **Node.js**: Remove via `winget uninstall OpenJS.NodeJS.LTS`, `brew uninstall node`, `apt-get remove nodejs`, or `xbps-remove nodejs npm`.
-- **Python (uv)**: Remove via `winget uninstall astral-sh.uv`, `brew uninstall uv`, or `rm ~/.local/bin/uv`.
-- **PostgreSQL**: Remove via `winget uninstall PostgreSQL.PostgreSQL`, `brew uninstall postgresql@16`, `apt-get remove postgresql`, or `xbps-remove postgresql postgresql-client`.
+| Path | Contents |
+|---|---|
+| `.env` | Your local environment configuration |
+| `vault/` | Profiles, memories, and node graphs |
+| `.venv/` | Python virtual environment |
+| `data/` | Runtime data and pytest temp files |
+| `scratch/` | Temporary working files |
+
+**Remove the database:**
+```sql
+psql -U postgres -c "DROP DATABASE tala;"
+psql -U postgres -c "DROP ROLE tala;"
+```
+
+### Remove System Packages (Optional)
+
+The installers only added these if they were not already present. Use your system
+package manager to remove them if you want a completely clean slate:
+
+| Tool | Windows | macOS | Linux |
+|---|---|---|---|
+| **Node.js** | `winget uninstall OpenJS.NodeJS.LTS` | `brew uninstall node@20` | `apt-get remove nodejs` |
+| **Python (uv)** | `winget uninstall astral-sh.uv` | `brew uninstall uv` | `rm ~/.local/bin/uv` |
+| **PostgreSQL** | `winget uninstall PostgreSQL.PostgreSQL.17` | `brew uninstall postgresql@16` | `apt-get remove postgresql` |

@@ -5,7 +5,7 @@ from pathlib import Path
 import json
 
 from sdk.agent.port_router import PortRouter
-from sdk.agent.sandbox import DockerSandbox
+from sdk.agent.sandbox import LocalSandbox, DockerSandbox  # DockerSandbox is an alias for LocalSandbox
 from sdk.agent.orchestrator_cli import get_active_tasks, get_port_allocations, show_status, pause_task, resume_task, terminate_task
 from sdk.agent.graph_engine import DAGExecutionEngine, GraphNode
 from sdk.agent.planner import TaskItem
@@ -33,98 +33,57 @@ async def test_port_router_allocation():
         await router.release_port("another-task")
 
 @pytest.mark.asyncio
-async def test_docker_sandbox_fallback():
-    sandbox = DockerSandbox()
-    
-    # Mock Docker unavailable
-    with patch.object(sandbox, "check_docker_available", return_value=False):
-        c_name = sandbox.get_container_name("task-abc")
-        assert c_name == "tala-sandbox-task-abc"
-        
-        # Test start_container fails / returns false
-        started = await sandbox.start_container("task-abc", "scratch/worktrees/task-abc")
-        assert started is False
+async def test_local_sandbox_execute():
+    """LocalSandbox always runs commands directly on the host."""
+    sandbox = LocalSandbox()
 
-        # Test execute_command falls back to host execution
-        with patch("sdk.agent.async_shell.AsyncShellExecutor.run", return_value={"success": True, "stdout": "host-output"}) as mock_run:
-            res = await sandbox.execute_command("task-abc", "echo hello")
-            assert res["success"] is True
-            assert mock_run.called
+    # start/stop/pause/resume are no-ops that return True
+    assert await sandbox.start_container("t1", "/tmp") is True
+    assert await sandbox.stop_container("t1") is True
+    assert await sandbox.pause_container("t1") is True
+    assert await sandbox.resume_container("t1") is True
 
-@pytest.mark.asyncio
-async def test_docker_sandbox_commands():
-    sandbox = DockerSandbox()
-    
-    # Mock Docker available
-    with patch.object(sandbox, "check_docker_available", return_value=True), \
-         patch("sdk.agent.async_shell.AsyncShellExecutor.run_exec") as mock_run_exec:
-        
-        # 1. Start container
-        mock_run_exec.side_effect = [
-            {"success": False, "stdout": ""}, # inspect state running
-            {"success": True, "stdout": ""},  # rm -f
-            {"success": True, "stdout": ""}   # run -d
-        ]
-        started = await sandbox.start_container("task-abc", "scratch/worktrees/task-abc", {9000: 9000})
-        assert started is True
-        assert mock_run_exec.call_count == 3
-        # Check command run args
-        args = mock_run_exec.call_args_list[2][0][1]
-        assert "run" in args
-        assert "tala-sandbox-task-abc" in args
-        assert "127.0.0.1:9000:9000" in args
-
-        # 2. Execute command
-        mock_run_exec.reset_mock()
-        mock_run_exec.side_effect = [
-            {"success": True, "stdout": "true"}, # inspect state running
-            {"success": True, "stdout": "container-output"} # exec
-        ]
-        res = await sandbox.execute_command("task-abc", "pytest")
+    # execute_command delegates to AsyncShellExecutor.run
+    with patch("sdk.agent.async_shell.AsyncShellExecutor.run",
+               return_value={"success": True, "stdout": "host-output"}) as mock_run:
+        res = await sandbox.execute_command("t1", "echo hello", cwd="/tmp")
         assert res["success"] is True
-        args = mock_run_exec.call_args_list[1][0][1]
-        assert "exec" in args
-        assert "tala-sandbox-task-abc" in args
-        assert "pytest" in args
+        assert mock_run.called
 
 @pytest.mark.asyncio
 async def test_orchestrator_cli_dashboard():
-    # Verify dashboard and CLI functions execute/mock correctly
-    with patch("sdk.agent.orchestrator_cli.get_active_tasks", return_value=[{"id": "t-1", "description": "test task", "status": "running", "worktree_path": "/path/t-1", "branch_name": "t-1-branch"}]), \
-         patch("sdk.agent.orchestrator_cli.get_port_allocations", return_value={"t-1": 9000}), \
-         patch("sdk.agent.sandbox.DockerSandbox.check_docker_available", return_value=True), \
-         patch("sdk.agent.async_shell.AsyncShellExecutor.run_exec", return_value={"success": True, "stdout": "tala-sandbox-t-1 | Up 2 minutes"}):
-        
-        # Test status printing works without crash
-        await show_status()
+    """Dashboard executes without crash and prints task/port info."""
+    with patch("sdk.agent.orchestrator_cli.get_active_tasks", return_value=[
+        {"id": "t-1", "description": "test task", "status": "running",
+         "worktree_path": "/path/t-1", "branch_name": "t-1-branch"}
+    ]), \
+         patch("sdk.agent.orchestrator_cli.get_port_allocations", return_value={"t-1": 9000}):
+        await show_status()  # should not raise
 
-    # Test actions
-    with patch("sdk.agent.sandbox.DockerSandbox.pause_container", return_value=True) as mock_pause, \
-         patch("python.harness.db.execute") as mock_db:
+@pytest.mark.asyncio
+async def test_orchestrator_cli_pause_resume():
+    with patch("python.harness.db.execute") as mock_db:
         await pause_task("t-1")
-        assert mock_pause.called
+        assert mock_db.called
+        mock_db.reset_mock()
+        await resume_task("t-1")
         assert mock_db.called
 
 @pytest.mark.asyncio
 async def test_graph_engine_fleet_integration(tmp_path):
-    # Test that execute_task_as_dag runs worktree spinup, port allocation, and sandbox
+    """execute_task_as_dag runs worktree spinup and port allocation, no Docker."""
     engine = DAGExecutionEngine(root_dir=str(tmp_path))
     task = TaskItem(description="Write test to scratch/test_integrate.py")
     task.task_id = "test-fleet-integrate"
-    
-    # Mock handlers
-    with patch("python.harness.server.handle_task_create_worktree", return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})) as mock_wt, \
-         patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=9005) as mock_port, \
-         patch("sdk.agent.sandbox.DockerSandbox.start_container", return_value=True) as mock_sb_start, \
-         patch("sdk.agent.sandbox.DockerSandbox.execute_command", return_value={"success": True, "stdout": "compilation passed"}) as mock_sb_exec:
-             
+
+    with patch("python.harness.server.handle_task_create_worktree",
+               return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})) as mock_wt, \
+         patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=9005) as mock_port:
+
         res = await engine.execute_task_as_dag(task)
         assert res["success"] is True
         assert mock_wt.called
         assert mock_port.called
-        assert mock_sb_start.called
-        # Check command run inside sandbox
-        assert mock_sb_exec.called
 
 @pytest.mark.asyncio
 async def test_swarm_fleet_rpc_endpoints():
@@ -136,18 +95,20 @@ async def test_swarm_fleet_rpc_endpoints():
     )
 
     # 1. Test status RPC
-    with patch("sdk.agent.orchestrator_cli.get_active_tasks", return_value=[{"id": "t-1", "description": "test task", "status": "running", "worktree_path": "/path/t-1", "branch_name": "t-1-branch"}]), \
-         patch("sdk.agent.orchestrator_cli.get_port_allocations", return_value={"t-1": 9000}), \
-         patch("sdk.agent.sandbox.DockerSandbox.check_docker_available", return_value=True), \
-         patch("sdk.agent.async_shell.AsyncShellExecutor.run_exec", return_value={"success": True, "stdout": "tala-sandbox-t-1 | Up 2 minutes"}):
-             
+    with patch("sdk.agent.orchestrator_cli.get_active_tasks", return_value=[
+        {"id": "t-1", "description": "test task", "status": "running",
+         "worktree_path": "/path/t-1", "branch_name": "t-1-branch"}
+    ]), \
+         patch("sdk.agent.orchestrator_cli.get_port_allocations", return_value={"t-1": 9000}):
+
         res_str = await handle_swarm_fleet_status({}, req_id="test-status")
         res = json.loads(res_str)
         assert res["result"]["success"] is True
         assert len(res["result"]["tasks"]) == 1
         assert res["result"]["tasks"][0]["id"] == "t-1"
         assert res["result"]["tasks"][0]["port"] == 9000
-        assert res["result"]["tasks"][0]["container_status"] == "Up 2 minutes"
+        # No container_status field — Docker is gone
+        assert "container_status" not in res["result"]["tasks"][0]
 
     # 2. Test pause RPC
     with patch("sdk.agent.orchestrator_cli.pause_task", return_value=True) as mock_pause:
@@ -191,7 +152,6 @@ async def test_tool_registry_argument_filtering():
 async def test_dynamic_xml_payload_mapping():
     from sdk.agent.tools import ToolRegistry
     import re
-    import json
 
     # Register mock self_improvement.dry_run_goal in ToolRegistry
     @ToolRegistry.register(name="self_improvement.dry_run_goal", description="Mock dry run")
@@ -204,7 +164,6 @@ async def test_dynamic_xml_payload_mapping():
     assert tool_match is not None
 
     tool_name = tool_match.group(1)
-    attr_str = tool_match.group(2)
     inner_content = tool_match.group(3)
 
     attrs = {}
@@ -229,4 +188,3 @@ async def test_dynamic_xml_payload_mapping():
     res = await ToolRegistry.run_tool(tool_name, attrs)
     assert res["success"] is True
     assert res["output"]["goal_received"] == "Clean all nodes"
-

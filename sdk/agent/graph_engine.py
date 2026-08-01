@@ -26,7 +26,6 @@ from sdk.agent.planner import TaskItem, TaskStatus
 from sdk.agent.async_shell import AsyncShellExecutor
 from sdk.agent.persistence import generate_deterministic_id
 from sdk.agent.port_router import PortRouter
-from sdk.agent.sandbox import DockerSandbox
 
 log = logging.getLogger(__name__)
 
@@ -192,21 +191,38 @@ class DAGExecutionEngine:
         router = PortRouter()
         allocated_port = await router.allocate_port(task_id)
 
-        # 3. Fleet Harness: Docker Sandbox integration
-        sandbox = DockerSandbox()
-        # Start docker container mapping the allocated port
-        await sandbox.start_container(task_id, worktree_path, {allocated_port: allocated_port})
+        # No sandbox/container — all execution is direct on the host.
 
         # Try load existing nodes
         existing = await self.load_nodes(task_id)
         
         payload = getattr(task, "payload", {}) or {}
-        target_file = payload.get("context", {}).get("path") if isinstance(payload, dict) else None
+        
+        # Resolve full goal text for LLM synthesis context
+        full_goal = task.description
+        if isinstance(payload, dict):
+            full_goal = payload.get("goal") or payload.get("user_goal") or payload.get("description") or task.description
+
+        # Extract target file path
+        target_file = None
+        if isinstance(payload, dict):
+            target_file = payload.get("context", {}).get("path")
+
         if not target_file:
-            # Fallback path parsing
-            m = re.search(r'(?:file|path|write to)\s+([\w\.\/\\]+)', task.description, re.IGNORECASE)
-            target_file = m.group(1) if m else "scratch/output.py"
-            
+            search_texts = [task.description, full_goal]
+            for text in search_texts:
+                m = re.search(r'(?:file|path|write to|at|in|into)\s+([\w\.\/\\]+\.[a-zA-Z0-9]+)', text, re.IGNORECASE)
+                if m:
+                    target_file = m.group(1)
+                    break
+                m2 = re.search(r'([\w\-]+[\/\\][\w\-\/\.]+\.[a-zA-Z0-9]+)', text)
+                if m2:
+                    target_file = m2.group(1)
+                    break
+
+        if not target_file:
+            target_file = "scratch/output.py"
+
         test_file = payload.get("context", {}).get("test_file") if isinstance(payload, dict) else None
 
         if not existing:
@@ -217,7 +233,7 @@ class DAGExecutionEngine:
                 node_type="research",
                 description=f"Research requirements and existing codebase for: {task.description}",
                 dependencies=[],
-                inputs={"problem": task.description},
+                inputs={"problem": full_goal},
                 success_criteria={"min_sources": 1}
             )
             n_synthesis = GraphNode(
@@ -226,7 +242,7 @@ class DAGExecutionEngine:
                 node_type="synthesis",
                 description=f"Synthesize architectural design plan for: {task.description}",
                 dependencies=[res_node_id],
-                inputs={"target_file": target_file},
+                inputs={"problem": full_goal, "target_file": target_file},
                 success_criteria={"synthesis_completed": True}
             )
             n_writing = GraphNode(
@@ -238,6 +254,7 @@ class DAGExecutionEngine:
                 inputs={"target_file": target_file},
                 success_criteria={"file_written": True}
             )
+
             n_validation = GraphNode(
                 id=val_node_id,
                 task_id=task_id,
@@ -254,6 +271,27 @@ class DAGExecutionEngine:
         # Load active graph nodes map
         node_list = await self.load_nodes(task_id)
         nodes = {n.id: n for n in node_list}
+
+        # Reset any stuck 'running' or 'failed' state on task startup so re-execution works
+        for n in nodes.values():
+            if n.status == "running":
+                log.info("DAGExecutionEngine: Resetting stuck node %s from 'running' to 'pending'", n.id)
+                n.status = "pending"
+            if n.status == "failed":
+                log.info("DAGExecutionEngine: Resetting failed node %s to 'pending' (clearing retry count)", n.id)
+                n.status = "pending"
+                n.retry_count = 0
+            if target_file != "scratch/output.py":
+                n.inputs["target_file"] = target_file
+            if full_goal:
+                n.inputs["problem"] = full_goal
+            await self.save_node(n)
+
+        log.info(
+            "DAGExecutionEngine: Initialized graph nodes for task %s: %s",
+            task_id,
+            {nid: f"status={n.status}, retries={n.retry_count}" for nid, n in nodes.items()}
+        )
 
         # Track written file backups for rollbacks
         file_backups: dict[str, str | None] = {}
@@ -272,11 +310,19 @@ class DAGExecutionEngine:
                     deps_ok = all(nodes[d].status == "completed" for d in n.dependencies if d in nodes)
                     if deps_ok:
                         candidates.append(n)
+
+            log.info(
+                "DAGExecutionEngine: Loop #%d — Candidates: %s | Node states: %s",
+                runs,
+                [c.id for c in candidates],
+                {nid: n.status for nid, n in nodes.items()}
+            )
                         
             if not candidates:
                 # Check if all completed or failed
                 all_done = all(n.status == "completed" for n in nodes.values())
                 if all_done:
+                    log.info("DAGExecutionEngine: All DAG nodes successfully completed.")
                     break
                 
                 # Check if any permanently failed
@@ -287,6 +333,7 @@ class DAGExecutionEngine:
                         "success": False,
                         "error": f"Node {failed_nodes[0].id} failed validation/criteria: {failed_nodes[0].outputs.get('error')}"
                     }
+                log.warning("DAGExecutionEngine: No candidates available and graph incomplete. Halted loop.")
                 break
 
             for node in candidates:
@@ -294,14 +341,14 @@ class DAGExecutionEngine:
                 node.status = "running"
                 await self.save_node(node)
 
-                # Execute specific node logic (routed through worktree, port, and sandbox)
+                # Execute specific node logic
                 success = await self._execute_node(
-                    node, nodes, file_backups, worktree_path, allocated_port, sandbox
+                    node, nodes, file_backups, worktree_path, allocated_port
                 )
 
                 if success:
                     node.status = "completed"
-                    log.info("DAGExecutionEngine: Completed node %s", node.id)
+                    log.info("DAGExecutionEngine: Successfully completed node %s (%s)", node.id, node.node_type)
                 else:
                     node.retry_count += 1
                     if node.retry_count <= node.max_retries:
@@ -315,8 +362,9 @@ class DAGExecutionEngine:
                 
                 await self.save_node(node)
 
-        final_success = all(n.status == "completed" for n in nodes.values())
-        final_output = nodes[val_node_id].outputs if final_success else {}
+        val_node = nodes.get(val_node_id)
+        final_success = bool(nodes) and all(n.status == "completed" for n in nodes.values())
+        final_output = val_node.outputs if (final_success and val_node) else {}
         
         # --- Fleet Harness: Output Merging and Resource Teardown ---
         import shutil
@@ -348,28 +396,27 @@ class DAGExecutionEngine:
                 else:
                     log.info("DAGExecutionEngine: Worktree path is identical to root; no merging necessary.")
 
-        # Cleanup Docker Sandbox container and release Port
+        # Release port allocation
         try:
-            await sandbox.stop_container(task_id)
             await router.release_port(task_id)
         except Exception as clean_exc:
-            log.warning("DAGExecutionEngine: Failed to clean up Fleet resources: %s", clean_exc)
+            log.warning("DAGExecutionEngine: Failed to release port for %s: %s", task_id, clean_exc)
 
-        # Clean up git worktree
-        if worktree_path != self.root_dir:
+        # Cleanup Git Worktree folder on teardown
+        if worktree_path and worktree_path != self.root_dir:
             try:
-                # Remove git worktree
+                from sdk.agent.async_shell import AsyncShellExecutor
                 await AsyncShellExecutor.run_exec("git", ["worktree", "remove", "--force", worktree_path], cwd=self.root_dir)
-                log.info("DAGExecutionEngine: Pruned Git Worktree at %s", worktree_path)
+                log.info("DAGExecutionEngine: Cleaned up Git Worktree folder %s", worktree_path)
             except Exception as wt_exc:
                 log.warning("DAGExecutionEngine: Failed to remove Git Worktree: %s", wt_exc)
 
         return {
             "success": final_success,
             "output": final_output.get("output") or final_output,
-            "error": nodes[val_node_id].outputs.get("error") if not final_success else None,
-            "stdout": nodes[val_node_id].outputs.get("stdout", ""),
-            "stderr": nodes[val_node_id].outputs.get("stderr", ""),
+            "error": val_node.outputs.get("error") if (val_node and not final_success) else None,
+            "stdout": val_node.outputs.get("stdout", "") if val_node else "",
+            "stderr": val_node.outputs.get("stderr", "") if val_node else "",
         }
 
     # ------------------------------------------------------------------
@@ -382,7 +429,6 @@ class DAGExecutionEngine:
         backups: dict[str, str | None],
         worktree_path: str,
         allocated_port: int,
-        sandbox: DockerSandbox
     ) -> bool:
         try:
             from sdk.agent.telemetry import LiveStatusReporter
@@ -424,53 +470,124 @@ class DAGExecutionEngine:
             return len(found_files) >= min_sources
 
         elif node.node_type == "synthesis":
-            # Synthesis Logic: Call LLM to design the solution
-            research_node = nodes.get(f"research-{node.task_id}")
-            sources = research_node.outputs.get("sources", []) if research_node else []
+            # Synthesis Logic: Call LLM to design and synthesize code for the solution
             problem = node.inputs.get("problem", "")
             if not problem:
-                # Walk backward to find parent task
-                problem = nodes[f"research-{node.task_id}"].inputs.get("problem", "")
-                
+                research_node = nodes.get(f"research-{node.task_id}")
+                if research_node:
+                    problem = research_node.inputs.get("problem", "")
+
             error_feedback = node.inputs.get("error_feedback", "")
-            
+            target_file = node.inputs.get("target_file", "scratch/output.py")
+
+            research_node = nodes.get(f"research-{node.task_id}")
+            sources = research_node.outputs.get("sources", []) if research_node else []
+
             prompt = (
-                f"Design a coding solution for the problem:\n\"{problem}\"\n\n"
-                f"Research references: {sources}\n"
-                f"Target file: {node.inputs.get('target_file')}\n"
-                f"Allocated Port: {allocated_port}\n"
+                f"Write complete, valid, working Python code for the following task:\n\"{problem}\"\n\n"
+                f"Target file path: {target_file}\n"
+                f"Reference sources: {sources}\n\n"
+                "CRITICAL INSTRUCTIONS:\n"
+                "1. Output ONLY the raw Python source code inside a ```python ``` fenced code block.\n"
+                "2. Do NOT output thinking logs, tool call tags, conversational preambles, or markdown explanations.\n"
+                "3. Ensure all imports (such as @register_tool from sdk.agent.tools) and function signatures match the prompt specifications exactly.\n"
             )
             if error_feedback:
-                prompt += f"\nCRITICAL: Previous implementation failed validation with error:\n{error_feedback}\nModify your plan to fix this."
-                
-            system_prompt = "You are a software architect. Output ONLY valid python code inside a fenced code block."
-            
-            # Call server's inference endpoint
+                prompt += f"\n\nCRITICAL FIX: The previous attempt failed validation with error:\n{error_feedback}\nModify the code to resolve this exact error."
+
+            system_prompt = (
+                "You are an expert Python software engineer. "
+                "Output ONLY valid Python code inside a single ```python ``` code block. "
+                "Never write prose, thinking logs, or markdown outside the code block."
+            )
+
+            log.info("DAGExecutionEngine: Synthesis node initiating LLM call for target %s...", target_file)
+            code = ""
             try:
                 from python.harness.server import handle_inference_generate
-                params = {
-                    "prompt": prompt,
-                    "stream": False,
-                    "raw_prompt": True,
-                    "system_prompt": system_prompt,
-                    "max_tokens": 1024,
-                }
-                res_str = await handle_inference_generate(params, ws=None, req_id="tot-synthesis")
+
+                async def _call_llm():
+                    p = {
+                        "prompt": prompt,
+                        "stream": False,
+                        "raw_prompt": True,
+                        "system_prompt": system_prompt,
+                        "max_tokens": 1024,
+                    }
+                    return await handle_inference_generate(p, ws=None, req_id="dag-synthesis")
+
+                res_str = await asyncio.wait_for(_call_llm(), timeout=60.0)
                 res_dict = json.loads(res_str)
-                text = res_dict["result"]["text"]
-                # Extract code block
-                m = re.search(r"```python\s*(.*?)\s*```", text, re.DOTALL | re.IGNORECASE)
-                code = m.group(1).strip() if m else text.strip()
+
+                if isinstance(res_dict, dict) and "result" in res_dict and isinstance(res_dict["result"], dict):
+                    text = res_dict["result"].get("text", "")
+                elif isinstance(res_dict, dict) and "error" in res_dict:
+                    err_msg = res_dict["error"].get("message") if isinstance(res_dict["error"], dict) else str(res_dict["error"])
+                    raise RuntimeError(f"Inference error: {err_msg}")
+                else:
+                    text = ""
+
+                log.info("DAGExecutionEngine: Synthesis LLM response received (%d bytes). Cleaning & parsing AST...", len(text))
+
+                if text:
+                    # 1. Strip thinking tags and tool call markers
+                    cleaned_text = re.sub(r"<think(?:ing)?>.*?</think(?:ing)?>", "", text, flags=re.DOTALL | re.IGNORECASE)
+                    cleaned_text = re.sub(r"<\/?call:[^>]+>", "", cleaned_text)
+                    cleaned_text = re.sub(r"\*\(Executing.*?\)\*", "", cleaned_text)
+
+                    # 2. Extract code block
+                    m = re.search(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", cleaned_text, re.DOTALL | re.IGNORECASE)
+                    if m:
+                        code = m.group(1).strip()
+
+                    # Fallback: extract python lines if no markdown fences used
+                    if not code:
+                        code_lines = []
+                        for line in cleaned_text.splitlines():
+                            stripped = line.strip()
+                            if any(stripped.startswith(kw) for kw in ("import ", "from ", "def ", "async def ", "class ", "@", "return ", "if ", "for ", "while ", "try:", "except", "#")):
+                                code_lines.append(line)
+                            elif code_lines and (line.startswith("    ") or line.startswith("\t") or stripped == ""):
+                                code_lines.append(line)
+                        code = "\n".join(code_lines).strip()
+
+                    # 3. Validate syntax via AST
+                    if code:
+                        import ast
+                        try:
+                            ast.parse(code)
+                            log.info("DAGExecutionEngine: Synthesis successfully extracted %d bytes of valid Python code.", len(code))
+                        except SyntaxError as se:
+                            log.warning("DAGExecutionEngine: Extracted synthesis code failed AST validation: %s", se)
+                            lines_f = [l for l in code.splitlines() if any(l.strip().startswith(kw) for kw in ("import ", "from ", "def ", "async def ", "class ", "@", "return ", "if ", "for ", "while ", "try:", "except", "#")) or l.startswith(" ") or l.startswith("\t")]
+                            candidate = "\n".join(lines_f).strip()
+                            try:
+                                ast.parse(candidate)
+                                code = candidate
+                                log.info("DAGExecutionEngine: Synthesis line-filtered fallback produced %d bytes of valid Python.", len(code))
+                            except SyntaxError:
+                                code = ""
+
+            except asyncio.TimeoutError:
+                log.warning("DAGExecutionEngine: LLM synthesis timed out after 60s.")
+                node.outputs = {"error": "LLM synthesis timed out."}
+                return False
             except Exception as exc:
-                log.warning("DAGExecutionEngine: LLM synthesis failed, using fallback template: %s", exc)
-                # Programmatic fallback template
-                code = f"def run_task():\n    return 'success'\n"
+                log.warning("DAGExecutionEngine: LLM synthesis failed: %s", exc)
+                node.outputs = {"error": f"LLM synthesis failed: {exc}"}
+                return False
+
+            if not code:
+                log.warning("DAGExecutionEngine: LLM synthesis returned no valid Python code.")
+                node.outputs = {"error": "LLM synthesis returned no valid Python code."}
+                return False
 
             node.outputs = {
                 "code": code,
-                "strategy": "Generated code draft ready to write."
+                "strategy": "Generated code draft ready to write.",
             }
-            return len(code) > 0
+            return True
+
 
         elif node.node_type == "writing":
             # Writing Logic: Write synthesized code to target files
@@ -507,53 +624,63 @@ class DAGExecutionEngine:
                 return False
 
         elif node.node_type == "validation":
-            # Validation Logic: Compile written code or run tests in Sandbox
+            # Validation Logic: Compile written code and run tests directly on the host.
             target_file = node.inputs.get("target_file", "scratch/output.py")
-            target_path = Path(worktree_path) / target_file
+            # Always resolve to an absolute path
+            target_path = (
+                Path(target_file) if Path(target_file).is_absolute()
+                else Path(worktree_path) / target_file
+            )
             test_file = node.inputs.get("test_file")
 
             if not target_path.exists():
-                node.outputs = {"error": "Target file does not exist."}
+                node.outputs = {"error": f"Target file does not exist: {target_path}"}
                 return False
 
-            # 1. Compilation check inside Docker Sandbox
+            # 1. Syntax / compilation check
             if target_path.suffix.lower() == ".py":
                 try:
-                    chk = await sandbox.execute_command(
-                        node.task_id,
-                        f"python -m py_compile {target_file}",
-                        cwd=worktree_path
+                    chk = await AsyncShellExecutor.run(
+                        f'python -m py_compile "{target_path}"',
+                        cwd=str(target_path.parent),
+                        timeout=20.0,
                     )
-                    if not chk["success"]:
-                        node.outputs = {
-                            "success": False,
-                            "error": f"SyntaxError:\n{chk.get('stderr') or chk.get('stdout')}",
-                            "stdout": chk.get("stdout", ""),
-                            "stderr": chk.get("stderr", "")
-                        }
-                        return False
                 except Exception as exc:
-                    node.outputs = {"error": f"Compilation verification execution failed: {exc}"}
+                    node.outputs = {"error": f"Compilation check failed: {exc}"}
                     return False
 
-            # 2. Test suite run inside Docker Sandbox
+                if not chk["success"]:
+                    node.outputs = {
+                        "success": False,
+                        "error": f"SyntaxError:\n{chk.get('stderr') or chk.get('stdout')}",
+                        "stdout": chk.get("stdout", ""),
+                        "stderr": chk.get("stderr", ""),
+                    }
+                    return False
+
+            # 2. Test suite run
             if test_file:
+                test_path = (
+                    Path(test_file) if Path(test_file).is_absolute()
+                    else Path(worktree_path) / test_file
+                )
                 try:
-                    test_res = await sandbox.execute_command(
-                        node.task_id,
-                        f"python -m pytest {test_file} -v",
-                        cwd=worktree_path
+                    test_res = await AsyncShellExecutor.run(
+                        f'python -m pytest "{test_path}" -v',
+                        cwd=str(Path(worktree_path)),
+                        timeout=60.0,
                     )
-                    if not test_res.get("success", False):
-                        node.outputs = {
-                            "success": False,
-                            "error": f"Test suite failure:\n{test_res.get('stdout') or test_res.get('stderr')}",
-                            "stdout": test_res.get("stdout", ""),
-                            "stderr": test_res.get("stderr", "")
-                        }
-                        return False
                 except Exception as exc:
                     node.outputs = {"error": f"Test suite execution failed: {exc}"}
+                    return False
+
+                if not test_res.get("success", False):
+                    node.outputs = {
+                        "success": False,
+                        "error": f"Test suite failure:\n{test_res.get('stdout') or test_res.get('stderr')}",
+                        "stdout": test_res.get("stdout", ""),
+                        "stderr": test_res.get("stderr", ""),
+                    }
                     return False
 
             node.outputs = {"success": True, "output": "Compilation and test verification passed successfully."}

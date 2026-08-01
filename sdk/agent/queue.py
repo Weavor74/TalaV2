@@ -169,6 +169,7 @@ Output JSON array only, wrapped in a Markdown code block like:
                         task.payload = {
                             "id": deterministic_id,
                             "description": step_desc,
+                            "goal": user_goal,
                             "dependencies": deps,
                             "parent_id": parent_id,
                             "tot_metadata": {
@@ -179,6 +180,7 @@ Output JSON array only, wrapped in a Markdown code block like:
                                 "trap_list": top_approach.get("trap_list"),
                             }
                         }
+
                         tasks.append(task)
                         prev_id = deterministic_id
                     
@@ -327,42 +329,56 @@ Output JSON array only, wrapped in a Markdown code block like:
                 except Exception:
                     config = {}
 
-            if prov_type in ("local", "remote"):
-                endpoint = config.get("endpoint", "http://localhost:11434").rstrip("/")
+            if prov_type == "local":
+                endpoint = config.get("endpoint", "http://localhost:11434")
                 if endpoint in failed_endpoints:
                     log.debug("GoalTreeDecomposer: Skipping provider '%s' because its endpoint %s failed previously", provider.get("name"), endpoint)
                     continue
 
                 model = config.get("model", "llama3.2")
-                api_key = config.get("api_key", "")
-                headers = {"Content-Type": "application/json"}
-                if api_key:
-                    headers["Authorization"] = f"Bearer {api_key}"
+                provider_name_lower = (provider.get("name") or "").lower()
+
+                # Detect API style: OpenAI-compatible (/v1/chat/completions) vs Ollama (/api/generate)
+                api_style = config.get("api_style", "")
+                is_openai_compat = (
+                    api_style == "openai"
+                    or "openai" in provider_name_lower
+                    or "llama.cpp" in provider_name_lower
+                    or "lmstudio" in provider_name_lower
+                    or "local openai" in provider_name_lower
+                    or endpoint.endswith(":8080")  # common llama.cpp default port
+                )
 
                 try:
                     async with httpx.AsyncClient(timeout=180.0) as client:
-                        if prov_type == "remote" or "/v1" in endpoint or "/chat/completions" in endpoint:
-                            url = endpoint if endpoint.endswith("/chat/completions") else f"{endpoint}/chat/completions" if endpoint.endswith("/v1") else f"{endpoint}/v1/chat/completions"
-                            payload = {
-                                "model": model,
-                                "messages": [{"role": "user", "content": prompt}],
-                                "temperature": 0.2
-                            }
-                            resp = await client.post(url, headers=headers, json=payload)
+                        if is_openai_compat:
+                            # OpenAI-compatible: POST /v1/chat/completions
+                            resp = await client.post(
+                                f"{endpoint}/v1/chat/completions",
+                                json={
+                                    "model": model,
+                                    "messages": [{"role": "user", "content": prompt}],
+                                    "stream": False,
+                                    "max_tokens": 1024,
+                                    "temperature": 0.2,
+                                },
+                            )
                             if resp.status_code == 200:
                                 resp_data = resp.json()
-                                choices = resp_data.get("choices", [])
-                                if choices:
-                                    msg = choices[0].get("message", {})
-                                    response_text = msg.get("content", "") or msg.get("reasoning_content", "") or msg.get("thinking", "") or ""
-                                    parsed = self._extract_json_block(response_text)
-                                    if parsed:
-                                        return parsed
+                                response_text = (
+                                    resp_data.get("choices", [{}])[0]
+                                    .get("message", {})
+                                    .get("content", "")
+                                )
+                                parsed = self._extract_json_block(response_text)
+                                if parsed:
+                                    return parsed
                             else:
-                                log.warning("Remote provider '%s' returned status %d", provider.get("name"), resp.status_code)
-                                if resp.status_code in (500, 503, 504):
+                                log.warning("OpenAI-compat provider '%s' returned status %d", provider.get("name"), resp.status_code)
+                                if resp.status_code in (404, 500, 503, 504):
                                     failed_endpoints.add(endpoint)
                         else:
+                            # Ollama: POST /api/generate
                             resp = await client.post(
                                 f"{endpoint}/api/generate",
                                 json={"model": model, "prompt": prompt, "stream": False},
@@ -374,12 +390,20 @@ Output JSON array only, wrapped in a Markdown code block like:
                                 if parsed:
                                     return parsed
                             else:
-                                log.warning("Local provider '%s' returned status %d", provider.get("name"), resp.status_code)
+                                log.warning("Ollama provider '%s' returned status %d", provider.get("name"), resp.status_code)
                                 if resp.status_code in (500, 503, 504):
                                     failed_endpoints.add(endpoint)
                 except Exception as e:
-                    log.warning("Provider '%s' decomposition failed: %s", provider.get("name"), e)
+                    log.warning("Local provider '%s' failed: %s", provider.get("name"), e)
                     failed_endpoints.add(endpoint)
+                    try:
+                        db.get_pool()
+                        await db.execute(
+                            "UPDATE inference_providers SET status = 'offline', updated_at = NOW() WHERE id = $1",
+                            provider.get("id")
+                        )
+                    except Exception:
+                        pass
 
             elif prov_type == "embedded":
                 try:

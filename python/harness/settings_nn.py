@@ -705,6 +705,10 @@ async def sync_settings_to_nodes():
     await update_settings_firewall_node()
     logger.info("Completed synchronization of all 12 settings panel HTML Neural Nodes.")
 
+# Alias for backwards compatibility across harness and tools
+update_all_settings_nodes = sync_settings_to_nodes
+
+
 
 async def save_agent_persona_node(agent_id: str, name: str, role: str, config: dict):
     """

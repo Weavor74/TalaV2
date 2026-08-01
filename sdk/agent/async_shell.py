@@ -36,19 +36,47 @@ class AsyncShellExecutor:
     inside async task loops without blocking the event loop.
     """
 
+    # Variables whose *exact names* should be stripped when spawning untrusted
+    # subprocesses.  This list intentionally targets only credentials that are
+    # truly secret at the OS/CI level and must NEVER leak to child processes.
+    # Do NOT use substring matching here — that approach incorrectly strips
+    # variables like GEMINI_KEY, OPENAI_KEY that Tala's own subprocesses need.
+    _STRIP_EXACT: frozenset[str] = frozenset({
+        "ANTHROPIC_API_KEY",
+        "OPENAI_API_KEY",
+        "COHERE_API_KEY",
+        "HUGGINGFACE_TOKEN",
+        "HF_TOKEN",
+        "GITHUB_TOKEN",
+        "GITLAB_TOKEN",
+        "STRIPE_SECRET_KEY",
+        "AWS_SECRET_ACCESS_KEY",
+        "AWS_SESSION_TOKEN",
+        "AZURE_CLIENT_SECRET",
+        "GCP_SERVICE_ACCOUNT_JSON",
+        "DATABASE_URL",
+        "POSTGRES_PASSWORD",
+        "REDIS_PASSWORD",
+        "SMTP_PASSWORD",
+        "JWT_SECRET",
+        "DJANGO_SECRET_KEY",
+    })
+
     @staticmethod
     def _build_clean_env(env_override: dict[str, str] | None = None) -> dict[str, str]:
         """
         Build a sanitised copy of the current environment.
 
-        Strips keys that contain any of the sensitive tokens:
-        'token', 'secret', 'auth', 'password', 'key'.
-        Applies env_override values on top of the scrubbed env.
+        Strips only the explicitly listed known-secret variables (see
+        ``_STRIP_EXACT``).  Preserves all other variables — including API keys
+        such as ``GEMINI_KEY`` or ``OPENAI_KEY`` that Tala's own inference
+        subprocesses require.
+        Applies ``env_override`` values on top of the scrubbed env.
         """
         clean_env = os.environ.copy()
 
         for key in list(clean_env.keys()):
-            if any(token in key.lower() for token in ("token", "secret", "auth", "password", "key")):
+            if key.upper() in AsyncShellExecutor._STRIP_EXACT:
                 clean_env.pop(key)
 
         if env_override:
@@ -164,6 +192,7 @@ class AsyncShellExecutor:
                     command,
                     cwd=cwd,
                     env=clean_env,
+                    stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )

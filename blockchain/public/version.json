@@ -1,6 +1,6 @@
 {
-  "version": "0.1.79",
-  "release_notes": "Minor updates and bug fixes.",
+  "version": "0.1.80",
+  "release_notes": "Fix DAG execution engine candidate reset, unbuffered logger, and offline sync unblocking.",
   "downloads": {
     "windows": "https://talacore.app/tala-windows.zip",
     "macos": "https://talacore.app/tala-macos.zip",
