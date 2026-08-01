@@ -7656,7 +7656,12 @@ async def handle_task_create_worktree(params: dict[str, Any], req_id: Any) -> st
                 "git", "worktree", "add", str(worktree_path.absolute()), "-b", branch_name,
                 cwd=str(base_dir), stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await proc.communicate()
+            try:
+                stdout, stderr = await asyncio.wait_for(proc.communicate(), timeout=3.0)
+            except asyncio.TimeoutError:
+                proc.kill()
+                logger.warning("git worktree command timed out after 3s; falling back to direct workspace mode.")
+                return _err(req_id, JsonRpcError.INTERNAL_ERROR, "git worktree timed out")
             if proc.returncode != 0:
                 logger.warning(f"git worktree failed: {stderr.decode()}")
                 return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"git worktree failed: {stderr.decode()}")

@@ -177,12 +177,15 @@ class DAGExecutionEngine:
         if not worktree_path:
             try:
                 from python.harness.server import handle_task_create_worktree
-                res_str = await handle_task_create_worktree({"task_id": task_id}, req_id="auto-wt")
+                res_str = await asyncio.wait_for(
+                    handle_task_create_worktree({"task_id": task_id}, req_id="auto-wt"),
+                    timeout=3.0
+                )
                 res_data = json.loads(res_str)
                 if "result" in res_data and res_data["result"].get("success"):
                     worktree_path = res_data["result"]["worktree_path"]
             except Exception as exc:
-                log.warning("DAGExecutionEngine: Automatic worktree creation failed: %s", exc)
+                log.warning("DAGExecutionEngine: Automatic worktree creation bypassed/timed out: %s — using root workspace", exc)
 
         if not worktree_path:
             worktree_path = self.root_dir
