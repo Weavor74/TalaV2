@@ -1466,11 +1466,15 @@ async def handle_inference_generate(
 
     # Routing logic
     if request_provider:
-        logger.info("Request-selected provider active for session %s: '%s' (Strict Mode)", session_id, request_provider["name"])
-        providers = [request_provider]
+        logger.info("Request-selected provider active for session %s: '%s' (Preferred First)", session_id, request_provider["name"])
+        local_others = [p for p in providers if p["id"] != request_provider["id"] and p["type"] in ("local", "embedded")]
+        remote_others = [p for p in providers if p["id"] != request_provider["id"] and p["type"] == "remote"]
+        providers = [request_provider] + local_others + remote_others
     elif forced_provider:
-        logger.info("Forced provider active: '%s' (Strict Mode)", forced_provider["name"])
-        providers = [forced_provider]
+        logger.info("Forced provider active: '%s' (Preferred First)", forced_provider["name"])
+        local_others = [p for p in providers if p["id"] != forced_provider["id"] and p["type"] in ("local", "embedded")]
+        remote_others = [p for p in providers if p["id"] != forced_provider["id"] and p["type"] == "remote"]
+        providers = [forced_provider] + local_others + remote_others
     else:
         # Router Mode: prioritize local and embedded models first, then fall back to remote cloud APIs.
         # Preserve original priority ordering within those groups.
