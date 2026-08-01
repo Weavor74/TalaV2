@@ -35,6 +35,17 @@ class PortRouter:
             except socket.error:
                 return True
 
+    @staticmethod
+    def is_port_in_use(port: int) -> bool:
+        """Checks if a TCP port is currently open (accepting connections) locally.
+
+        Returns True when a service on 127.0.0.1:port answers a TCP connect
+        attempt, False otherwise. Stateless; safe to call without an instance.
+        """
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            s.settimeout(1.0)
+            return s.connect_ex(("127.0.0.1", port)) == 0
+
     async def allocate_port(self, task_id: str, preferred_port: int | None = None) -> int:
         """
         Allocates a unique, collision-free local port for a given task.
@@ -48,7 +59,7 @@ class PortRouter:
                     return row["port"]
             except Exception as exc:
                 log.warning("PortRouter: DB read failed, using fallback check: %s", exc)
-                
+
         if task_id in self._in_memory_allocations:
             return self._in_memory_allocations[task_id]
 
@@ -64,7 +75,7 @@ class PortRouter:
                     pass
             if preferred_port in self._in_memory_allocations.values():
                 conflict = True
-                
+
             if not conflict:
                 await self._persist_allocation(task_id, preferred_port)
                 return preferred_port
@@ -115,16 +126,15 @@ class PortRouter:
                 )
                 log.info("PortRouter: Persisted port %d to DB for task %s", port, task_id)
             except Exception as exc:
-                log.warning("PortRouter: Failed to persist allocation in DB: %s", exc)
+                log.warning("PortRouter: DB write failed for task %s: %s", task_id, exc)
 
     async def release_port(self, task_id: str) -> None:
-        """Releases the port mapping for the specified task."""
+        """Releases port allocation for a completed task."""
         if task_id in self._in_memory_allocations:
             del self._in_memory_allocations[task_id]
-
         if self._is_db_available():
             try:
                 await db.execute("DELETE FROM port_allocations WHERE task_id = $1", task_id)
-                log.info("PortRouter: Released port allocation for task %s", task_id)
+                log.info("PortRouter: Released port for task %s", task_id)
             except Exception as exc:
-                log.warning("PortRouter: Failed to release port allocation in DB: %s", exc)
+                log.warning("PortRouter: DB delete failed for task %s: %s", task_id, exc)

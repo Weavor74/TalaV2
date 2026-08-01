@@ -402,6 +402,14 @@ __PROV_PLACEHOLDER__
 
             # 5. Update node-executable Python (latest run) if provided
             if executable_code:
+                clean_exec = _re.sub(r"(?i)<think(?:ing)?>.*?</think(?:ing)?>", "", executable_code, flags=_re.DOTALL)
+                clean_exec = _re.sub(r"(?i)<think(?:ing)?>.*$", "", clean_exec, flags=_re.DOTALL)
+                m_code = _re.search(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", clean_exec, _re.DOTALL | _re.IGNORECASE)
+                if m_code:
+                    clean_exec = m_code.group(1).strip()
+                executable_code = clean_exec.replace("—", "--").replace("–", "-").replace("“", '"').replace("”", '"').replace("’", "'").replace("‘", "'").strip()
+
+            if executable_code:
                 code_open = '<script type="application/x-python" id="node-executable">'
                 code_close = "</script>"
                 if code_open in html:

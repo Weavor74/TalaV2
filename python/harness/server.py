@@ -7648,7 +7648,13 @@ async def handle_task_create_worktree(params: dict[str, Any], req_id: Any) -> st
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE
         )
-        stdout, _ = await git_check.communicate()
+        # Fix: add 3s timeout — git rev-parse can hang indefinitely on Windows with a locked repo
+        try:
+            stdout, _ = await asyncio.wait_for(git_check.communicate(), timeout=3.0)
+        except asyncio.TimeoutError:
+            git_check.kill()
+            logger.warning("git rev-parse timed out after 3s; treating as non-git workspace.")
+            stdout = b""
         is_git = (git_check.returncode == 0 and stdout.decode().strip() == "true")
         
         if is_git:
@@ -7667,7 +7673,20 @@ async def handle_task_create_worktree(params: dict[str, Any], req_id: Any) -> st
                 return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"git worktree failed: {stderr.decode()}")
         else:
             import shutil
-            shutil.copytree(str(base_dir), str(worktree_path), dirs_exist_ok=True, ignore=shutil.ignore_patterns('.git', 'scratch', '__pycache__'))
+            # Fix: run copytree off the event loop thread so it doesn't block asyncio.
+            # Also skip node_modules and .venv to avoid copying gigabytes of dependencies.
+            await asyncio.wait_for(
+                asyncio.to_thread(
+                    shutil.copytree,
+                    str(base_dir),
+                    str(worktree_path),
+                    dirs_exist_ok=True,
+                    ignore=shutil.ignore_patterns(
+                        '.git', 'scratch', '__pycache__', 'node_modules', '.venv', '*.pyc'
+                    ),
+                ),
+                timeout=30.0,
+            )
             branch_name = "copied-scratch"
             
         await db.execute(

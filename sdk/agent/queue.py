@@ -154,7 +154,20 @@ Output JSON array only, wrapped in a Markdown code block like:
                     top_approach = shortlist[0]
                     tasks = []
                     prev_id = None
-                    for idx, step_desc in enumerate(top_approach.get("tasks", [])):
+                    raw_steps = top_approach.get("tasks", [])
+                    
+                    # Filter out redundant verification sub-tasks if an implementation task is present
+                    filtered_steps = []
+                    for s in raw_steps:
+                        s_lower = s.lower()
+                        if any(kw in s_lower for kw in ("verify and compile", "verify solution", "validate solution")) and filtered_steps:
+                            log.info("GoalTreeDecomposer: Merged redundant verification step '%s' into single-pass DAG pipeline.", s)
+                            continue
+                        filtered_steps.append(s)
+                    if not filtered_steps:
+                        filtered_steps = raw_steps
+
+                    for idx, step_desc in enumerate(filtered_steps):
                         deterministic_id = generate_deterministic_id(
                             {"description": step_desc, "goal": user_goal},
                             salt=f"tot-{idx}",

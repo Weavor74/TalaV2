@@ -149,7 +149,10 @@ class DAGExecutionEngine:
         """
         Refactors task execution into a DAG flow of Research -> Synthesis -> Writing -> Validation.
         """
-        await self.ensure_table_exists()
+        try:
+            await asyncio.wait_for(self.ensure_table_exists(), timeout=10.0)
+        except Exception as exc:
+            log.warning("DAGExecutionEngine: ensure_table_exists failed/timed out: %s — continuing.", exc)
         log.info("DAGExecutionEngine: Executing task %r as sub-graph DAG", task.task_id)
 
         task_id = task.task_id
@@ -168,7 +171,10 @@ class DAGExecutionEngine:
         worktree_path = getattr(task, "worktree_path", None)
         if not worktree_path and self._is_db_available():
             try:
-                row = await db.fetchrow("SELECT worktree_path FROM tasks WHERE id = $1", task_id)
+                row = await asyncio.wait_for(
+                    db.fetchrow("SELECT worktree_path FROM tasks WHERE id = $1", task_id),
+                    timeout=5.0
+                )
                 if row and row["worktree_path"]:
                     worktree_path = row["worktree_path"]
             except Exception:
@@ -268,6 +274,15 @@ class DAGExecutionEngine:
                 success_criteria={"min_test_pass_rate": 1.0}
             )
 
+            is_verification_phase = any(kw in task.description.lower() for kw in ("verify and compile", "verify solution", "validate solution"))
+            if is_verification_phase:
+                log.info("DAGExecutionEngine: Task '%s' is a verification phase — short-circuiting synthesis & writing nodes.", task.description)
+                n_synthesis.status = "completed"
+                n_synthesis.outputs = {"code": "# Verification phase — pre-completed"}
+                n_writing.status = "completed"
+                n_writing.outputs = {"file_path": str(Path(worktree_path) / target_file)}
+                n_validation.dependencies = [res_node_id]
+
             for node in [n_research, n_synthesis, n_writing, n_validation]:
                 await self.save_node(node)
         
@@ -320,6 +335,19 @@ class DAGExecutionEngine:
                 [c.id for c in candidates],
                 {nid: n.status for nid, n in nodes.items()}
             )
+
+            # Heartbeat: prevent ZombieReaper from killing long-running tasks (e.g. LLM synthesis)
+            try:
+                from sdk.agent.telemetry import LiveStatusReporter
+                await LiveStatusReporter.broadcast_status(
+                    task_id=task_id,
+                    phase="DAGExecution",
+                    status="in_progress",
+                    message=f"DAG loop #{runs}: {len(candidates)} candidate(s) ready",
+                    details={"loop": runs, "candidates": [c.id for c in candidates]}
+                )
+            except Exception:
+                pass
                         
             if not candidates:
                 # Check if all completed or failed
@@ -490,6 +518,19 @@ class DAGExecutionEngine:
                 f"Write complete, valid, working Python code for the following task:\n\"{problem}\"\n\n"
                 f"Target file path: {target_file}\n"
                 f"Reference sources: {sources}\n\n"
+            )
+
+            # Inject standardized CodeRegistry template if target is a skill file
+            try:
+                from sdk.agent.code_registry import CodeRegistry
+                if "skill" in target_file.lower() or "skills/" in target_file.lower() or "skill" in problem.lower():
+                    skill_template = await CodeRegistry.get("tala.code.template.python.skill")
+                    if skill_template:
+                        prompt += f"Standard Boilerplate Template Structure:\n{skill_template}\n\n"
+            except Exception:
+                pass
+
+            prompt += (
                 "CRITICAL INSTRUCTIONS:\n"
                 "1. Output ONLY the raw Python source code inside a ```python ``` fenced code block.\n"
                 "2. Do NOT output thinking logs, tool call tags, conversational preambles, or markdown explanations.\n"
@@ -515,7 +556,7 @@ class DAGExecutionEngine:
                         "stream": False,
                         "raw_prompt": True,
                         "system_prompt": system_prompt,
-                        "max_tokens": 1024,
+                        "max_tokens": 3072,
                     }
                     return await handle_inference_generate(p, ws=None, req_id="dag-synthesis")
 
@@ -530,55 +571,84 @@ class DAGExecutionEngine:
                 else:
                     text = ""
 
-                log.info("DAGExecutionEngine: Synthesis LLM response received (%d bytes). Cleaning & parsing AST...", len(text))
+                log.info("DAGExecutionEngine: Synthesis LLM response received (%d bytes). Parsing Python code...", len(text))
 
                 if text:
-                    # 1. Strip thinking tags and tool call markers
-                    cleaned_text = re.sub(r"<think(?:ing)?>.*?</think(?:ing)?>", "", text, flags=re.DOTALL | re.IGNORECASE)
-                    cleaned_text = re.sub(r"<\/?call:[^>]+>", "", cleaned_text)
-                    cleaned_text = re.sub(r"\*\(Executing.*?\)\*", "", cleaned_text)
-
-                    # 2. Extract code block
-                    m = re.search(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", cleaned_text, re.DOTALL | re.IGNORECASE)
+                    # Strategy 1: Direct extraction from markdown fenced code block
+                    m = re.search(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", text, re.DOTALL | re.IGNORECASE)
                     if m:
                         code = m.group(1).strip()
 
-                    # Fallback: extract python lines if no markdown fences used
+                    # Strategy 2: Strip thinking tags and search again
                     if not code:
-                        code_lines = []
-                        for line in cleaned_text.splitlines():
-                            stripped = line.strip()
-                            if any(stripped.startswith(kw) for kw in ("import ", "from ", "def ", "async def ", "class ", "@", "return ", "if ", "for ", "while ", "try:", "except", "#")):
-                                code_lines.append(line)
-                            elif code_lines and (line.startswith("    ") or line.startswith("\t") or stripped == ""):
-                                code_lines.append(line)
-                        code = "\n".join(code_lines).strip()
+                        cleaned_text = re.sub(r"(?i)<think(?:ing)?>.*?</think(?:ing)?>", "", text, flags=re.DOTALL)
+                        cleaned_text = re.sub(r"<\/?call:[^>]+>", "", cleaned_text)
+                        cleaned_text = re.sub(r"\*\(Executing.*?\)\*", "", cleaned_text)
+                        
+                        m2 = re.search(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", cleaned_text, re.DOTALL | re.IGNORECASE)
+                        if m2:
+                            code = m2.group(1).strip()
+                        else:
+                            # Strategy 3: Extract top-level python statements line by line
+                            code_lines = []
+                            for line in cleaned_text.splitlines():
+                                stripped = line.strip()
+                                if any(stripped.startswith(kw) for kw in ("import ", "from ", "def ", "async def ", "class ", "@", "return ", "if ", "for ", "while ", "try:", "except", "#")):
+                                    code_lines.append(line)
+                                elif code_lines and (line.startswith("    ") or line.startswith("\t") or stripped == ""):
+                                    code_lines.append(line)
+                            code = "\n".join(code_lines).strip()
 
-                    # 3. Validate syntax via AST
+                    # Validate syntax via AST
                     if code:
                         import ast
                         try:
                             ast.parse(code)
                             log.info("DAGExecutionEngine: Synthesis successfully extracted %d bytes of valid Python code.", len(code))
                         except SyntaxError as se:
-                            log.warning("DAGExecutionEngine: Extracted synthesis code failed AST validation: %s", se)
+                            log.warning("DAGExecutionEngine: Extracted synthesis code failed AST validation: %s. Code snippet: %s", se, repr(code[:200]))
                             lines_f = [l for l in code.splitlines() if any(l.strip().startswith(kw) for kw in ("import ", "from ", "def ", "async def ", "class ", "@", "return ", "if ", "for ", "while ", "try:", "except", "#")) or l.startswith(" ") or l.startswith("\t")]
                             candidate = "\n".join(lines_f).strip()
                             try:
                                 ast.parse(candidate)
                                 code = candidate
                                 log.info("DAGExecutionEngine: Synthesis line-filtered fallback produced %d bytes of valid Python.", len(code))
-                            except SyntaxError:
+                            except SyntaxError as se2:
+                                log.warning("DAGExecutionEngine: Fallback candidate also failed AST validation: %s", se2)
                                 code = ""
 
             except asyncio.TimeoutError:
                 log.warning("DAGExecutionEngine: LLM synthesis timed out after 60s.")
-                node.outputs = {"error": "LLM synthesis timed out."}
-                return False
+                existing_p = Path(worktree_path) / target_file
+                if existing_p.exists():
+                    try:
+                        existing_content = existing_p.read_text(encoding="utf-8")
+                        import ast
+                        ast.parse(existing_content)
+                        code = existing_content
+                        log.info("DAGExecutionEngine: Synthesis timeout fallback — reusing existing valid Python file (%d bytes) at %s", len(code), target_file)
+                    except Exception:
+                        node.outputs = {"error": "LLM synthesis timed out."}
+                        return False
+                else:
+                    node.outputs = {"error": "LLM synthesis timed out."}
+                    return False
             except Exception as exc:
                 log.warning("DAGExecutionEngine: LLM synthesis failed: %s", exc)
                 node.outputs = {"error": f"LLM synthesis failed: {exc}"}
                 return False
+
+            if not code:
+                existing_p = Path(worktree_path) / target_file
+                if existing_p.exists():
+                    try:
+                        existing_content = existing_p.read_text(encoding="utf-8")
+                        import ast
+                        ast.parse(existing_content)
+                        code = existing_content
+                        log.info("DAGExecutionEngine: Synthesis fallback — reusing existing valid Python file (%d bytes) at %s", len(code), target_file)
+                    except Exception:
+                        pass
 
             if not code:
                 log.warning("DAGExecutionEngine: LLM synthesis returned no valid Python code.")

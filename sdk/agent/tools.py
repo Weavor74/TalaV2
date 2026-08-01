@@ -95,6 +95,7 @@ class ToolRegistry:
         from pathlib import Path
         import sys
         import types
+        import re
         
         try:
             from sdk.agent.parser import parse_file
@@ -128,34 +129,49 @@ class ToolRegistry:
             try:
                 node = parse_file(str(html_file))
                 if node.executable_code:
-                    module_name = f"tala_skills.{node.node_id.replace('-', '_')}"
-                    
-                    # Create a new dynamic module namespace
-                    mod = types.ModuleType(module_name)
-                    
-                    # Safely bind into sys.modules
-                    sys.modules[module_name] = mod
-                    
-                    # Execute the code in the module's dictionary
-                    exec(node.executable_code, mod.__dict__)
-                    
-                    # Tag the tools registered by this module
-                    for entry in cls._tools.values():
-                        if getattr(entry["func"], "__module__", None) == module_name:
-                            entry["node_path"] = str(html_file)
-                            entry["node_id"] = node.node_id
-                            if node.state_data and isinstance(node.state_data, dict) and "metrics" in node.state_data:
-                                entry["metrics"] = node.state_data["metrics"]
-                            else:
-                                entry["metrics"] = {
-                                    "version": 1,
-                                    "success_count": 0,
-                                    "failure_count": 0,
-                                    "success_rate": 0.0,
-                                    "confidence": 0.8
-                                }
-                                
-                    log.info("ToolRegistry: dynamically loaded skill from %s", html_file.name)
+                    code = node.executable_code
+                    # 1. Strip thinking tags cleanly
+                    code = re.sub(r"(?i)<think(?:ing)?>.*?</think(?:ing)?>", "", code, flags=re.DOTALL)
+                    code = re.sub(r"(?i)<think(?:ing)?>.*$", "", code, flags=re.DOTALL)
+                    code = re.sub(r"<\/?call:[^>]+>", "", code)
+
+                    # 2. Extract code block if fenced in markdown
+                    m_fence = re.search(r"```(?:python|py)?\s*\n?(.*?)\n?\s*```", code, re.DOTALL | re.IGNORECASE)
+                    if m_fence:
+                        code = m_fence.group(1).strip()
+
+                    # 3. Sanitize typographical punctuation that breaks Python exec
+                    code = code.replace("—", "--").replace("–", "-").replace("“", '"').replace("”", '"').replace("’", "'").replace("‘", "'")
+
+                    # 4. Only exec if valid python code remains
+                    code_clean = code.strip()
+                    if code_clean and not code_clean.startswith("<"):
+                        module_name = f"tala_skills.{node.node_id.replace('-', '_')}"
+                        mod = types.ModuleType(module_name)
+                        sys.modules[module_name] = mod
+                        
+                        try:
+                            exec(code_clean, mod.__dict__)
+                            
+                            # Tag the tools registered by this module
+                            for entry in cls._tools.values():
+                                if getattr(entry["func"], "__module__", None) == module_name:
+                                    entry["node_path"] = str(html_file)
+                                    entry["node_id"] = node.node_id
+                                    if node.state_data and isinstance(node.state_data, dict) and "metrics" in node.state_data:
+                                        entry["metrics"] = node.state_data["metrics"]
+                                    else:
+                                        entry["metrics"] = {
+                                            "version": 1,
+                                            "success_count": 0,
+                                            "failure_count": 0,
+                                            "success_rate": 0.0,
+                                            "confidence": 0.8
+                                        }
+                                        
+                            log.info("ToolRegistry: dynamically loaded skill from %s", html_file.name)
+                        except Exception as exec_err:
+                            log.warning("ToolRegistry: exec failed for %s: %s", html_file.name, exec_err)
             except Exception as e:
                 log.error("ToolRegistry: failed to load skill from %s: %s", html_file.name, e)
 

@@ -495,6 +495,10 @@ function spawnBlockchain(attempt = 0) {
     if (!app.isReady()) return;   // Guard if app is quitting
 
     const scriptPath = path.join(app.getAppPath(), 'blockchain', 'src', 'app.js');
+    if (!fs.existsSync(scriptPath)) {
+      console.warn(`[main:warn] Blockchain script not found at ${scriptPath}. Skipping blockchain spawn.`);
+      return;
+    }
     console.log(`[main] Spawning Blockchain node: node "${scriptPath}"`);
 
     blockchainProcess = spawn('node', [scriptPath], {

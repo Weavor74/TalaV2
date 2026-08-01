@@ -23,6 +23,17 @@ DEFAULT_REGISTRY_KEYS = {
     "tala.code.style.nodejs.indent": "2",
     "tala.code.style.nodejs.naming": "camelCase",
     
+    "tala.code.template.python.skill": (
+        '"""{description}"""\n\n'
+        'from __future__ import annotations\n'
+        'from typing import Any, Dict\n'
+        'from sdk.agent.tools import register_tool\n\n'
+        '@register_tool(name="{tool_name}", description="{description}")\n'
+        'async def {function_name}() -> Dict[str, Any]:\n'
+        '    """{description}"""\n'
+        '    pass\n'
+    ),
+
     "tala.code.template.python.class": (
         '"""\n'
         '{description}\n'
