@@ -705,6 +705,21 @@ _DDL_STATEMENTS: list[str] = [
             allocated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """),
+    # ------------------------------------------------------------------
+    # auto_eval_workflow_runs – cross-turn cooldown for the Auto-Eval Gate.
+    # Keyed by workflow CONTENT hash (not node id or file path) so that
+    # multiple near-duplicate node files pointing at functionally identical
+    # workflow JSON are recognized as "the same workflow" and don't each
+    # independently re-trigger auto-execution.
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS auto_eval_workflow_runs (
+            content_hash     TEXT        PRIMARY KEY,
+            workflow_name    TEXT        NOT NULL,
+            last_executed_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            execution_count  INTEGER     NOT NULL DEFAULT 1
+        );
+    """),
 ]
 
 
@@ -872,6 +887,36 @@ async def fetchval(query: str, *args: Any, column: int = 0) -> Any:
     async with pool.acquire() as conn:
         value = await conn.fetchval(query, *args, column=column)
     return value
+
+
+async def try_claim_auto_eval_run(content_hash: str, workflow_name: str, cooldown_seconds: float) -> bool:
+    """
+    Atomically check-and-claim a cooldown slot for the Auto-Eval Gate.
+
+    Returns True (and records the claim) if *content_hash* has never run or
+    its cooldown has expired — the caller should proceed with execution.
+    Returns False if another execution already claimed this content hash
+    within the cooldown window — the caller should skip.
+
+    Keyed by workflow content hash rather than node id or file path, so
+    multiple node files pointing at duplicate/near-duplicate workflow JSON
+    are recognized as "the same workflow" for cooldown purposes.
+    """
+    row = await fetchrow(
+        """
+        INSERT INTO auto_eval_workflow_runs (content_hash, workflow_name, last_executed_at, execution_count)
+        VALUES ($1, $2, NOW(), 1)
+        ON CONFLICT (content_hash) DO UPDATE
+            SET last_executed_at = NOW(),
+                execution_count = auto_eval_workflow_runs.execution_count + 1
+            WHERE auto_eval_workflow_runs.last_executed_at < NOW() - ($3 * INTERVAL '1 second')
+        RETURNING content_hash
+        """,
+        content_hash,
+        workflow_name,
+        cooldown_seconds,
+    )
+    return row is not None
 
 
 @asynccontextmanager

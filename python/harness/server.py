@@ -467,6 +467,16 @@ async def handle_inference_generate(
 
     session_id: str = str(params.get("session_id", uuid.uuid4()))
 
+    # Casual/roleplay messages never get tool documentation injected into the
+    # system prompt (see below) or the native tools schema attached to the
+    # request — small local fallback models reliably echo example call
+    # syntax from that documentation verbatim when they have nothing real to
+    # do with it (e.g. a flirty greeting), and the <call:...> parser then
+    # executes that echoed text as a genuine tool call. Computed once here
+    # and reused everywhere this classification matters.
+    _CASUAL_CHAT_TERMS = ("roleplay", "hey", "hello", "hi", "sexy", "baby", "love", "honey", "sweetheart")
+    is_casual_chat = any(c in prompt.lower() for c in _CASUAL_CHAT_TERMS)
+
     # Guardrails prompt validation (pre-inference)
     try:
         from python.harness.guardrails_manager import GuardrailsManager
@@ -919,6 +929,12 @@ async def handle_inference_generate(
                     # Any workflow node that activates above 0.15 is auto-executed.
                     # Its output is injected into the prompt context before the LLM responds.
                     _WORKFLOW_AUTO_THRESHOLD = 0.15
+                    # Cross-turn/cross-session cooldown, keyed by workflow CONTENT hash
+                    # (see db.try_claim_auto_eval_run). Without this, N near-duplicate
+                    # node files all pointing at the same/similar workflow JSON each
+                    # independently re-trigger execution every time any of them
+                    # activates, regardless of how recently that same content already ran.
+                    _WORKFLOW_COOLDOWN_SECONDS = 600.0
                     workflow_context_parts: list[str] = []
                     executed_workflow_paths: set[str] = set()
                     for _wf_node, _wf_score in top_active:
@@ -956,6 +972,20 @@ async def handle_inference_generate(
                             try:
                                 _wf_data = json.loads(_json_path.read_text(encoding="utf-8"))
                                 _wf_name = _wf_data.get("name", _flow_id)
+
+                                _content_hash = hashlib.sha256(
+                                    json.dumps(_wf_data, sort_keys=True).encode("utf-8")
+                                ).hexdigest()
+                                if not await db.try_claim_auto_eval_run(
+                                    _content_hash, _wf_name, _WORKFLOW_COOLDOWN_SECONDS
+                                ):
+                                    logger.debug(
+                                        "Auto-eval gate: skipping '%s' (node '%s') — "
+                                        "identical workflow content already ran within the last %.0fs",
+                                        _wf_name, _wf_node.node_id, _WORKFLOW_COOLDOWN_SECONDS
+                                    )
+                                    continue
+
                                 logger.info(
                                     "Auto-eval gate: executing workflow '%s' (node activation=%.3f)",
                                     _wf_name, _wf_score
@@ -1221,23 +1251,34 @@ async def handle_inference_generate(
         except Exception as sys_exc:
             logger.warning("Could not dynamically load settings nodes: %s", sys_exc)
 
-        tool_instructions = (
-            f"{system_settings_context}\n"
-            "[Agent Capability: Autonomous Web Search & Crawling]\n"
-            "You can search the web and crawl pages using the following XML-like tool calls:\n"
-            "1. Search: `<call:research.search query=\"your search term\" />`\n"
-            "   Use this to search DuckDuckGo. Returns titles, snippets, and URLs of top matching pages. Automatically syncs the user's browser view.\n"
-            "2. Crawl & Summarize: `<call:research.crawl_and_summarize urls=[\"https://url1\", \"https://url2\"] subject=\"subject description\" />`\n"
-            "   Use this to download full webpage content, read them, and compile them into a styled HTML Neural Node. Automatically syncs the user's browser view.\n\n"
-            "To invoke a tool, output the tag EXACTLY and STOP generating. Do NOT write any other text after the tag. "
-            "You will receive the tool result in the next turn, allowing you to answer Weavor's request or call another tool.\n\n"
-            "CRITICAL DIRECTIVE: If Weavor requests search, finding, crawling, opening, or browsing the web/internet, you MUST output the corresponding tool call tag (<call:research.search query=\"...\" /> or <call:research.crawl_and_summarize urls=... />) IMMEDIATELY in your response. Do NOT ask for permission, do NOT ask for clarification, and do NOT engage in introductory conversational chatter. Simply call the tool."
-        )
+        # Casual/roleplay messages get the live settings snapshot (informational,
+        # not an invitation to call anything) but NOT the tool-call documentation
+        # below — that documentation's example syntax (literal "your search term",
+        # `key="value"` placeholders, etc.) is exactly what a confused small model
+        # echoes back as a fake tool call when it has no real task to do. Omitting
+        # it here mirrors the native tools-schema omission further down.
+        tool_instructions = f"{system_settings_context}\n"
+
+        if not is_casual_chat:
+            tool_instructions += (
+                "[Agent Capability: Autonomous Web Search & Crawling]\n"
+                "You can search the web and crawl pages using the following XML-like tool calls:\n"
+                "1. Search: `<call:research.search query=\"your search term\" />`\n"
+                "   Use this to search DuckDuckGo. Returns titles, snippets, and URLs of top matching pages. Automatically syncs the user's browser view.\n"
+                "2. Crawl & Summarize: `<call:research.crawl_and_summarize urls=[\"https://url1\", \"https://url2\"] subject=\"subject description\" />`\n"
+                "   Use this to download full webpage content, read them, and compile them into a styled HTML Neural Node. Automatically syncs the user's browser view.\n\n"
+                "To invoke a tool, output the tag EXACTLY and STOP generating. Do NOT write any other text after the tag. "
+                "You will receive the tool result in the next turn, allowing you to answer Weavor's request or call another tool.\n\n"
+                "CRITICAL DIRECTIVE: If Weavor requests search, finding, crawling, opening, or browsing the web/internet, you MUST output the corresponding tool call tag (<call:research.search query=\"...\" /> or <call:research.crawl_and_summarize urls=... />) IMMEDIATELY in your response. Do NOT ask for permission, do NOT ask for clarification, and do NOT engage in introductory conversational chatter. Simply call the tool."
+            )
 
         try:
-            from sdk.agent.tools import ToolRegistry
-            from sdk.agent.tot_ideation import get_tot_mode
-            dyn_tools = ToolRegistry.get_tools()
+            if is_casual_chat:
+                dyn_tools = []
+            else:
+                from sdk.agent.tools import ToolRegistry
+                from sdk.agent.tot_ideation import get_tot_mode
+                dyn_tools = ToolRegistry.get_tools()
             if dyn_tools:
                 tot_mode_detect = await get_tot_mode()
                 use_compact = tot_mode_detect in ("fast", "programmatic")
@@ -1603,8 +1644,6 @@ async def handle_inference_generate(
                         "stream": stream
                     }
 
-                    casual_chat_terms = ("roleplay", "hey", "hello", "hi", "sexy", "baby", "love", "honey", "sweetheart")
-                    is_casual_chat = any(c in prompt.lower() for c in casual_chat_terms)
                     if not is_casual_chat:
                         try:
                             from sdk.agent.tools import ToolRegistry
@@ -1902,8 +1941,7 @@ async def handle_inference_generate(
         tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
         if not tool_match:
             # If prompt implies action/search/fix/remove and model spoke prose without emitting a tool call:
-            casual_terms = ("roleplay", "hey", "hello", "hi", "sexy", "baby", "love", "honey", "sweetheart")
-            if not any(c in prompt.lower() for c in casual_terms):
+            if not is_casual_chat:
                 action_terms = ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create", "turn", "convert", "refactor", "build", "implement")
                 if loop_count < 3 and any(k in prompt.lower() for k in action_terms):
                     logger.info(f"Model stated intent without emitting tool call tag on action prompt (Turn {loop_count}). Auto-continuing turn...")
