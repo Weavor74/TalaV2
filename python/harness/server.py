@@ -1648,17 +1648,6 @@ async def handle_inference_generate(
                             failed_endpoints.add(_norm_check_base)
                             probe_desc = f"{type(_probe_exc).__name__}: {_probe_exc}" if str(_probe_exc) else type(_probe_exc).__name__
                             errors.append(f"Provider '{p_name}' skipped: {probe_desc}")
-                            if provider["id"] != "embedded-builtin":
-                                try:
-                                    await db.execute(
-                                        "UPDATE inference_providers SET status = 'offline', updated_at = NOW() WHERE id = $1",
-                                        provider["id"]
-                                    )
-                                    from python.harness.settings_nn import update_settings_inference_node
-                                    await update_settings_inference_node()
-                                    await broadcast_notification("inference.providers_changed")
-                                except Exception as status_exc:
-                                    logger.warning("Failed to update status for failing provider '%s': %s", p_name, status_exc)
                             continue
 
                     _read_timeout = float(params.get("timeout_seconds", 1800.0 if p_type == "local" else 600.0))
@@ -1669,49 +1658,99 @@ async def handle_inference_generate(
                             async with client.stream("POST", url, headers=headers, json=payload) as response:
                                 if response.status_code != 200:
                                     err_body = await response.aread()
-                                    raise RuntimeError(f"HTTP Error {response.status_code}: {err_body.decode(errors='ignore')}")
-                                async for line in response.aiter_lines():
-                                    if line.startswith("data: "):
-                                        data_str = line[6:].strip()
-                                        if data_str == "[DONE]":
-                                            break
-                                        try:
-                                            data_json = json.loads(data_str)
-                                            choices = data_json.get("choices", [])
-                                            if choices:
-                                                delta = choices[0].get("delta", {})
-                                                reasoning_chunk = delta.get("reasoning", "")
-                                                content_chunk = delta.get("content", "")
-                                                
-                                                chunk = ""
-                                                if reasoning_chunk:
-                                                    if not in_reasoning:
-                                                        in_reasoning = True
-                                                        chunk += "<thinking>\n"
-                                                    chunk += reasoning_chunk
-                                                elif content_chunk:
-                                                    if in_reasoning:
-                                                        in_reasoning = False
-                                                        chunk += "\n</thinking>\n\n"
-                                                    chunk += content_chunk
+                                    err_str = err_body.decode(errors='ignore')
+                                    if response.status_code == 400 and "does not support tools" in err_str and "tools" in payload:
+                                        logger.info("Provider '%s' does not support tools payload. Retrying without tools...", p_name)
+                                        payload_no_tools = dict(payload)
+                                        payload_no_tools.pop("tools", None)
+                                        async with client.stream("POST", url, headers=headers, json=payload_no_tools) as resp2:
+                                            if resp2.status_code != 200:
+                                                err_body2 = await resp2.aread()
+                                                raise RuntimeError(f"HTTP Error {resp2.status_code}: {err_body2.decode(errors='ignore')}")
+                                            async for line in resp2.aiter_lines():
+                                                if line.startswith("data: "):
+                                                    data_str = line[6:].strip()
+                                                    if data_str == "[DONE]":
+                                                        break
+                                                    try:
+                                                        data_json = json.loads(data_str)
+                                                        choices = data_json.get("choices", [])
+                                                        if choices:
+                                                            delta = choices[0].get("delta", {})
+                                                            reasoning_chunk = delta.get("reasoning", "")
+                                                            content_chunk = delta.get("content", "")
+                                                            chunk = ""
+                                                            if reasoning_chunk:
+                                                                if not in_reasoning:
+                                                                    in_reasoning = True
+                                                                    chunk += "<thinking>\n"
+                                                                chunk += reasoning_chunk
+                                                            elif content_chunk:
+                                                                if in_reasoning:
+                                                                    in_reasoning = False
+                                                                    chunk += "\n</thinking>\n\n"
+                                                                chunk += content_chunk
+                                                            if chunk:
+                                                                chunks.append(chunk)
+                                                                notification = json.dumps({
+                                                                    "jsonrpc": JSONRPC_VERSION,
+                                                                    "method": "inference.generate.chunk",
+                                                                    "params": {"chunk": chunk, "session_id": session_id},
+                                                                })
+                                                                await ws.send(notification)
+                                                    except Exception:
+                                                        pass
+                                    else:
+                                        raise RuntimeError(f"HTTP Error {response.status_code}: {err_str}")
+                                else:
+                                    async for line in response.aiter_lines():
+                                        if line.startswith("data: "):
+                                            data_str = line[6:].strip()
+                                            if data_str == "[DONE]":
+                                                break
+                                            try:
+                                                data_json = json.loads(data_str)
+                                                choices = data_json.get("choices", [])
+                                                if choices:
+                                                    delta = choices[0].get("delta", {})
+                                                    reasoning_chunk = delta.get("reasoning", "")
+                                                    content_chunk = delta.get("content", "")
                                                     
-                                                if chunk:
-                                                    chunks.append(chunk)
-                                                    notification = json.dumps({
-                                                        "jsonrpc": JSONRPC_VERSION,
-                                                        "method": "inference.generate.chunk",
-                                                        "params": {"chunk": chunk, "session_id": session_id},
-                                                    })
-                                                    await ws.send(notification)
-                                        except Exception:
-                                            pass
+                                                    chunk = ""
+                                                    if reasoning_chunk:
+                                                        if not in_reasoning:
+                                                            in_reasoning = True
+                                                            chunk += "<thinking>\n"
+                                                        chunk += reasoning_chunk
+                                                    elif content_chunk:
+                                                        if in_reasoning:
+                                                            in_reasoning = False
+                                                            chunk += "\n</thinking>\n\n"
+                                                        chunk += content_chunk
+                                                        
+                                                    if chunk:
+                                                        chunks.append(chunk)
+                                                        notification = json.dumps({
+                                                            "jsonrpc": JSONRPC_VERSION,
+                                                            "method": "inference.generate.chunk",
+                                                            "params": {"chunk": chunk, "session_id": session_id},
+                                                        })
+                                                        await ws.send(notification)
+                                            except Exception:
+                                                pass
                             if in_reasoning:
                                 chunks.append("\n</thinking>\n\n")
                             generated_text = "".join(chunks)
                         else:
                             response = await client.post(url, headers=headers, json=payload)
                             if response.status_code != 200:
-                                raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
+                                if response.status_code == 400 and "does not support tools" in response.text and "tools" in payload:
+                                    logger.info("Provider '%s' does not support tools payload. Retrying non-stream without tools...", p_name)
+                                    payload_no_tools = dict(payload)
+                                    payload_no_tools.pop("tools", None)
+                                    response = await client.post(url, headers=headers, json=payload_no_tools)
+                                if response.status_code != 200:
+                                    raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
                             resp_json = response.json()
                             choice = resp_json["choices"][0]["message"]
                             content = choice.get("content", "") or ""
