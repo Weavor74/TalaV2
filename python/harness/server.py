@@ -1833,16 +1833,7 @@ async def handle_inference_generate(
                     {"session_id": session_id, "provider_id": provider["id"], "error": str(exc)}
                 )
                 if provider["id"] != "embedded-builtin":
-                    try:
-                        await db.execute(
-                            "UPDATE inference_providers SET status = 'offline', updated_at = NOW() WHERE id = $1",
-                            provider["id"]
-                        )
-                        from python.harness.settings_nn import update_settings_inference_node
-                        await update_settings_inference_node()
-                        await broadcast_notification("inference.providers_changed")
-                    except Exception as status_exc:
-                        logger.warning("Failed to update status for failing provider '%s': %s", p_name, status_exc)
+                    logger.warning("Provider '%s' failed during generation turn: %s", p_name, exc)
 
         if not success:
             all_errors = "; ".join(errors)
