@@ -106,6 +106,24 @@ class ToolRegistry:
         if not nodes_dir.exists():
             return
 
+        # Dynamically scan sdk/agent/skills/ for standalone Python skill modules
+        skills_dir = agent_dir / "sdk" / "agent" / "skills"
+        if skills_dir.exists():
+            import importlib.util
+            for py_file in skills_dir.glob("*.py"):
+                if py_file.name.startswith("__"):
+                    continue
+                try:
+                    mod_name = f"sdk.agent.skills.{py_file.stem}"
+                    spec = importlib.util.spec_from_file_location(mod_name, str(py_file))
+                    if spec and spec.loader:
+                        mod = importlib.util.module_from_spec(spec)
+                        sys.modules[mod_name] = mod
+                        spec.loader.exec_module(mod)
+                        log.info("ToolRegistry: dynamically imported Python skill from %s", py_file.name)
+                except Exception as py_exc:
+                    log.error("ToolRegistry: failed to import Python skill from %s: %s", py_file.name, py_exc)
+
         for html_file in nodes_dir.glob("skill-*.html"):
             try:
                 node = parse_file(str(html_file))
