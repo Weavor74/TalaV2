@@ -642,15 +642,15 @@ const server = http.createServer((req, res) => {
   }
 
   // Route: GET /buy (Payment Portal)
+  // Disabled along with POST /checkout below: buy.html is a Stripe-branded
+  // payment form with no real payment processor behind it. Serving it lets
+  // someone fill it out and hit submit only to land on the /checkout 503 --
+  // confusing at best. Nothing currently links to this route.
   if (url.pathname === '/buy' && req.method === 'GET') {
-    try {
-      const html = fs.readFileSync(path.join(__dirname, '../public/buy.html'), 'utf8');
-      res.writeHead(200, { 'Content-Type': 'text/html' });
-      res.end(html);
-    } catch (e) {
-      res.writeHead(404, { 'Content-Type': 'text/plain' });
-      res.end('Payment portal not found');
-    }
+    res.writeHead(503, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      error: 'Payments are not yet available. Top-up via card purchase has not been implemented.',
+    }));
     return;
   }
 
