@@ -1684,26 +1684,18 @@ async def handle_inference_generate(
                         "stream": stream
                     }
 
-                    if not is_casual_chat:
-                        try:
-                            from sdk.agent.tools import ToolRegistry
-                            all_tools = ToolRegistry.get_tools()
-                            if all_tools:
-                                openai_tools = []
-                                for t in all_tools:
-                                    clean_func_name = re.sub(r'[^a-zA-Z0-9_-]', '_', t["name"])
-                                    openai_tools.append({
-                                        "type": "function",
-                                        "function": {
-                                            "name": clean_func_name,
-                                            "description": t["description"],
-                                            "parameters": t.get("schema", {"type": "object", "properties": {}})
-                                        }
-                                    })
-                                if openai_tools:
-                                    payload["tools"] = openai_tools
-                        except Exception as t_exc:
-                            logger.warning("Could not append OpenAI tools array to payload: %s", t_exc)
+                    # Deliberately NOT attaching a native OpenAI-style `tools` array here.
+                    # The harness's actual dispatch mechanism is the text-based
+                    # <call:tool_name attr="val" /> convention (see _find_tool_call,
+                    # dyn_desc above) -- it works identically across every provider,
+                    # including ones with no native function-calling support at all.
+                    # Offering both mechanisms at once to a provider that DOES support
+                    # native tool-calling (like Kimi/Moonshot here) hands the model two
+                    # competing protocols in the same request; observed in production as
+                    # the model narrating its own confusion about which one to use
+                    # ("I also have native function calling available... the system
+                    # reminder says...") instead of cleanly acting. Sticking to one
+                    # universal convention is what makes this provider-agnostic.
 
                     if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
                         payload["options"] = {"num_ctx": 8192}
