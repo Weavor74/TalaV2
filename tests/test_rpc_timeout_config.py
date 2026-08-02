@@ -11,6 +11,12 @@ def test_electron_rpc_timeout_values():
 def test_server_read_timeout_values():
     server_py = Path("python/harness/server.py").read_text(encoding="utf-8")
     assert 'timeout_seconds' in server_py
-    # Local-provider read timeout was intentionally cut from 1800.0 to 30.0
-    # (commit d4be8a9) to keep instant-response probes snappy.
-    assert '30.0 if p_type == "local" else 120.0' in server_py
+    # Commit d4be8a9 conflated two different timeouts: the reachability PROBE
+    # (a lightweight /api/show ping -- correctly kept fast) and the actual
+    # generation READ timeout (cut to 30.0, incorrectly -- CPU-bound local
+    # inference routinely needs 15-25s+ just to prefill a ~2000-token prompt
+    # before generation even starts, confirmed against live Ollama server
+    # logs showing a 100% failure rate at exactly the old 30.0s cutoff).
+    # The probe stays fast; only the read timeout was widened back out.
+    assert 'timeout=3.0) as _probe' in server_py  # probe stays fast
+    assert '180.0 if p_type == "local" else 120.0' in server_py  # read timeout has real headroom

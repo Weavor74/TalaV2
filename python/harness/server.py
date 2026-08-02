@@ -1728,7 +1728,12 @@ async def handle_inference_generate(
                             errors.append(f"Provider '{p_name}' skipped: {probe_desc}")
                             continue
 
-                    _read_timeout = float(params.get("timeout_seconds", 30.0 if p_type == "local" else 120.0))
+                    # Local (CPU-bound) inference is the SLOWER path, not the faster one --
+                    # prompt prefill alone for a ~2000-token prompt routinely takes 15-25s+
+                    # on CPU before generation even starts (confirmed against live Ollama
+                    # server logs: every request was being cut off at exactly the old 30.0s
+                    # timeout, a 100% failure rate). Give it more room than remote, not less.
+                    _read_timeout = float(params.get("timeout_seconds", 180.0 if p_type == "local" else 120.0))
                     async with httpx.AsyncClient(timeout=httpx.Timeout(_read_timeout, connect=3.0)) as client:
                         if stream:
                             chunks = []
