@@ -532,6 +532,28 @@ def _normalize_tool_call_format(text: str) -> str:
     return normalized
 
 
+_PROVIDER_TIER_RANK = {"remote": 0, "local": 1, "embedded": 2}
+
+
+def _tier_sort_providers(provider_list: list[dict]) -> list[dict]:
+    """
+    Sort providers into remote -> local -> embedded tiers, stably preserving
+    relative order within each tier (whatever order they arrived in, e.g.
+    DB priority order).
+
+    Enforced here rather than trusted from the DB `priority` column alone:
+    inference.save_providers persists priority as a pure positional index in
+    whatever order its caller sends, with no type-awareness, so any Settings
+    UI save -- even an unrelated one, like toggling a FORCE checkbox -- can
+    silently drift a remote provider's priority number past every local
+    model's. Confirmed in production. Enforcing the tier order here (Python's
+    sort is stable, so intra-tier order is untouched) makes the intended
+    remote -> local -> embedded fallback chain durable regardless of what
+    the DB currently contains.
+    """
+    return sorted(provider_list, key=lambda p: _PROVIDER_TIER_RANK.get(p.get("type"), 3))
+
+
 async def handle_inference_generate(
     params: dict[str, Any],
     ws: WebSocketServerProtocol,
@@ -1609,26 +1631,29 @@ async def handle_inference_generate(
         if p["config"] and p["config"].get("is_forced"):
             forced_provider = p
 
-    # Routing logic
+    # Routing logic.
+    #
+    # The fallback chain is tier-sorted (remote -> local -> embedded) via
+    # _tier_sort_providers rather than trusted from the DB `priority` column
+    # alone. Raw priority can't be relied on to stay banded correctly:
+    # inference.save_providers persists priority as a pure positional index
+    # in whatever order its caller sends, with no type-awareness, so any
+    # Settings UI save (even an unrelated one, like toggling a FORCE
+    # checkbox) can silently drift a remote provider's priority number past
+    # every local model's. Confirmed in production. Enforcing the tier order
+    # here makes it durable regardless of what the DB currently contains.
     if request_provider:
         logger.info("Request-selected provider active for session %s: '%s' (Preferred First)", session_id, request_provider["name"])
-        local_others = [p for p in providers if p["id"] != request_provider["id"] and p["type"] in ("local", "embedded")]
-        remote_others = [p for p in providers if p["id"] != request_provider["id"] and p["type"] == "remote"]
-        providers = [request_provider] + local_others + remote_others
+        others = _tier_sort_providers([p for p in providers if p["id"] != request_provider["id"]])
+        providers = [request_provider] + others
     elif forced_provider:
         logger.info("Forced provider active: '%s' (Preferred First)", forced_provider["name"])
-        local_others = [p for p in providers if p["id"] != forced_provider["id"] and p["type"] in ("local", "embedded")]
-        remote_others = [p for p in providers if p["id"] != forced_provider["id"] and p["type"] == "remote"]
-        providers = [forced_provider] + local_others + remote_others
+        others = _tier_sort_providers([p for p in providers if p["id"] != forced_provider["id"]])
+        providers = [forced_provider] + others
     else:
-        # Router Mode: prioritize local and embedded models first, then fall back to remote cloud APIs.
-        # Preserve original priority ordering within those groups.
-        local_providers = [p for p in providers if p["type"] in ("local", "embedded")]
-        remote_providers = [p for p in providers if p["type"] == "remote"]
-        
         # Ensure embedded-builtin is at least present as an ultimate fallback if no local models are configured
-        if not any(p["id"] == "embedded-builtin" for p in local_providers):
-            local_providers.append({
+        if not any(p["id"] == "embedded-builtin" for p in providers):
+            providers = providers + [{
                 "id": "embedded-builtin",
                 "type": "embedded",
                 "name": "Tala Embedded Engine",
@@ -1636,10 +1661,9 @@ async def handle_inference_generate(
                 "status": "online",
                 "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
                 "locked": True
-            })
-            
-        providers = local_providers + remote_providers
-        logger.info("Router Mode active: Enqueued %d local/embedded and %d remote fallback providers.", len(local_providers), len(remote_providers))
+            }]
+        providers = _tier_sort_providers(providers)
+        logger.info("Enqueued %d providers in tier order (remote -> local -> embedded).", len(providers))
 
     loop_count = 0
     max_loops = 8  # Raised from 3 — complex agentic tasks need more turns
