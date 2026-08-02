@@ -8434,44 +8434,29 @@ async def handle_system_self_test(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
-def _harness_admin_secret_path() -> Path:
-    configured = os.environ.get("TALA_HARNESS_ADMIN_SECRET_FILE")
-    if configured:
-        return Path(configured).expanduser().resolve()
-
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        return Path(user_data).expanduser().resolve() / "vault" / ".keys" / "harness_admin_secret.txt"
-
-    return Path(_ROOT_DIR) / "vault" / ".keys" / "harness_admin_secret.txt"
-
-
-def _load_or_create_harness_admin_secret() -> str:
-    env_secret = os.environ.get("TALA_HARNESS_ADMIN_SECRET")
-    if env_secret:
-        return env_secret
-
-    path = _harness_admin_secret_path()
-    if path.exists():
-        return path.read_text(encoding="utf-8").strip()
-
-    import secrets
-    secret = secrets.token_hex(32)
-    path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(secret, encoding="utf-8")
-    return secret
-
-
-def _require_harness_admin_secret(params: dict[str, Any]) -> bool:
+async def handle_system_capabilities(params: dict[str, Any], req_id: Any) -> str:
     """
-    Gate for admin-level self-modification RPC methods (code pull/redeploy).
-    Only the local Electron main process (which reads the same file from the
-    same machine) knows this secret — any other WebSocket client, including a
-    remote peer on a shared/VPS deployment, is rejected.
+    ``system.capabilities`` — Live manifest of every registered RPC method and
+    agent tool. Read-only introspection, built fresh on every call from the
+    actual _HANDLERS table and ToolRegistry -- never a hand-maintained doc.
     """
-    provided = str(params.get("harness_secret", ""))
-    expected = _load_or_create_harness_admin_secret()
-    return bool(provided) and provided == expected
+    try:
+        from python.harness.capabilities import get_capability_manifest
+
+        return _ok(req_id, get_capability_manifest())
+    except Exception as exc:
+        logger.exception("system.capabilities error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+# Admin-secret gate (moved to admin_auth.py so mcp_server.py can reuse it
+# without importing this whole module). Local aliases kept so the many
+# existing call sites below don't need to change.
+from python.harness.admin_auth import (
+    harness_admin_secret_path as _harness_admin_secret_path,
+    load_or_create_harness_admin_secret as _load_or_create_harness_admin_secret,
+    require_harness_admin_secret as _require_harness_admin_secret,
+)
 
 
 async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> str:
@@ -9394,6 +9379,7 @@ _HANDLERS: dict[str, Any] = {
     "search.query":       handle_search_query,
     "system.info":        handle_system_info,
     "system.self_test":   handle_system_self_test,
+    "system.capabilities": handle_system_capabilities,
     "system.trigger_update": handle_system_trigger_update,
     "system.download_update": handle_system_download_update,
     "git.get_providers":  handle_git_get_providers,
@@ -10211,6 +10197,11 @@ async def _run_server() -> None:
     )
     logger.info("Registered methods: %s", ", ".join(sorted(_HANDLERS.keys())))
 
+    # ── 1b. Launch the MCP server (discovery + gated tool execution for
+    # external MCP clients) as a background task. Non-fatal: a bind failure
+    # here must never take down the main WS harness.
+    asyncio.create_task(_start_mcp_server_safe())
+
     # ── 2. Pre-warm the embedded_engine module immediately (non-DB-gated) ──
     # The huggingface_hub import takes 5-15 s on a cold process.  We await this
     # to ensure the import completes before we start any other background threads
@@ -10225,6 +10216,17 @@ async def _run_server() -> None:
     # Block until shutdown signal
     await _shutdown_event.wait()
     await _shutdown()
+
+
+async def _start_mcp_server_safe() -> None:
+    """Start the MCP server, logging (not raising) on failure. Optional
+    subsystem -- external MCP clients losing connectivity to Tala must
+    never prevent the main WS harness from serving Electron."""
+    try:
+        from python.harness.mcp_server import start_mcp_server
+        await start_mcp_server()
+    except Exception:
+        logger.exception("MCP server failed to start; continuing without it")
 
 
 async def _prewarm_embedded_engine() -> None:

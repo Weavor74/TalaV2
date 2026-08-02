@@ -38,10 +38,18 @@ cryptography>=42.0
 # BIP39 seed phrase generation for non-custodial wallet
 mnemonic>=0.20
 
-# Model Context Protocol client support
+# Model Context Protocol client + server support (mcp_manager.py connects
+# out to other MCP servers; mcp_server.py exposes Tala's own capabilities
+# as an MCP server over SSE)
 mcp>=1.5.0
 click>=8.1
 httpx-sse>=0.4
+
+# ASGI stack for the MCP SSE server (mcp_server.py) -- transitive deps of
+# mcp's SSE support, pinned explicitly since we import them directly
+starlette>=0.37
+uvicorn>=0.29
+sse-starlette>=2.0
 
 # ---------------------------------------------------------------------------
 # Remote APIs

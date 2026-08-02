@@ -103,6 +103,13 @@ class Config:
     WS_PORT: int
 
     # ------------------------------------------------------------------
+    # MCP server (exposes Tala's capability manifest + gated tool
+    # execution to external MCP clients over SSE)
+    # ------------------------------------------------------------------
+    MCP_HOST: str
+    MCP_PORT: int
+
+    # ------------------------------------------------------------------
     # Vault (encrypted secret store path)
     # ------------------------------------------------------------------
     VAULT_PATH: Path
@@ -179,6 +186,8 @@ def load_config() -> Config:
         ),
         WS_HOST=_env("WS_HOST", default="127.0.0.1"),
         WS_PORT=int(_env("WS_PORT", default="8765")),
+        MCP_HOST=_env("MCP_HOST", default="127.0.0.1"),
+        MCP_PORT=int(_env("MCP_PORT", default="8766")),
         VAULT_PATH=vault_path,
         LOG_LEVEL=log_level,
         TOKEN_COST_PER_TOKEN=float(
