@@ -580,6 +580,34 @@ def _tier_sort_providers(provider_list: list[dict]) -> list[dict]:
     return sorted(provider_list, key=lambda p: _PROVIDER_TIER_RANK.get(p.get("type"), 3))
 
 
+_ACTION_TERMS = ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create", "turn", "convert", "refactor", "build", "implement")
+_ACTION_TERMS_RE = re.compile(r'\b(?:' + '|'.join(_ACTION_TERMS) + r')\b')
+
+
+def _prompt_implies_untaken_action(raw_user_prompt: str) -> bool:
+    """
+    True if the user's actual raw message implies an action (search, fix,
+    build, etc.) that a tool call could satisfy -- used to auto-continue a
+    turn where the model described intent to act but never emitted a
+    `<call:...>` tag.
+
+    Takes `raw_user_prompt` specifically, not the fully assembled prompt
+    (goal + wiki context + memory + astrology influence) that
+    handle_inference_generate builds and reassigns over its own `prompt`
+    variable later. Checking the assembled prompt here was a real,
+    confirmed-live bug: it fired based on words appearing anywhere in
+    injected context, not on anything the user actually said -- a plain
+    "Ever hear of the term sexting?" triggered it three times in a row
+    because the assembled context happened to contain action words
+    unrelated to that message.
+
+    Word-boundary matching (not a bare substring check) also avoids
+    incidental hits like "turnip" containing "turn" or "addicted"
+    containing "add".
+    """
+    return bool(_ACTION_TERMS_RE.search(raw_user_prompt.lower()))
+
+
 async def handle_inference_generate(
     params: dict[str, Any],
     ws: WebSocketServerProtocol,
@@ -608,6 +636,12 @@ async def handle_inference_generate(
     prompt = params.get("prompt")
     if not prompt or not isinstance(prompt, str):
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'prompt' (str) is required")
+
+    # Preserved before `prompt` gets overwritten below with the fully
+    # assembled prompt (goal + wiki context + memory + astrology influence).
+    # Anything that needs to reflect what the USER actually said -- not the
+    # injected context around it -- should check this instead.
+    raw_user_prompt = prompt
 
     session_id: str = str(params.get("session_id", uuid.uuid4()))
 
@@ -2046,10 +2080,10 @@ async def handle_inference_generate(
         # Parse tool calls
         tool_match = _find_tool_call(generated_text)
         if not tool_match:
-            # If prompt implies action/search/fix/remove and model spoke prose without emitting a tool call:
+            # If the user's actual message implies action/search/fix/remove and the
+            # model spoke prose without emitting a tool call:
             if not is_casual_chat:
-                action_terms = ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create", "turn", "convert", "refactor", "build", "implement")
-                if loop_count < 3 and any(k in prompt.lower() for k in action_terms):
+                if loop_count < 3 and _prompt_implies_untaken_action(raw_user_prompt):
                     logger.info(f"Model stated intent without emitting tool call tag on action prompt (Turn {loop_count}). Auto-continuing turn...")
                     messages.append({"role": "assistant", "content": generated_text})
                     messages.append({
