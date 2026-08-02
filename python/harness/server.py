@@ -1289,7 +1289,15 @@ async def handle_inference_generate(
         # `key="value"` placeholders, etc.) is exactly what a confused small model
         # echoes back as a fake tool call when it has no real task to do. Omitting
         # it here mirrors the native tools-schema omission further down.
-        tool_instructions = f"{system_settings_context}\n"
+        tool_instructions = (
+            f"{system_settings_context}\n"
+            "[Formatting: Internal Reasoning]\n"
+            "If you want to think through what to say or whether to use a tool before "
+            "answering, put that reasoning inside <thinking>...</thinking> tags. Only text "
+            "outside the <thinking> tags is ever shown to the user -- always close the tag "
+            "with </thinking> before writing anything meant to be seen, whether that's your "
+            "visible reply or a tool call tag.\n\n"
+        )
 
         if not is_casual_chat:
             tool_instructions += (
