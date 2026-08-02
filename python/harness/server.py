@@ -438,6 +438,32 @@ def _maybe_handle_documentation_nl(prompt: str) -> str | None:
 
 _TOOL_CALL_RE = re.compile(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', re.DOTALL)
 _CLOSED_THINKING_RE = re.compile(r'<thinking>.*?</thinking>', re.DOTALL | re.IGNORECASE)
+_OPEN_THINKING_RE = re.compile(r'<thinking>', re.IGNORECASE)
+
+
+def _close_unclosed_thinking(text: str) -> str:
+    """
+    If `text` opens a <thinking> block with no matching </thinking>
+    anywhere, close it by appending </thinking> at the end.
+
+    Confirmed live production bug: a model that opens <thinking> and then
+    never transitions to a real answer (runs out of budget, drifts off)
+    produces text that's ambiguous to every consumer of inference.generate's
+    `text` field -- the Electron renderer, the MCP server, a script -- each
+    would need its own bespoke unclosed-tag handling, and getting it wrong
+    means raw reasoning leaks straight to the user. The renderer already
+    has this fix client-side (hides an unclosed block instead of showing
+    raw text), but that only protects the one client that happens to have
+    it; the RPC response itself was still returning the leaked text as-is.
+
+    Auto-closing here makes the well-formed <thinking>...</thinking>
+    convention hold universally: an unclosed-thinking turn becomes "no real
+    answer this turn, only thinking" for every consumer, using the same tag
+    semantics already used for turns that closed the tag correctly.
+    """
+    if _OPEN_THINKING_RE.search(text) and not _CLOSED_THINKING_RE.search(text):
+        return text.rstrip() + "\n</thinking>"
+    return text
 
 
 def _find_tool_call(text: str) -> "re.Match[str] | None":
@@ -2032,7 +2058,7 @@ async def handle_inference_generate(
                     })
                     loop_count += 1
                     continue
-            all_responses.append(generated_text)
+            all_responses.append(_close_unclosed_thinking(generated_text))
             break
 
         # Truncate any text generated after the call tag to prevent model hallucinations of responses
@@ -2229,7 +2255,7 @@ async def handle_inference_generate(
         clean_generated = re.sub(r'```(?:xml)?\s*', '', clean_generated)
         clean_generated = clean_generated.replace('**Tool Call:**', '').strip()
         if clean_generated:
-            all_responses.append(clean_generated)
+            all_responses.append(_close_unclosed_thinking(clean_generated))
 
         # Append to message history for next LLM turn
         messages.append({"role": "assistant", "content": generated_text})
@@ -2246,7 +2272,7 @@ async def handle_inference_generate(
         loop_count += 1
     else:
         # Loop limit reached, append final text
-        all_responses.append(generated_text)
+        all_responses.append(_close_unclosed_thinking(generated_text))
 
     generated_text = "\n\n".join(all_responses)
 

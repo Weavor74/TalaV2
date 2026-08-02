@@ -1,4 +1,4 @@
-from python.harness.server import _find_tool_call, _normalize_tool_call_format
+from python.harness.server import _find_tool_call, _normalize_tool_call_format, _close_unclosed_thinking
 
 
 def test_ignores_call_tag_quoted_inside_closed_thinking_block():
@@ -100,3 +100,27 @@ def test_still_normalizes_real_call_after_closed_thinking_block():
     )
     result = _normalize_tool_call_format(text)
     assert '<call:search_workspace_files query="foo" />' in result
+
+
+# --- _close_unclosed_thinking -----------------------------------------------
+
+def test_closes_an_unclosed_thinking_block():
+    """Regression test for a real, live production bug caught by the
+    end-to-end adversarial conversation fixture: a model opened <thinking>
+    and never transitioned to a real answer. The raw RPC response text
+    (not just the renderer's display layer) must never leave an unclosed
+    tag -- every consumer of inference.generate's `text` field needs the
+    <thinking>...</thinking> convention to hold, not just the Electron UI."""
+    text = "<thinking>\nreasoning that never finishes"
+    result = _close_unclosed_thinking(text)
+    assert result == "<thinking>\nreasoning that never finishes\n</thinking>"
+
+
+def test_leaves_a_closed_thinking_block_untouched():
+    text = "<thinking>reasoning</thinking>\n\nHere is my answer."
+    assert _close_unclosed_thinking(text) == text
+
+
+def test_leaves_text_without_thinking_untouched():
+    text = "just a normal reply, no tags here"
+    assert _close_unclosed_thinking(text) == text
