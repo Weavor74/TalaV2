@@ -5535,6 +5535,18 @@ const AgentChat = {
     if (match) {
       thinkingText = match[1].trim();
       finalContent = content.replace(thinkingRegex, "").trim();
+    } else {
+      // Small/local fallback models sometimes open a <thinking> block and
+      // never close it (they drift off mid-reasoning). Without a matching
+      // close tag there's nothing to safely resume "real" reply text from,
+      // so treat everything from the open tag onward as thinking rather
+      // than dumping the raw, unclosed tag + reasoning into the chat as if
+      // it were the actual response.
+      const openIdx = content.search(/<thinking>/i);
+      if (openIdx !== -1) {
+        thinkingText = content.slice(openIdx + "<thinking>".length).trim();
+        finalContent = content.slice(0, openIdx).trim();
+      }
     }
 
     if (thinkingText) {
