@@ -468,6 +468,70 @@ def _find_tool_call(text: str) -> "re.Match[str] | None":
     return _TOOL_CALL_RE.search(text, search_start)
 
 
+_CALL_COLON_RE = re.compile(r'\bCALL:([\w\.]+)\(([^)]*)\)', re.IGNORECASE)
+_ALLCAPS_CALL_RE = re.compile(r'\b([A-Z0-9_]{4,})\(([^)]*)\)')
+
+
+def _normalize_tool_call_format(text: str) -> str:
+    """
+    Normalize alternate tool-call formats that small models tend to emit
+    instead of the canonical ``<call:tool_name attr="val" />`` XML tag:
+        ```xml\nCALL:tool.name(key="val")\n```   ->  <call:tool.name key="val" />
+        `CALL:tool.name(key="val")`              ->  <call:tool.name key="val" />
+        CALL:tool.name(key="val")                ->  <call:tool.name key="val" />
+        SEARCH_WORKSPACE_FILES(query="val")      ->  <call:search_workspace_files query="val" />
+
+    Like _find_tool_call, skips matches inside a closed <thinking> block --
+    the fallback ALL-CAPS(...) pattern is broad enough to catch incidental
+    prose (e.g. a model narrating "I'll use the SEARCH_WORKSPACE_FILES(...)
+    format" while reasoning, or unrelated text like "TODO(fix this)"), and
+    without this it would get misread as a real invocation the same way an
+    unanchored <call:...> search once did.
+    """
+    search_start = 0
+    think_match = _CLOSED_THINKING_RE.search(text)
+    if think_match:
+        search_start = think_match.end()
+
+    call_match = _CALL_COLON_RE.search(text, search_start)
+    if not call_match:
+        call_match = _ALLCAPS_CALL_RE.search(text, search_start)
+
+    if not call_match:
+        return text
+
+    tool_name = call_match.group(1).lower()
+    raw_args = call_match.group(2).strip().lstrip("(").rstrip(")")
+
+    start_pos = call_match.start()
+    end_pos = call_match.end()
+
+    # Extract the text after the closing parenthesis of the CALL
+    after_text = text[end_pos:].strip()
+    if after_text.endswith("```"):
+        after_text = after_text[:-3].strip()
+    elif after_text.endswith("`"):
+        after_text = after_text[:-1].strip()
+
+    # Extract the text before the CALL
+    before_text = text[:start_pos].strip()
+    if before_text.startswith("```xml"):
+        before_text = before_text[6:].strip()
+    elif before_text.startswith("```"):
+        before_text = before_text[3:].strip()
+    elif before_text.startswith("`"):
+        before_text = before_text[1:].strip()
+
+    if after_text:
+        normalized = f'<call:{tool_name} {raw_args}>{after_text}</call:{tool_name}>'
+    else:
+        normalized = f'<call:{tool_name} {raw_args} />'
+
+    if before_text:
+        return f"{before_text}\n\n{normalized}"
+    return normalized
+
+
 async def handle_inference_generate(
     params: dict[str, Any],
     ws: WebSocketServerProtocol,
@@ -1921,51 +1985,6 @@ async def handle_inference_generate(
         if not success:
             all_errors = "; ".join(errors)
             return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"All inference providers failed: {all_errors}")
-
-        # Normalize alternate tool-call formats that small models tend to emit instead of
-        # the canonical <call:tool_name attr="val" /> XML tag.  We convert:
-        #   ```xml\nCALL:tool.name(key="val")\n```   →  <call:tool.name key="val" />
-        #   `CALL:tool.name(key="val")`              →  <call:tool.name key="val" />
-        #   CALL:tool.name(key="val")                →  <call:tool.name key="val" />
-        #   SEARCH_WORKSPACE_FILES(query="val")      →  <call:search_workspace_files query="val" />
-        def _normalize_tool_call_format(text: str) -> str:
-            call_match = re.search(r'\bCALL:([\w\.]+)\(([^)]*)\)', text, re.IGNORECASE)
-            if not call_match:
-                call_match = re.search(r'\b([A-Z0-9_]{4,})\(([^)]*)\)', text)
-                
-            if not call_match:
-                return text
-                
-            tool_name = call_match.group(1).lower()
-            raw_args = call_match.group(2).strip().lstrip("(").rstrip(")")
-            
-            start_pos = call_match.start()
-            end_pos = call_match.end()
-            
-            # Extract the text after the closing parenthesis of the CALL
-            after_text = text[end_pos:].strip()
-            if after_text.endswith("```"):
-                after_text = after_text[:-3].strip()
-            elif after_text.endswith("`"):
-                after_text = after_text[:-1].strip()
-                
-            # Extract the text before the CALL
-            before_text = text[:start_pos].strip()
-            if before_text.startswith("```xml"):
-                before_text = before_text[6:].strip()
-            elif before_text.startswith("```"):
-                before_text = before_text[3:].strip()
-            elif before_text.startswith("`"):
-                before_text = before_text[1:].strip()
-                
-            if after_text:
-                normalized = f'<call:{tool_name} {raw_args}>{after_text}</call:{tool_name}>'
-            else:
-                normalized = f'<call:{tool_name} {raw_args} />'
-                
-            if before_text:
-                return f"{before_text}\n\n{normalized}"
-            return normalized
 
         generated_text = _normalize_tool_call_format(generated_text)
 
