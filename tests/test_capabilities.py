@@ -1,6 +1,7 @@
 import pytest
 
 from python.harness.capabilities import get_capability_manifest
+from sdk.agent.tools import ToolRegistry
 
 
 def test_manifest_shape():
@@ -42,3 +43,16 @@ def test_agent_tools_have_expected_keys():
         assert "name" in tool
         assert "description" in tool
         assert "schema" in tool
+
+
+@pytest.mark.asyncio
+async def test_system_capabilities_callable_from_chat():
+    """system.capabilities must also be reachable the way Tala's own chat
+    LLM invokes tools (<call:system.capabilities /> -> ToolRegistry.run_tool),
+    not just via the RPC/MCP surfaces."""
+    result = await ToolRegistry.run_tool("system.capabilities", {})
+    assert result["success"] is True
+    output = result["output"]
+    assert output["total_rpc_methods"] > 100
+    assert output["total_agent_tools"] > 0
+    assert any(t["name"] == "system.capabilities" for t in output["agent_tools"])

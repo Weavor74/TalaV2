@@ -1543,6 +1543,24 @@ async def get_system_info_tool() -> dict[str, Any]:
 
 
 @register_tool(
+    name="system.capabilities",
+    description="Return Tala's own live capability manifest -- what tools and RPC methods are currently available. Use this when asked what you can do, what tools you have, or to list your capabilities.",
+)
+async def list_capabilities_tool() -> dict[str, Any]:
+    from python.harness.capabilities import get_capability_manifest
+    manifest = get_capability_manifest()
+    return {
+        "total_rpc_methods": len(manifest["rpc_methods"]),
+        "total_agent_tools": len(manifest["agent_tools"]),
+        "rpc_categories": {k: len(v) for k, v in manifest["categories"].items()},
+        "agent_tools": [
+            {"name": t["name"], "description": t["description"]}
+            for t in manifest["agent_tools"]
+        ],
+    }
+
+
+@register_tool(
     name="code.propose_patch",
     description=(
         "Propose a bounded exact-replacement patch inside the workspace. "
