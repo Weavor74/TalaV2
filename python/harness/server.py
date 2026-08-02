@@ -9749,13 +9749,23 @@ async def _auto_detect_and_verify_providers() -> None:
     check_targets.append(("vllm", "http://localhost:8000", "/v1/models", "http://localhost:8000/v1"))
     check_targets.append(("local-openai", "http://localhost:8080", "/v1/models", "http://localhost:8080/v1"))
 
-    # 3. Scan and auto-register discovered models from each target
-    # Local providers get priority < 10 so they're tried BEFORE the embedded engine (priority >= 10).
-    # Find the lowest existing local/remote priority; new ones go just above 0.
-    local_priorities = [p["priority"] for p in existing_providers if p["type"] in ("local", "remote")]
-    next_local_priority = (min(local_priorities) - 1) if local_priorities else 1
-    max_priority = max([p["priority"] for p in existing_providers]) if existing_providers else 0
-    
+    # 3. Scan and auto-register discovered models from each target.
+    # Priority bands by provider type, low-to-high so ascending priority order
+    # tries remote (cloud) providers first, then local runtimes (Ollama/vLLM/
+    # LM Studio/local OpenAI-compatible), then the embedded fallback last.
+    # Auto-discovered local models are newly-appended, so they go at the END
+    # of the local band (max existing local priority + 1, incrementing) --
+    # NOT competing with remote providers the way a shared/negative-going
+    # counter used to.
+    _LOCAL_PRIORITY_BASE = 1000
+    local_priorities = [p["priority"] for p in existing_providers if p["type"] == "local"]
+    next_local_priority = (max(local_priorities) + 1) if local_priorities else _LOCAL_PRIORITY_BASE
+
+    # Models that are embedding-only (not chat/completion-capable) should
+    # never be auto-registered as inference.generate providers -- they'd
+    # just fail or return garbage if a chat request ever reached them.
+    _EMBEDDING_MODEL_MARKERS = ("embed",)
+
     cached_ollama_tags = {}
     cached_openai_models = {}
 
@@ -9780,6 +9790,9 @@ async def _auto_detect_and_verify_providers() -> None:
                     if discovered_models:
                         logger.info("Local %s running at %s, discovered models: %s", engine_type, base_url, discovered_models)
                         for model_name in discovered_models:
+                            if model_name and any(marker in model_name.lower() for marker in _EMBEDDING_MODEL_MARKERS):
+                                logger.debug("Skipping embedding-only model %s (not chat-capable)", model_name)
+                                continue
                             is_registered = False
                             registered_id = None
                             for p in existing_providers:
@@ -9799,7 +9812,8 @@ async def _auto_detect_and_verify_providers() -> None:
                             if not is_registered:
                                 sanitized_id = f"{engine_type}-{model_name.replace(':', '-').replace('/', '-').replace('.', '-')}"
                                 provider_name = f"{engine_type.upper().replace('-', ' ')} - {model_name}"
-                                # Use next_local_priority so local engines are tried BEFORE embedded
+                                # next_local_priority keeps this in the local band (>= 1000), after
+                                # any remote provider and before the embedded fallback.
                                 cfg = {
                                     "engine": "ollama" if engine_type == "ollama" else "openai",
                                     "endpoint": register_endpoint,
@@ -9822,13 +9836,13 @@ async def _auto_detect_and_verify_providers() -> None:
                                     False,
                                 )
                                 logger.info("Auto-registered new local provider: %s (priority=%d)", provider_name, next_local_priority)
-                                next_local_priority -= 1  # Each subsequent auto-detected model gets slightly lower priority
+                                next_local_priority += 1  # Each subsequent auto-detected model goes after the last
                                 
                                 existing_providers.append({
                                     "id": sanitized_id,
                                     "type": "local",
                                     "name": provider_name,
-                                    "priority": next_local_priority + 1,
+                                    "priority": next_local_priority - 1,
                                     "status": "online",
                                     "config": cfg,
                                     "locked": False
