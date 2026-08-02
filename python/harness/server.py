@@ -436,6 +436,38 @@ def _maybe_handle_documentation_nl(prompt: str) -> str | None:
     return None
 
 
+_TOOL_CALL_RE = re.compile(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', re.DOTALL)
+_CLOSED_THINKING_RE = re.compile(r'<thinking>.*?</thinking>', re.DOTALL | re.IGNORECASE)
+
+
+def _find_tool_call(text: str) -> "re.Match[str] | None":
+    """
+    Find the real ``<call:...>`` tool invocation, skipping any occurrence
+    that falls inside a well-formed ``<thinking>...</thinking>`` block.
+
+    Reasoning-capable models often narrate the tag they're about to emit as
+    part of their visible thinking (e.g. "I should output `<call:foo />`")
+    before actually emitting it. A plain unanchored search finds that quoted
+    mention first, which then swallows everything after it -- including the
+    real, well-formed call -- as bogus arguments to whatever malformed
+    "tool name" the reasoning text happened to contain there (e.g. a bare
+    "..." used as a placeholder). Restricting the search to start after the
+    first closed thinking block avoids this regardless of which provider or
+    model produced the text -- it only depends on the harness's own
+    <thinking> convention, not on any model-specific behavior.
+
+    Uses re.Pattern.search(text, pos) rather than slicing the string, so a
+    returned match's .start()/.end() stay valid offsets into the original,
+    unmodified `text` (callers rely on this, e.g. to truncate generated_text
+    at the call's end).
+    """
+    search_start = 0
+    think_match = _CLOSED_THINKING_RE.search(text)
+    if think_match:
+        search_start = think_match.end()
+    return _TOOL_CALL_RE.search(text, search_start)
+
+
 async def handle_inference_generate(
     params: dict[str, Any],
     ws: WebSocketServerProtocol,
@@ -1843,8 +1875,8 @@ async def handle_inference_generate(
                     elif last_raw_assistant_text:
                         # Compare the raw (pre-clean) LLM outputs so the <call:...> tags are
                         # still present in both sides — cleaned all_responses strips the tags.
-                        tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
-                        last_tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', last_raw_assistant_text, re.DOTALL)
+                        tool_match = _find_tool_call(generated_text)
+                        last_tool_match = _find_tool_call(last_raw_assistant_text)
                         if tool_match and last_tool_match and tool_match.group(0) == last_tool_match.group(0):
                             fallback_reason = "Identical tool call loop detected"
                             
@@ -1938,7 +1970,7 @@ async def handle_inference_generate(
             break
 
         # Parse tool calls
-        tool_match = re.search(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', generated_text, re.DOTALL)
+        tool_match = _find_tool_call(generated_text)
         if not tool_match:
             # If prompt implies action/search/fix/remove and model spoke prose without emitting a tool call:
             if not is_casual_chat:
