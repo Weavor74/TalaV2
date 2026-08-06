@@ -6215,6 +6215,53 @@ async def handle_system_info(params: dict[str, Any], req_id: Any) -> str:
         "python-dotenv":    _pkg_version("python-dotenv"),
     }
 
+    # ── GPU ────────────────────────────────────────────────────────────────
+    # This section was missing entirely before -- system.info reported CPU/RAM/
+    # disk/software but nothing about GPU hardware or whether local inference
+    # is actually using it, so the model's own self-description of "no GPU
+    # mentioned" was technically honest but misleading about what's actually
+    # available. torch.cuda is authoritative for whether Tala's embedded
+    # engine can/does use a GPU; nvidia-smi is a fallback so a real GPU still
+    # shows up here even in an environment where torch itself isn't installed.
+    gpu_info: dict[str, Any] = {"available": False, "devices": []}
+    try:
+        import torch as _torch
+        gpu_info["torch_version"] = _torch.__version__
+        if _torch.cuda.is_available():
+            gpu_info["available"] = True
+            gpu_info["backend"] = "cuda"
+            gpu_info["devices"] = [
+                {
+                    "index": i,
+                    "name": _torch.cuda.get_device_name(i),
+                    "total_vram_gb": round(_torch.cuda.get_device_properties(i).total_memory / (1024 ** 3), 2),
+                    "compute_capability": ".".join(str(x) for x in _torch.cuda.get_device_capability(i)),
+                }
+                for i in range(_torch.cuda.device_count())
+            ]
+        else:
+            gpu_info["backend"] = "cpu"
+    except ImportError:
+        gpu_info["backend"] = "torch not installed"
+    except Exception as exc:
+        gpu_info["error"] = str(exc)
+
+    if not gpu_info["devices"]:
+        smi_out = _run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"])
+        if smi_out:
+            gpu_info["nvidia_smi_detected"] = smi_out.splitlines()
+
+    # If Tala's embedded model is already loaded in this process, report the
+    # actual device it landed on -- the single most direct answer to "is
+    # local inference using the GPU right now", not just "could it".
+    try:
+        from python.inference import embedded_engine as _ee
+        loaded_model = getattr(_ee, "_model", None)
+        if loaded_model is not None:
+            gpu_info["embedded_model_device"] = str(next(loaded_model.parameters()).device)
+    except Exception:
+        pass
+
     # ── Runtime service status ─────────────────────────────────────────────
     services = {
         "harness_ws":  "online",   # If we're responding, the harness is running
@@ -6237,6 +6284,7 @@ async def handle_system_info(params: dict[str, Any], req_id: Any) -> str:
         "cpu":         cpu_info,
         "ram":         ram_info,
         "disk":        disk_info,
+        "gpu":         gpu_info,
         "software": {
             "python":     python_version,
             "node":       node_version,
