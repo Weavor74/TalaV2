@@ -8754,6 +8754,10 @@ async def handle_self_improvement_execute_goal(params: dict[str, Any], req_id: A
             goal=goal,
             dry_run=bool(params.get("dry_run", False)),
             targets=params.get("targets"),
+            target_files=params.get("target_files"),
+            replacements=params.get("replacements"),
+            file_writes=params.get("file_writes"),
+            validation_commands=params.get("validation_commands"),
         )
         return _ok(req_id, result)
     except Exception as exc:

@@ -610,6 +610,10 @@ async def execute_self_improvement_goal(
     goal: str,
     dry_run: bool = False,
     targets: Any = None,
+    target_files: Any = None,
+    replacements: Any = None,
+    file_writes: Any = None,
+    validation_commands: Any = None,
 ) -> dict[str, Any]:
     goal_text = str(goal or "").strip()
     if not goal_text:
@@ -617,10 +621,14 @@ async def execute_self_improvement_goal(
 
     plan_result = create_self_improvement_plan(
         goal=goal_text,
-        target_files=["README.md"],
-        dry_run=True,
+        target_files=target_files or ["README.md"],
+        replacements=replacements,
+        file_writes=file_writes,
+        validation_commands=validation_commands,
+        dry_run=dry_run,
     )
     classified_gap = plan_result["plan"]["classified_gap"]
+    plan_is_noop = not replacements and not file_writes
 
     result: dict[str, Any] = {
         "success": False,
@@ -662,10 +670,11 @@ async def execute_self_improvement_goal(
 
     execution_result = await execute_self_improvement_plan(
         plan=plan_result["plan"],
-        dry_run=True if dry_run else bool(plan_result["plan"].get("dry_run", True)),
+        dry_run=dry_run,
     )
     result["selected_bridge"] = "self_improvement.execute_plan"
     result["execution_result"] = execution_result
+    result["no_op"] = plan_is_noop
     result["errors"].extend(execution_result.get("errors", []))
     result["success"] = not result["errors"] and bool(execution_result.get("success"))
     return result

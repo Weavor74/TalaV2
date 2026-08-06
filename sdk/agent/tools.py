@@ -1921,13 +1921,19 @@ async def dry_run_self_improvement_goal_tool(
     name="self_improvement.execute_goal",
     description=(
         "Execute a self-improvement goal by selecting an approved bridge. "
-        "Documentation goals route to docs.generate_and_verify_program_nodes."
+        "Documentation goals route to docs.generate_and_verify_program_nodes. "
+        "For code/config changes, pass concrete replacements or file_writes: without them "
+        "this is a no-op (result.no_op will be true) even when dry_run is false."
     ),
 )
 async def execute_self_improvement_goal_tool(
     goal: str,
     dry_run: bool = False,
     targets: list | str | None = None,
+    target_files: list | str | None = None,
+    replacements: list | None = None,
+    file_writes: list | None = None,
+    validation_commands: list | None = None,
 ) -> dict[str, Any]:
     from sdk.agent.safe_code_bridges import execute_self_improvement_goal
 
@@ -1938,6 +1944,10 @@ async def execute_self_improvement_goal_tool(
             goal=goal,
             dry_run=bool(dry_run),
             targets=targets,
+            target_files=target_files,
+            replacements=replacements,
+            file_writes=file_writes,
+            validation_commands=validation_commands,
         )
     except Exception as exc:
         return {"success": False, "errors": [str(exc)]}
