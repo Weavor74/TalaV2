@@ -39,6 +39,34 @@ def get_active_task_ids() -> set[str]:
     return set(_ACTIVE_TASK_IDS)
 
 
+# Bound on how many prior phases feed into the next phase's prompt, and how
+# much of each one's output survives truncation. Deliberately small: the
+# point of threading prior-phase output forward is to give the next phase
+# real visibility into what already happened without reintroducing the
+# unbounded-context-growth problem this exists to avoid -- so this stays a
+# curated pointer, not a full transcript. Full detail always remains
+# recoverable from the tasks table / TaskEventStore regardless of what's
+# folded into any single prompt.
+_PRIOR_PHASE_SUMMARY_MAX_PHASES = 3
+_PRIOR_PHASE_SUMMARY_MAX_CHARS_PER_PHASE = 400
+
+
+def _format_prior_phase_summary(phase_output_summaries: list[dict[str, Any]]) -> str:
+    """Render the most recent completed phases' outputs as a compact block
+    for injection into the next phase's prompt (via task.payload["context"]
+    -> DAGExecutionEngine.execute_task_as_dag's full_goal)."""
+    recent = phase_output_summaries[-_PRIOR_PHASE_SUMMARY_MAX_PHASES:]
+    lines = ["Context from earlier phases of this same goal (for continuity -- build on this, don't redo it):"]
+    for entry in recent:
+        output = entry.get("output")
+        text = output if isinstance(output, str) else str(output) if output is not None else "(no output recorded)"
+        text = text.strip()
+        if len(text) > _PRIOR_PHASE_SUMMARY_MAX_CHARS_PER_PHASE:
+            text = text[:_PRIOR_PHASE_SUMMARY_MAX_CHARS_PER_PHASE] + "... (truncated)"
+        lines.append(f"- Phase \"{entry.get('description', 'unknown')}\" produced: {text}")
+    return "\n".join(lines)
+
+
 class GoalEngine:
     """
     Orchestrates the decomposition, checkpointing, dispatching, verification,
@@ -144,6 +172,13 @@ class GoalEngine:
 
         phases_completed = []
         checkpoint_ids = []
+        # Curated, size-bounded record of what each completed phase actually
+        # produced (not just its name) -- threaded into the next phase's
+        # prompt below so a "coder" phase can see what a preceding "planner"
+        # phase decided instead of re-deriving from scratch. Survives a
+        # Ghost-blockchain resume the same way phases_completed/checkpoint_ids
+        # do, so this doesn't reset on restart either.
+        phase_output_summaries: list[dict[str, Any]] = []
         success = True
         error_msg = None
         suspended = False
@@ -158,13 +193,14 @@ class GoalEngine:
                 if state:
                     if not restored_state or state["process_context"].get("idx", 0) > restored_state["process_context"].get("idx", 0):
                         restored_state = state
-            
+
             if restored_state:
                 log.info("GoalEngine: Restoring thought-state from local Ghost Blockchain.")
                 idx = restored_state["process_context"].get("idx", 0) + 1
                 phase_retry_counts = restored_state["process_context"].get("phase_retry_counts", {})
                 phases_completed = restored_state["variable_state"].get("phases_completed", [])
                 checkpoint_ids = restored_state["variable_state"].get("checkpoint_ids", [])
+                phase_output_summaries = restored_state["variable_state"].get("phase_output_summaries", [])
                 print(f"[Sync] Restored thought-state. Resuming at phase index {idx}...")
             else:
                 idx = 0
@@ -292,11 +328,21 @@ class GoalEngine:
                 rollback_on_failure=True,
             )
 
-            # We execute the step
-            task_context = getattr(task, "payload", {}).get("context", {}) or {}
+            # We execute the step. Mutate task.payload["context"] directly --
+            # DAGExecutionEngine.execute_task_as_dag reads payload straight off
+            # the task object, not a local copy, so anything set here must land
+            # there or it never actually reaches the DAG (a local `task_context`
+            # copy used to be built here and silently discarded, unused).
+            if not isinstance(task.payload, dict):
+                task.payload = {}
+            task_context = task.payload.setdefault("context", {})
+            if not isinstance(task_context, dict):
+                task_context = {}
+                task.payload["context"] = task_context
             if self.is_fallback:
-                task_context = dict(task_context)
                 task_context["is_fallback"] = True
+            if phase_output_summaries:
+                task_context["prior_phase_summary"] = _format_prior_phase_summary(phase_output_summaries)
             # Execute the step using the DAG-Engineered execution engine
             from sdk.agent.graph_engine import DAGExecutionEngine
             graph_engine = DAGExecutionEngine(self.root_dir)
@@ -408,7 +454,11 @@ class GoalEngine:
                     }
                 )
                 phases_completed.append(task.description)
-                
+                phase_output_summaries.append({
+                    "description": task.description,
+                    "output": res.get("output"),
+                })
+
                 # Commit to Ghost Blockchain
                 try:
                     from sdk.agent.ghost_persistence import commit_to_ghost
@@ -422,6 +472,7 @@ class GoalEngine:
                     var_state = {
                         "phases_completed": phases_completed,
                         "checkpoint_ids": checkpoint_ids,
+                        "phase_output_summaries": phase_output_summaries,
                     }
                     next_step = tasks[idx + 1].description if idx + 1 < len(tasks) else "goal-complete"
                     next_step_hash = hashlib.sha256(next_step.encode("utf-8")).hexdigest()

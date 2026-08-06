@@ -238,6 +238,19 @@ class DAGExecutionEngine:
         if isinstance(payload, dict):
             full_goal = payload.get("goal") or payload.get("user_goal") or payload.get("description") or task.description
 
+            # Fold in a curated summary of earlier phases in the same multi-phase
+            # goal, if the caller (GoalEngine.run_goal) supplied one. Without
+            # this, each phase only ever saw the original goal text plus its
+            # own description -- a "coder" phase had no visibility into what a
+            # preceding "planner" phase actually decided, so downstream phases
+            # re-derived from scratch instead of building on prior work. The
+            # summary is pre-truncated by the caller specifically so this
+            # doesn't reintroduce the unbounded-context-growth problem it's
+            # meant to solve.
+            prior_summary = (payload.get("context") or {}).get("prior_phase_summary")
+            if prior_summary:
+                full_goal = f"{full_goal}\n\n{prior_summary}"
+
         # Extract target file path
         target_file = None
         if isinstance(payload, dict):
