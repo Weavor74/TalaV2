@@ -182,7 +182,15 @@ async def handle_memory_search(params: dict[str, Any]) -> dict[str, Any]:
     Search all active semantic indexes (node contents, external memories, etc.)
     """
     query = params.get("query", "")
-    sources = params.get("sources", ["session", "task", "node", "workflow", "profile"])
+    # NOTE: learning nodes created via the auto-learning-cue path (see
+    # _build_learning_node_payload / create_learning_documentation_node) are
+    # indexed with source_type "documentation" (their HTML-NN node_type),
+    # not "node" -- they must be in the default list or durable learning
+    # events become permanently unrecallable by default.
+    sources = params.get(
+        "sources",
+        ["session", "task", "node", "workflow", "profile", "documentation", "program-doc", "function-doc"],
+    )
     limit = params.get("limit", 20)
     allow_private = params.get("allow_private", False)
 
@@ -265,6 +273,8 @@ async def handle_memory_browse(params: dict[str, Any]) -> dict[str, Any]:
         row = await db.fetchrow(sql, ref_id)
         if row:
             config = row["config"]
+            if isinstance(config, str):
+                config = json.loads(config)
             if not allow_private:
                 config.pop("pii_vault", None)
             context = json.dumps(config, indent=2)
@@ -482,7 +492,7 @@ async def handle_research_unified_search(params: dict[str, Any]) -> dict[str, An
     if include_memory:
         mem_sources = [s for s in sources if s in ["session", "node", "task", "workflow", "profile", "nodes", "tasks", "workflows", "memory"]]
         if "all" in sources or "memory" in sources:
-            mem_sources = ["session", "task", "node", "workflow", "profile"]
+            mem_sources = ["session", "task", "node", "workflow", "profile", "documentation", "program-doc", "function-doc"]
             
         try:
             mem_res = await handle_memory_search({"query": query, "sources": mem_sources, "limit": 10})
