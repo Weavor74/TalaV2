@@ -386,6 +386,14 @@ class HeartbeatScheduler:
         except Exception as exc:
             log.error("HeartbeatScheduler: failed to run zombie reaper: %s", exc)
 
+        try:
+            from sdk.agent.goal_engine import resume_suspended_goals
+            resumed = await resume_suspended_goals(max_resume_attempts=5)
+            if resumed > 0:
+                log.info("HeartbeatScheduler: Auto-resumed %d budget-suspended goal(s).", resumed)
+        except Exception as exc:
+            log.error("HeartbeatScheduler: failed to run suspended-goal resume sweep: %s", exc)
+
         now = datetime.now(UTC)
         for job in self._jobs:
             if job.is_startup:
