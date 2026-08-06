@@ -86,6 +86,44 @@ async def test_evaluate_terminal_node(mock_transition, mock_verify, mock_execute
         # Verify it synthesized
         mock_synth.assert_called_once()
         
-        # Verify it updated the DB result and transitioned the task
-        assert mock_execute.call_count > 0
-        mock_transition.assert_called_with("parent_123", TaskStatus.IN_PROGRESS, TaskStatus.COMPLETE)
+        # Verify the synthesis result was passed straight to transition_task.
+        # Regression: evaluate_edges used to write the synthesis result via a
+        # raw db.execute() call and *then* call transition_task with no
+        # `result` kwarg — transition_task's own UPDATE defaults `result` to
+        # {}, so that second write silently clobbered the first, and the
+        # parent task's persisted result was always {}. Fixed by passing
+        # final_synthesis straight into transition_task's `result` kwarg
+        # instead of writing it separately beforehand.
+        mock_transition.assert_called_with(
+            "parent_123", TaskStatus.IN_PROGRESS, TaskStatus.COMPLETE, result={"final": "done"}
+        )
+
+
+@pytest.mark.asyncio
+@patch("sdk.agent.queue.BatchQueue.transition_task", new_callable=AsyncMock)
+async def test_execute_node_task_skips_git_worktree(mock_transition):
+    """
+    Swarm nodes must not spin up a per-node git worktree/branch — they run
+    directly against the shared local workspace instead, so nodes in the
+    same swarm run see each other's file writes and execution has no git
+    dependency. DAGExecutionEngine only attempts its own DB-lookup + auto
+    `git worktree add` (via handle_task_create_worktree) when a task has no
+    worktree_path already set — this proves execute_node_task always sets
+    one before handing off, short-circuiting that path.
+    """
+    from sdk.agent.graph_engine import DAGExecutionEngine
+
+    captured: dict = {}
+
+    async def fake_execute_task_as_dag(self, task, policy=None):
+        captured["worktree_path"] = getattr(task, "worktree_path", None)
+        return {"success": True, "output": "ok", "error": None}
+
+    with patch.object(DAGExecutionEngine, "execute_task_as_dag", new=fake_execute_task_as_dag), \
+         patch("python.harness.server.handle_task_create_worktree", new_callable=AsyncMock) as mock_create_wt, \
+         patch.object(SwarmEngine, "evaluate_edges", new_callable=AsyncMock):
+        await SwarmEngine.execute_node_task("task-x", "parent-x", "node-x", "worker", "do a thing")
+
+    assert captured.get("worktree_path"), "worktree_path must be pre-set so DAGExecutionEngine skips auto git-worktree creation"
+    assert captured["worktree_path"] == DAGExecutionEngine().root_dir
+    mock_create_wt.assert_not_called()
