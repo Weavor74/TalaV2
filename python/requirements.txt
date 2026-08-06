@@ -62,10 +62,39 @@ google-generativeai>=0.5
 # ---------------------------------------------------------------------------
 
 # CPU-only wheel (works on any machine, no CUDA needed):
-#   pip install torch>=2.3 --index-url https://download.pytorch.org/whl/cpu
+#   pip install torch --index-url https://download.pytorch.org/whl/cpu
 #
-# CUDA 12.x wheel (NVIDIA GPU):
-#   pip install torch>=2.3 --index-url https://download.pytorch.org/whl/cu121
+# CUDA wheel (NVIDIA GPU) — cu121 is STALE and has no Python 3.13/3.12
+# (cp313/cp312) wheels; `pip install --index-url .../cu121` on a modern venv
+# fails outright ("No matching distribution found for torch"), which reads
+# as "GPU torch just isn't installable on this machine" if you don't check
+# further — it isn't, a newer index just has to be used. Check what your
+# Python version actually has wheels for before picking an index tag:
+#   curl -s https://download.pytorch.org/whl/torch/ | grep cp312   (or cp313)
+# then install ALL THREE together, same index/tag (see next gotcha):
+#   pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128
+#
+# Two gotchas that turn this into a repeated-failure trap if missed:
+#   1. Always upgrade torch/torchvision/torchaudio TOGETHER. transformers
+#      eagerly imports torchvision (for image utilities) even to load a
+#      text-only model; a torchvision left on an old build after torch is
+#      upgraded fails its native op registration ("operator torchvision::nms
+#      does not exist"), which then surfaces as a *completely unrelated*,
+#      confusing error inside transformers' model-class auto-resolution
+#      (e.g. "Could not import module 'Qwen2ForCausalLM'") that looks like
+#      it's about the model, not the real torch/torchvision ABI mismatch.
+#   2. pip/uv silently treat an installed torch==X.Y.Z+cpu as already
+#      satisfying a request for torch==X.Y.Z — pin the full `+cuXXX` local
+#      version explicitly (or pass --reinstall to uv) or the CPU build won't
+#      actually get replaced.
+#   3. Target the project's actual .venv explicitly, not a bare `pip`/
+#      `python` off PATH — a separate global Python install can easily have
+#      its own (possibly stale, possibly CPU-only) torch that has nothing to
+#      do with what the app actually runs against. With uv:
+#      `uv pip install torch torchvision torchaudio --index-url ... --python .venv/Scripts/python.exe --reinstall`
+#
+# Confirmed working combination (RTX 3050, driver 581.57, CUDA 13.0-capable):
+# torch/torchvision/torchaudio 2.11.0/0.26.0/2.11.0, all +cu128.
 #
 # Listed here as a base requirement; override the index-url for your hardware.
 torch>=2.3
