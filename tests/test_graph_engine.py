@@ -2,7 +2,7 @@ import os
 import pytest
 import json
 from typing import Any
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch, MagicMock, AsyncMock
 from pathlib import Path
 
 from sdk.agent.graph_engine import DAGExecutionEngine, GraphNode
@@ -17,6 +17,51 @@ async def _reset_task(task_id: str) -> None:
     run of this same fixed task_id, so DAG execution can't short-circuit on
     stale 'already completed' state."""
     await db.execute("DELETE FROM tasks WHERE id = $1", task_id)
+
+@pytest.mark.asyncio
+async def test_execute_task_as_dag_always_unregisters_active_task(tmp_path):
+    """
+    Regression: execute_task_as_dag used to call register_active_task on
+    entry but never unregister_active_task on any exit path (success,
+    failure, or exception) — sdk.agent.goal_engine._ACTIVE_TASK_IDS grew
+    and never shrank, which permanently blocks
+    ZombieReaper.reclaim_zombies (sdk/agent/swarm_engine.py) from ever
+    reclaiming that task_id again, since it treats any id in that set as
+    "still actively executing".
+
+    The real DAG body (_execute_task_as_dag_inner) is mocked out here —
+    this test's job is proving the register/unregister bookkeeping around
+    it is airtight, on both the success and the exception path, not
+    re-testing DAG execution itself (already covered elsewhere in this
+    file with a live DB/LLM).
+    """
+    from sdk.agent.goal_engine import get_active_task_ids
+
+    engine = DAGExecutionEngine(root_dir=str(tmp_path))
+
+    # Success path
+    task_ok = TaskItem(description="noop")
+    task_ok.task_id = "test-active-task-ok"
+    with patch.object(
+        DAGExecutionEngine, "_execute_task_as_dag_inner",
+        new_callable=AsyncMock, return_value={"success": True, "output": "ok"},
+    ):
+        res = await engine.execute_task_as_dag(task_ok)
+    assert res["success"] is True
+    assert "test-active-task-ok" not in get_active_task_ids()
+
+    # Exception path — must still unregister even when the DAG body blows up.
+    task_boom = TaskItem(description="boom")
+    task_boom.task_id = "test-active-task-boom"
+
+    async def _boom(self, task, policy=None):
+        raise RuntimeError("simulated crash mid-DAG")
+
+    with patch.object(DAGExecutionEngine, "_execute_task_as_dag_inner", new=_boom):
+        with pytest.raises(RuntimeError):
+            await engine.execute_task_as_dag(task_boom)
+    assert "test-active-task-boom" not in get_active_task_ids()
+
 
 def test_graph_node_initialization():
     node = GraphNode(

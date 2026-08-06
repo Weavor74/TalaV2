@@ -147,6 +147,37 @@ class DAGExecutionEngine:
 
     async def execute_task_as_dag(self, task: TaskItem, policy: Any = None) -> dict[str, Any]:
         """
+        Public entry point. Registers task_id as "actively executing" for the
+        duration of the run and *always* unregisters it on the way out —
+        success, failure, or exception — via try/finally around the real
+        work in _execute_task_as_dag_inner.
+
+        Regression: this used to only ever call register_active_task, never
+        unregister_active_task, on any exit path. sdk.agent.goal_engine's
+        _ACTIVE_TASK_IDS grew and never shrank, and ZombieReaper.reclaim_zombies
+        (sdk/agent/swarm_engine.py) treats any task_id in that set as "still
+        actively executing" and skips reclaiming it — so once a task_id had
+        ever run through this engine once, a later stuck/crashed run of that
+        same id could never be reclaimed as a zombie.
+        """
+        task_id = task.task_id
+        try:
+            from sdk.agent.goal_engine import register_active_task
+            register_active_task(task_id)
+        except Exception:
+            pass
+
+        try:
+            return await self._execute_task_as_dag_inner(task, policy)
+        finally:
+            try:
+                from sdk.agent.goal_engine import unregister_active_task
+                unregister_active_task(task_id)
+            except Exception:
+                pass
+
+    async def _execute_task_as_dag_inner(self, task: TaskItem, policy: Any = None) -> dict[str, Any]:
+        """
         Refactors task execution into a DAG flow of Research -> Synthesis -> Writing -> Validation.
         """
         try:
@@ -156,11 +187,6 @@ class DAGExecutionEngine:
         log.info("DAGExecutionEngine: Executing task %r as sub-graph DAG", task.task_id)
 
         task_id = task.task_id
-        try:
-            from sdk.agent.goal_engine import register_active_task, unregister_active_task
-            register_active_task(task_id)
-        except Exception:
-            pass
 
         res_node_id = f"research-{task_id}"
         syn_node_id = f"synthesis-{task_id}"
