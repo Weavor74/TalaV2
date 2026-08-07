@@ -491,16 +491,27 @@ class SelfHealingDocs:
             if isinstance(n, ast.ClassDef)
         ]
 
-        # Extract documented symbols from node
-        doc_functions_raw = self._updater.get_section(node_path, "functions") or ""
-        doc_classes_raw = self._updater.get_section(node_path, "classes") or ""
-
-        doc_functions = set(re.findall(r'\b([a-z_][a-zA-Z0-9_]*)\b', doc_functions_raw))
-        doc_classes = set(re.findall(r'\b([A-Z][a-zA-Z0-9_]*)\b', doc_classes_raw))
+        # Extract documented symbols from node. Two content-generation paths
+        # exist in this codebase and neither knows about the other:
+        #   - the legacy convention this checker originally assumed:
+        #     dedicated <section id="functions">/<section id="classes"> blocks
+        #   - create_documentation_node() (sdk/agent/documentation_nodes.py),
+        #     which is what actually authors real node content project-wide
+        #     (program-doc-*, system-tala-*, and now sdk_agent_* nodes) and
+        #     names symbols inline in <section id="semantic-memory"> prose
+        #     instead of dedicated per-kind sections.
+        # Recognize both rather than assuming the legacy shape, or every
+        # real, well-documented node from the second path looks exactly
+        # like an undocumented one. Deliberately excludes 'corrections' --
+        # that section lists symbols that are NOT documented (it literally
+        # names them), so including it would make every symbol this checker
+        # ever flagged look permanently documented starting on its next run.
+        documented_text = self._documented_symbol_text(node_path)
+        documented_symbols = set(re.findall(r'\b([A-Za-z_][A-Za-z0-9_]*)\b', documented_text))
 
         # Functions missing from docs
         for fn in real_functions:
-            if fn not in doc_functions and not fn.startswith("_"):
+            if fn not in documented_symbols and not fn.startswith("_"):
                 corrections.append(Correction(
                     field=f"functions.{fn}",
                     expected=f"documented in node section 'functions'",
@@ -512,7 +523,7 @@ class SelfHealingDocs:
 
         # Classes missing from docs
         for cls in real_classes:
-            if cls not in doc_classes:
+            if cls not in documented_symbols:
                 corrections.append(Correction(
                     field=f"classes.{cls}",
                     expected=f"documented in node section 'classes'",
@@ -523,6 +534,31 @@ class SelfHealingDocs:
                 ))
 
         return corrections
+
+    def _documented_symbol_text(self, node_path: str) -> str:
+        """
+        Collect the node content that legitimately counts as "this symbol
+        has been documented": the legacy 'functions'/'classes' sections if
+        present, plus 'semantic-memory' (what create_documentation_node
+        actually emits). Falls back to the whole document, minus
+        'corrections', if none of those sections exist at all.
+        """
+        combined = [
+            content
+            for section_id in ("functions", "classes", "semantic-memory")
+            if (content := self._updater.get_section(node_path, section_id))
+        ]
+        if combined:
+            return "\n".join(combined)
+
+        path = Path(node_path)
+        if not path.exists():
+            return ""
+        html = path.read_text(encoding="utf-8", errors="replace")
+        start, end, _ = _extract_section(html, "corrections")
+        if start != -1:
+            html = html[:start] + html[end:]
+        return html
 
     def _check_directory(
         self,
