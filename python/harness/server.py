@@ -471,6 +471,50 @@ def is_casual_chat_prompt(prompt: str) -> bool:
     return bool(_CASUAL_CHAT_TERMS_RE.search(prompt))
 
 
+_HTML_FENCE_RE = re.compile(r"```(?:html)?\s*\n?(.*?)\n?\s*```", re.DOTALL | re.IGNORECASE)
+
+
+def extract_html_nn_document(generated_raw: str) -> str | None:
+    """
+    Pull a real HTML-NN document out of an LLM response, stripping the
+    markdown code fence the model was instructed to wrap it in.
+
+    Returns None if `generated_raw` doesn't actually contain a recognizable
+    HTML-NN article (missing <article ...data-node-id=...> markup) -- e.g.
+    the model ignored the formatting instructions and returned prose
+    instead. Callers must not write that to nodes/ as if it were a real
+    node.
+    """
+    if not generated_raw or not isinstance(generated_raw, str):
+        return None
+
+    m = _HTML_FENCE_RE.search(generated_raw)
+    candidate = m.group(1).strip() if m else generated_raw.strip()
+
+    if "data-node-id" not in candidate or "<article" not in candidate:
+        return None
+
+    return candidate
+
+
+def resolve_nodes_dir() -> Path:
+    """
+    Resolve the active nodes/ directory the same way every other
+    node-writing path in the harness does: TALA_USER_DATA override (test
+    isolation / per-user data dir) falling back to the repo/workspace root.
+    See self-documenter-learning-node-root-dir-gap in project memory --
+    every node-writing code path must respect TALA_USER_DATA or it leaks
+    into whatever directory the process happens to be running from.
+    """
+    user_data = os.environ.get("TALA_USER_DATA")
+    if user_data:
+        nodes_dir = Path(user_data) / "nodes"
+    else:
+        nodes_dir = Path(_ROOT_DIR) / "nodes"
+    nodes_dir.mkdir(parents=True, exist_ok=True)
+    return nodes_dir
+
+
 def _close_unclosed_thinking(text: str) -> str:
     """
     If `text` opens a <thinking> block with no matching </thinking>
@@ -1477,7 +1521,7 @@ async def handle_inference_generate(
                 "1. Search: `<call:research.search query=\"your search term\" />`\n"
                 "   Use this to search DuckDuckGo. Returns titles, snippets, and URLs of top matching pages. Automatically syncs the user's browser view.\n"
                 "2. Crawl & Summarize: `<call:research.crawl_and_summarize urls=[\"https://url1\", \"https://url2\"] subject=\"subject description\" />`\n"
-                "   Use this to download full webpage content, read them, and compile them into a styled HTML Neural Node. Automatically syncs the user's browser view.\n\n"
+                "   Use this to download full webpage content, read them, and compile them into a styled HTML Neural Node. The node is automatically saved to nodes/ for you -- do NOT try to re-write or re-save the returned html_nn yourself. Automatically syncs the user's browser view.\n\n"
                 "To invoke a tool, output the tag EXACTLY and STOP generating. Do NOT write any other text after the tag. "
                 "You will receive the tool result in the next turn, allowing you to answer Weavor's request or call another tool.\n\n"
                 "CRITICAL DIRECTIVE: If Weavor requests search, finding, crawling, opening, or browsing the web/internet, you MUST output the corresponding tool call tag (<call:research.search query=\"...\" /> or <call:research.crawl_and_summarize urls=... />) IMMEDIATELY in your response. Do NOT ask for permission, do NOT ask for clarification, and do NOT engage in introductory conversational chatter. Simply call the tool."
@@ -7748,8 +7792,57 @@ async def handle_research_crawl_and_summarize(params: dict[str, Any], req_id: An
 
         generated_raw = await execute_llm_generation(prompt, system_prompt)
 
+        # Persist the generated HTML-NN to nodes/ ourselves rather than
+        # relying on the model to write it back out in a follow-up tool
+        # call. Confirmed live (calculator.md incident): a model asked to
+        # separately re-emit a large generated artifact as a file write
+        # unreliably paraphrases, truncates, or skips the step entirely.
+        # This is the autonomous research.crawl_and_summarize path (the
+        # model calls it directly mid-chat via <call:research.crawl_and...
+        # />); unlike the manual "Save Selected as Neural Node" UI button
+        # (research.distill_to_node), there is no separate client-side
+        # file:write step for this path, so if the harness doesn't persist
+        # the node here, it is never saved anywhere -- the well-formed
+        # HTML-NN the LLM just produced simply evaporates once the tool
+        # result is consumed as chat context.
+        node_path: str | None = None
+        node_id: str | None = None
+        persist_error: str | None = None
+        html_document = extract_html_nn_document(generated_raw)
+        if html_document:
+            try:
+                m_id = re.search(r'data-node-id="([^"]+)"', html_document)
+                node_id = m_id.group(1) if m_id else f"concept-{subject_slug}"
+                timestamp_suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
+                nodes_dir = resolve_nodes_dir()
+                node_file = nodes_dir / f"{node_id}-{timestamp_suffix}.html"
+                node_file.write_text(html_document, encoding="utf-8")
+                node_path = str(node_file)
+                logger.info("research.crawl_and_summarize: persisted HTML-NN to %s", node_path)
+
+                try:
+                    # NOTE: must import the implementation directly rather
+                    # than call the module-level handle_memory_reindex_node
+                    # defined further down in this same file -- that one is
+                    # the (params, req_id) RPC wrapper, not the callable
+                    # single-arg implementation.
+                    from python.harness.memory import handle_memory_reindex_node as _reindex_node_impl
+                    await _reindex_node_impl({"node_path": node_path})
+                except Exception as reindex_exc:
+                    logger.warning("research.crawl_and_summarize: failed to reindex node: %s", reindex_exc)
+            except Exception as write_exc:
+                persist_error = str(write_exc)
+                logger.warning("research.crawl_and_summarize: failed to persist HTML-NN: %s", write_exc)
+        else:
+            persist_error = "LLM response did not contain a recognizable HTML-NN document; nothing was persisted."
+            logger.warning("research.crawl_and_summarize: %s", persist_error)
+
         return _ok(req_id, {
             "html_nn": generated_raw,
+            "node_path": node_path,
+            "node_id": node_id,
+            "persisted": node_path is not None,
+            "persist_error": persist_error,
             "sources": {
                 "successful": successful_urls,
                 "failed": failed_urls
