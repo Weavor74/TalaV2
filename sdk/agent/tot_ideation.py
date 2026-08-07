@@ -21,12 +21,34 @@ log = logging.getLogger(__name__)
 # ---------------------------------------------------------------------------
 # Keywords for architectural / task-decomposition prompt interception
 # ---------------------------------------------------------------------------
+#
+# Regression this list structure fixes, caught live: a two-sentence request
+# to "Plan a simple CLI calculator ... as a short design note" was hijacked
+# into full Tree-of-Thought architectural ideation purely because it said
+# "plan" and "design" -- words used constantly for tasks of any size, not a
+# reliable signal of genuine architectural scope. The interception then
+# produced wildly irrelevant "blueprint process" output (and a spurious
+# workspace search) instead of just doing the small task, and separately
+# collapsed goal decomposition into a single low-quality phase (see
+# GoalTreeDecomposer's ToT-shortlist fallback path in queue.py).
+#
+# Fix: split into words that are unambiguous on their own (technical,
+# specific, rare in everyday small-task phrasing) vs. generic verbs/nouns
+# ("design", "plan", "structure", "strategy", "blueprint", "system",
+# "architect", "modular", "component") that are used just as often for a
+# calculator as for a distributed system and must never trigger the full
+# pipeline alone. Every existing example this module is tested against
+# ("Design a high-throughput cache *module*", "Plan the *database schema*
+# migration strategy", "Let's *decompose* this system refactoring") already
+# pairs a generic verb with one of these specific nouns -- so keeping only
+# the specific-noun list preserves all of that intended behavior while a
+# short "plan/design X as a note" request with no technical noun no longer
+# matches anything here.
 ARCHITECTURAL_KEYWORDS = [
-    "architecture", "design", "structure", "module", "component", "decompose",
-    "plan", "strategy", "roadmap", "system", "framework", "database schema",
-    "refactor", "blueprint", "data pipeline", "microservices", "class diagram",
-    "folder structure", "uml", "api design", "tot ideation", "ideate",
-    "architect", "scalable", "high-performance", "modular"
+    "architecture", "microservices", "class diagram", "folder structure",
+    "uml", "api design", "database schema", "data pipeline", "module",
+    "framework", "decompose", "refactor", "scalable", "high-performance",
+    "tot ideation", "ideate",
 ]
 
 def is_architectural_or_decomposition_prompt(prompt: str) -> bool:

@@ -21,6 +21,29 @@ def test_is_architectural_or_decomposition_prompt():
     assert is_architectural_or_decomposition_prompt("run pytest on tests/test_vault_sync.py") is False
     assert is_architectural_or_decomposition_prompt("") is False
 
+def test_is_architectural_or_decomposition_prompt_ignores_generic_task_framing():
+    """
+    Regression: caught live -- a two-sentence request to "Plan a simple CLI
+    calculator ... as a short design note" was classified as architectural
+    purely because it said "plan"/"design", hijacking a trivial task into
+    the full ToT ideation pipeline and producing wildly irrelevant
+    "blueprint process" output. Generic planning/design verbs must not
+    trigger this on their own -- only when paired with an actual technical
+    scope noun (module, schema, microservices, etc.), which the existing
+    True-case assertions above already exercise.
+    """
+    assert is_architectural_or_decomposition_prompt(
+        "Plan a simple CLI calculator (add, subtract, multiply, divide) as a short "
+        "design note — pick specific function names and file layout, then implement "
+        "exactly that design in scratch/calculator.py."
+    ) is False
+    assert is_architectural_or_decomposition_prompt(
+        "Design a short note about how this function works."
+    ) is False
+    assert is_architectural_or_decomposition_prompt(
+        "Let's plan out a strategy for the roadmap of this blueprint."
+    ) is False, "generic connector words stacked together still aren't a technical scope signal"
+
 @pytest.mark.asyncio
 async def test_run_tot_ideation_fallback():
     # Test fallback behavior when LLM is unavailable
