@@ -47,6 +47,7 @@ SETTINGS_NODES = {
     "settings-runtime": "Runtime Settings",
     "settings-auth": "Auth Settings",
     "settings-firewall": "Firewall Settings",
+    "settings-code-registry": "Code Registry Settings",
 }
 
 async def save_settings_node(node_id: str, title: str, content_html: str, state_data: dict):
@@ -684,12 +685,59 @@ async def update_settings_firewall_node():
     except Exception as exc:
         logger.exception("Failed to update settings-firewall node: %s", exc)
 
+
+async def update_settings_code_registry_node():
+    """
+    Mirror CodeRegistry (sdk/agent/code_registry.py) into an HTML-NN settings
+    node, the same way every other settings category (system, inference,
+    runtime, ...) is mirrored. CodeRegistry's code style/boilerplate template
+    key-value pairs already persist reliably in the client_settings table --
+    this doesn't fix a data-loss bug, it closes a visibility gap: unlike
+    every other settings category, that data previously had no HTML-NN
+    representation, so it never surfaced through context-injection or
+    semantic search the way the model's other configuration does.
+    """
+    try:
+        from sdk.agent.code_registry import CodeRegistry
+
+        registry_entries = await CodeRegistry.list_keys("tala.code.")
+
+        html_lines = [
+            "<h2>Code Style & Boilerplate Template Registry</h2>",
+            "<p>Key-value code generation styles and templates consulted during code synthesis.</p>",
+            "<table>",
+            "<thead><tr><th>Key</th><th>Value</th></tr></thead>",
+            "<tbody>",
+        ]
+        for key in sorted(registry_entries.keys()):
+            value = registry_entries[key]
+            display_value = str(value)
+            if "\n" in display_value or len(display_value) > 60:
+                cell = f"<pre>{display_value}</pre>"
+            else:
+                cell = display_value
+            html_lines.append(f"<tr><td><code>{key}</code></td><td>{cell}</td></tr>")
+        if not registry_entries:
+            html_lines.append("<tr><td colspan='2'>No code registry entries configured.</td></tr>")
+        html_lines.append("</tbody></table>")
+
+        state_data = {
+            "title": "Code Registry",
+            "tags": ["private", "settings", "code-registry"],
+            "registry_entries": registry_entries,
+        }
+        await save_settings_node(
+            "settings-code-registry", "Code Registry Settings", "\n".join(html_lines), state_data
+        )
+    except Exception as exc:
+        logger.exception("Failed to update settings-code-registry node: %s", exc)
+
 # ---------------------------------------------------------------------------
 # Core synchronization facade
 # ---------------------------------------------------------------------------
 
 async def sync_settings_to_nodes():
-    """Sync all 12 settings panels to HTML Neural Nodes in the background."""
+    """Sync all 13 settings panels to HTML Neural Nodes in the background."""
     logger.info("Starting synchronization of settings panels to HTML Neural Nodes...")
     await update_settings_inference_node()
     await update_settings_agent_node()
@@ -703,7 +751,8 @@ async def sync_settings_to_nodes():
     await update_settings_runtime_node()
     await update_settings_auth_node()
     await update_settings_firewall_node()
-    logger.info("Completed synchronization of all 12 settings panel HTML Neural Nodes.")
+    await update_settings_code_registry_node()
+    logger.info("Completed synchronization of all 13 settings panel HTML Neural Nodes.")
 
 # Alias for backwards compatibility across harness and tools
 update_all_settings_nodes = sync_settings_to_nodes
