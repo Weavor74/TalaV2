@@ -440,6 +440,36 @@ _TOOL_CALL_RE = re.compile(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$)
 _CLOSED_THINKING_RE = re.compile(r'<thinking>.*?</thinking>', re.DOTALL | re.IGNORECASE)
 _OPEN_THINKING_RE = re.compile(r'<thinking>', re.IGNORECASE)
 
+# Casual/roleplay messages never get tool documentation injected into the
+# system prompt or the native tools schema attached to the request -- small
+# local fallback models reliably echo example call syntax from that
+# documentation verbatim when they have nothing real to do with it (e.g. a
+# flirty greeting), and the <call:...> parser then executes that echoed text
+# as a genuine tool call.
+#
+# Regression: this used to be a plain substring check (`term in
+# prompt.lower()`), which meant the 2-character term "hi" matched inside
+# completely ordinary words -- any word containing "hi" ("everyt-HI-ng",
+# "mach-HI-ne", "wh-HI-sper", etc.). Confirmed live: a plain task request
+# ("...and run it to confirm everything passes") got classified as casual
+# chat purely because "everything" contains "hi", silently stripping all
+# tool-call documentation from the system prompt -- so the model had no
+# instructions on how to actually write/run a file and just described the
+# steps in prose instead of doing them. Word-boundary matching so a term
+# only counts as itself, never as a substring of an unrelated word.
+_CASUAL_CHAT_TERMS = ("roleplay", "hey", "hello", "hi", "sexy", "baby", "love", "honey", "sweetheart")
+_CASUAL_CHAT_TERMS_RE = re.compile(
+    r'\b(?:' + '|'.join(re.escape(t) for t in _CASUAL_CHAT_TERMS) + r')\b', re.IGNORECASE
+)
+
+
+def is_casual_chat_prompt(prompt: str) -> bool:
+    """Classify whether `prompt` reads as casual/roleplay chat rather than a
+    task request. See _CASUAL_CHAT_TERMS_RE above for what changed and why."""
+    if not prompt or not isinstance(prompt, str):
+        return False
+    return bool(_CASUAL_CHAT_TERMS_RE.search(prompt))
+
 
 def _close_unclosed_thinking(text: str) -> str:
     """
@@ -645,15 +675,10 @@ async def handle_inference_generate(
 
     session_id: str = str(params.get("session_id", uuid.uuid4()))
 
-    # Casual/roleplay messages never get tool documentation injected into the
-    # system prompt (see below) or the native tools schema attached to the
-    # request — small local fallback models reliably echo example call
-    # syntax from that documentation verbatim when they have nothing real to
-    # do with it (e.g. a flirty greeting), and the <call:...> parser then
-    # executes that echoed text as a genuine tool call. Computed once here
-    # and reused everywhere this classification matters.
-    _CASUAL_CHAT_TERMS = ("roleplay", "hey", "hello", "hi", "sexy", "baby", "love", "honey", "sweetheart")
-    is_casual_chat = any(c in prompt.lower() for c in _CASUAL_CHAT_TERMS)
+    # Computed once here and reused everywhere this classification matters.
+    # See is_casual_chat_prompt (module level, near _CLOSED_THINKING_RE) for
+    # what this checks and the regression it fixes.
+    is_casual_chat = is_casual_chat_prompt(prompt)
 
     # Guardrails prompt validation (pre-inference)
     try:
