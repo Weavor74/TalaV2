@@ -88,26 +88,55 @@ class DocumentationNodeResult:
         }
 
 
-def resolve_active_nodes_dir() -> Path:
+def _application_root() -> Path:
+    """
+    Directory the application itself is installed/checked out in --
+    sdk/agent/documentation_nodes.py -> up three levels -> repo/install root.
+    Used as the final, OS-agnostic fallback for user-data resolution so
+    nothing here depends on a Windows-only environment variable existing.
+    """
+    return Path(__file__).resolve().parent.parent.parent
+
+
+def resolve_user_data_dir() -> Path:
+    """
+    Resolve the base directory Tala's per-user runtime data (nodes/,
+    workflows/, chat_mode.json, ...) lives under. Priority order:
+    1. TALA_USER_DATA env var (explicit override; test isolation uses this).
+    2. APPDATA env var, if set (the common case on a real Windows install).
+    3. The application's own install/checkout location.
+
+    Deliberately NOT hardcoded to any single OS's per-user profile
+    convention (previously: Path.home()/"AppData"/"Roaming"/... on Windows,
+    Path.home()/"Library"/"Application Support"/... on macOS, XDG/.config on
+    Linux, scattered across a dozen-plus call sites) -- every install may be
+    on a different machine/OS, and the relevant profile env var (APPDATA,
+    XDG_CONFIG_HOME) may simply not be set there. Falling back to the
+    application's own directory works identically regardless of OS or
+    profile-directory conventions. This is the single canonical resolver;
+    every node/workflow-writing path in the harness should go through this
+    (or resolve_active_nodes_dir/resolve_active_workflows_dir below) instead
+    of re-deriving its own copy of this logic.
+    """
     user_data = os.environ.get("TALA_USER_DATA")
     if user_data:
-        return Path(user_data).expanduser().resolve() / "nodes"
+        return Path(user_data).expanduser().resolve()
 
     appdata = os.environ.get("APPDATA")
     if appdata:
-        return Path(appdata).expanduser().resolve() / "tala-engine" / "nodes"
+        return Path(appdata).expanduser().resolve() / "tala-engine"
 
-    if os.name == "nt":
-        return Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+    return _application_root()
 
-    xdg_config = os.environ.get("XDG_CONFIG_HOME")
-    if xdg_config:
-        return Path(xdg_config).expanduser().resolve() / "tala-engine" / "nodes"
 
-    if os.uname().sysname == "Darwin":
-        return Path.home() / "Library" / "Application Support" / "tala-engine" / "nodes"
+def resolve_active_nodes_dir() -> Path:
+    """Resolve the active nodes/ directory. See resolve_user_data_dir()."""
+    return resolve_user_data_dir() / "nodes"
 
-    return Path.home() / ".config" / "tala-engine" / "nodes"
+
+def resolve_active_workflows_dir() -> Path:
+    """Resolve the active workflows/ directory. See resolve_user_data_dir()."""
+    return resolve_user_data_dir() / "workflows"
 
 
 def _safe_node_id(node_id: str) -> str:

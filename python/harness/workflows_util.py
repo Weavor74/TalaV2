@@ -8,6 +8,8 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, List
 
+from sdk.agent.documentation_nodes import resolve_active_nodes_dir, resolve_active_workflows_dir
+
 logger = logging.getLogger(__name__)
 
 # Root directory of the repository (harness/.. is python/.., python/../.. is TalaV2)
@@ -18,17 +20,7 @@ def resolve_workflow_file(flow_id: str) -> Path | None:
     Look for a workflow JSON file.
     Checks user/AppData directories first, then falls back to repository workflows.
     """
-    # 1. Resolve user data or AppData/Roaming workflows directory
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        workflows_dir = Path(user_data) / "workflows"
-    else:
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            workflows_dir = Path(appdata) / "tala-engine" / "workflows"
-        else:
-            workflows_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "workflows"
-            
+    workflows_dir = resolve_active_workflows_dir()
     appdata_file = workflows_dir / f"{flow_id}.json"
     if appdata_file.exists():
         return appdata_file
@@ -46,15 +38,7 @@ def get_all_workflows() -> list[dict]:
     and the repository workflows directory, deduplicated by flow_id (with AppData taking precedence).
     """
     # 1. Resolve directories
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        appdata_dir = Path(user_data) / "workflows"
-    else:
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            appdata_dir = Path(appdata) / "tala-engine" / "workflows"
-        else:
-            appdata_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "workflows"
+    appdata_dir = resolve_active_workflows_dir()
 
     repo_dir = _ROOT_DIR / "workflows"
 
@@ -97,17 +81,8 @@ async def save_workflow_data(workflow: dict[str, Any]) -> str:
 
     # 1. Resolve directories
     user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        workflows_dir = Path(user_data) / "workflows"
-        nodes_dir = Path(user_data) / "nodes"
-    else:
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            workflows_dir = Path(appdata) / "tala-engine" / "workflows"
-            nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-        else:
-            workflows_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "workflows"
-            nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+    workflows_dir = resolve_active_workflows_dir()
+    nodes_dir = resolve_active_nodes_dir()
 
     # Fallbacks for dev env
     if not workflows_dir.exists() and not user_data:

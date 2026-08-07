@@ -198,16 +198,8 @@ class MCPManager:
             raise ValueError(f"MCP SSE server '{name}' requires 'url'")
 
     def _default_registry_path(self) -> Path:
-        user_data = os.environ.get("TALA_USER_DATA")
-        if user_data:
-            base_dir = Path(user_data)
-        else:
-            appdata = os.environ.get("APPDATA")
-            if appdata:
-                base_dir = Path(appdata) / "tala-engine"
-            else:
-                base_dir = Path.home() / "AppData" / "Roaming" / "tala-engine"
-        return base_dir / "mcp_servers.json"
+        from sdk.agent.documentation_nodes import resolve_user_data_dir
+        return resolve_user_data_dir() / "mcp_servers.json"
 
     def _load_registry(self) -> None:
         if not self.registry_path.exists():

@@ -14,6 +14,7 @@ import urllib.error
 # Import database module relative to python/harness
 from python.harness import db
 from sdk.agent.anchor import canonicalize_and_anchor
+from sdk.agent.documentation_nodes import resolve_active_nodes_dir
 
 logger = logging.getLogger(__name__)
 
@@ -55,9 +56,9 @@ async def save_settings_node(node_id: str, title: str, content_html: str, state_
     Save the settings panel data to a compliant HTML Neural Node.
     Marks it with data-privacy="private" and anchors its hash on the blockchain.
     """
-    nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+    nodes_dir = resolve_active_nodes_dir()
     nodes_dir.mkdir(parents=True, exist_ok=True)
-    
+
     current_iso_time = datetime.now(timezone.utc).isoformat()
     
     # Dynamically build relationship anchors to all other settings nodes
@@ -764,13 +765,9 @@ async def save_agent_persona_node(agent_id: str, name: str, role: str, config: d
     Generate or update a persona HTML Neural Node file for a custom agent.
     Includes the agent's tag, system prompt, and metadata.
     """
-    import os
-    nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        nodes_dir = Path(user_data) / "nodes"
+    nodes_dir = resolve_active_nodes_dir()
     nodes_dir.mkdir(parents=True, exist_ok=True)
-    
+
     current_iso_time = datetime.now(timezone.utc).isoformat()
     
     system_prompt = config.get("system_prompt", "")
@@ -881,12 +878,8 @@ __PROV_PLACEHOLDER__
 
 async def delete_agent_persona_node(agent_id: str):
     """Delete a persona HTML Neural Node file for an agent and anchor on blockchain."""
-    import os
-    nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        nodes_dir = Path(user_data) / "nodes"
-        
+    nodes_dir = resolve_active_nodes_dir()
+
     node_file = nodes_dir / f"persona-{agent_id}.html"
     if node_file.exists():
         node_file.unlink()

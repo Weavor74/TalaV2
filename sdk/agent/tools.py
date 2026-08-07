@@ -924,9 +924,9 @@ async def get_system_settings_info(node_id: str = "settings-system") -> dict[str
     try:
         from pathlib import Path
         from sdk.agent.parser import parse_file
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
         workspace_root = _get_workspace_root()
-        appdata = os.environ.get("APPDATA")
-        appdata_dir = Path(appdata) / "tala-engine" / "nodes" if appdata else Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        appdata_dir = resolve_active_nodes_dir()
         candidate_paths = [
             appdata_dir / f"{target_id}.html",
             workspace_root / "nodes" / f"{target_id}.html",

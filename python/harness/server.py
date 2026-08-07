@@ -61,6 +61,11 @@ from sdk.agent.exceptions import (
     SafetyGuardrailViolation,
     PiiAccessBlockedError,
 )
+from sdk.agent.documentation_nodes import (
+    resolve_user_data_dir,
+    resolve_active_nodes_dir,
+    resolve_active_workflows_dir,
+)
 from python.harness.token_counter import (
     InsufficientTokenBalanceError,
     count_and_check,
@@ -87,16 +92,7 @@ logger = logging.getLogger(__name__)
 
 # Helper functions for persisting and loading the active chat mode (rp, hybrid, assistant)
 def get_chat_mode_file_path() -> Path:
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        base_dir = Path(user_data)
-    else:
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            base_dir = Path(appdata) / "tala-engine"
-        else:
-            base_dir = Path.home() / "AppData" / "Roaming" / "tala-engine"
-    return base_dir / "chat_mode.json"
+    return resolve_user_data_dir() / "chat_mode.json"
 
 def get_current_chat_mode() -> str:
     try:
@@ -499,18 +495,16 @@ def extract_html_nn_document(generated_raw: str) -> str | None:
 
 def resolve_nodes_dir() -> Path:
     """
-    Resolve the active nodes/ directory the same way every other
-    node-writing path in the harness does: TALA_USER_DATA override (test
-    isolation / per-user data dir) falling back to the repo/workspace root.
-    See self-documenter-learning-node-root-dir-gap in project memory --
-    every node-writing code path must respect TALA_USER_DATA or it leaks
-    into whatever directory the process happens to be running from.
+    Resolve the active nodes/ directory, creating it if needed. Thin
+    wrapper around sdk.agent.documentation_nodes.resolve_active_nodes_dir()
+    -- the single canonical resolver every node-writing path in the harness
+    should use (TALA_USER_DATA override -> APPDATA if set -> a directory
+    relative to the application's own install location; never a hardcoded
+    OS-specific profile path, since not every install/OS has one). See
+    self-documenter-learning-node-root-dir-gap and
+    html-nn-universal-data-mandate in project memory.
     """
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        nodes_dir = Path(user_data) / "nodes"
-    else:
-        nodes_dir = Path(_ROOT_DIR) / "nodes"
+    nodes_dir = resolve_active_nodes_dir()
     nodes_dir.mkdir(parents=True, exist_ok=True)
     return nodes_dir
 
@@ -842,15 +836,7 @@ async def handle_inference_generate(
                                     pass
                                 
                                 # 2. Try nodes/
-                                user_data = os.environ.get("TALA_USER_DATA")
-                                if user_data:
-                                    n_dir = Path(user_data) / "nodes"
-                                else:
-                                    appdata = os.environ.get("APPDATA")
-                                    if appdata:
-                                        n_dir = Path(appdata) / "tala-engine" / "nodes"
-                                    else:
-                                        n_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+                                n_dir = resolve_active_nodes_dir()
                                 if not n_dir.exists():
                                     repo_nodes = Path(_ROOT_DIR) / "nodes"
                                     if repo_nodes.exists():
@@ -1006,14 +992,7 @@ async def handle_inference_generate(
 
         # Retrieve semantically relevant nodes using the HTML Neural Net activation & propagation math
         user_data = os.environ.get("TALA_USER_DATA")
-        if user_data:
-            nodes_dir = Path(user_data) / "nodes"
-        else:
-            appdata = os.environ.get("APPDATA")
-            if appdata:
-                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-            else:
-                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        nodes_dir = resolve_active_nodes_dir()
 
         # Fallback to repo root nodes for development/test environments
         if not nodes_dir.exists():
@@ -1475,9 +1454,8 @@ async def handle_inference_generate(
             from python.harness.settings_nn import update_all_settings_nodes
             await update_all_settings_nodes()
             from sdk.agent.parser import parse_file
-            appdata = os.environ.get("APPDATA")
-            nodes_dir = Path(appdata) / "tala-engine" / "nodes" if appdata else Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
-            
+            nodes_dir = resolve_active_nodes_dir()
+
             settings_snapshots = []
             for node_id in ("settings-system", "settings-inference", "settings-runtime", "settings-agent"):
                 node_p = nodes_dir / f"{node_id}.html"
@@ -2881,14 +2859,7 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
     from pathlib import Path
     try:
         user_data = os.environ.get("TALA_USER_DATA")
-        if user_data:
-            nodes_dir = Path(user_data) / "nodes"
-        else:
-            appdata = os.environ.get("APPDATA")
-            if appdata:
-                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-            else:
-                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        nodes_dir = resolve_active_nodes_dir()
 
         node_file = nodes_dir / "concept-user-profile.html"
         
@@ -2978,14 +2949,7 @@ async def handle_identity_save_user_profile(params: dict[str, Any], req_id: Any)
 
     try:
         user_data = os.environ.get("TALA_USER_DATA")
-        if user_data:
-            nodes_dir = Path(user_data) / "nodes"
-        else:
-            appdata = os.environ.get("APPDATA")
-            if appdata:
-                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-            else:
-                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        nodes_dir = resolve_active_nodes_dir()
         nodes_dir.mkdir(parents=True, exist_ok=True)
 
         current_iso_time = datetime.now(timezone.utc).isoformat()
@@ -3203,14 +3167,7 @@ async def handle_graph_query_activations(params: dict[str, Any], req_id: Any) ->
 
     # Detect user data nodes directory
     user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        nodes_dir = Path(user_data) / "nodes"
-    else:
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-        else:
-            nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+    nodes_dir = resolve_active_nodes_dir()
 
     # Fallback to repo root nodes
     if not nodes_dir.exists():
@@ -3992,14 +3949,7 @@ def _node_reference_candidates(node: Any) -> set[str]:
 
 def _get_local_nodes_directory() -> Path:
     user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        nodes_dir = Path(user_data) / "nodes"
-    else:
-        appdata = os.environ.get("APPDATA")
-        if appdata:
-            nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-        else:
-            nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+    nodes_dir = resolve_active_nodes_dir()
 
     if not nodes_dir.exists():
         repo_nodes = Path(_ROOT_DIR) / "nodes"
@@ -5264,14 +5214,7 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
                 pii_registries = pii_obj.get("registries", [])
 
                 user_data = os.environ.get("TALA_USER_DATA")
-                if user_data:
-                    nodes_dir = Path(user_data) / "nodes"
-                else:
-                    appdata = os.environ.get("APPDATA")
-                    if appdata:
-                        nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-                    else:
-                        nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+                nodes_dir = resolve_active_nodes_dir()
                 nodes_dir.mkdir(parents=True, exist_ok=True)
 
                 current_iso_time = datetime.now(timezone.utc).isoformat()
@@ -5468,14 +5411,7 @@ async def handle_nodes_import_markdown(params: dict[str, Any], req_id: Any) -> s
             })
 
         user_data = os.environ.get("TALA_USER_DATA")
-        if user_data:
-            nodes_dir = Path(user_data) / "nodes"
-        else:
-            appdata = os.environ.get("APPDATA")
-            if appdata:
-                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-            else:
-                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        nodes_dir = resolve_active_nodes_dir()
         nodes_dir.mkdir(parents=True, exist_ok=True)
 
         imported_count = 0
@@ -5817,17 +5753,8 @@ async def handle_workflow_delete(params: dict[str, Any], req_id: Any) -> str:
 
     try:
         user_data = os.environ.get("TALA_USER_DATA")
-        if user_data:
-            workflows_dir = Path(user_data) / "workflows"
-            nodes_dir = Path(user_data) / "nodes"
-        else:
-            appdata = os.environ.get("APPDATA")
-            if appdata:
-                workflows_dir = Path(appdata) / "tala-engine" / "workflows"
-                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-            else:
-                workflows_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "workflows"
-                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        workflows_dir = resolve_active_workflows_dir()
+        nodes_dir = resolve_active_nodes_dir()
 
         # Fallbacks for dev env
         if not workflows_dir.exists() and not user_data:
@@ -6132,14 +6059,7 @@ async def handle_vps_version_push(params: dict[str, Any], req_id: Any) -> str:
     # 3. Commit/write to local nodes directory
     try:
         user_data = os.environ.get("TALA_USER_DATA")
-        if user_data:
-            nodes_dir = Path(user_data) / "nodes"
-        else:
-            appdata = os.environ.get("APPDATA")
-            if appdata:
-                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-            else:
-                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
+        nodes_dir = resolve_active_nodes_dir()
                 
         # Resolve node filename
         article_m = re.search(r'<article[^>]*data-node-id="([^"]+)"', content_html)
@@ -7876,18 +7796,14 @@ async def handle_task_submit(params: dict[str, Any], req_id: Any) -> str:
         from pathlib import Path
         
         # 0. Retrieve relevant context nodes and compile AdapterPacket
+        # user_data_path is an explicit per-request RPC param override; falls
+        # back to the standard TALA_USER_DATA/APPDATA/app-relative resolver.
         user_data = params.get("user_data_path")
-        appdata = os.environ.get("APPDATA")
-        
-        nodes_dir = Path.cwd() / "nodes"
         if user_data:
             nodes_dir = Path(user_data) / "nodes"
         else:
-            if sys.platform == "win32" and appdata:
-                nodes_dir = Path(appdata) / "tala-engine" / "nodes"
-            elif sys.platform == "win32":
-                nodes_dir = Path.home() / "AppData" / "Roaming" / "tala-engine" / "nodes"
-            
+            nodes_dir = resolve_active_nodes_dir()
+
         if not nodes_dir.exists():
             repo_nodes = Path(_ROOT_DIR) / "nodes"
             if repo_nodes.exists():

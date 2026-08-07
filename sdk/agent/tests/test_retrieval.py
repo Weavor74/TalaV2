@@ -1,5 +1,13 @@
 """
 test_retrieval.py - Auto-generated documentation base.
+
+test_tokenize/test_compute_tf were removed: commit f4384c4 replaced the old
+TF-IDF-based retrieval implementation (tokenize()/compute_tf() functions)
+with ChromaDB vector similarity search (index_nodes()/retrieve_relevant_nodes()),
+but this test file was never updated -- the import below broke, permanently
+blocking collection of this entire file (and everything after it in the
+same pytest run) since neither function exists in python.harness.retrieval
+anymore. retrieve_relevant_nodes() itself is still current and covered below.
 """
 
 from __future__ import annotations
@@ -7,7 +15,7 @@ from __future__ import annotations
 import pytest
 from pathlib import Path
 
-from python.harness.retrieval import retrieve_relevant_nodes, tokenize, compute_tf
+from python.harness.retrieval import retrieve_relevant_nodes
 
 VALID_NODE_1 = """
 <!DOCTYPE html>
@@ -55,23 +63,17 @@ VALID_NODE_2 = """
 </html>
 """
 
-def test_tokenize():
-    tokens = tokenize("Hello World! This is a TEST. 123")
-    assert "hello" in tokens
-    assert "world" in tokens
-    assert "test" in tokens
-    assert "this" not in tokens # stopword
-
-def test_compute_tf():
-    tf = compute_tf(["apple", "apple", "banana"])
-    assert tf["apple"] == 2/3
-    assert tf["banana"] == 1/3
-
 def test_retrieve_relevant_nodes(tmp_path: Path):
-    node1_file = tmp_path / "apples.html"
+    # Filenames must match each node's data-node-id: retrieve_relevant_nodes
+    # queries ChromaDB by node_id, then reloads the NeuralNode from disk via
+    # nodes_dir / f"{node_id}.html" -- a mismatched filename (this used to be
+    # "apples.html"/"cars.html" against ids "apples_node"/"cars_node") means
+    # that reload silently fails to find the file and the match gets
+    # dropped, even though ChromaDB itself found and scored it correctly.
+    node1_file = tmp_path / "apples_node.html"
     node1_file.write_text(VALID_NODE_1, encoding="utf-8")
-    
-    node2_file = tmp_path / "cars.html"
+
+    node2_file = tmp_path / "cars_node.html"
     node2_file.write_text(VALID_NODE_2, encoding="utf-8")
     
     # Query for apples
