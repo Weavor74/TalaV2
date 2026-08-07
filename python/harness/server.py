@@ -2884,26 +2884,37 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
             try:
                 node = parse_file(str(node_file))
                 sd = node.state_data or {}
-                profile["name"] = sd.get("user_details", {}).get("name", sd.get("title", ""))
-                profile["birthdate"] = sd.get("user_details", {}).get("birthdate", "")
-                profile["tone"] = sd.get("formatting_preferences", {}).get("preferred_tone", sd.get("tone", "warm_professional"))
-                
+                # Both writers of this node (handle_identity_save_user_profile
+                # below, and handle_profiles_save's master-user sync) write a
+                # FLAT state_data shape (top-level "name", "rp_name",
+                # "pii_legal_name", ...) -- this reader used to look for a
+                # nested shape ("user_details.name", "rp_persona.name",
+                # "pii_vault.legal_name") that neither writer has ever
+                # produced, so every one of these fields silently read back
+                # empty regardless of what was actually saved. Check the flat
+                # shape first (what's actually written) and keep the nested
+                # lookup as a fallback in case some other writer ever does
+                # use it.
+                profile["name"] = sd.get("name") or sd.get("user_details", {}).get("name", sd.get("title", ""))
+                profile["birthdate"] = sd.get("birthdate") or sd.get("user_details", {}).get("birthdate", "")
+                profile["tone"] = sd.get("tone") or sd.get("formatting_preferences", {}).get("preferred_tone", "warm_professional")
+
                 profile["biography"] = sd.get("biography", "")
                 if not profile["biography"]:
                     profile["biography"] = node.semantic_memory.strip()
 
                 rp = sd.get("rp_persona", {})
-                profile["rp_name"] = rp.get("name", "")
-                profile["rp_class"] = rp.get("class", "")
-                profile["rp_faction"] = rp.get("faction", "")
-                profile["rp_backstory"] = rp.get("backstory", "")
+                profile["rp_name"] = sd.get("rp_name") or rp.get("name", "")
+                profile["rp_class"] = sd.get("rp_class") or rp.get("class", "")
+                profile["rp_faction"] = sd.get("rp_faction") or rp.get("faction", "")
+                profile["rp_backstory"] = sd.get("rp_backstory") or rp.get("backstory", "")
 
                 pii = sd.get("pii_vault", {})
-                profile["pii_legal_name"] = pii.get("legal_name", "")
-                profile["pii_dob"] = pii.get("dob", "")
-                profile["pii_email"] = pii.get("email", "")
-                profile["pii_phone"] = pii.get("phone", "")
-                profile["pii_registries"] = pii.get("registries", [])
+                profile["pii_legal_name"] = sd.get("pii_legal_name") or pii.get("legal_name", "")
+                profile["pii_dob"] = sd.get("pii_dob") or pii.get("dob", "")
+                profile["pii_email"] = sd.get("pii_email") or pii.get("email", "")
+                profile["pii_phone"] = sd.get("pii_phone") or pii.get("phone", "")
+                profile["pii_registries"] = sd.get("pii_registries") or pii.get("registries", [])
             except Exception as parse_exc:
                 logger.warning("Failed to parse user profile node: %s", parse_exc)
 
