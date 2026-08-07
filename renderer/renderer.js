@@ -10350,25 +10350,29 @@ const ProfileManager = {
     this.loadProfile();
   },
 
+  // Always loads from the HTML Neural Node (concept-user-profile.html) via
+  // identity.get_user_profile, per the HTML-NN universal data mandate --
+  // the node is the canonical, single source of truth for the profile, not
+  // the profiles table (Postgres is still written on every save, for
+  // search indexing, but is not consulted here).
+  //
+  // This used to race two different sources with two different (and
+  // previously incompatible) schemas: profiles.get as primary, falling
+  // back to identity.get_user_profile with a *reconstructed*, always-
+  // incomplete config on any hiccup. Confirmed live: on every visit to
+  // this panel, ProfileManager.init()'s one-time eager load fires at
+  // DOMContentLoaded (see the initSafe('ProfileManager', ...) call near
+  // the top of this file) -- almost certainly before the Python harness's
+  // WebSocket has finished connecting -- while the panel-switch handler
+  // fires its own independent load later. Whichever one's render call
+  // happened to finish last won the DOM, and the fallback path could
+  // never carry headline/location/timezone/roles/skills/projects/
+  // connections/preferences/privacy at all, so any timing where it
+  // finished last blanked those fields even though the primary path had
+  // just rendered them correctly moments earlier. A single always-
+  // complete source removes the race outright instead of patching around
+  // its timing.
   async loadProfile() {
-    try {
-      const response = await invoke('python:rpc', {
-        method: 'profiles.get',
-        params: { id: 'master-user' }
-      });
-
-      if (response && response.profile) {
-        this.renderProfileDetails(response.profile);
-      } else {
-        await this.loadFromNeuralNodeFallback();
-      }
-    } catch (err) {
-      console.warn('Failed to load profiles.get for master-user, falling back to neural node:', err);
-      await this.loadFromNeuralNodeFallback();
-    }
-  },
-
-  async loadFromNeuralNodeFallback() {
     try {
       const response = await invoke('python:rpc', {
         method: 'identity.get_user_profile',
@@ -10376,77 +10380,10 @@ const ProfileManager = {
       });
 
       if (response && response.success && response.profile) {
-        const p = response.profile;
-        const name = p.name || 'Steve';
-        const username = p.username || 'steve';
-        const config = {
-          identity: {
-            name,
-            username,
-            type: 'human',
-            avatar_url: '',
-            cover_url: '',
-            headline: '',
-            location: '',
-            timezone: '',
-            language: '',
-            pronouns: '',
-            nickname: '',
-            motto: ''
-          },
-          about: {
-            bio: p.biography || '',
-            story: '',
-            status: '',
-            goals: '',
-            values: ''
-          },
-          roles: {
-            title: '',
-            company: '',
-            department: '',
-            education: '',
-            work_history: ''
-          },
-          rp_persona: {
-            name: p.rp_name || '',
-            class: p.rp_class || '',
-            faction: p.rp_faction || '',
-            backstory: p.rp_backstory || ''
-          },
-          pii_vault: {
-            legal_name: p.pii_legal_name || p.name || 'Steve Pollard',
-            dob: p.pii_dob || p.birthdate || '1974-09-19',
-            email: p.pii_email || '',
-            phone: p.pii_phone || '',
-            registries: p.pii_registries || []
-          },
-          skills: [],
-          projects: [],
-          connections: [],
-          preferences: {
-            tone: p.tone || 'warm_professional',
-            notifications: 'all'
-          },
-          privacy: {}
-        };
-
-        // Render-only -- do NOT persist this reconstructed config via
-        // profiles.save. This function is a *display* fallback for when
-        // profiles.get can't return the richer master-user profile (e.g. a
-        // transient WS-not-yet-connected hiccup right after launch); it
-        // must never silently overwrite whatever real profile.config
-        // already exists in the profiles table. Confirmed live: this used
-        // to auto-save on every Identity-panel visit that hit the fallback
-        // path, permanently destroying real profile data (skills/projects/
-        // connections/roles/about all reset to empty, pii_vault.legal_name
-        // falling back to the literal placeholder string 'Steve Pollard')
-        // shortly after a real profile had just been saved correctly.
-        const profile = { id: 'master-user', type: 'human', name, username, config };
-        this.renderProfileDetails(profile);
+        this.renderProfileDetails(response.profile);
       }
     } catch (err) {
-      console.error('Failed to load profile fallback from neural node:', err);
+      console.error('Failed to load user profile from neural node:', err);
       IPCLog.append('error', `Failed to load user profile: ${err.message || err}`);
     }
   },

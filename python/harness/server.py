@@ -2852,31 +2852,27 @@ async def handle_astro_synastry(params: dict[str, Any], req_id: Any) -> str:
 
 async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) -> str:
     """
-    ``identity.get_user_profile`` — Load user profile Neural Node details.
+    ``identity.get_user_profile`` — Load the user profile from its HTML
+    Neural Node (concept-user-profile.html). Per the HTML-NN universal data
+    mandate, the node is the canonical, always-loaded-from record for the
+    profile -- this returns the same {id, type, name, username, config}
+    shape as ``profiles.get`` (Postgres) so the renderer can use this as its
+    single, unconditional load path instead of racing two different
+    sources with two different (and previously incompatible) schemas.
     """
     import os
     import json
     from pathlib import Path
     try:
-        user_data = os.environ.get("TALA_USER_DATA")
         nodes_dir = resolve_active_nodes_dir()
-
         node_file = nodes_dir / "concept-user-profile.html"
-        
+
         profile = {
+            "id": "master-user",
+            "type": "human",
             "name": "",
-            "birthdate": "",
-            "tone": "warm_professional",
-            "biography": "",
-            "rp_name": "",
-            "rp_class": "",
-            "rp_faction": "",
-            "rp_backstory": "",
-            "pii_legal_name": "",
-            "pii_dob": "",
-            "pii_email": "",
-            "pii_phone": "",
-            "pii_registries": []
+            "username": "",
+            "config": {},
         }
 
         if node_file.exists():
@@ -2884,37 +2880,57 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
             try:
                 node = parse_file(str(node_file))
                 sd = node.state_data or {}
-                # Both writers of this node (handle_identity_save_user_profile
-                # below, and handle_profiles_save's master-user sync) write a
-                # FLAT state_data shape (top-level "name", "rp_name",
-                # "pii_legal_name", ...) -- this reader used to look for a
-                # nested shape ("user_details.name", "rp_persona.name",
-                # "pii_vault.legal_name") that neither writer has ever
-                # produced, so every one of these fields silently read back
-                # empty regardless of what was actually saved. Check the flat
-                # shape first (what's actually written) and keep the nested
-                # lookup as a fallback in case some other writer ever does
-                # use it.
-                profile["name"] = sd.get("name") or sd.get("user_details", {}).get("name", sd.get("title", ""))
-                profile["birthdate"] = sd.get("birthdate") or sd.get("user_details", {}).get("birthdate", "")
-                profile["tone"] = sd.get("tone") or sd.get("formatting_preferences", {}).get("preferred_tone", "warm_professional")
 
-                profile["biography"] = sd.get("biography", "")
-                if not profile["biography"]:
-                    profile["biography"] = node.semantic_memory.strip()
+                profile["id"] = sd.get("id", "master-user")
+                profile["type"] = sd.get("type", "human")
+                profile["name"] = sd.get("name", "")
+                profile["username"] = sd.get("username", "")
 
-                rp = sd.get("rp_persona", {})
-                profile["rp_name"] = sd.get("rp_name") or rp.get("name", "")
-                profile["rp_class"] = sd.get("rp_class") or rp.get("class", "")
-                profile["rp_faction"] = sd.get("rp_faction") or rp.get("faction", "")
-                profile["rp_backstory"] = sd.get("rp_backstory") or rp.get("backstory", "")
+                config = sd.get("config")
+                if not isinstance(config, dict):
+                    # Backward compat: a node written before this fix (or by
+                    # handle_identity_save_user_profile below) only has the
+                    # flat legacy keys, not a "config" object. Reconstruct a
+                    # best-effort config from them so old nodes still render
+                    # something sensible instead of a blank profile.
+                    rp = sd.get("rp_persona", {}) if isinstance(sd.get("rp_persona"), dict) else {}
+                    pii = sd.get("pii_vault", {}) if isinstance(sd.get("pii_vault"), dict) else {}
+                    biography = sd.get("biography", "") or node.semantic_memory.strip()
+                    config = {
+                        "identity": {
+                            "name": profile["name"],
+                            "username": profile["username"],
+                            "type": profile["type"],
+                            "avatar_url": "", "cover_url": "", "headline": "",
+                            "location": "", "timezone": "", "language": "",
+                            "pronouns": "", "nickname": "", "motto": "",
+                            "birthdate": sd.get("birthdate") or sd.get("user_details", {}).get("birthdate", ""),
+                        },
+                        "about": {"bio": biography, "story": "", "status": "", "goals": "", "values": ""},
+                        "roles": {"title": "", "company": "", "department": "", "education": "", "work_history": ""},
+                        "rp_persona": {
+                            "name": sd.get("rp_name") or rp.get("name", ""),
+                            "class": sd.get("rp_class") or rp.get("class", ""),
+                            "faction": sd.get("rp_faction") or rp.get("faction", ""),
+                            "backstory": sd.get("rp_backstory") or rp.get("backstory", ""),
+                        },
+                        "pii_vault": {
+                            "legal_name": sd.get("pii_legal_name") or pii.get("legal_name", ""),
+                            "dob": sd.get("pii_dob") or pii.get("dob", ""),
+                            "email": sd.get("pii_email") or pii.get("email", ""),
+                            "phone": sd.get("pii_phone") or pii.get("phone", ""),
+                            "registries": sd.get("pii_registries") or pii.get("registries", []),
+                        },
+                        "skills": [], "projects": [], "connections": [],
+                        "preferences": {
+                            "tone": sd.get("tone") or sd.get("formatting_preferences", {}).get("preferred_tone", "warm_professional"),
+                            "notifications": "all",
+                        },
+                        "privacy": {},
+                    }
 
-                pii = sd.get("pii_vault", {})
-                profile["pii_legal_name"] = sd.get("pii_legal_name") or pii.get("legal_name", "")
-                profile["pii_dob"] = sd.get("pii_dob") or pii.get("dob", "")
-                profile["pii_email"] = sd.get("pii_email") or pii.get("email", "")
-                profile["pii_phone"] = sd.get("pii_phone") or pii.get("phone", "")
-                profile["pii_registries"] = sd.get("pii_registries") or pii.get("registries", [])
+                profile["config"] = config
+
             except Exception as parse_exc:
                 logger.warning("Failed to parse user profile node: %s", parse_exc)
 
@@ -5208,8 +5224,14 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
                 rp_obj = config.get("rp_persona", {})
                 pref_obj = config.get("preferences", {})
                 pii_obj = config.get("pii_vault", {})
+                roles_obj = config.get("roles", {})
+                skills_list = config.get("skills", []) or []
+                projects_list = config.get("projects", []) or []
+                connections_list = config.get("connections", []) or []
 
                 birthdate = id_obj.get("birthdate", "").strip()
+                headline = id_obj.get("headline", "").strip()
+                location = id_obj.get("location", "").strip()
                 tone = pref_obj.get("tone", "warm_professional").strip()
                 biography = about_obj.get("bio", "").strip() or name
 
@@ -5229,9 +5251,23 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
                 nodes_dir.mkdir(parents=True, exist_ok=True)
 
                 current_iso_time = datetime.now(timezone.utc).isoformat()
-                
+
+                # state_data carries the FULL config (identity/about/roles/
+                # rp_persona/pii_vault/skills/projects/connections/
+                # preferences/privacy) as the single source of truth for
+                # this node -- per the HTML-NN universal data mandate, the
+                # neural node is meant to be the canonical, always-loaded-
+                # from record, not a narrower mirror of the profiles table.
+                # The flat top-level keys (name, birthdate, rp_name, ...)
+                # are kept alongside it purely for backward compatibility
+                # with any older reader that hasn't been updated to read
+                # "config" yet.
                 state_data = {
+                    "id": profile_id,
+                    "type": profile_type,
                     "name": name,
+                    "username": username,
+                    "config": config,
                     "birthdate": birthdate,
                     "tone": tone,
                     "biography": biography,
@@ -5255,13 +5291,42 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
                     "confidence": 1.0
                 }
                 
+                skills_html = "".join(
+                    f"<li>{s.get('name', '')} ({s.get('category', '')}, {s.get('level', '')})</li>"
+                    for s in skills_list if isinstance(s, dict) and s.get("name")
+                ) or "<li>None listed.</li>"
+                projects_html = "".join(
+                    f"<li>{p.get('name', '')} [{p.get('status', '')}] -- {p.get('description', '')}</li>"
+                    for p in projects_list if isinstance(p, dict) and p.get("name")
+                ) or "<li>None listed.</li>"
+                connections_html = "".join(
+                    f"<li>{c.get('name', '')} ({c.get('type', '')})</li>"
+                    for c in connections_list if isinstance(c, dict) and c.get("name")
+                ) or "<li>None listed.</li>"
+
                 content_html = f"""
     <h2>User Persona & Details</h2>
     <p>User Name: {name}</p>
+    <p>Headline: {headline}</p>
+    <p>Location: {location}</p>
     <p>User Birthdate: {birthdate}</p>
     <p>Keywords: age, old, birthday, birthdate, name, who am I, how old am I, roleplay, rp, persona, avatar, character, class, faction, alignment, pii, secure, vault, legal, email, phone, location</p>
     <p>{biography}</p>
-    
+
+    <h3>Work &amp; Roles</h3>
+    <p>Title: {roles_obj.get('title', '')}</p>
+    <p>Company: {roles_obj.get('company', '')}</p>
+    <p>Work History: {roles_obj.get('work_history', '')}</p>
+
+    <h3>Skills</h3>
+    <ul>{skills_html}</ul>
+
+    <h3>Projects</h3>
+    <ul>{projects_html}</ul>
+
+    <h3>Connections</h3>
+    <ul>{connections_html}</ul>
+
     <h3>Roleplay Persona (Avatar)</h3>
     <p>RP Character Name: {rp_name}</p>
     <p>RP Class/Occupation: {rp_class}</p>
