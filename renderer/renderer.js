@@ -10431,28 +10431,19 @@ const ProfileManager = {
           privacy: {}
         };
 
-        // Save fallback profile in database
-        const saveRes = await invoke('python:rpc', {
-          method: 'profiles.save',
-          params: {
-            id: 'master-user',
-            type: 'human',
-            name,
-            username,
-            config
-          }
-        });
-
-        if (saveRes && saveRes.success) {
-          const profile = {
-            id: 'master-user',
-            type: 'human',
-            name,
-            username,
-            config
-          };
-          this.renderProfileDetails(profile);
-        }
+        // Render-only -- do NOT persist this reconstructed config via
+        // profiles.save. This function is a *display* fallback for when
+        // profiles.get can't return the richer master-user profile (e.g. a
+        // transient WS-not-yet-connected hiccup right after launch); it
+        // must never silently overwrite whatever real profile.config
+        // already exists in the profiles table. Confirmed live: this used
+        // to auto-save on every Identity-panel visit that hit the fallback
+        // path, permanently destroying real profile data (skills/projects/
+        // connections/roles/about all reset to empty, pii_vault.legal_name
+        // falling back to the literal placeholder string 'Steve Pollard')
+        // shortly after a real profile had just been saved correctly.
+        const profile = { id: 'master-user', type: 'human', name, username, config };
+        this.renderProfileDetails(profile);
       }
     } catch (err) {
       console.error('Failed to load profile fallback from neural node:', err);
