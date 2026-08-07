@@ -4589,6 +4589,13 @@ const AgentManager = {
 
 ;
 
+// parseThinkingBlocks is defined in thinking_blocks.js, loaded via a plain
+// <script> tag in index.html before this module -- kept in a small,
+// DOM-free, non-module file specifically so it's unit-testable in
+// Jest/Node without dragging in this whole browser-only file. See that
+// file for the regression it fixes (a second <thinking> block in the same
+// message used to leak into the visible chat bubble as raw text).
+
 const AgentChat = {
   PEER_MENTION_RE: /^@([A-Za-z0-9_.-]+)\s+([\s\S]+)$/,
 
@@ -5514,7 +5521,7 @@ const AgentChat = {
 
     const msgEl = document.createElement('div');
     msgEl.className = `chat-message ${sender}`;
-    
+
     const meta = document.createElement('div');
     meta.className = 'message-meta';
     meta.textContent = `${name} • ${fmtTime()}`;
@@ -5526,28 +5533,7 @@ const AgentChat = {
       body.style.color = 'var(--status-error)';
     }
 
-    // Parse out thinking block if present
-    let finalContent = content;
-    let thinkingText = "";
-    
-    const thinkingRegex = /<thinking>([\s\S]*?)<\/thinking>/i;
-    const match = thinkingRegex.exec(content);
-    if (match) {
-      thinkingText = match[1].trim();
-      finalContent = content.replace(thinkingRegex, "").trim();
-    } else {
-      // Small/local fallback models sometimes open a <thinking> block and
-      // never close it (they drift off mid-reasoning). Without a matching
-      // close tag there's nothing to safely resume "real" reply text from,
-      // so treat everything from the open tag onward as thinking rather
-      // than dumping the raw, unclosed tag + reasoning into the chat as if
-      // it were the actual response.
-      const openIdx = content.search(/<thinking>/i);
-      if (openIdx !== -1) {
-        thinkingText = content.slice(openIdx + "<thinking>".length).trim();
-        finalContent = content.slice(0, openIdx).trim();
-      }
-    }
+    const { finalContent, thinkingText } = parseThinkingBlocks(content);
 
     if (thinkingText) {
       const detailsEl = document.createElement('details');
