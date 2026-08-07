@@ -26,6 +26,22 @@ def test_ordinary_task_request_is_not_casual_chat():
     ) is False
 
 
+def test_html_nn_authoring_request_is_not_casual_chat():
+    # A second, independently reported live instance of the same "hi" inside
+    # "everything" false positive: this exact prompt got misclassified as
+    # casual chat, which strips ALL registered tools (including
+    # distill_workflow_to_skill / generate_detailed_neural_node, the tools
+    # that actually author nodes/skill-*.html) out of the system prompt.
+    # With no tool documentation and no way to know those tools existed,
+    # the model fell back to writing plain source to a guessed filename
+    # (calculator.md) instead of producing a real HTML-NN skill node.
+    assert is_casual_chat_prompt(
+        "This needs to be changed a little. Make it, as an HTML-nn. That way "
+        "Tala will have the skill to build software for herself as an "
+        "HTML-NN since everything she does is based on that."
+    ) is False
+
+
 def test_words_containing_hi_as_a_substring_do_not_false_positive():
     """The specific confirmed regression: "hi" must not match inside "everything",
     "this", "which", "machine", "white", "while", "child", "history", etc."""
