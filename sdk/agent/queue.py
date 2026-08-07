@@ -148,7 +148,39 @@ Output JSON array only, wrapped in a Markdown code block like:
                     log.info("GoalTreeDecomposer: Wrote structured shortlist to tot_shortlist.json")
                 except Exception as file_exc:
                     log.warning("GoalTreeDecomposer: Failed to write tot_shortlist.json: %s", file_exc)
-                
+
+                # Also persist the shortlist as a proper HTML-NN learning node
+                # (per the HTML-NN universal data mandate: every collection the
+                # harness distills should be memory, not just a scratch JSON
+                # file). tot_shortlist.json is a disposable working file for the
+                # current process only -- it isn't reindexed, isn't
+                # searchable, and gets silently overwritten by the next ToT
+                # run. The HTML-NN node is what actually survives as durable,
+                # retrievable memory of "what architectural approaches were
+                # considered for this kind of goal and how they scored."
+                try:
+                    from sdk.agent.documentation_nodes import create_learning_documentation_node
+                    approach_summaries = [
+                        f"{a.get('approach_name', 'Unnamed approach')} "
+                        f"(frame={a.get('frame', 'n/a')}, score={a.get('score', 'n/a')}): "
+                        f"{a.get('architectural_strategy', '')}"
+                        for a in shortlist
+                        if isinstance(a, dict)
+                    ]
+                    create_learning_documentation_node(
+                        topic=user_goal,
+                        summary=(
+                            f"Tree-of-Thought ideation ranked {len(shortlist)} architectural "
+                            f"approach(es) for this goal across multiple cognitive frames."
+                        ),
+                        details=approach_summaries,
+                        tags=["tot-ideation", "architectural-shortlist"],
+                    )
+                    log.info("GoalTreeDecomposer: Persisted ToT shortlist as an HTML-NN learning node")
+                except Exception as node_exc:
+                    log.warning("GoalTreeDecomposer: Failed to persist ToT shortlist as HTML-NN: %s", node_exc)
+
+
                 # Feed the top ranked approach into the TalaV2 execution pipeline
                 if shortlist:
                     top_approach = shortlist[0]

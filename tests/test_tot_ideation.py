@@ -79,28 +79,42 @@ async def test_run_tot_ideation_fallback():
         assert len(item["trap_list"]) > 0
 
 @pytest.mark.asyncio
-async def test_goal_tree_decomposer_intercept(tmp_path):
+async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
+    # Isolate the HTML-NN learning node this now also creates (see
+    # sdk/agent/queue.py) -- without this, create_learning_documentation_node
+    # resolves its nodes/ directory via TALA_USER_DATA/APPDATA and would
+    # write straight into the real live %APPDATA%\tala-engine\nodes\ on
+    # every test run, same class of live-pollution bug fixed elsewhere this
+    # session (see self-documenter-learning-node-root-dir-gap).
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+
     decomposer = GoalTreeDecomposer()
-    
+
     # Ensure any cleanup from previous tests
     if os.path.exists("tot_shortlist.json"):
         os.remove("tot_shortlist.json")
-        
+
     user_goal = "Design a fault-tolerant database replication module"
-    
+
     tasks = await decomposer.decompose(user_goal)
-    
+
     # Verify tasks are returned representing the top ToT approach
     assert isinstance(tasks, list)
     assert len(tasks) > 0
-    
+
     # Verify tot_shortlist.json was written
     assert os.path.exists("tot_shortlist.json")
     with open("tot_shortlist.json", "r", encoding="utf-8") as f:
         shortlist_data = json.load(f)
     assert isinstance(shortlist_data, list)
     assert len(shortlist_data) == len(COGNITIVE_FRAMES)
-    
+
+    # Verify the shortlist was ALSO persisted as a durable, searchable
+    # HTML-NN learning node -- not just the disposable scratch JSON file.
+    learning_nodes = list((tmp_path / "nodes").glob("learning-*.html"))
+    assert len(learning_nodes) == 1, f"expected exactly one learning node, found {learning_nodes}"
+    assert "Tree-of-Thought ideation ranked" in learning_nodes[0].read_text(encoding="utf-8")
+
     # Clean up
     if os.path.exists("tot_shortlist.json"):
         os.remove("tot_shortlist.json")
