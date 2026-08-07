@@ -235,8 +235,24 @@ async def test_validation_failure_triggers_rollback_and_retry(tmp_path):
                     return False
             return await original_execute_node(node, nodes, backups, worktree_path, allocated_port)
 
+        # Synthesis nodes route through handle_inference_generate for a real
+        # LLM call (see test_dag_execution_success). This test's actual
+        # subject is the rollback/retry orchestration around a validation
+        # failure, not LLM code-generation quality -- but with a live call
+        # left in, the retry path doubles the number of real LLM round-trips
+        # (initial synthesis + retry synthesis), and this specific test was
+        # confirmed flaky in this environment (LLM synthesis timing out at
+        # 60s on one run, returning no valid Python code on another) while
+        # test_dag_execution_success's single real call usually succeeded.
+        # Mocking the LLM call here makes synthesis deterministic so the
+        # test actually isolates and proves the rollback/retry logic it's
+        # named for.
+        synthesized_code = "def run():\n    return True\n"
+        mock_llm_response = json.dumps({"result": {"text": f"```python\n{synthesized_code}```"}})
+
         with patch.object(engine, "_execute_node", side_effect=mock_execute_node), \
              patch("python.harness.server.handle_task_create_worktree", return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})), \
+             patch("python.harness.server.handle_inference_generate", new_callable=AsyncMock, return_value=mock_llm_response), \
              patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=14001), \
              patch("sdk.agent.port_router.PortRouter.release_port", return_value=True):
 
@@ -245,5 +261,6 @@ async def test_validation_failure_triggers_rollback_and_retry(tmp_path):
             # Validation failed once, rolled back, retried synthesis and writing, then succeeded!
             assert res["success"] is True
             assert attempts.get(f"validation-test-task-retry") == 2
+            assert (scratch_dir / "buggy.py").exists()
     finally:
         await close_pool()
