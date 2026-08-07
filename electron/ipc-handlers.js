@@ -34,6 +34,19 @@ const MAX_LIST_ENTRIES = 10_000;
 
 const CHAIN_DOCUMENT_KEY_FILE = 'blockchain_document_key.bin';
 
+/**
+ * Resolves the absolute path to the Python executable within the local
+ * virtual environment. Mirrors main.js's venvPythonPath() -- kept as a
+ * separate copy here (rather than importing main.js, which would create a
+ * circular require) since it's a small, pure, cross-platform helper.
+ * Handles Windows 'Scripts/python.exe' vs Unix 'bin/python'.
+ */
+function venvPythonPath(basePath) {
+  const venvBinDir = process.platform === 'win32' ? 'Scripts' : 'bin';
+  const pythonName = process.platform === 'win32' ? 'python.exe' : 'python';
+  return path.join(basePath, '.venv', venvBinDir, pythonName);
+}
+
 async function loadOrCreateChainDocumentKey(userData) {
   const crypto = require('node:crypto');
   if (process.env.TALA_CHAIN_DOCUMENT_KEY) {
@@ -145,6 +158,15 @@ async function safePath(baseDir, userPath) {
 function registerHandlers({ isNetworkIsolated } = {}) {
   const userData  = app.getPath('userData');
   const vaultDir  = path.join(userData, 'vault');
+  // Where the actual application source (sdk/, python/, scripts/) lives --
+  // always the app bundle/checkout, never userData, packaged or not.
+  const appPath   = app.getAppPath();
+  // Where the .venv itself was provisioned: for a packaged install,
+  // first_run.py puts it under userData (see main.js's firstRunEnv()/
+  // TALA_USER_DATA_ROOT); for a dev checkout, it's alongside the source
+  // at appPath. Must match main.js's ensureFirstRun()/venvPythonPath()
+  // exactly, or this resolves to a python.exe that was never provisioned.
+  const pythonRuntimeBase = app.isPackaged ? userData : appPath;
 
   /* ── file:read ──────────────────────────────────────────────────── */
   ipcMain.handle('file:read', async (_event, payload) => {
@@ -185,12 +207,19 @@ function registerHandlers({ isNetworkIsolated } = {}) {
       const execFilePromise = util.promisify(execFile);
       
       try {
-        const pythonPath = process.env.TALA_PYTHON_EXEC || path.join(userData, '..', '.venv', 'Scripts', 'python.exe');
+        // Was: path.join(userData, '..', '.venv', 'Scripts', 'python.exe')
+        // -- assumed .venv sits as a *sibling* of userData (e.g.
+        // AppData\Roaming\.venv on Windows), which was never true in dev
+        // (.venv lives at the repo root) or packaged (.venv lives *inside*
+        // userData, per main.js's ensureFirstRun()) -- always ENOENT.
+        // cwd had the same bug: userData's parent has no sdk/agent/parser.py
+        // to import regardless of platform or packaging state.
+        const pythonPath = process.env.TALA_PYTHON_EXEC || venvPythonPath(pythonRuntimeBase);
         await execFilePromise(pythonPath, [
-          '-c', 
-          'import sys; from sdk.agent.parser import parse_file; parse_file(sys.argv[1])', 
+          '-c',
+          'import sys; from sdk.agent.parser import parse_file; parse_file(sys.argv[1])',
           tmpPath
-        ], { cwd: path.join(userData, '..') });
+        ], { cwd: appPath });
       } catch (e) {
         fsSync.unlinkSync(tmpPath);
         throw new Error('Schema validation failed via backend parser: ' + (e.stderr || e.message));
