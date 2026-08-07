@@ -43,8 +43,17 @@ def _workflow(config):
     }
 
 
+# Belt-and-suspenders isolation alongside root_dir=tmp_path below on every
+# test in this file: confirmed live that a fake "Terminal Backend Smoke"
+# learning node from this exact flow_id ended up sitting in the real
+# %APPDATA%\tala-engine\nodes\ (with real execution authority, picked up by
+# unrelated live chat requests via keyword overlap), even though root_dir
+# was already being passed. Pinning TALA_USER_DATA too closes that gap.
+
+
 @pytest.mark.asyncio
-async def test_bash_workflow_defaults_to_local_backend(tmp_path):
+async def test_bash_workflow_defaults_to_local_backend(monkeypatch, tmp_path):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     result = await WorkflowExecutor(
         _workflow({"command": "echo local-default"}),
         root_dir=tmp_path,
@@ -58,6 +67,7 @@ async def test_bash_workflow_defaults_to_local_backend(tmp_path):
 
 @pytest.mark.asyncio
 async def test_bash_workflow_explicitly_uses_docker_backend(monkeypatch, tmp_path):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     RecordingEnvironment.instances = []
 
     import python.inference.terminal_backends.docker_backend as docker_backend
@@ -80,6 +90,7 @@ async def test_bash_workflow_explicitly_uses_docker_backend(monkeypatch, tmp_pat
 
 @pytest.mark.asyncio
 async def test_bash_workflow_explicitly_uses_ssh_backend(monkeypatch, tmp_path):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     RecordingEnvironment.instances = []
 
     import python.inference.terminal_backends.ssh_backend as ssh_backend
@@ -101,7 +112,8 @@ async def test_bash_workflow_explicitly_uses_ssh_backend(monkeypatch, tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_ssh_backend_requires_host_and_user(tmp_path):
+async def test_ssh_backend_requires_host_and_user(monkeypatch, tmp_path):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     result = await WorkflowExecutor(
         _workflow({"command": "echo ssh", "backend": "ssh", "host": "example.test"}),
         root_dir=tmp_path,

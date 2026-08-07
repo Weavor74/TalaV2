@@ -142,7 +142,15 @@ async def test_mcp_manager_persists_registered_servers(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_workflow_mcp_tool_uses_inline_real_server(tmp_path):
+async def test_workflow_mcp_tool_uses_inline_real_server(tmp_path, monkeypatch):
+    # Belt-and-suspenders isolation alongside root_dir=tmp_path below:
+    # confirmed live (again, on a fresh run after the root_dir=tmp_path fix
+    # was already in place) that this exact test still wrote a fresh
+    # "learning-workflow-mcp-smoke.html" straight into the real
+    # %APPDATA%\tala-engine\nodes\ -- root_dir alone is not sufficient,
+    # matching the same gap found in test_workflow_skill_distillation.py
+    # and test_workflow_terminal_backends.py. Pinning TALA_USER_DATA closes it.
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     server_path = _write_fake_mcp_server(tmp_path)
     workflow = {
         "flow_id": "mcp-smoke",
@@ -166,7 +174,17 @@ async def test_workflow_mcp_tool_uses_inline_real_server(tmp_path):
         ],
     }
 
-    result = await WorkflowExecutor(workflow).execute({})
+    # root_dir=tmp_path is required, not optional: on a COMPLETED workflow,
+    # WorkflowExecutor distills it into a real HTML-NN skill/learning node
+    # via SelfDocumenter(root_dir), which resolves its nodes/ directory
+    # straight off root_dir. Omitting it here used to mean nodes/ resolved
+    # to the process's actual cwd/AppData -- writing a fake "MCP Smoke"
+    # skill node with real execution authority straight into the live,
+    # real Tala instance's memory on every test run. Confirmed live: this
+    # was still sitting in the user's real %APPDATA%\tala-engine\nodes\
+    # weeks later, getting pulled into unrelated chat context via keyword
+    # overlap with completely ordinary requests.
+    result = await WorkflowExecutor(workflow, root_dir=tmp_path).execute({})
 
     step = result["variables"]["step_tool"]
     assert result["status"] == "COMPLETED"
