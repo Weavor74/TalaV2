@@ -34,13 +34,23 @@ def test_tala_user_data_takes_priority(tmp_path, monkeypatch):
     assert resolve_active_workflows_dir() == tmp_path / "workflows"
 
 
-def test_appdata_used_when_tala_user_data_unset(tmp_path, monkeypatch):
+def test_appdata_ignored_when_tala_user_data_unset(tmp_path, monkeypatch):
+    # Tala is meant to be portable: installed on a USB stick or any external
+    # drive, its data must travel with the install and behave identically on
+    # any machine/OS it's plugged into. APPDATA is set on essentially every
+    # real Windows machine, so auto-preferring it (the old behavior) would
+    # silently defeat that on exactly the OS most likely to be the USB-boot
+    # target -- data would land in the host machine's profile instead of on
+    # the drive. APPDATA is therefore no longer auto-detected; the only way
+    # to opt into an OS-profile-style location is the explicit
+    # TALA_USER_DATA override (see test_tala_user_data_takes_priority above).
     monkeypatch.delenv("TALA_USER_DATA", raising=False)
     monkeypatch.setenv("APPDATA", str(tmp_path))
 
-    assert resolve_user_data_dir() == tmp_path / "tala-engine"
-    assert resolve_active_nodes_dir() == tmp_path / "tala-engine" / "nodes"
-    assert resolve_active_workflows_dir() == tmp_path / "tala-engine" / "workflows"
+    repo_root = Path(__file__).resolve().parent.parent.parent.parent
+    assert resolve_user_data_dir() == repo_root
+    assert resolve_active_nodes_dir() == repo_root / "nodes"
+    assert resolve_active_workflows_dir() == repo_root / "workflows"
 
 
 def test_falls_back_to_application_directory_when_neither_env_var_set(monkeypatch):

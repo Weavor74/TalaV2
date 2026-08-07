@@ -3,7 +3,6 @@ clean_db.py - Auto-generated documentation base.
 """
 
 import asyncio
-import os
 import uuid
 import sys
 from pathlib import Path
@@ -11,9 +10,10 @@ from pathlib import Path
 # Adjust the python path to load db.py
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from python.harness import db
+from sdk.agent.documentation_nodes import resolve_active_nodes_dir
 
 async def clean_database():
-    nodes_dir = Path(os.environ.get("APPDATA", ""), "tala-engine", "nodes")
+    nodes_dir = resolve_active_nodes_dir()
     if not nodes_dir.exists():
         print(f"Nodes directory not found: {nodes_dir}")
         return

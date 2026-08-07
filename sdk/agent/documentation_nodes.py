@@ -102,29 +102,35 @@ def resolve_user_data_dir() -> Path:
     """
     Resolve the base directory Tala's per-user runtime data (nodes/,
     workflows/, chat_mode.json, ...) lives under. Priority order:
-    1. TALA_USER_DATA env var (explicit override; test isolation uses this).
-    2. APPDATA env var, if set (the common case on a real Windows install).
-    3. The application's own install/checkout location.
+    1. TALA_USER_DATA env var (explicit override; test isolation uses this,
+       and it's the escape hatch for anyone who deliberately wants their
+       data somewhere else -- a shared multi-user install, a container
+       volume, an OS profile directory, etc.).
+    2. The application's own install/checkout location -- the default,
+       unconditionally, on every OS.
 
-    Deliberately NOT hardcoded to any single OS's per-user profile
-    convention (previously: Path.home()/"AppData"/"Roaming"/... on Windows,
-    Path.home()/"Library"/"Application Support"/... on macOS, XDG/.config on
-    Linux, scattered across a dozen-plus call sites) -- every install may be
-    on a different machine/OS, and the relevant profile env var (APPDATA,
-    XDG_CONFIG_HOME) may simply not be set there. Falling back to the
-    application's own directory works identically regardless of OS or
-    profile-directory conventions. This is the single canonical resolver;
-    every node/workflow-writing path in the harness should go through this
-    (or resolve_active_nodes_dir/resolve_active_workflows_dir below) instead
-    of re-deriving its own copy of this logic.
+    Tala is designed to be portable: installed on a USB stick or any
+    external drive, it should behave identically no matter which machine
+    or OS it's plugged into, with all of its data traveling with the
+    install rather than scattering into whichever host machine's per-user
+    profile happened to be active. That means this resolver does NOT
+    auto-detect OS profile directories (previously: Path.home()/"AppData"/
+    "Roaming"/... on Windows, Path.home()/"Library"/"Application Support"/...
+    on macOS, XDG/.config on Linux -- and, briefly, an automatic APPDATA
+    check here) as anything other than something the caller opts into
+    explicitly via TALA_USER_DATA. APPDATA is set on essentially every real
+    Windows machine, so auto-preferring it silently defeated portability by
+    default there -- exactly the case that matters most, since Windows is
+    the common USB-boot target.
+
+    This is the single canonical resolver; every node/workflow-writing path
+    in the harness should go through this (or resolve_active_nodes_dir/
+    resolve_active_workflows_dir below) instead of re-deriving its own copy
+    of this logic.
     """
     user_data = os.environ.get("TALA_USER_DATA")
     if user_data:
         return Path(user_data).expanduser().resolve()
-
-    appdata = os.environ.get("APPDATA")
-    if appdata:
-        return Path(appdata).expanduser().resolve() / "tala-engine"
 
     return _application_root()
 
