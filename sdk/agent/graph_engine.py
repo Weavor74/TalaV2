@@ -795,7 +795,21 @@ class DAGExecutionEngine:
                     }
                     return False
 
-            node.outputs = {"success": True, "output": "Compilation and test verification passed successfully."}
+            # Regression: this used to unconditionally claim "test verification
+            # passed successfully" even when test_file was never set (the normal
+            # case for a freeform goal -- test_file only ever comes from a
+            # structured context field nothing populates from natural language,
+            # never from prose). A goal that explicitly asked for tests to be
+            # written and run could report full success with zero tests ever
+            # having executed. The message must say plainly whether tests ran.
+            if test_file:
+                node.outputs = {"success": True, "output": "Compilation and test suite verification passed successfully."}
+            else:
+                node.outputs = {
+                    "success": True,
+                    "output": "Compilation check passed. No test file was specified, so no automated tests were run.",
+                    "tests_ran": False,
+                }
             return True
 
         return False

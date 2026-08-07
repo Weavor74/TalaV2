@@ -63,6 +63,70 @@ async def test_execute_task_as_dag_always_unregisters_active_task(tmp_path):
     assert "test-active-task-boom" not in get_active_task_ids()
 
 
+@pytest.mark.asyncio
+async def test_validation_node_does_not_claim_tests_ran_when_none_specified(tmp_path):
+    """
+    Regression: the validation node's success message used to unconditionally
+    say "Compilation and test verification passed successfully" even when
+    test_file was never set -- which is the normal case for a freeform chat
+    goal, since test_file only ever comes from a structured context field
+    nothing populates from natural language. A goal that explicitly asked
+    for tests to be written and run could report full success with zero
+    tests ever having executed (confirmed live: a real chat goal asking for
+    a calculator implementation *and* a test file reported "Goal completed
+    successfully" while the test file was never created and no test ever
+    ran). The output must say plainly whether tests actually ran.
+    """
+    engine = DAGExecutionEngine(root_dir=str(tmp_path))
+    target = tmp_path / "output.py"
+    target.write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+
+    node = GraphNode(
+        id="validation-test",
+        task_id="test-validation-honesty",
+        node_type="validation",
+        description="validate",
+        inputs={"target_file": str(target), "test_file": None},
+    )
+
+    ok = await engine._execute_node(node, {}, {}, str(tmp_path), 0)
+
+    assert ok is True
+    assert node.outputs.get("tests_ran") is False
+    assert "no automated tests were run" in node.outputs["output"].lower()
+    assert "test verification passed" not in node.outputs["output"].lower()
+
+
+@pytest.mark.asyncio
+async def test_validation_node_reports_real_test_success_distinctly(tmp_path):
+    """Companion to the above: when a test_file genuinely is specified and
+    genuinely passes, the message should say so -- distinct wording from the
+    no-test-ran path, so the two cases can never be confused by anything
+    reading node.outputs["output"] downstream (chat UI, self-documenter)."""
+    engine = DAGExecutionEngine(root_dir=str(tmp_path))
+    target = tmp_path / "output.py"
+    target.write_text("def add(a, b):\n    return a + b\n", encoding="utf-8")
+    test_file = tmp_path / "test_output.py"
+    test_file.write_text(
+        "from output import add\ndef test_add():\n    assert add(2, 3) == 5\n",
+        encoding="utf-8",
+    )
+
+    node = GraphNode(
+        id="validation-test-2",
+        task_id="test-validation-honesty-2",
+        node_type="validation",
+        description="validate",
+        inputs={"target_file": str(target), "test_file": str(test_file)},
+    )
+
+    ok = await engine._execute_node(node, {}, {}, str(tmp_path), 0)
+
+    assert ok is True
+    assert "tests_ran" not in node.outputs or node.outputs.get("tests_ran") is not False
+    assert "test suite verification passed" in node.outputs["output"].lower()
+
+
 def test_graph_node_initialization():
     node = GraphNode(
         id="node-1",
