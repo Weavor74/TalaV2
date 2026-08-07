@@ -287,22 +287,65 @@ class WikiUpdater:
 
     @staticmethod
     def _scaffold_node(title: str, sections: dict[str, str]) -> str:
-        """Build a minimal HTML Neural Node scaffold."""
+        """
+        Build a minimal but schema-valid HTML Neural Node scaffold.
+
+        Must satisfy sdk/agent/parser.py's schema invariants -- a top-level
+        <article> carrying data-node-id, data-node-type, and a numeric
+        data-execution-authority -- or parse_file() raises
+        InvalidNodeSchemaError forever and the node is silently skipped by
+        every retrieval/indexing call site (server.py, retrieval.py,
+        memory.py all catch-and-skip). A scaffold that isn't schema-valid
+        is a permanent dead end: nothing ever re-visits it to fix the shape.
+
+        Weights are deliberately low (relevance/confidence) rather than the
+        authored-doc defaults -- this is a placeholder announcing a gap, not
+        real documentation, and retrieval/ranking should treat it as such
+        until a real content pass fills it in.
+        """
         section_html = "\n".join(
             _build_section_block(sid, content)
             for sid, content in sections.items()
         )
+        created = datetime.now(UTC).isoformat()
         return f"""<!DOCTYPE html>
 <html lang="en">
 <head>
   <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <meta name="generator" content="Tala WikiUpdater">
-  <meta name="created" content="{datetime.now(UTC).isoformat()}">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="{title}">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="created" content="{created}">
   <title>Neural Node: {title}</title>
 </head>
 <body>
+<article
+  data-node-id="{title}"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-weight-relevance="0.30"
+  data-weight-confidence="0.10"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.00"
+  data-governance-status="context-only"
+  data-source="wiki-scaffold"
+>
 <h1>{title}</h1>
+<section id="semantic-memory">
+<p>Auto-scaffolded Neural Node for <code>{title}</code>, created by Tala's
+self-healing documentation system (WikiUpdater) because no Neural Node
+existed yet for the corresponding module. This section is a placeholder,
+not authored documentation of the module's real behavior -- see the
+corrections section below for what triggered the scaffold.</p>
+</section>
 {section_html}
+</article>
 </body>
 </html>
 """
