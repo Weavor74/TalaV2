@@ -2,10 +2,22 @@
 test_workflow_terminal_backends.py - Auto-generated documentation base.
 """
 
+from unittest.mock import AsyncMock, patch
+
 import pytest
 
 from python.harness.workflow_executor import WorkflowExecutor
 from python.inference.terminal_backends.base import ProcessResult
+
+# Every COMPLETED workflow in this file gets distilled into a skill node,
+# which now attempts real LLM code synthesis (sdk.agent.skill_synthesis).
+# Mock it out so these tests stay fast/deterministic instead of depending
+# on a live model backend being reachable.
+_no_synthesis = patch(
+    "sdk.agent.skill_synthesis.synthesize_python_skill",
+    new_callable=AsyncMock,
+    return_value=None,
+)
 
 
 class RecordingEnvironment:
@@ -54,10 +66,11 @@ def _workflow(config):
 @pytest.mark.asyncio
 async def test_bash_workflow_defaults_to_local_backend(monkeypatch, tmp_path):
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
-    result = await WorkflowExecutor(
-        _workflow({"command": "echo local-default"}),
-        root_dir=tmp_path,
-    ).execute({})
+    with _no_synthesis:
+        result = await WorkflowExecutor(
+            _workflow({"command": "echo local-default"}),
+            root_dir=tmp_path,
+        ).execute({})
 
     step = result["variables"]["step_bash"]
     assert step["success"] is True
@@ -74,10 +87,11 @@ async def test_bash_workflow_explicitly_uses_docker_backend(monkeypatch, tmp_pat
 
     monkeypatch.setattr(docker_backend, "DockerEnvironment", RecordingEnvironment)
 
-    result = await WorkflowExecutor(
-        _workflow({"command": "echo docker", "backend": "docker", "image": "ubuntu:test", "cwd": "/workspace"}),
-        root_dir=tmp_path,
-    ).execute({})
+    with _no_synthesis:
+        result = await WorkflowExecutor(
+            _workflow({"command": "echo docker", "backend": "docker", "image": "ubuntu:test", "cwd": "/workspace"}),
+            root_dir=tmp_path,
+        ).execute({})
 
     env = RecordingEnvironment.instances[0]
     step = result["variables"]["step_bash"]
@@ -97,10 +111,11 @@ async def test_bash_workflow_explicitly_uses_ssh_backend(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ssh_backend, "SSHEnvironment", RecordingEnvironment)
 
-    result = await WorkflowExecutor(
-        _workflow({"command": "echo ssh", "backend": "ssh", "host": "example.test", "user": "tala"}),
-        root_dir=tmp_path,
-    ).execute({})
+    with _no_synthesis:
+        result = await WorkflowExecutor(
+            _workflow({"command": "echo ssh", "backend": "ssh", "host": "example.test", "user": "tala"}),
+            root_dir=tmp_path,
+        ).execute({})
 
     env = RecordingEnvironment.instances[0]
     step = result["variables"]["step_bash"]

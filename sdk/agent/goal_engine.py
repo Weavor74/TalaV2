@@ -823,7 +823,8 @@ class GoalEngine:
         """
         try:
             # 1. Synthesize python code
-            executable_code = await self._synthesize_python_skill(goal_text, phases_completed)
+            from sdk.agent.skill_synthesis import synthesize_python_skill
+            executable_code = await synthesize_python_skill(goal_text, phases_completed)
             
             # 2. Document to HTML Neural Node
             documenter = SelfDocumenter(self.root_dir)
@@ -917,78 +918,6 @@ class GoalEngine:
             log.warning(
                 "GoalEngine: auto-skill documentation failed (non-fatal): %s", exc
             )
-
-    async def _synthesize_python_skill(self, goal_text: str, phases_completed: list[str]) -> str | None:
-        """
-        Synthesize an executable Python skill from a successful goal trajectory.
-        Uses the LLM to write an async function with @register_tool and returns the code string.
-        """
-        try:
-            from sdk.agent.llm_coder import LLMCodeGenerator
-            from pathlib import Path
-            import os
-            import re
-            
-            coder = LLMCodeGenerator()
-            
-            # Format the phases to help the LLM understand what to automate
-            trajectory = "\n".join(f"{i+1}. {phase}" for i, phase in enumerate(phases_completed))
-            
-            prompt = f"""You are the Tala Skill Synthesizer.
-A complex task was just successfully completed. Your job is to convert this trajectory into a reusable Python tool.
-
-Goal that was solved:
-{goal_text}
-
-Steps taken to solve it:
-{trajectory}
-
-Write a standalone async Python function using the `@register_tool(name="...", description="...")` decorator from `sdk.agent.tools`.
-The function should automate the core intent of the goal in a generalized way, parameterizing inputs where appropriate.
-
-Requirements:
-- Only output the raw python code (wrapped in a markdown python code block).
-- Import `register_tool` using `from sdk.agent.tools import register_tool`.
-- Return a `dict[str, Any]` with status, error, and relevant result data.
-- Catch exceptions and return them gracefully.
-- Include a descriptive docstring.
-- Ensure the name is snake_case and descriptive.
-
-Example format:
-```python
-import typing
-from typing import Any
-from sdk.agent.tools import register_tool
-
-@register_tool(name="example_skill", description="Does something useful")
-async def example_skill(input_text: str) -> dict[str, Any]:
-    try:
-        # Implementation
-        return {{"status": "success", "result": "..."}}
-    except Exception as e:
-        return {{"status": "error", "error": str(e)}}
-```
-"""
-            log.info("GoalEngine: Prompting LLM to synthesize Python skill...")
-            code_response = await coder._call_llm(prompt, language="python")
-            if not code_response:
-                log.warning("GoalEngine: LLM failed to return synthesized skill code.")
-                return
-
-            clean_code = LLMCodeGenerator._extract_code(code_response, "python")
-
-            # Validate tool name extraction
-            match = re.search(r'name=["\']([a-zA-Z0-9_]+)["\']', clean_code)
-            if not match:
-                log.warning("GoalEngine: Could not extract skill name from generated code.")
-                return None
-                
-            log.info("GoalEngine: Successfully synthesized skill code for: %s", match.group(1).lower())
-            return clean_code
-            
-        except Exception as e:
-            log.warning("GoalEngine: failed to synthesize python skill: %s", e)
-            return None
 
     def should_i_adjust(self, feedback: str, usage_count: int, is_recurring: bool) -> bool:
         """

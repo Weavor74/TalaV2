@@ -4,6 +4,7 @@ test_mcp_manager.py - Auto-generated documentation base.
 
 import sys
 from pathlib import Path
+from unittest.mock import AsyncMock, patch
 import textwrap
 import json
 
@@ -184,7 +185,16 @@ async def test_workflow_mcp_tool_uses_inline_real_server(tmp_path, monkeypatch):
     # was still sitting in the user's real %APPDATA%\tala-engine\nodes\
     # weeks later, getting pulled into unrelated chat context via keyword
     # overlap with completely ordinary requests.
-    result = await WorkflowExecutor(workflow, root_dir=tmp_path).execute({})
+    #
+    # Distillation now also attempts real LLM code synthesis
+    # (sdk.agent.skill_synthesis) -- mock it out so this test stays fast/
+    # deterministic instead of depending on a live model backend.
+    with patch(
+        "sdk.agent.skill_synthesis.synthesize_python_skill",
+        new_callable=AsyncMock,
+        return_value=None,
+    ):
+        result = await WorkflowExecutor(workflow, root_dir=tmp_path).execute({})
 
     step = result["variables"]["step_tool"]
     assert result["status"] == "COMPLETED"

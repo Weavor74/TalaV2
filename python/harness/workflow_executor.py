@@ -351,13 +351,32 @@ class WorkflowExecutor:
             workflow_name = self.workflow.get("name") or "Unnamed Workflow"
             flow_id = self.workflow.get("flow_id") or uuid.uuid4().hex
             phases = self._build_skill_phases(execution_path)
+            goal_text = f"Workflow: {workflow_name}"
+
+            # Synthesize an actual callable Python skill from the workflow's
+            # trajectory, same as GoalEngine._auto_document_skill does for
+            # goal-derived skills. Without this, workflow-distilled skill
+            # nodes never carry a node-executable script, so
+            # ToolRegistry.auto_discover_skills() (sdk/agent/tools.py) has
+            # nothing to exec() and register -- the node is permanently
+            # inert documentation, not a tool that can be chained into a
+            # future workflow. Failures here are non-fatal: the skill node
+            # still gets written (as documentation) even if synthesis fails.
+            executable_code = None
+            try:
+                from sdk.agent.skill_synthesis import synthesize_python_skill
+                executable_code = await synthesize_python_skill(goal_text, phases)
+            except Exception as synth_exc:
+                logger.warning("Failed to synthesize executable code for workflow skill: %s", synth_exc)
+
             documenter = SelfDocumenter(str(self.root_dir))
             node_paths = documenter.document_completed_goal(
-                goal_text=f"Workflow: {workflow_name}",
+                goal_text=goal_text,
                 phases_completed=phases,
                 task_id=f"workflow-{flow_id}",
                 changed_files=[f"workflows/{flow_id}.json"],
                 tests_status="Workflow completed successfully",
+                executable_code=executable_code,
             )
             node_path = node_paths.get("skill_node_path")
             learning_node_path = node_paths.get("learning_node_path")
