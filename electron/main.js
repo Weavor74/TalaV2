@@ -70,15 +70,33 @@ function venvPythonPath(basePath) {
   return path.join(basePath, '.venv', venvBinDir, pythonName);
 }
 
+/**
+ * Resolves the directory Tala's data (.venv, .env, nodes/, workflows/,
+ * vault/, chat_mode.json, ...) lives under. Tala is portable by default:
+ * installed on a USB stick, it must behave identically on any machine/OS
+ * it's plugged into, with data traveling on the drive rather than
+ * scattering into whichever host machine's OS profile happened to be
+ * active. TALA_USER_DATA is the explicit escape hatch for anyone
+ * deliberately running a locked-down/traditional install (e.g. Program
+ * Files, where the install directory isn't writable by a standard user)
+ * who wants OS-profile storage instead. Mirrors
+ * sdk/agent/documentation_nodes.py::resolve_user_data_dir() on the Python
+ * side and ipc-handlers.js's registerHandlers() for the IPC file sandbox.
+ */
+function resolveDataRoot(appPath) {
+  const override = process.env.TALA_USER_DATA;
+  return override ? path.resolve(override) : appPath;
+}
+
 function firstRunEnv(appPath) {
-  const userDataPath = app.getPath('userData');
-  const venvDir = path.join(app.isPackaged ? userDataPath : appPath, '.venv');
-  const envPath = path.join(app.isPackaged ? userDataPath : appPath, '.env');
+  const dataRoot = resolveDataRoot(appPath);
+  const venvDir = path.join(dataRoot, '.venv');
+  const envPath = path.join(dataRoot, '.env');
   return {
     ...process.env,
     TALA_INSTALL_ROOT: appPath,
-    TALA_USER_DATA: userDataPath,
-    TALA_USER_DATA_ROOT: app.isPackaged ? userDataPath : appPath,
+    TALA_USER_DATA: dataRoot,
+    TALA_USER_DATA_ROOT: dataRoot,
     TALA_VENV_DIR: venvDir,
     TALA_ENV_PATH: envPath,
     TALA_WS_PORT: String(HARNESS_PORT),
@@ -95,7 +113,7 @@ function firstRunEnv(appPath) {
  * @returns {string} The path to the resolved Python executable
  */
 function ensureFirstRun(appPath) {
-  const runtimeBase = app.isPackaged ? app.getPath('userData') : appPath;
+  const runtimeBase = resolveDataRoot(appPath);
   const pythonPath = venvPythonPath(runtimeBase);
   const envPath = path.join(runtimeBase, '.env');
   if (fs.existsSync(pythonPath) && fs.existsSync(envPath)) {
@@ -868,7 +886,7 @@ function spawnTerminalShell() {
   const shellArgs = process.platform === 'win32' ? ['-NoProfile', '-NoExit'] : ['-i'];
 
   const venvBinDir = process.platform === 'win32' ? 'Scripts' : 'bin';
-  const venvPath = path.join(appPath, '.venv');
+  const venvPath = path.join(resolveDataRoot(appPath), '.venv');
   const venvBinPath = path.join(venvPath, venvBinDir);
 
   const pathKey = process.platform === 'win32' ? 'Path' : 'PATH';

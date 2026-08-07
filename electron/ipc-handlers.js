@@ -3,7 +3,7 @@
  *
  * Extracted IPC handler module imported by main.js.
  * Implements:
- *   - file:read   — sandboxed file read (confined to userData)
+ *   - file:read   — sandboxed file read (confined to the data root)
  *   - file:write  — sandboxed file write
  *   - file:list   — sandboxed directory listing
  *   - vault:read  — read from vault directory with extra network-isolation guard
@@ -14,6 +14,17 @@
  *   - Symlinks are resolved before the containment check (TOCTOU mitigation).
  *   - vault:read additionally checks that the caller environment has not
  *     opened any outbound connections (heuristic flag set by main.js).
+ *
+ * Data root: Tala is portable by default -- installed on a USB stick, it
+ * must behave identically on any machine/OS it's plugged into, so the
+ * sandbox is confined to the app's install/checkout directory
+ * (app.getAppPath()), not Electron's OS-profile userData directory.
+ * TALA_USER_DATA is the explicit escape hatch for anyone deliberately
+ * running a locked-down/traditional install who wants OS-profile storage
+ * instead. Mirrors main.js's resolveDataRoot() and
+ * sdk/agent/documentation_nodes.py::resolve_user_data_dir() on the Python
+ * side -- all three must agree, or the app, the harness, and this sandbox
+ * end up looking at three different directories.
  */
 
 'use strict';
@@ -156,17 +167,21 @@ async function safePath(baseDir, userPath) {
  * }} opts
  */
 function registerHandlers({ isNetworkIsolated } = {}) {
-  const userData  = app.getPath('userData');
-  const vaultDir  = path.join(userData, 'vault');
   // Where the actual application source (sdk/, python/, scripts/) lives --
-  // always the app bundle/checkout, never userData, packaged or not.
+  // always the app bundle/checkout, never the data root, packaged or not.
   const appPath   = app.getAppPath();
-  // Where the .venv itself was provisioned: for a packaged install,
-  // first_run.py puts it under userData (see main.js's firstRunEnv()/
-  // TALA_USER_DATA_ROOT); for a dev checkout, it's alongside the source
-  // at appPath. Must match main.js's ensureFirstRun()/venvPythonPath()
-  // exactly, or this resolves to a python.exe that was never provisioned.
-  const pythonRuntimeBase = app.isPackaged ? userData : appPath;
+  // The sandbox root for file:read/write/list/vault:read, and where the
+  // .venv is expected. TALA_USER_DATA (if set) overrides; otherwise this
+  // is appPath itself -- see the module doc comment above. Kept in the
+  // variable name `userData` since it's still what every handler below
+  // calls its confinement root; it just isn't Electron's userData API
+  // anymore. Must match main.js's resolveDataRoot() exactly, or the app,
+  // the harness, and this sandbox end up looking at different directories.
+  const userData  = process.env.TALA_USER_DATA
+    ? path.resolve(process.env.TALA_USER_DATA)
+    : appPath;
+  const vaultDir  = path.join(userData, 'vault');
+  const pythonRuntimeBase = userData;
 
   /* ── file:read ──────────────────────────────────────────────────── */
   ipcMain.handle('file:read', async (_event, payload) => {
