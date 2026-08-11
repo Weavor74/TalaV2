@@ -19,6 +19,21 @@
 
 'use strict';
 
+// A console.log/console.error write must never take the app down. stdout and
+// stderr belong to whatever launched us — a terminal, npm, a wrapper script,
+// a CI harness — and if that parent closes its end of the pipe (e.g. it piped
+// our output through `head`, or simply exited), every later console write
+// raises EPIPE. Node surfaces that as an uncaught exception in the main
+// process: confirmed live 2026-08-11, the "[python] ..." relay at the harness
+// stdout handler crashed the whole app with the "A JavaScript error occurred
+// in the main process" dialog mid-session. Logging is best-effort; a broken
+// log pipe is not an application error.
+for (const stream of [process.stdout, process.stderr]) {
+  if (stream && typeof stream.on === 'function') {
+    stream.on('error', () => { /* swallow — nowhere left to report it */ });
+  }
+}
+
 const {
   app,
   BrowserWindow,
