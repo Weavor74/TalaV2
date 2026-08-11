@@ -304,6 +304,46 @@ async def generate_stream(
     # Transformers generation (Default fallback)
     from transformers import TextIteratorStreamer
 
+    # Apply the LoRA adapter, if one was selected for this turn.
+    #
+    # This branch ignored `lora_path` entirely, and it is the branch that
+    # actually runs: the vLLM path above is gated on
+    # `vllm installed AND transformers NOT installed`, so whenever transformers
+    # is present -- which is the normal install -- vLLM is unreachable. Combined
+    # with Ollama's API having no adapter parameter at all, the result was that
+    # **no LoRA has ever affected a single token of output**, on any path,
+    # despite adapters being compiled and written to disk for every node.
+    #
+    # peft is used rather than vLLM deliberately. vLLM requires CUDA; peft +
+    # transformers runs on CPU and GPU alike, which is the only option
+    # compatible with "installs and works with no internet, GPU or not".
+    if lora_path:
+        try:
+            from pathlib import Path as _Path
+
+            if _Path(lora_path).exists():
+                from peft import PeftModel
+
+                active = getattr(model, "_tala_active_lora", None)
+                if active != lora_path:
+                    # Drop a previously attached adapter before swapping, or
+                    # they stack silently and the output is governed by every
+                    # node that has ever activated this session.
+                    if hasattr(model, "unload") and active:
+                        model = model.unload()
+                    model = PeftModel.from_pretrained(model, lora_path)
+                    model._tala_active_lora = lora_path
+                    logger.info("Embedded engine: applied LoRA adapter %s", lora_path)
+            else:
+                logger.warning("Embedded engine: LoRA path does not exist: %s", lora_path)
+        except Exception as exc:
+            # Never let adapter trouble take down generation -- a missing or
+            # incompatible adapter should degrade to the base model, loudly.
+            logger.warning(
+                "Embedded engine: could not apply LoRA %s (%s: %s); using base model",
+                lora_path, type(exc).__name__, exc,
+            )
+
     streamer = TextIteratorStreamer(
         tokenizer,
         skip_prompt=True,

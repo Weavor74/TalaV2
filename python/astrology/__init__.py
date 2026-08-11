@@ -1,7 +1,7 @@
 """
 python/astrology package init
 """
-from .ephemeris import EphemerisEngine, Birthdate, Transit, PLANET_NAMES
+from .ephemeris import EphemerisEngine, Birthdate, Transit, PLANET_NAMES, TALA_NATAL
 from .synastry import SynastryEngine, SynastryMatrix, CrossAspect
 from .style_cap import StyleModulator, MAX_ASTRO_INFLUENCE
 
@@ -10,6 +10,7 @@ __all__ = [
     "Birthdate",
     "Transit",
     "PLANET_NAMES",
+    "TALA_NATAL",
     "SynastryEngine",
     "SynastryMatrix",
     "CrossAspect",

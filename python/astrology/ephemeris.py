@@ -88,6 +88,18 @@ class Birthdate:
     latitude: float = 0.0
     longitude: float = 0.0
 
+#: Tala's canonical natal chart. This is her permanent birthdate and the single
+#: source of truth for it.
+#:
+#: It previously existed as two disagreeing hardcoded copies -- ``1977-07-20``
+#: in her persona config (``nodes/persona-tala-rp.html``, ``settings-agent.html``)
+#: and ``2014-05-26`` as the ``tala-origin`` fallback in
+#: ``handle_astro_transits``. Those are entirely different charts, so whether the
+#: DB was reachable silently decided which emotional life she had. Import this
+#: rather than re-declaring a date.
+TALA_NATAL = Birthdate(year=1977, month=7, day=20, hour=12.0)
+
+
 @dataclass(frozen=True, slots=True)
 class Transit:
     """

@@ -21,17 +21,32 @@ from python.harness.sync_manager import sync_manager
 
 logger = logging.getLogger(__name__)
 
+# Phrases that signal a durable lesson rather than ordinary prose.
+#
+# "note that" is deliberately absent. Unlike the rest of these it is pure
+# connective tissue in normal explanation -- "note that the config lives in
+# settings.json" is an aside, not a standing rule, and firing on it minted a
+# permanent wiki page every time she explained something. The others here are
+# directive: a person says "from now on" or "the rule is" when they mean it to
+# stick.
+#
+# This is only the first of two filters. Whatever passes still has to clear
+# assess_learning_quality() in sdk/agent/documentation_nodes.py, which rejects
+# task restatements, completion boilerplate, and anything too thin to be worth
+# a permanent node. That second gate is what does the heavy lifting, so these
+# cues can stay generous without producing junk.
 _LEARNING_CUE_PATTERNS = (
     re.compile(r"\bi learned\b", re.IGNORECASE),
     re.compile(r"\blearned that\b", re.IGNORECASE),
     re.compile(r"\bfrom now on\b", re.IGNORECASE),
     re.compile(r"\bgoing forward\b", re.IGNORECASE),
     re.compile(r"\bremember that\b", re.IGNORECASE),
-    re.compile(r"\bnote that\b", re.IGNORECASE),
     re.compile(r"\bthe rule is\b", re.IGNORECASE),
     re.compile(r"\btala should\b", re.IGNORECASE),
     re.compile(r"\bpreference is\b", re.IGNORECASE),
     re.compile(r"\bwe should remember\b", re.IGNORECASE),
+    re.compile(r"\bfor future reference\b", re.IGNORECASE),
+    re.compile(r"\blesson learned\b", re.IGNORECASE),
 )
 
 
@@ -142,39 +157,56 @@ def _build_learning_node_payload(
         "node_id": node_id,
     }
 
-async def _inject_emotion_to_query(query: str) -> str:
-    chat_mode = "assistant"
+async def _current_emotion_label() -> str | None:
+    """
+    Tala's current emotional state as a plain label, or None.
+
+    This used to be ``_inject_emotion_to_query``, which prepended
+    ``[Emotional State: X] `` onto the search string. That is the wrong
+    mechanism for this index: ``memory_index`` is Postgres full-text
+    (``tsvector_col``), so concatenating the label into the query only adds
+    tokens that appear in no stored document, diluting the real search terms
+    and — for an exact-marker lookup — dropping the match entirely.
+
+    Colouring recall by mood is a ranking concern, not a query-string concern.
+    Returning the label instead of splicing it leaves that door open without
+    corrupting the query.
+
+    The bug never surfaced because the emotion lookup silently failed on every
+    call, so the injection never actually happened.
+    """
+    from python.harness.chat_mode import is_emotional_mode
+
+    if not is_emotional_mode():
+        return None
+
     agent_id = None
     try:
-        active_row = await db.fetchrow("SELECT id, config FROM agents WHERE is_active = TRUE")
+        active_row = await db.fetchrow("SELECT id FROM agents WHERE is_active = TRUE")
         if active_row:
             agent_id = str(active_row["id"])
-            config = active_row["config"]
-            if isinstance(config, str):
-                config = json.loads(config)
-            chat_mode = config.get("chat_mode", "assistant")
     except Exception as exc:
-        logger.warning(f"Failed to fetch active agent config: {exc}")
+        logger.warning(f"Failed to fetch active agent: {exc}")
 
-    if chat_mode == "rp" and agent_id:
-        try:
-            from python.harness.mcp_manager import mcp_manager
-            emotion_result = await mcp_manager.call_tool("astro-emotion", "get_emotional_state", {"agent_id": agent_id})
-            emotion_state = None
-            if isinstance(emotion_result, dict):
-                emotion_state = emotion_result.get("emotional_state") or emotion_result.get("value") or emotion_result
-            else:
-                emotion_state = emotion_result
-                
-            if emotion_state:
-                if isinstance(emotion_state, dict):
-                    primary = emotion_state.get("primary_emotion", "") or str(emotion_state)
-                else:
-                    primary = str(emotion_state)
-                return f"[Emotional State: {primary}] {query}"
-        except Exception as exc:
-            logger.warning(f"Failed to fetch emotional state for search context: {exc}")
-    return query
+    if not agent_id:
+        return None
+
+    try:
+        from python.harness.mcp_manager import mcp_manager
+        emotion_result = await mcp_manager.call_tool("astro-emotion", "get_emotional_state", {"agent_id": agent_id})
+        emotion_state = None
+        if isinstance(emotion_result, dict):
+            emotion_state = emotion_result.get("emotional_state") or emotion_result.get("value") or emotion_result
+        else:
+            emotion_state = emotion_result
+
+        if emotion_state:
+            if isinstance(emotion_state, dict):
+                return emotion_state.get("primary_emotion") or None
+            return str(emotion_state)
+    except Exception as exc:
+        logger.warning(f"Failed to fetch emotional state for search context: {exc}")
+    return None
 
 
 async def handle_memory_search(params: dict[str, Any]) -> dict[str, Any]:
@@ -197,7 +229,9 @@ async def handle_memory_search(params: dict[str, Any]) -> dict[str, Any]:
     if not query:
         return {"results": []}
 
-    query = await _inject_emotion_to_query(query)
+    # Her current mood is surfaced alongside the results rather than spliced
+    # into the query string -- see _current_emotion_label for why.
+    emotion_label = await _current_emotion_label()
 
     manager = get_manager()
     results = await manager.search(query, sources, limit, allow_private)
@@ -212,7 +246,10 @@ async def handle_memory_search(params: dict[str, Any]) -> dict[str, Any]:
         except Exception as e:
             logger.warning(f"Failed to log recall event: {e}")
 
-    return {"results": results}
+    out: dict[str, Any] = {"results": results}
+    if emotion_label:
+        out["emotional_state"] = emotion_label
+    return out
 
 async def handle_memory_session_search(params: dict[str, Any]) -> dict[str, Any]:
     """
@@ -224,12 +261,15 @@ async def handle_memory_session_search(params: dict[str, Any]) -> dict[str, Any]
     if not query:
         return {"results": []}
 
-    query = await _inject_emotion_to_query(query)
+    emotion_label = await _current_emotion_label()
 
     manager = get_manager()
     results = await manager.session_search(query, limit)
 
-    return {"results": results}
+    out: dict[str, Any] = {"results": results}
+    if emotion_label:
+        out["emotional_state"] = emotion_label
+    return out
 
 
 async def handle_memory_browse(params: dict[str, Any]) -> dict[str, Any]:
@@ -328,24 +368,25 @@ async def handle_memory_record_completed_turn(params: dict[str, Any]) -> dict[st
     content = params.get("content", "")
     tool_calls = params.get("tool_calls", [])
     
-    # Fetch active agent to check if it's RP mode
-    chat_mode = "assistant"
+    # chat_mode comes from chat_mode.json, NOT from agents.config['chat_mode'] --
+    # nothing has ever written that key, so this guard was permanently false and
+    # no conversation turn was ever stamped with an emotional state.
+    from python.harness.chat_mode import get_current_chat_mode, is_emotional_mode
+
+    chat_mode = get_current_chat_mode()
     agent_id = None
     try:
-        active_row = await db.fetchrow("SELECT id, config FROM agents WHERE is_active = TRUE")
+        active_row = await db.fetchrow("SELECT id FROM agents WHERE is_active = TRUE")
         if active_row:
             agent_id = str(active_row["id"])
-            config = active_row["config"]
-            if isinstance(config, str):
-                config = json.loads(config)
-            chat_mode = config.get("chat_mode", "assistant")
     except Exception as exc:
-        logger.warning(f"Failed to fetch active agent config: {exc}")
+        logger.warning(f"Failed to fetch active agent: {exc}")
 
     meta = {"title": f"Turn from {role}", "trust_label": "recalled"}
     emotion_state = None
+    transcript_content = content
 
-    if chat_mode == "rp" and agent_id:
+    if is_emotional_mode(chat_mode) and agent_id:
         try:
             from python.harness.mcp_manager import mcp_manager
             emotion_result = await mcp_manager.call_tool("astro-emotion", "get_emotional_state", {"agent_id": agent_id})
@@ -357,31 +398,64 @@ async def handle_memory_record_completed_turn(params: dict[str, Any]) -> dict[st
                 
             if emotion_state:
                 meta["emotion"] = emotion_state
-                # Inject directly into content so conversation turns record the emotional state
                 if isinstance(emotion_state, dict):
                     primary = emotion_state.get("primary_emotion", "") or str(emotion_state)
                 else:
                     primary = str(emotion_state)
-                content = f"[Emotional State: {primary}]\n{content}"
+                transcript_content = f"[Emotional State: {primary}]\n{content}"
         except Exception as exc:
             logger.warning(f"Failed to fetch emotional state for RP memory: {exc}")
 
+    # Strip reasoning blocks before indexing.
+    #
+    # Her <thinking> is scratch work, not knowledge, and indexing it created a
+    # self-reinforcing loop: 142 of 860 indexed rows carried reasoning blocks,
+    # so a prompt like "run a script" retrieved her own past deliberations and
+    # she imitated them -- including the mistakes. Asked to run a self-test she
+    # reproduced, verbatim, a clean_broken_skills.py she had been asked to write
+    # back on 31 July, because seven of those sessions were sitting in the index
+    # as retrievable "memory".
+    #
+    # The transcript row below keeps the full text for debugging; only the
+    # retrievable copy is cleaned.
+    indexed_content = re.sub(
+        r"<thinking>.*?</thinking>", " ", content, flags=re.DOTALL | re.IGNORECASE
+    )
+    indexed_content = re.sub(r"</?thinking>", " ", indexed_content, flags=re.IGNORECASE)
+    indexed_content = " ".join(indexed_content.split())
+
+    # The emotional prefix goes on the TRANSCRIPT row but not into the memory
+    # index.
+    #
+    # The transcript is the record of what was said and how she felt saying it,
+    # so the prefix belongs there. The index is for semantic recall and exact-
+    # content dedup, and prefixing it breaks both: the same sentence said at two
+    # different moments carries two different prefixes, so LocalMemoryProvider's
+    # WHERE NOT EXISTS guard stops matching and the turn indexes twice, while
+    # content searches have to match around a prefix that carries no semantic
+    # content of its own.
+    #
+    # This conflict was always latent -- the original code prefixed both -- but
+    # it could not surface while the emotion lookup was silently failing and the
+    # prefix was never actually produced. The emotional state is still fully
+    # recoverable from the index via meta['emotion'].
     await db.execute(
         """
         INSERT INTO conversation_turns (session_id, role, content, tool_calls)
         VALUES ($1, $2, $3, $4::jsonb)
         """,
-        session_id, role, content, json.dumps(tool_calls)
+        session_id, role, transcript_content, json.dumps(tool_calls)
     )
-    
+
     # Also index it with duplicate control
     manager = get_manager()
-    await manager.store(
-        source_type="session",
-        ref_id=session_id,
-        content=content,
-        meta=meta
-    )
+    if indexed_content:
+        await manager.store(
+            source_type="session",
+            ref_id=session_id,
+            content=indexed_content,
+            meta=meta
+        )
 
     learning_payload = _build_learning_node_payload(
         session_id=session_id,
@@ -392,7 +466,7 @@ async def handle_memory_record_completed_turn(params: dict[str, Any]) -> dict[st
     )
     learning_result: dict[str, Any] | None = None
     if learning_payload:
-        if chat_mode == "rp" and 'emotion_state' in locals() and emotion_state:
+        if is_emotional_mode(chat_mode) and emotion_state:
             # We already have tags from the payload, but let's make sure it's a list and append emotion.
             tags = learning_payload.get("tags") or []
             if isinstance(emotion_state, dict):

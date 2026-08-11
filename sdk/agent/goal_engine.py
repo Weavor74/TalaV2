@@ -475,6 +475,28 @@ class GoalEngine:
                 task_context["is_fallback"] = True
             if phase_output_summaries:
                 task_context["prior_phase_summary"] = _format_prior_phase_summary(phase_output_summaries)
+
+            # Carry the compiled governance packet into the executing phase.
+            #
+            # `adapter_packet` was accepted as a parameter by this method and
+            # then never read -- it appeared exactly once in this file, on the
+            # signature. So AdapterCompiler faithfully merged forbidden_actions
+            # (documented as an "absolute kill-switch"), tool affordances and
+            # acceptance criteria from every activated node, handed the result
+            # here, and it was dropped on the floor. Nothing has ever been
+            # blocked by it.
+            if adapter_packet is not None:
+                forbidden = list(getattr(adapter_packet, "forbidden_actions", []) or [])
+                affordances = list(getattr(adapter_packet, "tool_affordances", []) or [])
+                if forbidden:
+                    task_context["forbidden_actions"] = forbidden
+                if affordances:
+                    task_context["tool_affordances"] = affordances
+                if forbidden or affordances:
+                    log.info(
+                        "GoalEngine: governance active -- %d forbidden, %d afforded",
+                        len(forbidden), len(affordances),
+                    )
             # Execute the step using the DAG-Engineered execution engine
             from sdk.agent.graph_engine import DAGExecutionEngine
             graph_engine = DAGExecutionEngine(self.root_dir)

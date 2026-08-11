@@ -105,15 +105,25 @@ class LocalMemoryProvider(MemoryProvider):
     async def store(self, source_type: str, ref_id: str, content: str, meta: dict[str, Any]) -> None:
         title = meta.get("title", "")
         trust_label = meta.get("trust_label", "recalled")
-        emotion = meta.get("emotion")
-        
-        if emotion:
-            if isinstance(emotion, dict):
-                emotion_str = emotion.get("primary_emotion", "") or str(emotion)
-            else:
-                emotion_str = str(emotion)
-            content = f"[Emotional Context: {emotion_str}]\n{content}"
-        
+
+        # Deliberately does NOT prefix content with the emotional state.
+        #
+        # memory_index is a derived retrieval index, not the record of what Tala
+        # felt. Prefixing breaks the two things this table exists to do: the
+        # WHERE NOT EXISTS dedup below compares content_text, so the same
+        # sentence recorded at two different emotional moments carries two
+        # different prefixes and indexes twice; and any exact-content lookup has
+        # to match around a prefix carrying no semantic content of its own.
+        #
+        # The emotional state is not lost. It is written to the transcript row
+        # in conversation_turns (see python/harness/memory.py), carried in meta
+        # for callers of store(), and tagged 'emotion:<state>' onto the HTML-NN
+        # learning node -- which is the actual store of record.
+        #
+        # This was latent for the life of the feature: the astro-emotion lookup
+        # feeding meta['emotion'] silently failed on every call, so this branch
+        # never ran and the conflict never showed up.
+
         await db.execute(
             """
             INSERT INTO memory_index (source_type, ref_id, title, content_text, trust_label)

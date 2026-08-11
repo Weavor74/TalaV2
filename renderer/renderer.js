@@ -771,6 +771,9 @@ const SettingsDashboard = {
     if (panelId === 'firewall' && !FirewallManager._initialized) {
       FirewallManager.init();
     }
+    if (panelId === 'channels' && !ChannelsManager._initialized) {
+      ChannelsManager.init();
+    }
     if (panelId === 'identity') {
       ProfileManager.loadProfile();
     }
@@ -781,6 +784,203 @@ const SettingsDashboard = {
       SwarmDashboardManager.init();
     }
   },
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   ChannelsManager — Messaging Gateway (Discord / Telegram) settings
+   ═══════════════════════════════════════════════════════════════════ */
+const ChannelsManager = {
+  _initialized: false,
+  _channels: [],
+  _status: {},
+  _statusTimer: null,
+
+  init() {
+    if (this._initialized) return;
+    this._initialized = true;
+
+    const btnAdd = qs('#btn-add-channel');
+    if (btnAdd) {
+      btnAdd.addEventListener('click', () => {
+        this._channels.push({
+          id: '',
+          platform: 'discord',
+          name: '',
+          enabled: false,
+          config: { bot_token: '', allowed_users: '', respond_to_all: false },
+          _draft: true
+        });
+        this.render();
+      });
+    }
+
+    // Surface gateway traffic in the IPC log
+    if (window.tala && typeof window.tala.on === 'function') {
+      window.tala.on('python:notification', (msg) => {
+        if (msg && msg.method === 'channels.message' && msg.params) {
+          const p = msg.params;
+          IPCLog.append('info', `[${p.platform}/${p.channel_name}] ${p.sender}: ${p.text} → replied (${(p.reply || '').length} chars)`);
+        }
+      });
+    }
+
+    this.load();
+    this._statusTimer = setInterval(() => this.refreshStatus(), 15000);
+  },
+
+  async load() {
+    try {
+      const result = await invoke('python:rpc', { method: 'channels.list', params: {} });
+      this._channels = (result && result.channels) ? result.channels : [];
+      await this.refreshStatus();
+      this.render();
+    } catch (err) {
+      console.warn('[ChannelsManager] Failed to load channels:', err);
+    }
+  },
+
+  async refreshStatus() {
+    try {
+      const result = await invoke('python:rpc', { method: 'channels.status', params: {} });
+      this._status = {};
+      ((result && result.status) || []).forEach(s => { this._status[s.id] = s; });
+      this.renderStatusBadges();
+    } catch (err) { /* server may be restarting */ }
+  },
+
+  render() {
+    const list = qs('#channels-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    if (!this._channels.length) {
+      list.innerHTML = `
+        <div class="provider-list-empty" id="channels-list-empty">
+          <div class="provider-list-empty-icon">💬</div>
+          <div class="provider-list-empty-text">No messaging channels configured. Click <strong>+ Add Channel</strong> to connect Discord or Telegram.</div>
+        </div>`;
+      return;
+    }
+
+    this._channels.forEach((ch, idx) => {
+      const cfg = ch.config || {};
+      const card = document.createElement('div');
+      card.className = 'provider-card';
+      card.style.cssText = 'padding: var(--space-4); margin-bottom: var(--space-3); border: 1px solid rgba(255,255,255,0.08); border-radius: 6px; background: rgba(255,255,255,0.02);';
+      card.innerHTML = `
+        <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin-bottom:10px;">
+          <select data-field="platform" style="background:rgba(255,255,255,0.05); color:#e2e8f0; border:1px solid rgba(255,255,255,0.12); border-radius:4px; padding:4px 6px;">
+            <option value="discord" ${ch.platform === 'discord' ? 'selected' : ''}>Discord</option>
+            <option value="telegram" ${ch.platform === 'telegram' ? 'selected' : ''}>Telegram</option>
+          </select>
+          <input data-field="name" type="text" placeholder="Channel name" value="${(ch.name || '').replace(/"/g, '&quot;')}"
+                 style="flex:1; min-width:120px; background:rgba(255,255,255,0.05); color:#e2e8f0; border:1px solid rgba(255,255,255,0.12); border-radius:4px; padding:4px 8px;">
+          <span class="channel-status-badge" data-badge="${ch.id}" style="font-size:11px; padding:2px 8px; border-radius:10px; background:rgba(255,255,255,0.06); color:#94a3b8;">—</span>
+          <label style="display:flex; align-items:center; gap:5px; font-size:12px; color:#94a3b8; cursor:pointer;">
+            <input data-field="enabled" type="checkbox" ${ch.enabled ? 'checked' : ''}> Enabled
+          </label>
+        </div>
+        <div style="display:grid; grid-template-columns: 1fr 1fr; gap:8px; margin-bottom:10px;">
+          <input data-field="bot_token" type="password" placeholder="Bot token ${ch.platform === 'telegram' ? '(blank = AUTH pane telegram credential)' : ''}" value="${(cfg.bot_token || '').replace(/"/g, '&quot;')}"
+                 style="background:rgba(255,255,255,0.05); color:#e2e8f0; border:1px solid rgba(255,255,255,0.12); border-radius:4px; padding:4px 8px;">
+          <input data-field="allowed_users" type="text" placeholder="Allowlist: user IDs / usernames, comma-separated" value="${(cfg.allowed_users || '').toString().replace(/"/g, '&quot;')}"
+                 style="background:rgba(255,255,255,0.05); color:#e2e8f0; border:1px solid rgba(255,255,255,0.12); border-radius:4px; padding:4px 8px;">
+        </div>
+        <div style="display:flex; align-items:center; gap:12px; flex-wrap:wrap;">
+          <label data-discord-only style="display:${ch.platform === 'discord' ? 'flex' : 'none'}; align-items:center; gap:5px; font-size:12px; color:#94a3b8; cursor:pointer;">
+            <input data-field="respond_to_all" type="checkbox" ${cfg.respond_to_all ? 'checked' : ''}> Respond to all messages (not just DMs / @-mentions)
+          </label>
+          <span style="flex:1;"></span>
+          <span class="channel-error" data-error="${ch.id}" style="font-size:11px; color:var(--status-error, #fa5252);"></span>
+          <button class="btn btn-primary" data-action="save" style="padding:4px 14px;">Save</button>
+          <button class="btn" data-action="delete" style="padding:4px 14px; ${ch._draft ? 'display:none;' : ''}">Delete</button>
+        </div>`;
+
+      const platformSel = card.querySelector('[data-field="platform"]');
+      platformSel.addEventListener('change', () => {
+        const discordOnly = card.querySelector('[data-discord-only]');
+        if (discordOnly) discordOnly.style.display = platformSel.value === 'discord' ? 'flex' : 'none';
+      });
+
+      card.querySelector('[data-action="save"]').addEventListener('click', () => this.save(idx, card));
+      const btnDelete = card.querySelector('[data-action="delete"]');
+      if (btnDelete) btnDelete.addEventListener('click', () => this.remove(idx));
+
+      list.appendChild(card);
+    });
+
+    this.renderStatusBadges();
+  },
+
+  renderStatusBadges() {
+    this._channels.forEach(ch => {
+      if (!ch.id) return;
+      const badge = document.querySelector(`[data-badge="${ch.id}"]`);
+      const errEl = document.querySelector(`[data-error="${ch.id}"]`);
+      const st = this._status[ch.id];
+      if (!badge) return;
+      if (!st) {
+        badge.textContent = ch.enabled ? 'unknown' : 'disabled';
+        return;
+      }
+      badge.textContent = `${st.status}${st.messages_handled ? ` • ${st.messages_handled} msg` : ''}`;
+      const colors = {
+        running: ['rgba(64, 192, 87, 0.12)', '#40c057'],
+        starting: ['rgba(250, 176, 5, 0.12)', '#fab005'],
+        error: ['rgba(250, 82, 82, 0.12)', '#fa5252'],
+        stopped: ['rgba(255,255,255,0.06)', '#94a3b8']
+      };
+      const [bg, fg] = colors[st.status] || colors.stopped;
+      badge.style.background = bg;
+      badge.style.color = fg;
+      if (errEl) errEl.textContent = st.last_error ? st.last_error.slice(0, 120) : '';
+    });
+  },
+
+  async save(idx, card) {
+    const ch = this._channels[idx];
+    const get = (f) => card.querySelector(`[data-field="${f}"]`);
+    const payload = {
+      id: ch.id || undefined,
+      platform: get('platform').value,
+      name: get('name').value.trim(),
+      enabled: get('enabled').checked,
+      config: {
+        bot_token: get('bot_token').value.trim(),
+        allowed_users: get('allowed_users').value.trim(),
+        respond_to_all: get('respond_to_all') ? get('respond_to_all').checked : false
+      }
+    };
+    try {
+      const result = await invoke('python:rpc', { method: 'channels.save', params: payload });
+      if (result && result.success) {
+        IPCLog.append('ok', `Channel saved: ${payload.name || payload.platform} (${result.id})`);
+        await this.load();
+      } else {
+        IPCLog.append('error', `Failed to save channel: ${result ? result.error : 'unknown error'}`);
+      }
+    } catch (err) {
+      IPCLog.append('error', `Failed to save channel: ${err.message || err}`);
+    }
+  },
+
+  async remove(idx) {
+    const ch = this._channels[idx];
+    if (!ch.id) {
+      this._channels.splice(idx, 1);
+      this.render();
+      return;
+    }
+    try {
+      const result = await invoke('python:rpc', { method: 'channels.delete', params: { id: ch.id } });
+      if (result && result.success) {
+        IPCLog.append('ok', `Channel deleted: ${ch.name || ch.platform}`);
+        await this.load();
+      }
+    } catch (err) {
+      IPCLog.append('error', `Failed to delete channel: ${err.message || err}`);
+    }
+  }
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -4634,6 +4834,46 @@ const AgentChat = {
       });
     }
 
+    // Voice input — records via the local Whisper backend
+    this._btnMic = qs('#btn-chat-mic');
+    if (this._btnMic) {
+      this._btnMic.addEventListener('click', () => {
+        this.startVoiceCapture();
+      });
+    }
+
+    // TTS toggle — persisted; the generic .chat-action-btn handler flips the
+    // 'active' class, this listener just persists the resulting state.
+    this._btnTts = qs('#btn-chat-tts');
+    if (this._btnTts) {
+      if (localStorage.getItem('tala.chat.tts_enabled') === '1') {
+        this._btnTts.classList.add('active');
+      }
+      this._btnTts.addEventListener('click', () => {
+        this._btnTts.classList.toggle('active');
+        const enabled = this._btnTts.classList.contains('active');
+        localStorage.setItem('tala.chat.tts_enabled', enabled ? '1' : '0');
+        IPCLog.append('info', `Chat TTS ${enabled ? 'ENABLED' : 'DISABLED'}`);
+      });
+    }
+
+    // Image attach + paste support
+    this._pendingImages = [];
+    const btnAttach = qs('#btn-chat-attach');
+    if (btnAttach) {
+      const fileInput = document.createElement('input');
+      fileInput.type = 'file';
+      fileInput.accept = 'image/png,image/jpeg,image/webp';
+      fileInput.multiple = true;
+      fileInput.style.display = 'none';
+      document.body.appendChild(fileInput);
+      fileInput.addEventListener('change', () => {
+        Array.from(fileInput.files || []).forEach(f => this.addPendingImageFile(f));
+        fileInput.value = '';
+      });
+      btnAttach.addEventListener('click', () => fileInput.click());
+    }
+
     if (this._textarea) {
       this._textarea.addEventListener('keydown', (e) => {
         if (e.key === 'Enter' && !e.shiftKey) {
@@ -4641,11 +4881,25 @@ const AgentChat = {
           this.sendMessage();
         }
       });
+      this._textarea.addEventListener('paste', (e) => {
+        const items = (e.clipboardData && e.clipboardData.items) || [];
+        let found = false;
+        for (const item of items) {
+          if (item.type && item.type.startsWith('image/')) {
+            const file = item.getAsFile();
+            if (file) {
+              this.addPendingImageFile(file);
+              found = true;
+            }
+          }
+        }
+        if (found) e.preventDefault();
+      });
     }
 
     const actionBtns = document.querySelectorAll('.chat-action-btn');
     actionBtns.forEach(btn => {
-      if (['btn-chat-rp', 'btn-chat-hybrid', 'btn-chat-assistant'].includes(btn.id)) {
+      if (['btn-chat-rp', 'btn-chat-hybrid', 'btn-chat-assistant', 'btn-chat-tts'].includes(btn.id)) {
         return;
       }
       btn.addEventListener('click', () => {
@@ -4729,6 +4983,18 @@ const AgentChat = {
         if (!msg) return;
         const method = msg.method;
         const params = msg.params || {};
+
+        // Agent-initiated speech (speak_text tool) — play immediately
+        if (method === 'voice.play' && params.audio_base64) {
+          this.playAudio(params.audio_base64, params.mime_type || 'audio/mpeg');
+          return;
+        }
+
+        // Agent-generated image (generate_image tool) — show inline
+        if (method === 'image.generated' && params.image_base64) {
+          this.appendImageMessage('agent', 'Tala', `Generated image — ${params.prompt || ''} (${params.backend || ''})`, [{ mime: 'image/png', data: params.image_base64 }]);
+          return;
+        }
 
         if (method === 'task.live_status' || params.type === 'task_status_update') {
           const phase = params.phase || params.message || '';
@@ -5048,7 +5314,18 @@ const AgentChat = {
   async sendMessage() {
     if (!this._textarea || !this._messages) return;
     const text = this._textarea.value.trim();
-    if (!text) return;
+    const pendingImages = (this._pendingImages || []).slice();
+    if (!text && !pendingImages.length) return;
+
+    // Vision path: attached/pasted images ride along with the prompt
+    if (pendingImages.length) {
+      const prompt = text || 'What do you see in this image?';
+      this._textarea.value = '';
+      this.clearPendingImages();
+      this.appendImageMessage('user', 'You', prompt, pendingImages);
+      this.sendInferenceRequest(prompt, pendingImages.map(img => img.data));
+      return;
+    }
 
     this.appendMessage('user', 'You', text);
     this._textarea.value = '';
@@ -5357,7 +5634,13 @@ const AgentChat = {
     // Auto-delegate action / refactoring / coding tasks to Goal Engine background worker
     const lowerText = text.toLowerCase();
     const actionVerbs = ['turn ', 'convert ', 'refactor', 'create ', 'build ', 'implement ', 'add ', 'remove ', 'delete ', 'modify ', 'update ', 'replace ', 'change '];
-    const isActionPrompt = actionVerbs.some(verb => lowerText.includes(verb));
+    // Direct tool-call intent must NOT be swallowed by the GoalEngine's heavy
+    // multi-phase code pipeline. When the user explicitly asks to run a tool
+    // (or names a registered tool), route it through the normal chat path so
+    // the model emits a <call:tool /> tag and it executes inline & fast.
+    const toolIntentPhrases = ['run a tool script', 'run_tool_script', 'use the ', 'call the ', 'using the ', ' tool to ', 'tool call'];
+    const isDirectToolIntent = toolIntentPhrases.some(p => lowerText.includes(p));
+    const isActionPrompt = !isDirectToolIntent && actionVerbs.some(verb => lowerText.includes(verb));
 
     if (isActionPrompt) {
       const loadingId = 'chat-loading-' + Date.now();
@@ -5397,28 +5680,160 @@ const AgentChat = {
 
   async captureScreenContext() {
     IPCLog.append('info', 'Capturing screen context for vision analysis...');
-    this.appendMessage('user', 'User', '[Requesting screen capture...]');
-    
+
     try {
       const result = await invoke('python:rpc', { method: 'multimodal.capture_screen', params: {} });
-      if (result && result.image_base64) {
+      const b64 = result ? (result.data || result.image_base64) : null;
+      if (b64) {
+        const mime = result.mime_type || 'image/jpeg';
         const currentText = this._textarea.value.trim();
         const prompt = currentText ? currentText : "What do you see in this screenshot?";
         this._textarea.value = '';
-        
-        if (this._messages.lastElementChild && this._messages.lastElementChild.classList.contains('user')) {
-          this._messages.removeChild(this._messages.lastElementChild);
-        }
 
-        const msgContent = `<img src="data:image/png;base64,${result.image_base64}" style="max-width: 100%; max-height: 300px; border-radius: 4px; margin-bottom: 8px; display: block;" />\n${prompt}`;
-        this.appendMessage('user', 'User', msgContent);
-        
-        this.sendInferenceRequest(prompt, [result.image_base64]);
+        this.appendImageMessage('user', 'You', prompt, [{ mime, data: b64 }]);
+        this.sendInferenceRequest(prompt, [b64]);
       } else {
-        this.appendMessage('agent', 'Tala', `Failed to capture screen: ${result ? result.error : 'Unknown error'}`);
+        this.appendMessage('agent', 'Tala', `Failed to capture screen: ${result ? result.error : 'Unknown error'}`, true);
       }
     } catch (err) {
-      this.appendMessage('agent', 'Tala', `Screen capture error: ${err.message || err}`);
+      this.appendMessage('agent', 'Tala', `Screen capture error: ${err.message || err}`, true);
+    }
+  },
+
+  addPendingImageFile(file) {
+    const reader = new FileReader();
+    reader.onload = () => {
+      const dataUrl = String(reader.result || '');
+      const match = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      if (!match) return;
+      this._pendingImages.push({ mime: match[1], data: match[2] });
+      this.renderPendingImages();
+    };
+    reader.readAsDataURL(file);
+  },
+
+  renderPendingImages() {
+    const strip = qs('#chat-pending-images');
+    if (!strip) return;
+    strip.innerHTML = '';
+    if (!this._pendingImages.length) {
+      strip.style.display = 'none';
+      return;
+    }
+    strip.style.display = 'flex';
+    this._pendingImages.forEach((img, idx) => {
+      const chip = document.createElement('div');
+      chip.style.cssText = 'position:relative; width:48px; height:48px; border-radius:4px; overflow:hidden; border:1px solid rgba(255,255,255,0.15);';
+      const thumb = document.createElement('img');
+      thumb.src = `data:${img.mime};base64,${img.data}`;
+      thumb.style.cssText = 'width:100%; height:100%; object-fit:cover;';
+      const remove = document.createElement('button');
+      remove.textContent = '×';
+      remove.title = 'Remove image';
+      remove.style.cssText = 'position:absolute; top:0; right:0; width:16px; height:16px; line-height:14px; padding:0; font-size:12px; background:rgba(0,0,0,0.7); color:#fff; border:none; cursor:pointer;';
+      remove.addEventListener('click', () => {
+        this._pendingImages.splice(idx, 1);
+        this.renderPendingImages();
+      });
+      chip.appendChild(thumb);
+      chip.appendChild(remove);
+      strip.appendChild(chip);
+    });
+  },
+
+  clearPendingImages() {
+    this._pendingImages = [];
+    this.renderPendingImages();
+  },
+
+  appendImageMessage(sender, name, text, images) {
+    if (!this._messages) return;
+    const msgEl = document.createElement('div');
+    msgEl.className = `chat-message ${sender}`;
+
+    const meta = document.createElement('div');
+    meta.className = 'message-meta';
+    meta.textContent = `${name} • ${fmtTime()}`;
+    msgEl.appendChild(meta);
+
+    const body = document.createElement('div');
+    body.className = 'message-content';
+    (images || []).forEach(img => {
+      const el = document.createElement('img');
+      el.src = `data:${img.mime};base64,${img.data}`;
+      el.style.cssText = 'max-width:100%; max-height:300px; border-radius:4px; margin-bottom:8px; display:block;';
+      body.appendChild(el);
+    });
+    if (text) {
+      const textEl = document.createElement('div');
+      textEl.className = 'message-text-body';
+      textEl.textContent = text;
+      body.appendChild(textEl);
+    }
+    msgEl.appendChild(body);
+    this._messages.appendChild(msgEl);
+    this._messages.scrollTop = this._messages.scrollHeight;
+  },
+
+  async startVoiceCapture() {
+    if (this._recording) return;
+    this._recording = true;
+    const btn = this._btnMic;
+    const prevTitle = btn ? btn.title : '';
+    if (btn) {
+      btn.classList.add('active');
+      btn.title = 'Recording… (5s)';
+    }
+    IPCLog.append('info', 'Recording voice input (5s, local Whisper)...');
+    try {
+      const result = await invoke('python:rpc', { method: 'multimodal.transcribe_voice', params: { duration_seconds: 5 } });
+      if (result && result.text) {
+        this._textarea.value = (this._textarea.value ? this._textarea.value + ' ' : '') + result.text;
+        this._textarea.focus();
+        IPCLog.append('ok', `Transcribed: "${result.text}"`);
+      } else {
+        const errMsg = result && result.error ? result.error : 'No speech detected.';
+        this.appendMessage('agent', 'Tala', `Voice input failed: ${errMsg}`, true);
+      }
+    } catch (err) {
+      this.appendMessage('agent', 'Tala', `Voice input error: ${err.message || err}`, true);
+    } finally {
+      this._recording = false;
+      if (btn) {
+        btn.classList.remove('active');
+        btn.title = prevTitle;
+      }
+    }
+  },
+
+  ttsEnabled() {
+    return !!(this._btnTts && this._btnTts.classList.contains('active'));
+  },
+
+  playAudio(audioBase64, mimeType) {
+    try {
+      if (this._currentAudio) {
+        this._currentAudio.pause();
+      }
+      const audio = new Audio(`data:${mimeType || 'audio/mpeg'};base64,${audioBase64}`);
+      this._currentAudio = audio;
+      audio.play().catch(err => console.warn('[AgentChat] Audio playback failed:', err));
+    } catch (err) {
+      console.warn('[AgentChat] Failed to play audio:', err);
+    }
+  },
+
+  async speakText(text) {
+    if (!text) return;
+    try {
+      const result = await invoke('python:rpc', { method: 'voice.speak', params: { text } });
+      if (result && result.audio_base64) {
+        this.playAudio(result.audio_base64, result.mime_type);
+      } else if (result && result.error) {
+        IPCLog.append('error', `TTS failed: ${result.error}`);
+      }
+    } catch (err) {
+      IPCLog.append('error', `TTS error: ${err.message || err}`);
     }
   },
 
@@ -5482,6 +5897,9 @@ const AgentChat = {
           }
         } else {
           this.appendMessage('agent', 'Tala', response.text);
+          if (this.ttsEnabled()) {
+            this.speakText(response.text);
+          }
           if (!this._history) {
             this._history = [];
           }

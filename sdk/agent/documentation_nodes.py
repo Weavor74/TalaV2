@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import os
 import re
 import uuid
@@ -19,6 +20,8 @@ from lxml import html as lxml_html
 
 from sdk.agent.anchor import canonicalize_and_anchor
 from sdk.agent.parser import parse_file
+
+log = logging.getLogger(__name__)
 
 
 ALLOWED_NODE_TYPES = {"documentation", "program-doc", "function-doc"}
@@ -610,6 +613,194 @@ def _learning_node_id(topic: str, semantic_memory: str) -> str:
     return f"learning-{_learning_topic_slug(topic)[:60]}"
 
 
+#: Verbs that begin a task instruction rather than a lesson. A node titled
+#: "Fix the failing assertion in test_tax.py" is a restatement of work that was
+#: requested, not something learned from doing it.
+_TASK_IMPERATIVES = (
+    "fix", "create", "add", "plan", "implement", "refactor", "write", "run",
+    "delete", "remove", "update", "make", "build", "generate", "execute",
+    "install", "setup", "set up", "check", "test", "debug", "improve",
+    "optimize", "optimise", "rename", "move", "convert", "migrate", "use",
+    "try", "give", "show", "tell", "find", "list", "print",
+)
+
+#: Titles that carry no information at all.
+_DEGENERATE_TITLE_MARKERS = ("unnamed", "untitled", "no title", "none")
+
+#: Openings that mark a topic as running narration rather than a named lesson.
+#: A wiki page title is a concept ("Ollama GPU passthrough"); these are
+#: sentences lifted out of the middle of a conversation ("I haven't been given
+#: a target yet...", "the test will print..."). They pass the imperative check
+#: because they don't start with a command verb, so they need their own rule.
+_NARRATION_STARTS = (
+    "i haven", "i have", "i had", "i could", "i can", "i was", "i am",
+    "i will", "i think", "i need", "i should", "i would", "i just",
+    "you were", "you are", "you should", "you can", "you have",
+    "we were", "we are", "the test will", "it will", "this will",
+    "there is", "there was", "here is", "here are", "so ", "okay",
+)
+
+#: Summary templates emitted by automatic callers. Matching one of these means
+#: the "lesson" is a description of a job having finished, not a lesson.
+_BOILERPLATE_SUMMARY_MARKERS = (
+    "distilled a reusable learning event from the completed goal",
+    "tree-of-thought ideation ranked",
+    "you were trying to accomplish the following task",
+)
+
+#: A real transferable lesson needs some substance behind it.
+_MIN_SUMMARY_WORDS = 12
+
+
+def assess_learning_quality(
+    topic: str, summary: str, details: Any = None
+) -> str | None:
+    """
+    Decide whether a proposed learning is worth a permanent wiki node.
+
+    Returns a rejection reason, or None if it should be written.
+
+    WHY THIS GATE EXISTS
+    --------------------
+    Learning nodes are pages in Tala's HTML-NN wiki -- the RAG-graph's store of
+    record. Whatever lands here becomes retrieval context forever, so a junk
+    node is not merely clutter: it is future context poisoning, and it grounds
+    the training corpus too.
+
+    Before this gate, of 17 auto-created learning nodes roughly three carried a
+    real lesson. The rest were task restatements ("Fix the IndexError in
+    index_test.py"), fragments ("*(Executing run_workspace_command"), and one
+    with a blank title. The dominant source was not the chat cue path but
+    ``self_documenter``, which minted a node for *every completed goal* titled
+    with the raw goal text -- completing a task is not learning something.
+
+    The gate lives here rather than in each caller because all six write paths
+    funnel through ``create_learning_documentation_node``. One door, one lock.
+    """
+    topic_text = str(topic or "").strip()
+    summary_text = str(summary or "").strip()
+
+    if not topic_text:
+        return "empty topic"
+    if not summary_text:
+        return "empty summary"
+
+    # Topics are extracted by slicing after a learning cue ("I learned that
+    # ..."), which routinely leaves a dangling conjunction on the front. That
+    # leading word shifts the real first word out of position and lets both the
+    # imperative and narration checks miss -- "that I should fix the failing
+    # assertion" reads as neither until the "that" is removed.
+    low_topic = re.sub(r"^(?:that|this|it|the fact that)\s+", "", topic_text.lower()).strip()
+    if not low_topic:
+        return f"topic is a bare conjunction: {topic_text[:60]!r}"
+
+    if not topic_text[0].isalnum():
+        return f"topic is a fragment, not a statement: {topic_text[:60]!r}"
+
+    if any(marker in low_topic for marker in _DEGENERATE_TITLE_MARKERS):
+        return f"degenerate topic: {topic_text[:60]!r}"
+
+    first_word = re.split(r"[^a-z]+", low_topic, maxsplit=1)[0]
+    if first_word in _TASK_IMPERATIVES:
+        return (
+            f"topic reads as a task instruction, not a lesson: {topic_text[:60]!r}"
+        )
+
+    if any(low_topic.startswith(p) for p in _NARRATION_STARTS):
+        return (
+            f"topic is narration, not a named lesson: {topic_text[:60]!r}"
+        )
+
+    low_summary = summary_text.lower()
+    if any(marker in low_summary for marker in _BOILERPLATE_SUMMARY_MARKERS):
+        return "summary is an automatic completion template, not a lesson"
+
+    # Substance check, counting the details too -- a short summary backed by
+    # concrete detail lines is fine.
+    detail_words = 0
+    if isinstance(details, list):
+        detail_words = sum(len(str(d).split()) for d in details)
+    elif isinstance(details, str):
+        detail_words = len(details.split())
+
+    if len(summary_text.split()) + detail_words < _MIN_SUMMARY_WORDS:
+        return "too thin to be worth a permanent node"
+
+    return None
+
+
+#: Filenames/paths in a goal usually mark a one-off fix rather than a skill.
+_SPECIFIC_FILE_RE = re.compile(r"[\w\-]+\.(py|js|ts|html|json|txt|md|yaml|yml)\b", re.I)
+
+
+def assess_skill_quality(
+    goal_text: str, phases: Any = None, executable_code: str | None = None
+) -> str | None:
+    """
+    Decide whether a completed goal deserves a permanent skill node.
+
+    Returns a rejection reason, or None if it should be written.
+
+    WHY THIS GATE EXISTS
+    --------------------
+    ``document_completed_goal`` writes a skill node for *every* completed goal,
+    with the node id slugged straight from the goal text. Of the eight that
+    accumulated, seven were junk: "Fix the IndexError in index_test.py", "Fix
+    the failing assertion in test_tax.py", "Workflow: Unnamed Workflow", and two
+    with entirely blank titles.
+
+    Skill nodes are worse than junk learning nodes because their **bodies are
+    raw Python**, and the wiki is a retrieval source. Asked to run a self-test,
+    Tala retrieved one of these and reproduced its file contents verbatim
+    instead of calling any tool. Code-bearing junk does not merely waste space
+    in the index -- it hijacks the response.
+
+    The distinction drawn here is *reusable procedure* vs *one-off fix*.
+    Repairing a specific assertion in a specific test file teaches nothing
+    transferable. A goal that produced real executable code, or that describes a
+    general capability rather than a named file, does.
+    """
+    text = str(goal_text or "").strip()
+    if not text:
+        return "empty goal text"
+
+    low = text.lower()
+
+    if not text[0].isalnum():
+        return f"goal is a fragment: {text[:60]!r}"
+
+    if any(marker in low for marker in _DEGENERATE_TITLE_MARKERS):
+        return f"degenerate goal: {text[:60]!r}"
+
+    # NOTE: the presence of `executable_code` is deliberately NOT treated as
+    # evidence of quality. synthesize_python_skill runs on every completed goal
+    # and returns code regardless of whether the goal was worth distilling, so
+    # every junk node already had a Python body -- that is precisely how the
+    # clean_broken_skills source came to live in a node titled "Create a new
+    # reusable skill by writing a Python file at ...". Judging on code presence
+    # would pass all seven junk nodes. The goal text is the only signal that
+    # actually separates a capability from a one-off.
+    if _SPECIFIC_FILE_RE.search(text):
+        return (
+            "goal targets a specific file, so it is a one-off fix rather than a "
+            f"reusable skill: {text[:60]!r}"
+        )
+
+    first_word = re.split(r"[^a-z]+", low, maxsplit=1)[0]
+    if first_word in _TASK_IMPERATIVES:
+        phase_count = len(phases) if isinstance(phases, (list, tuple)) else 0
+        # A multi-phase imperative that produced real code is a plausible
+        # procedure; a one-liner with nothing behind it is just the task
+        # restated.
+        if phase_count < 3 or not (executable_code and str(executable_code).strip()):
+            return (
+                "goal is a task instruction, not a named capability "
+                f"({phase_count} phase(s)): {text[:60]!r}"
+            )
+
+    return None
+
+
 def create_learning_documentation_node(
     *,
     topic: str,
@@ -621,7 +812,16 @@ def create_learning_documentation_node(
     relationships: Any = None,
     tags: Any = None,
     node_id: str | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
+    """
+    Write a learning event to the HTML-NN wiki.
+
+    Automatic callers are quality-gated (see ``assess_learning_quality``); pass
+    ``force=True`` only when a human explicitly asked for this to be recorded.
+    Rejected proposals return ``{"status": "skipped", ...}`` rather than raising,
+    so a low-value learning never breaks the flow that produced it.
+    """
     topic_text = str(topic or "").strip()
     if not topic_text:
         raise ValueError("topic is required")
@@ -629,6 +829,18 @@ def create_learning_documentation_node(
     summary_text = str(summary or "").strip()
     if not summary_text:
         raise ValueError("summary is required")
+
+    if not force:
+        rejection = assess_learning_quality(topic_text, summary_text, details)
+        if rejection:
+            log.info(
+                "Learning node not written (%s): %s", rejection, topic_text[:80]
+            )
+            return {
+                "status": "skipped",
+                "reason": rejection,
+                "topic": topic_text,
+            }
 
     detail_lines: list[str] = []
     if isinstance(details, list):

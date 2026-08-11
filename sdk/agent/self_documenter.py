@@ -276,6 +276,30 @@ __PROV_PLACEHOLDER__
         import re as _re
         import urllib.request as _urllib
 
+        from sdk.agent.documentation_nodes import assess_skill_quality
+
+        # Not every completed goal is a skill. This path used to mint a node
+        # per goal, slugged from the raw goal text, and seven of the eight that
+        # accumulated were junk -- one-off test fixes, "Workflow: Unnamed
+        # Workflow", two blank titles. Skill bodies are raw Python and the wiki
+        # is a retrieval source, so that junk actively hijacked responses: asked
+        # to run a self-test, Tala retrieved one and reproduced its file
+        # contents instead of calling a tool.
+        _skill_rejection = assess_skill_quality(
+            goal_text, phases_completed, executable_code
+        )
+        if _skill_rejection:
+            log.info(
+                "SelfDocumenter: no skill node for %r -- %s",
+                goal_text[:60], _skill_rejection,
+            )
+            return {
+                "status": "skipped",
+                "reason": _skill_rejection,
+                "skill_node_path": "",
+                "learning_node_path": "",
+            }
+
         # ── Deterministic slug / node id ──────────────────────────────────
         slug = _re.sub(r"[^a-z0-9]+", "_", goal_text.lower().strip())[:60].strip("_")
         node_id = f"skill-{slug}"
@@ -564,6 +588,16 @@ __PROV_PLACEHOLDER__
                 log.info(
                     "SelfDocumenter: wrote learning node to %s (goal=%r)",
                     learning_node_path, goal_text[:60],
+                )
+            elif learning_result.get("status") == "skipped":
+                # Expected for most goals. Finishing a task is not the same as
+                # learning something, and this path was the dominant source of
+                # junk pages in the wiki -- a node per completed goal, titled
+                # with the raw goal text. The skill node above still records
+                # that the work happened; only the "lesson" is withheld.
+                log.info(
+                    "SelfDocumenter: no learning node for %r -- %s",
+                    goal_text[:60], learning_result.get("reason"),
                 )
         except Exception as exc:
             log.warning("SelfDocumenter: failed to write learning node for %s: %s", goal_text[:80], exc)

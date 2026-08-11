@@ -552,6 +552,19 @@ _DDL_STATEMENTS: list[str] = [
         $$;
     """),
     # ------------------------------------------------------------------
+    # chat_channels — messaging gateway adapters (Discord, Telegram, …)
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS chat_channels (
+            id          TEXT        PRIMARY KEY,
+            platform    TEXT        NOT NULL,
+            name        TEXT        NOT NULL DEFAULT '',
+            enabled     BOOLEAN     NOT NULL DEFAULT FALSE,
+            config      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    # ------------------------------------------------------------------
     # conversation_turns — full history of interactions
     # ------------------------------------------------------------------
     textwrap.dedent("""\

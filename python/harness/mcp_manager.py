@@ -160,6 +160,21 @@ class MCPManager:
         if not tool_name:
             raise ValueError("MCP tool_name is required")
 
+        if server_name == "astro-emotion" and tool_name == "get_emotional_state":
+            # Virtual MCP tool. There is no out-of-process astro-emotion server
+            # and there never was -- this call used to raise KeyError into
+            # try/except blocks that only logged a warning, so Tala's emotional
+            # state silently evaluated to nothing on every single turn.
+            #
+            # Routing it in-process means the emotion always resolves: no
+            # registration to forget, no subprocess to crash, no round-trip on a
+            # per-turn hot path, and nothing to break USB portability. The
+            # MCP-shaped payload is preserved so a real server could take over
+            # later without touching any call site.
+            from python.harness.emotion_service import get_emotional_state
+            logger.info("Calling virtual MCP tool: get_emotional_state")
+            return await get_emotional_state(agent_id=(args or {}).get("agent_id"))
+
         if server_name == "blockchain" and tool_name == "sync_blockchain":
             logger.info("Calling virtual MCP tool: sync_blockchain")
             from sdk.agent.ghost_persistence import pre_flight_reconciliation

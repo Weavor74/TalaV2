@@ -434,6 +434,7 @@
               <button class="settings-sub-tab" data-panel="plugins">PLUGINS</button>
               <button class="settings-sub-tab" data-panel="auth">AUTH</button>
               <button class="settings-sub-tab" data-panel="firewall">FIREWALL</button>
+              <button class="settings-sub-tab" data-panel="channels">CHANNELS</button>
               <button class="settings-sub-tab" data-panel="logging">LOGGING</button>
               <button class="settings-sub-tab" data-panel="architecture">ARCHITECTURE</button>
               <button class="settings-sub-tab" data-panel="about">ABOUT</button>
@@ -1934,6 +1935,47 @@
                 </div>
               </div>
 
+              <!-- ══ CHANNELS (Messaging Gateway) ═══════════════════════ -->
+              <div class="settings-panel" id="settings-panel-channels" hidden>
+                <div class="panel-toolbar">
+                  <div class="panel-toolbar-info">
+                    <h2 class="panel-heading">Messaging Channels</h2>
+                    <p class="panel-subheading">Talk to Tala from Discord or Telegram. Each channel runs a bot inside the harness: inbound messages route through the full agent pipeline (memory, personas, tools) and replies are delivered back on the platform. Set a user allowlist — channel messages can trigger agent tools.</p>
+                  </div>
+                  <button class="btn btn-primary" id="btn-add-channel">+ Add Channel</button>
+                </div>
+
+                <!-- Channel list — populated by ChannelsManager -->
+                <div class="provider-list" id="channels-list">
+                  <div class="provider-list-empty" id="channels-list-empty">
+                    <div class="provider-list-empty-icon">💬</div>
+                    <div class="provider-list-empty-text">No messaging channels configured. Click <strong>+ Add Channel</strong> to connect Discord or Telegram.</div>
+                  </div>
+                </div>
+
+                <!-- Setup guide -->
+                <div class="inference-fallback-info" style="margin-top: var(--space-5);">
+                  <div class="fallback-info-header">
+                    <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm1 13H7v-2h2v2zm0-4H7V3h2v6z"/></svg>
+                    BOT SETUP GUIDE
+                  </div>
+                  <div class="fallback-rules-list">
+                    <div class="fallback-rule-item">
+                      <span class="fallback-rule-bullet" style="background: rgba(88, 101, 242, 0.1); color: #5865f2; border: 1px solid rgba(88, 101, 242, 0.3);">D</span>
+                      <div class="fallback-rule-text"><strong>Discord</strong> — Create an application at discord.com/developers, add a Bot, copy its token here, and enable the <strong>MESSAGE CONTENT INTENT</strong> under Bot → Privileged Gateway Intents. Invite it to your server with the bot scope. Tala replies to DMs and @-mentions (or every message with "Respond to all").</div>
+                    </div>
+                    <div class="fallback-rule-item">
+                      <span class="fallback-rule-bullet" style="background: rgba(0, 136, 204, 0.1); color: #29a9eb; border: 1px solid rgba(0, 136, 204, 0.3);">T</span>
+                      <div class="fallback-rule-text"><strong>Telegram</strong> — Message @BotFather, send /newbot, and paste the token here (or leave blank to reuse the AUTH pane's "telegram" credential). Tala replies to any private chat with the bot; group chats work too.</div>
+                    </div>
+                    <div class="fallback-rule-item">
+                      <span class="fallback-rule-bullet fallback-bullet-error" style="background: rgba(250, 82, 82, 0.1); color: #fa5252; border: 1px solid rgba(250, 82, 82, 0.3);">!</span>
+                      <div class="fallback-rule-text"><strong>Allowlist</strong> — Comma-separated user IDs or usernames. Empty means <em>everyone who can reach the bot can command the agent</em>. Strongly recommended for Discord servers and group chats.</div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
               <!-- ══ LOGGING ════════════════════════════════════════════ -->
               <div class="settings-panel" id="settings-panel-logging" hidden>
                 <!-- Top Metrics Row -->
@@ -2389,7 +2431,7 @@
                         </div>
                         <div class="about-cap-item">
                           <span class="about-cap-emoji">🎙️</span>
-                          <span class="about-cap-text">Voice I/O (Whisper + ElevenLabs)</span>
+                          <span class="about-cap-text">Voice I/O (local Whisper STT + ElevenLabs / OpenAI-compatible / offline TTS)</span>
                         </div>
                         <div class="about-cap-item">
                           <span class="about-cap-emoji">📦</span>
@@ -2785,6 +2827,7 @@
           <button class="chat-action-btn" id="btn-chat-rp" title="Roleplay Mode (Pure Fantasy)">RP</button>
           <button class="chat-action-btn" id="btn-chat-hybrid" title="Hybrid Mode (Blended Chat & Work)">Hybrid</button>
           <button class="chat-action-btn" id="btn-chat-assistant" title="Assistant Mode (Pure Work)">Assistant</button>
+          <button class="chat-action-btn" id="btn-chat-tts" title="Speak Tala's replies aloud (TTS)">TTS</button>
           <button class="chat-btn-icon" title="Chat Settings">
             <svg viewBox="0 0 16 16" fill="currentColor" width="10" height="10"><path d="M9.405 1.05c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.17.311c.58.337.86 1.05.572 1.636l-.34.1a1.464 1.464 0 0 1-2.105-.872l-.1-.34c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.17.311c.58.337.86 1.05.572 1.636l-.34.1a1.464 1.464 0 0 1-2.105-.872l-.1-.34c-.413-1.4-2.397-1.4-2.81 0l-.1.34a1.464 1.464 0 0 1-2.105.872l-.31-.17c-1.283-.698-2.686.705-1.987 1.987l.17.311c.58.337.86 1.05.572 1.636l-.34.1a1.464 1.464 0 0 1-2.105-.872l-.1-.34z"/></svg>
           </button>
@@ -2800,10 +2843,23 @@
           </div>
         </div>
 
+        <div id="chat-pending-images" style="display:none; gap:6px; padding:4px 8px; flex-wrap:wrap;"></div>
         <div class="chat-input-area" id="chat-input-container">
-          <button class="chat-attach-btn" title="Attach file">
+          <button class="chat-attach-btn" id="btn-chat-attach" title="Attach image">
             <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
               <path d="M4.5 3a2.5 2.5 0 0 1 5 0v9a1.5 1.5 0 0 1-3 0V5a.5.5 0 0 1 1 0v7a.5.5 0 0 0 1 0V3a1.5 1.5 0 1 0-3 0v9a2.5 2.5 0 0 0 5 0V5a.5.5 0 0 1 1 0v7a3.5 3.5 0 1 1-7 0V3z"/>
+            </svg>
+          </button>
+          <button class="chat-attach-btn" id="btn-chat-screenshot" title="Capture screen for vision analysis">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
+              <path d="M10.5 8.5a2.5 2.5 0 1 1-5 0 2.5 2.5 0 0 1 5 0z"/>
+              <path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4H2zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1zm9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0z"/>
+            </svg>
+          </button>
+          <button class="chat-attach-btn" id="btn-chat-mic" title="Voice input (records 5s, transcribed locally with Whisper)">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
+              <path d="M8 11a3 3 0 0 0 3-3V4a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3z"/>
+              <path d="M12.5 8a.5.5 0 0 1 .5.5 5 5 0 0 1-4.5 4.975V15h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8.5a.5.5 0 0 1 1 0 4 4 0 0 0 8 0 .5.5 0 0 1 .5-.5z"/>
             </svg>
           </button>
           <textarea id="chat-textarea" placeholder="Ask Tala... (Paste images supported)" rows="1" spellcheck="false"></textarea>
