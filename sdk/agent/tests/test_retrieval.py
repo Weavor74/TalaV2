@@ -63,7 +63,32 @@ VALID_NODE_2 = """
 </html>
 """
 
-def test_retrieve_relevant_nodes(tmp_path: Path):
+@pytest.fixture
+def isolated_collection(monkeypatch, tmp_path):
+    """
+    Swap the module-global persistent collection for a fresh in-memory one.
+
+    retrieval.py keeps ONE chroma collection for the whole process; in a full
+    suite run, earlier tests index the real ~100-node wiki into it, and the
+    nearest neighbors for this test's queries become real nodes — which all
+    drop on reload from tmp_path (not in nodes_dir), leaving zero results.
+    Passed in isolation, failed in-suite. The shared-collection behavior is
+    correct for production (one global nodes dir); the test just must not
+    query a collection other tests populated.
+    """
+    import chromadb
+    from python.harness import retrieval
+
+    client = chromadb.EphemeralClient()
+    col = client.get_or_create_collection(
+        name="test_isolated_nodes", metadata={"hnsw:space": "cosine"}
+    )
+    monkeypatch.setattr(retrieval, "node_collection", col)
+    monkeypatch.setattr(retrieval, "_INDEXED_MTIMES", {})
+    yield col
+
+
+def test_retrieve_relevant_nodes(tmp_path: Path, isolated_collection):
     # Filenames must match each node's data-node-id: retrieve_relevant_nodes
     # queries ChromaDB by node_id, then reloads the NeuralNode from disk via
     # nodes_dir / f"{node_id}.html" -- a mismatched filename (this used to be

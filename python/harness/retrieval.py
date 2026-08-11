@@ -25,15 +25,52 @@ logger = logging.getLogger(__name__)
 
 # Initialize ChromaDB Persistent Client
 CHROMA_DATA_DIR = settings.REPO_ROOT / "data" / "chroma"
-try:
-    chroma_client = chromadb.PersistentClient(path=str(CHROMA_DATA_DIR))
-    node_collection = chroma_client.get_or_create_collection(
-        name="tala_neural_nodes",
-        metadata={"hnsw:space": "cosine"}
-    )
-except BaseException as exc:
-    logger.error(f"Failed to initialize ChromaDB: {exc}")
-    node_collection = None
+
+
+def _init_chroma_collection():
+    """
+    Open (or create) the persistent Chroma store.
+
+    A corrupt store is moved aside and rebuilt fresh rather than left in
+    place: the chroma index is a derived cache of nodes/*.html — never the
+    source of truth — so recovery loses nothing that index_nodes() can't
+    regenerate on the next call. Without this, a single corrupt store
+    (confirmed twice on this machine: 2026-08-07 backup dir, and again
+    2026-08-11 via a Rust PanicException out of chroma's sqlite migration
+    layer) silently killed retrieval process-wide, permanently: every
+    retrieve/index call logged "collection not initialized" and returned
+    nothing until someone manually deleted the directory.
+    """
+    try:
+        client = chromadb.PersistentClient(path=str(CHROMA_DATA_DIR))
+        return client.get_or_create_collection(
+            name="tala_neural_nodes",
+            metadata={"hnsw:space": "cosine"}
+        )
+    except BaseException as exc:
+        logger.error("Failed to initialize ChromaDB: %s", exc)
+
+    try:
+        import datetime
+        stamp = datetime.datetime.now().strftime("%Y%m%d%H%M%S")
+        backup_dir = CHROMA_DATA_DIR.with_name(f"chroma.corrupted-backup-{stamp}")
+        CHROMA_DATA_DIR.rename(backup_dir)
+        logger.warning(
+            "ChromaDB store was corrupt; moved to %s and rebuilding fresh. "
+            "The index re-populates from nodes/*.html on the next index_nodes() call.",
+            backup_dir,
+        )
+        client = chromadb.PersistentClient(path=str(CHROMA_DATA_DIR))
+        return client.get_or_create_collection(
+            name="tala_neural_nodes",
+            metadata={"hnsw:space": "cosine"}
+        )
+    except BaseException as exc:
+        logger.error("ChromaDB self-heal failed; retrieval disabled: %s", exc)
+        return None
+
+
+node_collection = _init_chroma_collection()
 
 
 _INDEXED_MTIMES: dict[str, float] = {}
