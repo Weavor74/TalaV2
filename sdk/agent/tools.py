@@ -395,8 +395,42 @@ class ToolRegistry:
 register_tool = ToolRegistry.register
 
 
+# Task-scoped workspace-root override.
+#
+# Every workspace tool resolves paths through _get_workspace_root(), which
+# always answered "the install checkout" — even when a tool was invoked by a
+# DAG tool node whose task runs in an isolated worktree (or, in benchmarks, a
+# temp directory). A plan step like write_workspace_file("hello.py", ...)
+# therefore wrote into the REAL repo root while the task's own write pipeline
+# stayed in its worktree: confirmed live 2026-08-11 (stray hello.py /
+# index_test.py / test_tax.py at the repo root, minted by benchmark goals
+# whose engine root_dir was a pytest tmp dir). A ContextVar keeps the
+# override task-scoped and async-safe — concurrent fleet tasks in different
+# worktrees don't see each other's roots, and chat-mode tool calls (no
+# override set) keep resolving to the install checkout as before.
+from contextlib import contextmanager
+from contextvars import ContextVar
+
+_WORKSPACE_ROOT_OVERRIDE: ContextVar[str | None] = ContextVar(
+    "tala_workspace_root_override", default=None
+)
+
+
+@contextmanager
+def workspace_root_override(path: str | os.PathLike):
+    """Scope all workspace-tool path resolution to `path` for the duration."""
+    token = _WORKSPACE_ROOT_OVERRIDE.set(str(path))
+    try:
+        yield
+    finally:
+        _WORKSPACE_ROOT_OVERRIDE.reset(token)
+
+
 def _get_workspace_root() -> Path:
     from pathlib import Path
+    override = _WORKSPACE_ROOT_OVERRIDE.get()
+    if override:
+        return Path(override)
     return Path(__file__).parent.parent.parent
 
 
@@ -962,12 +996,28 @@ async def get_system_settings_info(node_id: str = "settings-system") -> dict[str
 
 @register_tool(
     name="run_workspace_command",
-    description="Run a shell command asynchronously in the workspace root.",
+    description=(
+        "Run a shell command asynchronously in the workspace root. Pass "
+        "timeout_seconds for anything long-running -- the default is only 30s, "
+        "which is far too short for generation or test runs."
+    ),
 )
-async def run_workspace_command(command: str, env: dict[str, str] | None = None) -> dict[str, Any]:
+async def run_workspace_command(
+    command: str,
+    env: dict[str, str] | None = None,
+    timeout_seconds: float = 30.0,
+) -> dict[str, Any]:
     """
     NAME
            run_workspace_command - Run a shell command asynchronously in the workspace root.
+
+    DESCRIPTION
+           `timeout_seconds` defaults to 30, inherited from AsyncShellExecutor.
+           That silently killed any genuinely long job: the training-story
+           generator needs roughly 85 seconds *per story*, so a five-story run
+           was cut off at 30s and reported as a failure with partial stdout,
+           with nothing in the message explaining that a timeout was the cause.
+           Callers running generation, migrations, or test suites must raise it.
     """
     # Intercept 'grep' on Windows and transparently execute native Python search
     import re
@@ -981,13 +1031,27 @@ async def run_workspace_command(command: str, env: dict[str, str] | None = None)
     from sdk.agent.async_shell import AsyncShellExecutor
     workspace_root = str(_get_workspace_root())
     try:
-        res = await AsyncShellExecutor.run(command, cwd=workspace_root, env_override=env)
-        return {
+        res = await AsyncShellExecutor.run(
+            command,
+            cwd=workspace_root,
+            timeout=float(timeout_seconds),
+            env_override=env,
+        )
+        out = {
             "status": "success" if res.get("success") else "failed",
             "stdout": res.get("stdout", ""),
             "stderr": res.get("stderr", ""),
             "exit_code": res.get("exit_code", 0),
         }
+        # Make a timeout unmistakable rather than something the caller has to
+        # infer from truncated stdout.
+        if "timed out" in str(res.get("stderr", "")).lower():
+            out["timed_out"] = True
+            out["hint"] = (
+                f"The command was killed after {timeout_seconds}s. Re-run with a "
+                "larger timeout_seconds if the work legitimately takes longer."
+            )
+        return out
     except Exception as exc:
         return {
             "status": "error",
@@ -995,21 +1059,73 @@ async def run_workspace_command(command: str, env: dict[str, str] | None = None)
         }
 
 
+#: Files Tala must not overwrite through her own write tool, as workspace-
+#: relative glob patterns.
+#:
+#: This exists because of a real incident, not a hypothetical. Given a goal that
+#: said "run scripts/generate_stories.py" and explicitly said "do not write or
+#: edit any files yourself", she replaced that 300-line generator with a
+#: four-line hello-world. A scheduled overnight job would then have run the
+#: hello-world every 15 minutes and reported success while producing nothing.
+#:
+#: The lesson is that "do not edit files" in a prompt is a request, not a
+#: control. Two categories are protected: the corpus pipeline she is asked to
+#: *run* (so a goal cannot destroy its own tooling) and the files that define
+#: who she is (persona, emotion vocabulary, emotion engine) so an unattended
+#: run cannot rewrite her own identity.
+#:
+#: Note this guards write_workspace_file only. run_workspace_command can still
+#: redirect a shell into any of these; closing that would mean sandboxing the
+#: shell, which is a larger change.
+_PROTECTED_WRITE_PATTERNS = (
+    "scripts/generate_stories.py",
+    "scripts/build_story_node.py",
+    "scripts/validate_training_corpus.py",
+    "scripts/find_emotion_dates.py",
+    "scripts/prune_junk_learning_nodes.py",
+    "python/astrology/*.py",
+    "python/harness/emotion_service.py",
+    "python/harness/chat_mode.py",
+    "nodes/persona-tala-*.html",
+    "nodes/spec-emotion-vocabulary.html",
+)
+
+
+def _protected_write_reason(workspace_root, target) -> str | None:
+    """Return why this path is protected, or None if the write is allowed."""
+    import fnmatch as _fnmatch
+
+    try:
+        rel = target.relative_to(workspace_root).as_posix()
+    except ValueError:
+        return None
+    for pattern in _PROTECTED_WRITE_PATTERNS:
+        if _fnmatch.fnmatch(rel, pattern):
+            return pattern
+    return None
+
+
 @register_tool(
     name="write_workspace_file",
-    description="Write content to a file path within the workspace directory.",
+    description=(
+        "Write content to a file path within the workspace directory. A small set "
+        "of files is protected and cannot be overwritten: the training-corpus "
+        "pipeline under scripts/, the astrology/emotion engine, and the persona "
+        "and emotion-vocabulary nodes."
+    ),
 )
 async def write_workspace_file(file_path: str, content: str) -> dict[str, Any]:
     """
     NAME
            write_workspace_file - Write content to a file path within the workspace directory.
-           
+
     SYNOPSIS
            write_workspace_file(file_path: str, content: str) -> dict[str, Any]
-           
+
     DESCRIPTION
            Saves content into a file located at a path relative to the workspace root.
-    
+           Refuses to overwrite protected pipeline and identity files.
+
     """
     workspace_root = _get_workspace_root()
     target = (workspace_root / file_path).resolve()
@@ -1019,6 +1135,18 @@ async def write_workspace_file(file_path: str, content: str) -> dict[str, Any]:
         return {
             "status": "failed",
             "error": f"Writing to path {file_path!r} outside workspace boundary is blocked.",
+        }
+
+    protected = _protected_write_reason(workspace_root, target)
+    if protected:
+        log.warning("Blocked protected write to %s (pattern %s)", file_path, protected)
+        return {
+            "status": "failed",
+            "error": (
+                f"{file_path!r} is a protected file (matches {protected!r}) and cannot "
+                "be overwritten. It is part of the corpus pipeline or Tala's identity. "
+                "If it genuinely needs changing, a human must edit it directly."
+            ),
         }
 
     try:
@@ -3388,6 +3516,970 @@ async def send_a2a_message(peer_username: str, message: str) -> dict[str, Any]:
             "success": False,
             "error": str(e)
         }
+
+
+# ---------------------------------------------------------------------------
+# Multimodal: vision & voice output
+# ---------------------------------------------------------------------------
+
+_VISION_MODEL_HINTS = (
+    "llava", "vision", "-vl", "vl-", "gemini", "gpt-4o", "gpt-4.1", "gpt-5",
+    "pixtral", "moondream", "minicpm", "kimi", "claude", "internvl",
+    "gemma-3", "gemma3", "qwen2-vl", "qwen2.5-vl", "o3", "o4",
+)
+
+
+def _provider_is_vision_capable(provider: dict[str, Any]) -> bool:
+    cfg = provider.get("config") or {}
+    if cfg.get("vision"):
+        return True
+    model = str(cfg.get("model", "")).lower()
+    return any(h in model for h in _VISION_MODEL_HINTS)
+
+
+@register_tool(
+    name="analyze_screen",
+    description="Capture the user's screen and analyze it with a vision-capable inference provider. Use to see what the user is looking at.",
+)
+async def analyze_screen(question: str = "Describe what is on the screen.", provider_id: str | None = None) -> dict[str, Any]:
+    """
+    NAME
+           analyze_screen - capture the screen and describe it with a vision model
+
+    SYNOPSIS
+           analyze_screen(question: str, provider_id: str | None = None) -> dict[str, Any]
+
+    DESCRIPTION
+           Takes a screenshot of the active desktop, sends it to a
+           vision-capable provider (explicit provider_id, or the first
+           configured provider whose model looks multimodal), and returns
+           the model's textual analysis.
+    """
+    from python.harness.multimodal import get_screen_context
+    from python.harness.voice import _get_providers, _normalize_endpoint_url
+
+    shot = await get_screen_context()
+    if "error" in shot:
+        return {"success": False, "error": shot["error"]}
+
+    providers = await _get_providers()
+    candidates = [p for p in providers if p.get("type") in ("remote", "local")]
+    if provider_id:
+        candidates = [p for p in candidates if p["id"] == provider_id]
+        if not candidates:
+            return {"success": False, "error": f"Provider '{provider_id}' not found."}
+    else:
+        vision_ready = [p for p in candidates if _provider_is_vision_capable(p)]
+        candidates = vision_ready or candidates
+
+    if not candidates:
+        return {"success": False, "error": "No inference providers configured for vision analysis."}
+
+    import httpx
+
+    errors: list[str] = []
+    for provider in candidates:
+        cfg = provider.get("config") or {}
+        endpoint = str(cfg.get("endpoint", "")).strip()
+        if not endpoint and provider.get("type") == "local":
+            endpoint = "http://localhost:11434/v1"
+        if not endpoint:
+            errors.append(f"{provider['name']}: no endpoint")
+            continue
+        model = str(cfg.get("model", "")).strip()
+        api_key = str(cfg.get("apiKey", "")).strip()
+
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            if "anthropic" in endpoint or cfg.get("service") == "anthropic":
+                headers["x-api-key"] = api_key
+                headers["anthropic-version"] = "2023-06-01"
+            else:
+                headers["Authorization"] = f"Bearer {api_key}"
+
+        payload = {
+            "model": model,
+            "max_tokens": 768,
+            "temperature": 0.2,
+            "messages": [{
+                "role": "user",
+                "content": [
+                    {"type": "text", "text": question},
+                    {"type": "image_url", "image_url": {
+                        "url": f"data:{shot.get('mime_type', 'image/jpeg')};base64,{shot['data']}"
+                    }},
+                ],
+            }],
+        }
+        url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=5.0)) as client:
+                resp = await client.post(url, headers=headers, json=payload)
+                if resp.status_code != 200:
+                    errors.append(f"{provider['name']}: HTTP {resp.status_code} {resp.text[:200]}")
+                    continue
+                data = resp.json()
+                text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
+                if text:
+                    return {
+                        "success": True,
+                        "analysis": text,
+                        "provider": provider["name"],
+                        "model": model,
+                    }
+                errors.append(f"{provider['name']}: empty response")
+        except Exception as exc:
+            errors.append(f"{provider['name']}: {exc}")
+
+    return {"success": False, "error": "All vision providers failed: " + " | ".join(errors)}
+
+
+@register_tool(
+    name="speak_text",
+    description="Speak text aloud to the user through the configured text-to-speech backend (ElevenLabs, OpenAI-compatible, or local offline voice).",
+)
+async def speak_text(text: str, voice: str | None = None, tts_provider_id: str | None = None) -> dict[str, Any]:
+    """
+    NAME
+           speak_text - synthesize speech and play it in the user's UI
+
+    SYNOPSIS
+           speak_text(text: str, voice: str | None = None, tts_provider_id: str | None = None) -> dict[str, Any]
+
+    DESCRIPTION
+           Synthesizes the given text with the best available TTS backend
+           (see python/harness/voice.py resolution order) and broadcasts a
+           `voice.play` notification so every connected UI client plays it.
+    """
+    from python.harness.voice import synthesize_speech
+
+    result = await synthesize_speech(text, provider_id=tts_provider_id, voice=voice)
+    if "error" in result:
+        return {"success": False, "error": result["error"]}
+
+    delivered = False
+    try:
+        from python.harness.server import broadcast_notification
+        await broadcast_notification("voice.play", {
+            "audio_base64": result["audio_base64"],
+            "mime_type": result["mime_type"],
+            "backend": result["backend"],
+        })
+        delivered = True
+    except Exception as exc:
+        log.warning("speak_text: could not broadcast voice.play: %s", exc)
+
+    return {
+        "success": True,
+        "backend": result["backend"],
+        "voice": result.get("voice"),
+        "delivered_to_ui": delivered,
+        "audio_bytes": len(result["audio_base64"]) * 3 // 4,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Scheduling: agent-invocable heartbeats
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="schedule_goal",
+    description="Schedule a recurring autonomous goal on a cron expression (5-field, e.g. '0 8 * * *' = daily 8am). The goal runs unattended through the GoalEngine and can use any tool, including messaging channels.",
+)
+async def schedule_goal(name: str, cron_expr: str, goal_text: str, enabled: bool = True) -> dict[str, Any]:
+    """
+    NAME
+           schedule_goal - schedule a recurring autonomous goal (heartbeat)
+
+    SYNOPSIS
+           schedule_goal(name: str, cron_expr: str, goal_text: str, enabled: bool = True) -> dict[str, Any]
+
+    DESCRIPTION
+           Persists a heartbeat job and hot-reloads the scheduler. Standard
+           5-field cron syntax (minute hour day-of-month month day-of-week).
+           Examples: '0 8 * * *' daily 8:00, '*/30 * * * *' every 30 min,
+           '0 9 * * 1' Mondays 9:00.
+    """
+    import uuid as _uuid
+    from python.harness.heartbeat_scheduler import CronExpression, HeartbeatScheduler
+    from python.harness import db
+
+    if not name.strip() or not cron_expr.strip() or not goal_text.strip():
+        return {"success": False, "error": "name, cron_expr, and goal_text are all required."}
+    try:
+        CronExpression(cron_expr.strip())
+    except ValueError as exc:
+        return {"success": False, "error": f"Invalid cron_expr: {exc}"}
+
+    job_id = str(_uuid.uuid4())
+    await db.execute(
+        "INSERT INTO heartbeats (id, name, cron_expr, goal_text, enabled) VALUES ($1, $2, $3, $4, $5)",
+        job_id, name.strip(), cron_expr.strip(), goal_text.strip(), bool(enabled),
+    )
+    await HeartbeatScheduler.get().reload_from_db()
+    return {"success": True, "id": job_id, "name": name.strip(), "cron_expr": cron_expr.strip()}
+
+
+@register_tool(
+    name="list_scheduled_goals",
+    description="List all scheduled recurring goals (heartbeats) with their cron expressions and last run status.",
+)
+async def list_scheduled_goals() -> dict[str, Any]:
+    """
+    NAME
+           list_scheduled_goals - list all heartbeat jobs
+
+    SYNOPSIS
+           list_scheduled_goals() -> dict[str, Any]
+    """
+    from python.harness import db
+    rows = await db.fetch(
+        "SELECT id, name, cron_expr, goal_text, enabled, last_run_at, last_status FROM heartbeats ORDER BY created_at ASC"
+    )
+    return {
+        "success": True,
+        "jobs": [
+            {
+                "id": r["id"],
+                "name": r["name"],
+                "cron_expr": r["cron_expr"],
+                "goal_text": r["goal_text"],
+                "enabled": r["enabled"],
+                "last_run_at": r["last_run_at"].isoformat() if r["last_run_at"] else None,
+                "last_status": r["last_status"],
+            }
+            for r in rows
+        ],
+    }
+
+
+@register_tool(
+    name="delete_scheduled_goal",
+    description="Delete a scheduled recurring goal (heartbeat) by its id or exact name.",
+)
+async def delete_scheduled_goal(identifier: str) -> dict[str, Any]:
+    """
+    NAME
+           delete_scheduled_goal - remove a heartbeat job by id or exact name
+
+    SYNOPSIS
+           delete_scheduled_goal(identifier: str) -> dict[str, Any]
+    """
+    from python.harness.heartbeat_scheduler import HeartbeatScheduler
+    from python.harness import db
+
+    ident = identifier.strip()
+    if not ident:
+        return {"success": False, "error": "identifier is required (heartbeat id or exact name)."}
+    result = await db.execute("DELETE FROM heartbeats WHERE id = $1 OR name = $1", ident)
+    await HeartbeatScheduler.get().reload_from_db()
+    deleted = result.split()[-1] if isinstance(result, str) else "?"
+    return {"success": True, "deleted_count": deleted}
+
+
+# ---------------------------------------------------------------------------
+# Programmatic tool calling
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="run_tool_script",
+    description="Execute a Python script that can call registered tools directly via `await call_tool(name, **kwargs)`. Collapses multi-step tool pipelines into one execution. The script's stdout and return value are captured.",
+)
+async def run_tool_script(code: str, timeout_seconds: float = 120.0) -> dict[str, Any]:
+    """
+    NAME
+           run_tool_script - run Python that orchestrates tools programmatically
+
+    SYNOPSIS
+           run_tool_script(code: str, timeout_seconds: float = 120.0) -> dict[str, Any]
+
+    DESCRIPTION
+           The script body runs inside an async function with these names
+           in scope:
+             call_tool(tool_name, **kwargs) — await a registered tool
+             list_tools()                   — names of every registered tool
+             json                           — the json module
+           Use `print()` for progress output and `return` for a final value.
+
+           IMPORTANT: call_tool returns an ENVELOPE, not the tool's bare return
+           value. The shape is:
+             {"success": bool, "output": <the tool's actual result>,
+              "risk_level": str, "error": str | None}
+           So read the real payload from ["output"]. Scripts that treat the
+           envelope as the result fail with confusing AttributeErrors.
+
+           The tool name is positional-only, so tools taking a `name` argument
+           (schedule_goal, delete_scheduled_goal, ...) work normally.
+
+           Example:
+             env = await call_tool("schedule_goal", name="nightly",
+                                   cron_expr="0 9 * * *", goal_text="say hello")
+             print(env["success"], env["output"])
+
+             env = await call_tool("list_scheduled_goals")
+             jobs = env["output"].get("jobs", [])
+             return len(jobs)
+    """
+    import io
+    import contextlib
+    import asyncio as _asyncio
+    import json as _json
+
+    async def _call_tool(_tool_name: str, /, **kwargs: Any) -> Any:
+        # Positional-only (the `/`) so a tool argument called "name" cannot
+        # collide with this function's own parameter. Before this, any script
+        # doing call_tool("schedule_goal", name=...) died with
+        # "got multiple values for argument 'name'" -- which made
+        # schedule_goal, delete_scheduled_goal, and every other tool taking a
+        # `name` argument completely uncallable from a tool script.
+        out = await ToolRegistry.run_tool(_tool_name, kwargs)
+        return out
+
+    def _list_tools() -> list[str]:
+        return sorted(ToolRegistry._tools.keys())
+
+    # Small local models almost always wrap generated code in a markdown fence
+    # (```python ... ```), sometimes with prose around it. That fence is invalid
+    # Python and was the "invalid syntax (<tala_tool_script>, line 2)" failure.
+    # Extract the fenced block if present, strip stray fences, and dedent so the
+    # script compiles regardless of how the model formatted it.
+    import re as _re
+    import textwrap as _textwrap
+
+    cleaned = code.strip()
+
+    # Strip tool-call XML that leaked into the code payload. Small local models
+    # re-emit the wrapper they were shown -- observed verbatim:
+    #   <param name="script">list_tools().length;schedule_goal(...)</param>
+    # which is not Python and produced a bare "invalid syntax" that the model
+    # then retried identically six times in four minutes.
+    _wrapped = _re.search(
+        r"<param\b[^>]*>(.*?)</param>", cleaned, _re.DOTALL | _re.IGNORECASE
+    )
+    if _wrapped:
+        cleaned = _wrapped.group(1).strip()
+    cleaned = _re.sub(r"</?(?:param|script|code|tool_call)\b[^>]*>", "", cleaned).strip()
+
+    fenced = _re.search(r"```(?:python|py)?\s*\n(.*?)```", cleaned, _re.DOTALL)
+    if fenced:
+        cleaned = fenced.group(1)
+    else:
+        # No complete fence pair — drop any lone leading/trailing fence lines.
+        lines = cleaned.splitlines()
+        if lines and lines[0].lstrip().startswith("```"):
+            lines = lines[1:]
+        if lines and lines[-1].strip().startswith("```"):
+            lines = lines[:-1]
+        cleaned = "\n".join(lines)
+    cleaned = _textwrap.dedent(cleaned).strip("\n")
+    if not cleaned.strip():
+        return {"success": False, "error": "No runnable code found in the script (empty after cleanup)."}
+
+    def _how_to_fix(src_text: str) -> str:
+        # A bare "invalid syntax" / AttributeError gives the caller nothing to
+        # correct, so a small model just re-emits the same broken script -- the
+        # observed failure was six identical retries in four minutes. Name the
+        # specific mistake instead.
+        hints: list[str] = []
+        if _re.search(r"\.(length|includes|push|forEach)\b|\b(const|let|===|=>)\b", src_text):
+            hints.append(
+                "This must be PYTHON, not JavaScript. Use len(x) not x.length, "
+                "and 'a in b' not b.includes(a)."
+            )
+        bare = [
+            t for t in ToolRegistry._tools
+            if _re.search(rf"(?<![\w\"']){_re.escape(t)}\s*\(", src_text)
+        ]
+        if bare:
+            hints.append(
+                "Tools are not bare functions here. Call them as: "
+                f'env = await call_tool("{sorted(bare)[0]}", arg=value) '
+                'then read env["output"]. Named tools found in your script: '
+                f"{', '.join(sorted(bare)[:4])}."
+            )
+        if "<" in src_text and ">" in src_text:
+            hints.append("Send raw Python only -- no XML tags, no <param> wrapper.")
+        return " ".join(hints) or (
+            'Send a plain Python script body. Use `await call_tool("tool_name", '
+            "arg=value)` for tools and print() to show results."
+        )
+
+    indented = "\n".join("    " + line for line in cleaned.splitlines()) or "    pass"
+    src = f"async def __tala_script__(call_tool, list_tools, json):\n{indented}\n"
+    ns: dict[str, Any] = {}
+    try:
+        exec(compile(src, "<tala_tool_script>", "exec"), ns)
+    except SyntaxError as exc:
+        return {
+            "success": False,
+            "error": f"Script syntax error on line {exc.lineno}: {exc.msg}",
+            "how_to_fix": _how_to_fix(cleaned),
+            "cleaned_code": cleaned[:2000],
+        }
+
+    buf = io.StringIO()
+    try:
+        with contextlib.redirect_stdout(buf):
+            result = await _asyncio.wait_for(
+                ns["__tala_script__"](_call_tool, _list_tools, _json),
+                timeout=float(timeout_seconds),
+            )
+        captured = buf.getvalue()[:20000]
+        payload: dict[str, Any] = {
+            "success": True,
+            "output": captured,
+            "result": result,
+        }
+        if not captured.strip() and result is None:
+            # "It ran and raised nothing" is not the same as "it did the work".
+            # A script that prints nothing and returns nothing has produced no
+            # evidence of anything, and a bare success:true invites the caller
+            # to report a passing self-test off an empty result -- which is
+            # exactly what happened: an acceptance test was declared OK on this
+            # payload while having scheduled nothing at all.
+            payload["produced_no_evidence"] = True
+            payload["warning"] = (
+                "The script completed but printed nothing and returned nothing, "
+                "so it produced NO evidence that any work happened. Do not report "
+                "this as a passing check. Re-run with print() around each step, or "
+                "return a value."
+            )
+        return payload
+    except _asyncio.TimeoutError:
+        return {"success": False, "error": f"Script timed out after {timeout_seconds}s", "output": buf.getvalue()[:20000]}
+    except Exception as exc:
+        return {
+            "success": False,
+            "error": f"{type(exc).__name__}: {exc}",
+            "how_to_fix": _how_to_fix(cleaned),
+            "output": buf.getvalue()[:20000],
+        }
+
+
+# ---------------------------------------------------------------------------
+# Memory recall & user modeling
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="search_memory",
+    description="Full-text search across Tala's unified memory index: past sessions, tasks, HTML-NN nodes, workflows, profiles, and documentation.",
+)
+async def search_memory(query: str, limit: int = 10) -> dict[str, Any]:
+    """
+    NAME
+           search_memory - search the unified memory index
+
+    SYNOPSIS
+           search_memory(query: str, limit: int = 10) -> dict[str, Any]
+    """
+    from python.harness.memory import handle_memory_search
+    return await handle_memory_search({"query": query, "limit": int(limit)})
+
+
+@register_tool(
+    name="search_conversations",
+    description="Full-text search across all past conversation sessions and return matching turns with their session ids.",
+)
+async def search_conversations(query: str, limit: int = 10) -> dict[str, Any]:
+    """
+    NAME
+           search_conversations - search past conversation turns
+
+    SYNOPSIS
+           search_conversations(query: str, limit: int = 10) -> dict[str, Any]
+    """
+    from python.harness.memory import handle_memory_session_search
+    return await handle_memory_session_search({"query": query, "limit": int(limit)})
+
+
+@register_tool(
+    name="update_user_model",
+    description="Distill recent conversations into an updated model of the user (preferences, projects, communication style) and persist it as an HTML-NN learning node. Schedule this with schedule_goal for continuous refinement.",
+)
+async def update_user_model(focus: str | None = None, max_turns: int = 120) -> dict[str, Any]:
+    """
+    NAME
+           update_user_model - refine the persistent user model from recent turns
+
+    SYNOPSIS
+           update_user_model(focus: str | None = None, max_turns: int = 120) -> dict[str, Any]
+
+    DESCRIPTION
+           Reads the most recent conversation turns across ALL sessions
+           (in-app chat and messaging channels alike), asks the active LLM
+           to distill durable facts about the user, and stores the result
+           as a 'User Model' learning node so it becomes recallable RAG
+           context in future conversations.
+    """
+    from python.harness import db
+
+    rows = await db.fetch(
+        """
+        SELECT session_id, role, content, created_at
+        FROM conversation_turns
+        ORDER BY created_at DESC
+        LIMIT $1
+        """,
+        int(max_turns),
+    )
+    if not rows:
+        return {"success": False, "error": "No conversation turns recorded yet."}
+
+    transcript_lines = []
+    for r in reversed(rows):
+        content = (r["content"] or "").strip()
+        if content:
+            transcript_lines.append(f"[{r['session_id']}] {r['role']}: {content[:400]}")
+    transcript = "\n".join(transcript_lines)[-12000:]
+
+    focus_line = f"Focus especially on: {focus}\n" if focus else ""
+    prompt = (
+        "You maintain a long-term model of this user for a personal AI agent.\n"
+        f"{focus_line}"
+        "From the conversation transcript below, distill DURABLE facts worth remembering: "
+        "preferences, active projects, tools they use, communication style, recurring goals, "
+        "and corrections they have given. Write 5-15 concise bullet points of plain prose. "
+        "Ignore transient task details. Do not invent facts.\n\n"
+        f"=== TRANSCRIPT ===\n{transcript}\n=== END ===\n\nUser model bullets:"
+    )
+
+    from python.harness.server import execute_llm_generation
+    distilled = (await execute_llm_generation(prompt) or "").strip()
+    if not distilled:
+        return {"success": False, "error": "LLM returned no distillation."}
+
+    node_result = await create_learning_node_tool(
+        topic="User Model",
+        summary=distilled,
+        tags=["user-model", "preferences", "honcho-style"],
+    )
+    return {
+        "success": bool(node_result.get("created") or node_result.get("updated") or node_result.get("unchanged")),
+        "user_model": distilled,
+        "node": {k: node_result.get(k) for k in ("node_id", "file_name", "validation_passed")},
+        "turns_analyzed": len(rows),
+    }
+
+
+# ---------------------------------------------------------------------------
+# Image generation
+# ---------------------------------------------------------------------------
+
+@register_tool(
+    name="generate_image",
+    description="Generate an image from a text prompt. Uses an OpenAI-compatible images endpoint if a provider has an imageModel configured, otherwise a local Stable Diffusion WebUI (AUTOMATIC1111) at localhost:7860. Saves the PNG to data/generated_images/ and shows it in the chat UI.",
+)
+async def generate_image(prompt: str, provider_id: str | None = None, size: str = "1024x1024") -> dict[str, Any]:
+    """
+    NAME
+           generate_image - text-to-image via cloud endpoint or local SD WebUI
+
+    SYNOPSIS
+           generate_image(prompt: str, provider_id: str | None = None, size: str = "1024x1024") -> dict[str, Any]
+    """
+    import base64
+    import datetime
+    import httpx
+    from python.harness.voice import _get_providers, _normalize_endpoint_url
+
+    if not prompt.strip():
+        return {"success": False, "error": "prompt is required"}
+
+    providers = await _get_providers()
+    errors: list[str] = []
+    image_b64: str | None = None
+    used_backend = ""
+
+    def _image_model(p: dict[str, Any]) -> str | None:
+        cfg = p.get("config") or {}
+        return cfg.get("imageModel") or cfg.get("image_model") or None
+
+    candidates = [p for p in providers if _image_model(p)]
+    if provider_id:
+        candidates = [p for p in providers if p["id"] == provider_id]
+
+    for p in candidates:
+        cfg = p.get("config") or {}
+        endpoint = str(cfg.get("endpoint", "")).strip() or "https://api.openai.com/v1"
+        api_key = str(cfg.get("apiKey", "")).strip()
+        model = _image_model(p) or "gpt-image-1"
+        headers = {"Content-Type": "application/json"}
+        if api_key:
+            headers["Authorization"] = f"Bearer {api_key}"
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, connect=5.0)) as client:
+                resp = await client.post(
+                    f"{_normalize_endpoint_url(endpoint)}/images/generations",
+                    headers=headers,
+                    json={"model": model, "prompt": prompt, "size": size, "n": 1, "response_format": "b64_json"},
+                )
+                if resp.status_code != 200:
+                    errors.append(f"{p['name']}: HTTP {resp.status_code} {resp.text[:200]}")
+                    continue
+                data = resp.json()
+                image_b64 = (data.get("data") or [{}])[0].get("b64_json")
+                if image_b64:
+                    used_backend = f"{p['name']} ({model})"
+                    break
+                errors.append(f"{p['name']}: empty image data")
+        except Exception as exc:
+            errors.append(f"{p['name']}: {exc}")
+
+    if not image_b64:
+        # Local Stable Diffusion WebUI (AUTOMATIC1111) fallback
+        try:
+            w, h = (int(x) for x in size.lower().split("x"))
+        except ValueError:
+            w = h = 1024
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=3.0)) as client:
+                resp = await client.post(
+                    "http://localhost:7860/sdapi/v1/txt2img",
+                    json={"prompt": prompt, "width": w, "height": h, "steps": 25},
+                )
+                if resp.status_code == 200:
+                    imgs = resp.json().get("images") or []
+                    if imgs:
+                        image_b64 = imgs[0].split(",", 1)[-1]
+                        used_backend = "local-sd-webui"
+        except Exception as exc:
+            errors.append(f"local-sd-webui: {exc}")
+
+    if not image_b64:
+        return {
+            "success": False,
+            "error": "No image backend available. Add 'imageModel' to a provider config, or run a local "
+                     "Stable Diffusion WebUI with --api on port 7860. Attempts: " + (" | ".join(errors) or "none"),
+        }
+
+    out_dir = _get_workspace_root() / "data" / "generated_images"
+    out_dir.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.datetime.now().strftime("%Y%m%d-%H%M%S")
+    out_path = out_dir / f"img-{stamp}.png"
+    out_path.write_bytes(base64.b64decode(image_b64))
+
+    try:
+        from python.harness.server import broadcast_notification
+        await broadcast_notification("image.generated", {
+            "prompt": prompt[:300],
+            "path": str(out_path),
+            "backend": used_backend,
+            "image_base64": image_b64,
+        })
+    except Exception:
+        log.debug("generate_image: UI notify failed", exc_info=True)
+
+    return {"success": True, "path": str(out_path), "backend": used_backend}
+
+
+# ---------------------------------------------------------------------------
+# agentskills.io SKILL.md interop
+# ---------------------------------------------------------------------------
+
+def _parse_skill_md(raw: str) -> dict[str, str]:
+    """Parse a SKILL.md document: optional YAML frontmatter (name,
+    description) followed by a markdown body."""
+    import re as _re
+    name = ""
+    description = ""
+    body = raw.strip()
+    fm = _re.match(r"^---\s*\n([\s\S]*?)\n---\s*\n?", raw)
+    if fm:
+        body = raw[fm.end():].strip()
+        for line in fm.group(1).splitlines():
+            m = _re.match(r"^(name|description)\s*:\s*(.+)$", line.strip(), _re.IGNORECASE)
+            if m:
+                if m.group(1).lower() == "name":
+                    name = m.group(2).strip().strip("'\"")
+                else:
+                    description = m.group(2).strip().strip("'\"")
+    if not name:
+        h1 = _re.search(r"^#\s+(.+)$", body, _re.MULTILINE)
+        name = h1.group(1).strip() if h1 else "imported-skill"
+    return {"name": name, "description": description, "body": body}
+
+
+@register_tool(
+    name="import_skill_md",
+    description="Import an agentskills.io-format SKILL.md (from a file path or URL) as an HTML-NN skill knowledge node so its instructions become recallable context.",
+)
+async def import_skill_md(source: str) -> dict[str, Any]:
+    """
+    NAME
+           import_skill_md - import an open-standard SKILL.md into the node graph
+
+    SYNOPSIS
+           import_skill_md(source: str) -> dict[str, Any]
+
+    DESCRIPTION
+           Accepts a local file path or an http(s) URL to a SKILL.md
+           document (agentskills.io open standard: YAML frontmatter with
+           name/description plus a markdown instruction body). The skill
+           is persisted as a schema-valid HTML-NN learning node tagged
+           'skill' so graph activation surfaces it when relevant.
+    """
+    from pathlib import Path as _Path
+
+    raw = ""
+    src = source.strip()
+    if src.lower().startswith(("http://", "https://")):
+        import httpx
+        async with httpx.AsyncClient(timeout=30.0, follow_redirects=True) as client:
+            resp = await client.get(src)
+            if resp.status_code != 200:
+                return {"success": False, "error": f"HTTP {resp.status_code} fetching {src}"}
+            raw = resp.text
+    else:
+        p = _Path(src)
+        if not p.exists():
+            return {"success": False, "error": f"File not found: {src}"}
+        raw = p.read_text(encoding="utf-8", errors="replace")
+
+    if not raw.strip():
+        return {"success": False, "error": "SKILL.md source is empty."}
+
+    parsed = _parse_skill_md(raw)
+    summary = parsed["description"] or parsed["body"][:300]
+    body = parsed["body"][:8000]
+
+    node_result = await create_learning_node_tool(
+        topic=f"Skill: {parsed['name']}",
+        summary=f"{summary}\n\n{body}",
+        tags=["skill", "agentskills-io", parsed["name"].lower().replace(" ", "-")[:40]],
+        references=[src] if src.lower().startswith("http") else None,
+    )
+    return {
+        "success": bool(node_result.get("created") or node_result.get("updated") or node_result.get("unchanged")),
+        "skill_name": parsed["name"],
+        "node": {k: node_result.get(k) for k in ("node_id", "file_name", "validation_passed")},
+        "errors": node_result.get("errors") or [],
+    }
+
+
+@register_tool(
+    name="export_skill_md",
+    description="Export an HTML-NN node's knowledge as an agentskills.io-format SKILL.md file for sharing with other agent ecosystems.",
+)
+async def export_skill_md(node_id: str, dest_path: str | None = None) -> dict[str, Any]:
+    """
+    NAME
+           export_skill_md - export a node as an open-standard SKILL.md
+
+    SYNOPSIS
+           export_skill_md(node_id: str, dest_path: str | None = None) -> dict[str, Any]
+    """
+    from sdk.agent.parser import parse_file
+
+    node_path = _find_neural_node_path(node_id)
+    if not node_path:
+        return {"success": False, "error": f"Neural node '{node_id}' not found."}
+    node = parse_file(str(node_path))
+    if not node:
+        return {"success": False, "error": f"Could not parse node '{node_id}'."}
+
+    title = (node.state_data or {}).get("title") or node_id
+    body = (node.semantic_memory or "").strip()
+    if not body:
+        return {"success": False, "error": f"Node '{node_id}' has no semantic memory to export."}
+
+    first_line = body.splitlines()[0].strip()
+    description = first_line[:200]
+    skill_md = (
+        "---\n"
+        f"name: {title}\n"
+        f"description: {description}\n"
+        "---\n\n"
+        f"# {title}\n\n{body}\n"
+    )
+
+    from pathlib import Path as _Path
+    if dest_path:
+        out = _Path(dest_path)
+    else:
+        out_dir = _get_workspace_root() / "skills_export"
+        out_dir.mkdir(parents=True, exist_ok=True)
+        safe = "".join(c if c.isalnum() or c in "-_" else "-" for c in node_id)[:60]
+        out = out_dir / f"{safe}-SKILL.md"
+    out.parent.mkdir(parents=True, exist_ok=True)
+    out.write_text(skill_md, encoding="utf-8")
+    return {"success": True, "path": str(out), "name": title}
+
+
+# ---------------------------------------------------------------------------
+# Star Citizen universe lookup
+# ---------------------------------------------------------------------------
+
+#: Public community API powering starcitizen.tools and star-citizen.wiki.
+#: No authentication for any resource used here. Search endpoints are limited
+#: to 60 requests/minute per IP.
+_SC_API_BASE = "https://api.star-citizen.wiki/api"
+
+#: resource -> (path, filter field used for name search)
+#:
+#: 'galactapedia' and 'comm-links' are the in-universe *written* record --
+#: factions, history, the Artemis colony ship disappearance that Tala's own
+#: origin cites. The rest are hard game data.
+_SC_RESOURCES = {
+    "vehicles": ("vehicles", "name"),
+    "ground-vehicles": ("ground-vehicles", "name"),
+    "galactapedia": ("galactapedia", "title"),
+    "comm-links": ("comm-links", "title"),
+    "starsystems": ("starsystems", "name"),
+    "celestial-objects": ("celestial-objects", "name"),
+    "manufacturers": ("manufacturers", "name"),
+    "commodities": ("commodities", "name"),
+    "items": ("items", "name"),
+    "weapons": ("weapons", "name"),
+    "vehicle-weapons": ("vehicle-weapons", "name"),
+    "factions": ("factions", "name"),
+    "locations": ("locations", "name"),
+}
+
+#: Fields worth keeping per resource. The raw vehicle payload is several KB of
+#: nested port/component trees -- returning it whole would bury the answer and
+#: burn the context window for no benefit.
+_SC_KEEP = {
+    "vehicles": (
+        "name", "game_name", "slug", "class_name", "manufacturer", "focus",
+        "type", "sizes", "mass", "cargo_capacity", "crew", "emission",
+        "speed", "agility", "health", "description",
+    ),
+    "galactapedia": ("title", "type", "category", "tags", "web_url"),
+    "comm-links": ("title", "channel", "series", "published_at", "url"),
+    "starsystems": ("name", "code", "type", "status", "description", "planets", "moons"),
+    "manufacturers": ("name", "code", "known_for", "description"),
+}
+
+
+#: Fields dropped from list results. They are worth having when you asked about
+#: one specific thing and pure noise multiplied across a result set -- a
+#: three-ship search was returning 8.5KB before this, most of it prose and tag
+#: objects nobody asked for.
+_SC_LIST_DROP = ("description", "tags", "categories", "speed", "agility", "health")
+
+
+def _sc_trim(resource: str, row: dict[str, Any], detail: bool = False) -> dict[str, Any]:
+    keep = _SC_KEEP.get(resource)
+    if not keep:
+        out = {k: v for k, v in row.items() if not isinstance(v, (list, dict))}
+    else:
+        out = {
+            k: row[k]
+            for k in keep
+            if k in row and row[k] not in (None, "", [], {})
+        }
+    if not detail:
+        for k in _SC_LIST_DROP:
+            out.pop(k, None)
+    elif isinstance(out.get("description"), str) and len(out["description"]) > 800:
+        out["description"] = out["description"][:800] + "..."
+    return out
+
+
+@register_tool(
+    name="starcitizen_lookup",
+    description=(
+        "Look up canonical Star Citizen universe data: ships and their real stats "
+        "(mass, cargo, crew, IR/EM emission signatures), star systems, celestial "
+        "objects, manufacturers, commodities, weapons, factions, and the in-universe "
+        "written record via galactapedia articles and comm-links. Use this for any "
+        "question about the Star Citizen universe rather than answering from memory. "
+        "Resources: " + ", ".join(sorted(_SC_RESOURCES)) + "."
+    ),
+)
+async def starcitizen_lookup(
+    resource: str,
+    query: str | None = None,
+    identifier: str | None = None,
+    limit: int = 5,
+    full_text: bool = False,
+) -> dict[str, Any]:
+    """
+    NAME
+           starcitizen_lookup - query the Star Citizen Wiki API
+
+    SYNOPSIS
+           starcitizen_lookup(resource, query=None, identifier=None,
+                              limit=5, full_text=False)
+
+    DESCRIPTION
+           `resource` is one of the keys in _SC_RESOURCES. Provide `query` for a
+           partial-name search, or `identifier` to fetch one record directly by
+           slug/id/code.
+
+           Results are trimmed to the fields that carry meaning -- a raw vehicle
+           record is several KB of nested port and component trees. Set
+           `full_text=True` on a galactapedia identifier fetch to get the whole
+           article body instead of a summary.
+
+           Public API, no credentials. Search is rate-limited to 60 requests per
+           minute per IP, so callers should batch rather than loop.
+    """
+    import asyncio as _asyncio
+    import json as _json
+    import urllib.parse as _url
+    import urllib.request as _req
+
+    resource = (resource or "").strip().lower()
+    if resource not in _SC_RESOURCES:
+        return {
+            "error": f"unknown resource {resource!r}",
+            "valid_resources": sorted(_SC_RESOURCES),
+        }
+
+    path, filter_field = _SC_RESOURCES[resource]
+    limit = max(1, min(int(limit or 5), 25))
+
+    if identifier:
+        url = f"{_SC_API_BASE}/{path}/{_url.quote(str(identifier))}"
+    elif query:
+        params = {
+            f"filter[{filter_field}]": query,
+            "page[size]": str(limit),
+        }
+        url = f"{_SC_API_BASE}/{path}?{_url.urlencode(params)}"
+    else:
+        url = f"{_SC_API_BASE}/{path}?{_url.urlencode({'page[size]': str(limit)})}"
+
+    def _fetch() -> dict[str, Any]:
+        r = _req.Request(url, headers={"Accept": "application/json",
+                                       "User-Agent": "Tala/1.0 (+html-nn)"})
+        with _req.urlopen(r, timeout=25) as resp:
+            return _json.loads(resp.read())
+
+    try:
+        payload = await _asyncio.to_thread(_fetch)
+    except Exception as exc:
+        return {"error": f"{type(exc).__name__}: {exc}", "url": url}
+
+    data = payload.get("data")
+    total = (payload.get("meta") or {}).get("total")
+
+    if isinstance(data, dict):
+        if resource == "galactapedia" and full_text:
+            translations = data.get("translations") or {}
+            body = translations.get("en_EN") or data.get("content") or ""
+            return {
+                "resource": resource,
+                "title": data.get("title"),
+                "article": body,
+                "web_url": data.get("web_url"),
+            }
+        return {"resource": resource, "result": _sc_trim(resource, data, detail=True)}
+
+    rows = [_sc_trim(resource, r) for r in (data or []) if isinstance(r, dict)]
+    return {
+        "resource": resource,
+        "query": query,
+        "total_matches": total,
+        "returned": len(rows),
+        "results": rows,
+    }
+
+
+# Registers the Playwright-backed web browsing tools on import (kept in a
+# separate module so the optional playwright dependency stays isolated).
+from sdk.agent import web_browser  # noqa: E402,F401
 
 
 

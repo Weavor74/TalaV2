@@ -20,6 +20,10 @@ data/pytest_temp/
 blockchain/data/*.json
 blockchain/data/admin_secret.txt
 nodes/*.html
+# The self-extension workflow node is part of the engine contract (the DAG
+# chain's source of truth, with the built-in chain as fallback) — tracked
+# like the other canonical nodes.
+!nodes/workflow-self-extension.html
 nodes/*.html.bak
 nodes/_archive_legacy/
 nodes/.wizard_state.json

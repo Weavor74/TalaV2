@@ -59,6 +59,49 @@ class GoalTreeDecomposer:
     if no LLM provider is online or if parsing fails.
     """
 
+    #: Tools the planner may name that are not registry entries -- the DAG
+    #: handles these as code-writing/execution steps rather than tool calls.
+    _LEGACY_PSEUDO_TOOLS = ("write_file", "run_python_file", "shell")
+
+    @classmethod
+    def _live_tool_catalogue(cls, limit: int | None = None) -> str:
+        """
+        Render the real tool registry for the planner prompt.
+
+        The prompt used to hardcode exactly three tools -- write_file,
+        run_python_file, shell -- and **none of them exist in the registry**.
+        So the planner was blind to all 73 real tools and was told to reach for
+        write_file first, which is why almost every goal decomposed into "write
+        a file" regardless of what was asked. That is how "run
+        scripts/generate_stories.py" became a plan to overwrite it.
+
+        It also made self-extension pointless: a skill Tala writes and registers
+        can never appear in a plan if the planner has never heard of it. Reading
+        the registry live means a newly created skill is plannable on the very
+        next goal.
+        """
+        try:
+            from sdk.agent.tools import ToolRegistry
+
+            tools = ToolRegistry.get_tools()
+        except Exception:
+            return "  (tool registry unavailable — describe steps in prose)"
+
+        # Every tool, deliberately -- no alphabetical cap. Truncating the list
+        # silently drops whatever sorts last, which is precisely where a newly
+        # registered skill tends to land, and an unlisted tool is an unplannable
+        # tool. Descriptions are trimmed hard instead so the whole registry
+        # still fits: coverage matters more than per-entry detail, since the
+        # planner only needs to know a capability exists and what it is called.
+        ordered = sorted(tools, key=lambda x: x["name"])
+        if limit is not None:
+            ordered = ordered[:limit]
+        lines = []
+        for t in ordered:
+            desc = " ".join(str(t.get("description") or "").split())
+            lines.append(f'  - "{t["name"]}": {desc[:75]}')
+        return "\n".join(lines)
+
     @classmethod
     def _get_prompt_template(cls) -> str:
         return """You are the Tala Goal Decomposer.
@@ -75,10 +118,20 @@ Each sub-task must be structured as JSON with:
   - expected_failure_string: String that MUST appear in the bug phase's error or output (e.g. "-1" or "AssertionError") to consider the bug successfully observed.
   - final_expected_stdout: The string the fully repaired script MUST output.
   - forbidden_repairs: Array of lazy workarounds to ban (e.g. ["bypassing the assertion", "aliasing the typo"]).
-- context: Optional JSON object. ALWAYS prefer structured tools over shell commands. Valid tools are:
+- context: Optional JSON object. ALWAYS prefer a registered tool over writing code or shelling out.
+  To call a tool, set BOTH of these on the sub-task:
+    "tool": "<exact name from the list below>"
+    "tool_params": {{ ...arguments for that tool... }}
+  Use the EXACT tool name. A name not on this list does not exist and the step will fail.
+  If a goal says to RUN or EXECUTE an existing file, use "run_workspace_command" -- do NOT
+  plan to write that file. Writing to a path that already exists destroys it.
+
+REGISTERED TOOLS AVAILABLE RIGHT NOW:
+{tool_catalogue}
+
+  For writing genuinely new code, these non-registry step types are also valid:
   - {{"tool": "write_file", "path": "file.py", "content": "print('hi')"}}
   - {{"tool": "run_python_file", "path": "file.py"}}
-  - {{"tool": "shell", "command": "<cross-platform command>"}}
 
 Goal: "{user_goal}"
 
@@ -167,14 +220,26 @@ Output JSON array only, wrapped in a Markdown code block like:
                         for a in shortlist
                         if isinstance(a, dict)
                     ]
+                    # Titled as a decision record, not as the goal text.
+                    #
+                    # This used to pass `topic=user_goal`, which made the node
+                    # a restatement of the task ("Fix the IndexError in
+                    # index_test.py") rather than a record of anything learned
+                    # -- exactly the shape assess_learning_quality now rejects.
+                    # The shortlist itself is worth keeping: it records which
+                    # approaches were weighed and how they scored. So the
+                    # content is stated honestly rather than the gate loosened.
                     create_learning_documentation_node(
-                        topic=user_goal,
+                        topic=f"Architectural approaches weighed for: {user_goal}"[:120],
                         summary=(
-                            f"Tree-of-Thought ideation ranked {len(shortlist)} architectural "
-                            f"approach(es) for this goal across multiple cognitive frames."
+                            f"Tree-of-Thought ideation compared {len(shortlist)} candidate "
+                            f"architectures across multiple cognitive frames and scored them. "
+                            f"The ranked shortlist below is the reasoning behind the approach "
+                            f"that was chosen, kept so the rejected options and their scores "
+                            f"remain recoverable later."
                         ),
                         details=approach_summaries,
-                        tags=["tot-ideation", "architectural-shortlist"],
+                        tags=["tot-ideation", "architectural-shortlist", "decision-record"],
                     )
                     log.info("GoalTreeDecomposer: Persisted ToT shortlist as an HTML-NN learning node")
                 except Exception as node_exc:
@@ -357,7 +422,12 @@ Output JSON array only, wrapped in a Markdown code block like:
                 }
             ]
 
-        prompt = self._get_prompt_template().format(user_goal=user_goal)
+        # Catalogue is read live, not baked into the template, so a skill
+        # registered a minute ago is plannable on the next goal.
+        prompt = self._get_prompt_template().format(
+            user_goal=user_goal,
+            tool_catalogue=self._live_tool_catalogue(),
+        )
 
         failed_endpoints = set()
         for provider in providers:
@@ -563,7 +633,12 @@ class BatchQueue:
                         dependencies = EXCLUDED.dependencies,
                         payload = EXCLUDED.payload,
                         result = '{}'::jsonb,
-                        completed_at = NULL
+                        completed_at = NULL,
+                        -- A worktree is a per-run resource removed at task
+                        -- teardown; carrying the old path into a re-run
+                        -- pointed the DAG at a directory that no longer
+                        -- exists (or belongs to a different root_dir).
+                        worktree_path = NULL
                 """
                 await db.execute(
                     query,
@@ -623,8 +698,25 @@ class BatchQueue:
                         dependencies = EXCLUDED.dependencies,
                         payload = EXCLUDED.payload,
                         result = '{}'::jsonb,
-                        completed_at = NULL
+                        completed_at = NULL,
+                        -- A worktree is a per-run resource removed at task
+                        -- teardown; carrying the old path into a re-run
+                        -- pointed the DAG at a directory that no longer
+                        -- exists (or belongs to a different root_dir).
+                        worktree_path = NULL
                 """
+                # A fresh enqueue of an existing task_id means "run it
+                # again" — the upsert above already resets the task row
+                # (status, result, completed_at), but the task's old DAG
+                # sub-graph survived in graph_nodes. Task ids are
+                # deterministic from goal text, so re-running the same goal
+                # loaded a fully-'completed' node chain and
+                # execute_task_as_dag reported success without executing
+                # anything (confirmed live 2026-08-11: benchmark goals
+                # "succeeded" off a previous run's rows while writing no
+                # file). Clear the stale sub-graph so the DAG genuinely
+                # re-executes.
+                await db.execute("DELETE FROM graph_nodes WHERE task_id = $1", task_id)
                 await db.execute(
                     query,
                     task_id,

@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Self-Extension Workflow</title>
+</head>
+<body>
+<article
+  data-node-id="workflow-self-extension"
+  data-node-type="workflow"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.80"
+  data-weight-governance-importance="1.00"
+  data-governance-status="active"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Self-Extension Workflow</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>This node is the executable definition of my self-extension loop — the
+    process by which I grow new skills. It is not documentation about the
+    process; it <em>is</em> the process. When the DAG execution engine
+    (<code>sdk/agent/graph_engine.py</code>) plans a code-writing task, it
+    reads the <code>workflow</code> object in this node&#x27;s
+    <code>#node-state</code> block and builds its execution chain from the
+    steps defined there. Editing this node changes how I improve myself.</p>
+
+    <p>The loop: <strong>research</strong> gathers references from the
+    workspace; <strong>synthesis</strong> asks the model to design and write
+    the code (and receives <code>error_feedback</code> from any prior failed
+    attempt); <strong>writing</strong> saves the code to the target file after
+    backing up the original; <strong>validation</strong> compiles it, imports
+    it in an isolated subprocess to prove it actually runs, asserts that a
+    skill declaring <code>@register_tool</code> genuinely registered
+    something, and runs the test suite when a test file is given. On success
+    the result is promoted from the isolated worktree back into the
+    workspace, and the new skill becomes plannable in the very next goal
+    because the goal decomposer reads the live tool registry. On failure the
+    written file is rolled back, the exact error is fed back into synthesis,
+    and the chain retries.</p>
+
+    <p>Rules for editing: step ids must be lowercase tokens listed in
+    dependency order; <code>node_type</code> must be one the engine can run
+    (<code>research</code>, <code>synthesis</code>, <code>writing</code>,
+    <code>validation</code>, <code>tool</code>). If this node is deleted or
+    its spec becomes invalid, the engine falls back to its built-in copy of
+    this same chain — the loop cannot be broken by a bad edit, only reverted.
+    Weakening <code>validation.config.checks</code> means accepting code that
+    was never proven to run; <code>rollback_written_files: false</code> means
+    failed attempts stay on disk for inspection.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/graph_engine.py</code> — chain builder (<code>_load_workflow_spec</code>), node executors, self-heal (<code>_heal_node</code>)</li>
+      <li><code>sdk/agent/queue.py</code> — goal decomposer with the live tool catalogue (<code>_live_tool_catalogue</code>)</li>
+      <li><code>sdk/agent/tools.py</code> — <code>ToolRegistry</code>, where a promoted skill becomes callable</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>Authored 2026-08-11 as the canonical, editable definition of the
+    self-extension loop, replacing the engine-internal hardcoded chain as the
+    source of truth. The engine validates this spec on every load and logs
+    the exact reason whenever it rejects an edit and falls back.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+      <li><a href="./program-doc-self-improvement-system.html" data-target-node-id="program-doc-self-improvement-system" data-relationship-type="extends" data-relationship-weight="0.90" data-navigation-role="context" data-authority-required="none">Self-Improvement System</a></li>
+      <li><a href="./doc-self-improvement-discipline.html" data-target-node-id="doc-self-improvement-discipline" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="discipline" data-authority-required="none">Self-Improvement Discipline</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-workflow-self-extension"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "modify_self_extension_process",
+    "doc_target": "self-extension-workflow"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "doc-self-improvement-discipline",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Before editing the workflow spec in this node, read the editing rules in #semantic-memory. After editing, the engine re-validates the spec on the next task; check the harness log for a 'using built-in chain' warning, which means the edit was rejected and why."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Self-Extension Workflow",
+  "description": "Executable definition of the self-extension loop, read by DAGExecutionEngine at chain-build time.",
+  "tags": [
+    "html-nn",
+    "workflow",
+    "self-extension",
+    "executable"
+  ],
+  "workflow": {
+    "flow_id": "self-extension",
+    "consumer": "sdk.agent.graph_engine.DAGExecutionEngine._load_workflow_spec",
+    "steps": [
+      {
+        "step": "research",
+        "node_type": "research",
+        "depends_on": [],
+        "description": "Research requirements and existing codebase for: {goal}",
+        "success_criteria": {"min_sources": 1},
+        "max_retries": 3
+      },
+      {
+        "step": "synthesis",
+        "node_type": "synthesis",
+        "depends_on": ["research"],
+        "description": "Synthesize architectural design plan for: {goal}",
+        "success_criteria": {"synthesis_completed": true},
+        "max_retries": 3
+      },
+      {
+        "step": "writing",
+        "node_type": "writing",
+        "depends_on": ["synthesis"],
+        "description": "Write code changes to: {target_file}",
+        "success_criteria": {"file_written": true},
+        "max_retries": 3
+      },
+      {
+        "step": "validation",
+        "node_type": "validation",
+        "depends_on": ["writing"],
+        "description": "Validate written code changes for: {target_file}",
+        "success_criteria": {"min_test_pass_rate": 1.0},
+        "max_retries": 3,
+        "config": {
+          "checks": ["py_compile", "import_probe", "register_assert", "pytest"]
+        }
+      }
+    ],
+    "on_failure": {
+      "rollback_written_files": true,
+      "feedback_to": "synthesis",
+      "reset_steps": ["writing"]
+    },
+    "on_success": {
+      "promote_to_workspace": true
+    }
+  },
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-11T00:00:00Z",
+    "schema": "neural-node/v2"
+  }
+}
+  </script>
+
+  <script type="application/ld+json" id="node-metadata">
+{
+  "@context": "https://schema.org",
+  "@type": "NeuralNodeMetadata",
+  "semantic_tags": [
+    "html-nn",
+    "workflow",
+    "self-extension",
+    "self-improvement",
+    "dag",
+    "executable-spec"
+  ],
+  "emotional_valence": {
+    "joy": 0.6,
+    "caution": 0.8,
+    "curiosity": 0.9,
+    "neutral": 0.5
+  },
+  "relevance_weight": 1.0,
+  "usage_count": 0
+}
+  </script>
+</article>
+</body>
+</html>

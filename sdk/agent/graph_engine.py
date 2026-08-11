@@ -61,6 +61,87 @@ class DAGExecutionEngine:
         except RuntimeError:
             return False
 
+    # ------------------------------------------------------------------
+    # Workflow spec: the executable HTML-NN chain definition
+    # ------------------------------------------------------------------
+    #: Node types _execute_node knows how to run. A spec step naming
+    #: anything else is a spec error, not a new capability.
+    SUPPORTED_STEP_TYPES = frozenset({"research", "synthesis", "writing", "validation", "tool"})
+    WORKFLOW_NODE_FILENAME = "workflow-self-extension.html"
+
+    def _load_workflow_spec(self) -> dict[str, Any] | None:
+        """
+        Load the self-extension chain definition from the workflow HTML-NN,
+        if one exists. Returns None (built-in chain) when the node is absent
+        or its spec is invalid — the loop must keep closing even if the node
+        she edited no longer parses, so every rejection is logged with the
+        reason rather than raised.
+
+        The node is the single canonical source (resolve_active_nodes_dir);
+        there is deliberately no second lookup location.
+        """
+        try:
+            from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+            from sdk.agent.parser import parse_file
+
+            node_path = resolve_active_nodes_dir() / self.WORKFLOW_NODE_FILENAME
+            if not node_path.exists():
+                return None
+
+            parsed = parse_file(str(node_path))
+            spec = (parsed.state_data or {}).get("workflow")
+            if not isinstance(spec, dict):
+                log.warning("Workflow node %s has no 'workflow' object in #node-state — using built-in chain", node_path)
+                return None
+
+            steps = spec.get("steps")
+            if not isinstance(steps, list) or not steps:
+                log.warning("Workflow node spec has no steps — using built-in chain")
+                return None
+
+            seen: set[str] = set()
+            for step in steps:
+                if not isinstance(step, dict):
+                    log.warning("Workflow node spec: step is not an object — using built-in chain")
+                    return None
+                step_id = str(step.get("step") or "").strip()
+                node_type = str(step.get("node_type") or "").strip()
+                if not re.fullmatch(r"[a-z][a-z0-9_-]*", step_id):
+                    log.warning("Workflow node spec: bad step id %r — using built-in chain", step_id)
+                    return None
+                if step_id in seen:
+                    log.warning("Workflow node spec: duplicate step id %r — using built-in chain", step_id)
+                    return None
+                if node_type not in self.SUPPORTED_STEP_TYPES:
+                    log.warning(
+                        "Workflow node spec: step %r has unsupported node_type %r (supported: %s) — using built-in chain",
+                        step_id, node_type, sorted(self.SUPPORTED_STEP_TYPES),
+                    )
+                    return None
+                deps = step.get("depends_on") or []
+                if not isinstance(deps, list) or any(d not in seen for d in deps):
+                    # Steps must be listed in dependency order; a forward or
+                    # unknown reference is either a typo or a cycle.
+                    log.warning(
+                        "Workflow node spec: step %r depends on undefined/later step(s) %s — using built-in chain",
+                        step_id, [d for d in deps if d not in seen],
+                    )
+                    return None
+                seen.add(step_id)
+
+            return spec
+        except Exception as exc:
+            log.warning("Workflow node could not be loaded (%s) — using built-in chain", exc)
+            return None
+
+    @staticmethod
+    def _first_node_of_type(nodes: dict[str, GraphNode], node_type: str) -> GraphNode | None:
+        """First graph node of the given type, in insertion (spec/chain) order."""
+        for n in nodes.values():
+            if n.node_type == node_type:
+                return n
+        return None
+
     async def ensure_table_exists(self) -> None:
         if self._is_db_available():
             try:
@@ -206,6 +287,25 @@ class DAGExecutionEngine:
             except Exception:
                 pass
 
+        # Git-worktree isolation exists to protect the install checkout from
+        # concurrent fleet tasks. When this engine was constructed with a
+        # CUSTOM root_dir (benchmarks, a scoped workspace), that directory is
+        # already the isolation boundary — auto-creating a worktree of the
+        # REPO here meant every phase ran in a fresh repo checkout unrelated
+        # to root_dir: phase 1's outputs were written into worktree A (then
+        # destroyed with it at teardown), and phase 2's worktree B never saw
+        # them, so any multi-phase goal against a custom workspace was
+        # incoherent by construction.
+        _is_repo_root = True
+        try:
+            from sdk.agent.documentation_nodes import _application_root
+            _is_repo_root = Path(self.root_dir).resolve() == _application_root().resolve()
+        except Exception:
+            pass
+
+        if not worktree_path and not _is_repo_root:
+            worktree_path = self.root_dir
+
         if not worktree_path:
             try:
                 from python.harness.server import handle_task_create_worktree
@@ -256,10 +356,29 @@ class DAGExecutionEngine:
         if isinstance(payload, dict):
             target_file = payload.get("context", {}).get("path")
 
-        if not target_file:
+        # A goal that says "run X" or "execute X" is NOT asking for X to be
+        # rewritten. The scrape below is greedy enough to pull any path out of
+        # prose, and every node graph ends in a `writing` node -- so a goal of
+        # "run scripts/generate_stories.py" produced a plan to *overwrite*
+        # scripts/generate_stories.py with freshly synthesised code. That
+        # happened twice for real, replacing a 400-line generator with a
+        # hello-world, and the validation node then compiled the placeholder
+        # and reported success.
+        _execute_only = re.search(
+            r'\b(run|execute|invoke|call)\b[^.\n]{0,40}?[\w\-]+[\/\\][\w\-\/\.]+\.[a-zA-Z0-9]+',
+            f"{task.description}\n{full_goal}",
+            re.IGNORECASE,
+        )
+
+        if not target_file and not _execute_only:
             search_texts = [task.description, full_goal]
             for text in search_texts:
-                m = re.search(r'(?:file|path|write to|at|in|into)\s+([\w\.\/\\]+\.[a-zA-Z0-9]+)', text, re.IGNORECASE)
+                # "named"/"called" cover creation goals that mention a bare
+                # filename with no directory ("Create a script named
+                # hello.py") — those used to fall through to the
+                # scratch/output.py default, so the task went green while the
+                # requested file never existed.
+                m = re.search(r'(?:file|path|write to|at|in|into|named|called)\s+([\w\.\/\\]+\.[a-zA-Z0-9]+)', text, re.IGNORECASE)
                 if m:
                     target_file = m.group(1)
                     break
@@ -273,56 +392,136 @@ class DAGExecutionEngine:
 
         test_file = payload.get("context", {}).get("test_file") if isinstance(payload, dict) else None
 
-        if not existing:
-            # Create sub-graph nodes
-            n_research = GraphNode(
-                id=res_node_id,
-                task_id=task_id,
-                node_type="research",
-                description=f"Research requirements and existing codebase for: {task.description}",
-                dependencies=[],
-                inputs={"problem": full_goal},
-                success_criteria={"min_sources": 1}
-            )
-            n_synthesis = GraphNode(
-                id=syn_node_id,
-                task_id=task_id,
-                node_type="synthesis",
-                description=f"Synthesize architectural design plan for: {task.description}",
-                dependencies=[res_node_id],
-                inputs={"problem": full_goal, "target_file": target_file},
-                success_criteria={"synthesis_completed": True}
-            )
-            n_writing = GraphNode(
-                id=wri_node_id,
-                task_id=task_id,
-                node_type="writing",
-                description=f"Write code changes to: {target_file}",
-                dependencies=[syn_node_id],
-                inputs={"target_file": target_file},
-                success_criteria={"file_written": True}
-            )
+        # A plan step that names a tool must CALL that tool.
+        #
+        # The decomposer already emits {"tool": "schedule_goal", "tool_params":
+        # {...}} correctly, but until now nothing consumed it: the only node
+        # types were research/synthesis/writing/validation, so every
+        # tool-shaped step fell through the code-writing pipeline instead. The
+        # task then completed green off the back of a compile check, having
+        # never invoked the tool. That made *every* tool-requiring autonomous
+        # goal silently a no-op -- scheduling, messaging, lookups, all of it.
+        tool_name = payload.get("tool") if isinstance(payload, dict) else None
 
-            n_validation = GraphNode(
-                id=val_node_id,
-                task_id=task_id,
-                node_type="validation",
-                description=f"Validate written code changes for: {target_file}",
-                dependencies=[wri_node_id],
-                inputs={"target_file": target_file, "test_file": test_file},
-                success_criteria={"min_test_pass_rate": 1.0}
-            )
+        # The chain definition is loaded from the workflow HTML-NN when one
+        # exists, so the self-extension process is itself a node she can read
+        # and edit. The built-in chain below is the fallback, not the source
+        # of truth.
+        workflow_spec = self._load_workflow_spec()
+        self._active_workflow_spec = workflow_spec
+
+        if not existing:
+            chain: list[GraphNode] = []
+            if tool_name:
+                # A tool-shaped plan step becomes a one-node chain that runs
+                # through the normal execution loop below. (This used to
+                # build the node and then return it without ever executing
+                # it — the early return also called a save_nodes() method
+                # that never existed, so the first tool-shaped plan step to
+                # reach the DAG in production crashed the whole task.)
+                chain = [GraphNode(
+                    id=f"tool-{task_id}",
+                    task_id=task_id,
+                    node_type="tool",
+                    description=f"Invoke tool {tool_name}: {task.description}",
+                    dependencies=[],
+                    inputs={
+                        "tool": tool_name,
+                        "tool_params": payload.get("tool_params") or {},
+                        # Carried from the compiled AdapterPacket via GoalEngine.
+                        "governance": {
+                            k: v
+                            for k, v in (payload.get("context") or {}).items()
+                            if k in ("forbidden_actions", "tool_affordances")
+                        },
+                    },
+                    success_criteria={"tool_succeeded": True},
+                )]
+            elif workflow_spec:
+                for step in workflow_spec["steps"]:
+                    step_id = step["step"]
+                    desc = str(step.get("description") or f"{step['node_type']} step for: {task.description}")
+                    desc = desc.replace("{goal}", task.description).replace("{target_file}", target_file)
+                    inputs: dict[str, Any] = {
+                        "problem": full_goal,
+                        "target_file": target_file,
+                        "test_file": test_file,
+                    }
+                    config = step.get("config")
+                    if isinstance(config, dict):
+                        inputs.update(config)
+                    chain.append(GraphNode(
+                        id=f"{step_id}-{task_id}",
+                        task_id=task_id,
+                        node_type=step["node_type"],
+                        description=desc,
+                        dependencies=[f"{d}-{task_id}" for d in (step.get("depends_on") or [])],
+                        inputs=inputs,
+                        success_criteria=dict(step.get("success_criteria") or {}),
+                        max_retries=int(step.get("max_retries", 3)),
+                    ))
+                log.info(
+                    "DAGExecutionEngine: Built chain from workflow node (%d steps: %s)",
+                    len(chain), [s["step"] for s in workflow_spec["steps"]],
+                )
+            else:
+                chain = [
+                    GraphNode(
+                        id=res_node_id,
+                        task_id=task_id,
+                        node_type="research",
+                        description=f"Research requirements and existing codebase for: {task.description}",
+                        dependencies=[],
+                        inputs={"problem": full_goal},
+                        success_criteria={"min_sources": 1}
+                    ),
+                    GraphNode(
+                        id=syn_node_id,
+                        task_id=task_id,
+                        node_type="synthesis",
+                        description=f"Synthesize architectural design plan for: {task.description}",
+                        dependencies=[res_node_id],
+                        inputs={"problem": full_goal, "target_file": target_file},
+                        success_criteria={"synthesis_completed": True}
+                    ),
+                    GraphNode(
+                        id=wri_node_id,
+                        task_id=task_id,
+                        node_type="writing",
+                        description=f"Write code changes to: {target_file}",
+                        dependencies=[syn_node_id],
+                        inputs={"target_file": target_file},
+                        success_criteria={"file_written": True}
+                    ),
+                    GraphNode(
+                        id=val_node_id,
+                        task_id=task_id,
+                        node_type="validation",
+                        description=f"Validate written code changes for: {target_file}",
+                        dependencies=[wri_node_id],
+                        inputs={"target_file": target_file, "test_file": test_file},
+                        success_criteria={"min_test_pass_rate": 1.0}
+                    ),
+                ]
 
             is_verification_phase = any(kw in task.description.lower() for kw in ("verify and compile", "verify solution", "validate solution"))
             if is_verification_phase:
                 log.info("DAGExecutionEngine: Task '%s' is a verification phase — short-circuiting synthesis & writing nodes.", task.description)
-                n_synthesis.status = "completed"
-                n_synthesis.outputs = {"code": "# Verification phase — pre-completed"}
-                n_writing.status = "completed"
-                n_writing.outputs = {"file_path": str(Path(worktree_path) / target_file)}
-                n_validation.dependencies = [res_node_id]
+                chain_by_id = {n.id: n for n in chain}
+                res_ids = [n.id for n in chain if n.node_type == "research"]
+                for n in chain:
+                    if n.node_type == "synthesis":
+                        n.status = "completed"
+                        n.outputs = {"code": "# Verification phase — pre-completed"}
+                    elif n.node_type == "writing":
+                        n.status = "completed"
+                        n.outputs = {"file_path": str(Path(worktree_path) / target_file)}
+                    elif n.node_type == "validation":
+                        # Depend only on whatever research steps exist, since
+                        # the synthesis/writing steps are pre-completed.
+                        n.dependencies = [d for d in n.dependencies if chain_by_id.get(d) and chain_by_id[d].node_type not in ("synthesis", "writing")] or res_ids
 
-            for node in [n_research, n_synthesis, n_writing, n_validation]:
+            for node in chain:
                 await self.save_node(node)
         
         # Load active graph nodes map
@@ -432,15 +631,30 @@ class DAGExecutionEngine:
                 
                 await self.save_node(node)
 
-        val_node = nodes.get(val_node_id)
+        val_node = (
+            nodes.get(val_node_id)
+            or self._first_node_of_type(nodes, "validation")
+            # A tool-only chain has no validation node; the tool node's
+            # outputs (tool result, error) are the task's result.
+            or self._first_node_of_type(nodes, "tool")
+        )
         final_success = bool(nodes) and all(n.status == "completed" for n in nodes.values())
         final_output = val_node.outputs if (final_success and val_node) else {}
-        
+
+        # Promotion of the written file back into the workspace is the
+        # spec's "promote" step; the workflow node can turn it off to leave
+        # results quarantined in the worktree.
+        promote = True
+        if workflow_spec:
+            promote = bool((workflow_spec.get("on_success") or {}).get("promote_to_workspace", True))
+
         # --- Fleet Harness: Output Merging and Resource Teardown ---
         import shutil
-        if final_success:
+        if final_success and not promote:
+            log.info("DAGExecutionEngine: Workflow node disables promote_to_workspace — leaving outputs in worktree.")
+        if final_success and promote:
             log.info("DAGExecutionEngine: All nodes completed successfully. Merging outputs to working directory...")
-            wri_node = nodes.get(wri_node_id)
+            wri_node = nodes.get(wri_node_id) or self._first_node_of_type(nodes, "writing")
             if wri_node and wri_node.outputs.get("file_path"):
                 written_file_path = wri_node.outputs.get("file_path")
                 # Identify path relative to worktree
@@ -465,6 +679,31 @@ class DAGExecutionEngine:
                             break
                 else:
                     log.info("DAGExecutionEngine: Worktree path is identical to root; no merging necessary.")
+
+            # Tool nodes write files too (write_workspace_file runs against
+            # the task's worktree via workspace_root_override), and until now
+            # only writing-node outputs merged back — a tool-written file
+            # stayed in the worktree and was destroyed with it at teardown.
+            if Path(worktree_path).resolve() != Path(self.root_dir).resolve():
+                for n in nodes.values():
+                    if n.node_type != "tool" or n.status != "completed":
+                        continue
+                    tool_out = (n.outputs or {}).get("output")
+                    tool_fp = tool_out.get("file_path") if isinstance(tool_out, dict) else None
+                    if not tool_fp:
+                        continue
+                    src = Path(tool_fp) if Path(tool_fp).is_absolute() else Path(worktree_path) / tool_fp
+                    if not src.is_file():
+                        continue
+                    try:
+                        rel_path = os.path.relpath(src, worktree_path)
+                        dest_path = Path(self.root_dir) / rel_path
+                        if src.resolve() != dest_path.resolve():
+                            dest_path.parent.mkdir(parents=True, exist_ok=True)
+                            shutil.copy2(src, dest_path)
+                            log.info("DAGExecutionEngine: Merged tool output %s back to working directory.", rel_path)
+                    except Exception as merge_exc:
+                        log.error("DAGExecutionEngine: Tool-output merge failed for %s: %s", tool_fp, merge_exc)
 
         # Release port allocation
         try:
@@ -513,6 +752,127 @@ class DAGExecutionEngine:
         except Exception:
             pass
 
+        if node.node_type == "tool":
+            # Dispatch a named tool through the live registry.
+            #
+            # Parameter names are normalised before the call because the
+            # planner and the tool signatures disagree in practice -- it emits
+            # "cron" where schedule_goal declares "cron_expr", so even once
+            # dispatch existed the call would have failed on a missing required
+            # argument. Unknown extras are dropped rather than passed through,
+            # since a TypeError here reads to the caller as "the tool is
+            # broken" rather than "the plan named the argument wrongly".
+            import inspect as _inspect
+
+            from sdk.agent.tools import ToolRegistry
+
+            tool_name = node.inputs.get("tool", "")
+            params = dict(node.inputs.get("tool_params") or {})
+
+            entry = ToolRegistry._tools.get(str(tool_name).lower())
+            if not entry:
+                node.outputs = {
+                    "success": False,
+                    "error": f"tool {tool_name!r} is not registered",
+                }
+                return False
+
+            # Governance, enforced rather than advisory.
+            #
+            # forbidden_actions is documented as an absolute kill-switch and had
+            # never blocked anything, because the compiled packet never reached
+            # execution. Affordances only constrain when a node actually
+            # declares some -- an empty list means "unconstrained", not "deny
+            # everything", so nodes that predate the tags keep working.
+            governance = node.inputs.get("governance") or {}
+            forbidden = {str(f).lower() for f in (governance.get("forbidden_actions") or [])}
+            afforded = [str(a).lower() for a in (governance.get("tool_affordances") or [])]
+
+            if str(tool_name).lower() in forbidden:
+                node.outputs = {
+                    "success": False,
+                    "tool": tool_name,
+                    "error": f"tool {tool_name!r} is in forbidden_actions for this goal",
+                }
+                log.warning("DAG tool node blocked by governance: %s", tool_name)
+                return False
+
+            if afforded and str(tool_name).lower() not in afforded:
+                node.outputs = {
+                    "success": False,
+                    "tool": tool_name,
+                    "error": (
+                        f"tool {tool_name!r} is not in this goal's tool_affordances "
+                        f"({', '.join(sorted(afforded)[:6])})"
+                    ),
+                }
+                log.warning("DAG tool node not afforded: %s", tool_name)
+                return False
+
+            func = entry["func"]
+            try:
+                sig = _inspect.signature(func)
+                accepted = set(sig.parameters)
+            except (TypeError, ValueError):
+                accepted = set(params)
+
+            aliases = {
+                "cron": "cron_expr",
+                "schedule": "cron_expr",
+                "goal": "goal_text",
+                "text": "goal_text",
+                "path": "file_path",
+                "query_text": "query",
+            }
+            for wrong, right in aliases.items():
+                if wrong in params and right in accepted and right not in params:
+                    params[right] = params.pop(wrong)
+
+            dropped = [k for k in params if k not in accepted]
+            for k in dropped:
+                params.pop(k)
+
+            try:
+                # Workspace tools must act in THIS task's workspace (its
+                # worktree, or the engine root_dir), not the install
+                # checkout — see workspace_root_override in tools.py.
+                from sdk.agent.tools import workspace_root_override
+                with workspace_root_override(worktree_path or self.root_dir):
+                    result = func(**params)
+                    if _inspect.isawaitable(result):
+                        result = await result
+            except Exception as exc:
+                log.exception("DAG tool node %s failed", tool_name)
+                node.outputs = {
+                    "success": False,
+                    "tool": tool_name,
+                    "error": f"{type(exc).__name__}: {exc}",
+                }
+                return False
+
+            # Tools signal failure through either convention: {"success":
+            # False} or {"status": "failed"/"error"}. Only the first was
+            # checked, so a run_workspace_command returning {"status":
+            # "failed", "stderr": ...} completed its node green and the
+            # whole goal reported success off a failed command.
+            ok = True
+            if isinstance(result, dict):
+                if result.get("success") is False:
+                    ok = False
+                elif str(result.get("status", "")).strip().lower() in ("failed", "error", "failure"):
+                    ok = False
+
+            node.outputs = {
+                "success": ok,
+                "tool": tool_name,
+                "dropped_params": dropped,
+                "output": result,
+            }
+            log.info(
+                "DAGExecutionEngine: tool %s -> %s", tool_name, str(result)[:200]
+            )
+            return ok
+
         if node.node_type == "research":
             # Research Logic: Gather codebase references
             problem = node.inputs.get("problem", "")
@@ -543,14 +903,14 @@ class DAGExecutionEngine:
             # Synthesis Logic: Call LLM to design and synthesize code for the solution
             problem = node.inputs.get("problem", "")
             if not problem:
-                research_node = nodes.get(f"research-{node.task_id}")
+                research_node = self._first_node_of_type(nodes, "research")
                 if research_node:
                     problem = research_node.inputs.get("problem", "")
 
             error_feedback = node.inputs.get("error_feedback", "")
             target_file = node.inputs.get("target_file", "scratch/output.py")
 
-            research_node = nodes.get(f"research-{node.task_id}")
+            research_node = self._first_node_of_type(nodes, "research")
             sources = research_node.outputs.get("sources", []) if research_node else []
 
             prompt = (
@@ -558,6 +918,31 @@ class DAGExecutionEngine:
                 f"Target file path: {target_file}\n"
                 f"Reference sources: {sources}\n\n"
             )
+
+            # A "fix X in <file>" goal is meaningless if the model never sees
+            # the file: synthesis used to regenerate every target from
+            # scratch, so fixing a bug meant guessing what the file contained
+            # and repair goals only ever succeeded by luck. Show the current
+            # content and demand a full updated file that preserves the rest.
+            try:
+                _existing_target = (
+                    Path(target_file) if Path(target_file).is_absolute()
+                    else Path(worktree_path) / target_file
+                )
+                if _existing_target.is_file():
+                    _current = _existing_target.read_text(encoding="utf-8", errors="replace")
+                    if len(_current) > 6000:
+                        _current = _current[:6000] + "\n# ... (truncated)"
+                    if _current.strip():
+                        prompt += (
+                            f"CURRENT CONTENT of {target_file}:\n"
+                            f"```python\n{_current}\n```\n"
+                            "Your output must be the COMPLETE updated file. Apply only the "
+                            "changes the task requires and preserve all other existing code "
+                            "and comments exactly as they are.\n\n"
+                        )
+            except Exception:
+                pass
 
             # Inject standardized CodeRegistry template if target is a skill file
             try:
@@ -703,7 +1088,7 @@ class DAGExecutionEngine:
 
         elif node.node_type == "writing":
             # Writing Logic: Write synthesized code to target files
-            syn_node = nodes.get(f"synthesis-{node.task_id}")
+            syn_node = self._first_node_of_type(nodes, "synthesis")
             code = syn_node.outputs.get("code", "") if syn_node else ""
             target_file = node.inputs.get("target_file", "scratch/output.py")
             target_path = Path(worktree_path) / target_file
@@ -749,8 +1134,18 @@ class DAGExecutionEngine:
                 node.outputs = {"error": f"Target file does not exist: {target_path}"}
                 return False
 
+            # Which checks run is part of the workflow node's step config
+            # ("checks" lands in inputs via the spec). Absent a spec, all of
+            # them run — the spec can narrow the gate, but the default stays
+            # the strictest behavior.
+            checks_cfg = node.inputs.get("checks")
+            if isinstance(checks_cfg, (list, tuple)) and checks_cfg:
+                checks = {str(c).strip().lower() for c in checks_cfg}
+            else:
+                checks = {"py_compile", "import_probe", "register_assert", "pytest"}
+
             # 1. Syntax / compilation check
-            if target_path.suffix.lower() == ".py":
+            if target_path.suffix.lower() == ".py" and "py_compile" in checks:
                 try:
                     chk = await AsyncShellExecutor.run(
                         f'python -m py_compile "{target_path}"',
@@ -770,8 +1165,66 @@ class DAGExecutionEngine:
                     }
                     return False
 
+            # 1b. Import / smoke check.
+            #
+            # py_compile only proves the file PARSES. It says nothing about
+            # whether the code works, and in practice it was the only check that
+            # ever ran -- `test_file` comes from a structured context key that
+            # nothing populates from natural language, so the pytest branch below
+            # is almost always skipped. Every piece of code Tala has ever
+            # written was accepted on "it is syntactically valid Python".
+            #
+            # Actually importing it catches the failures small models really
+            # make: hallucinated imports, undefined names, bad decorator usage,
+            # module-level typos. For a skill there is a stronger contract
+            # available -- it must register a tool -- so that is asserted too.
+            #
+            # Runs in a subprocess: importing generated code executes its
+            # module-level statements, which must not happen inside the harness.
+            if target_path.suffix.lower() == ".py" and "import_probe" in checks:
+                _is_skill = "register_assert" in checks and "register_tool" in (
+                    target_path.read_text(encoding="utf-8", errors="replace")
+                )
+                _probe = (
+                    "import importlib.util,sys;"
+                    f"sys.path.insert(0,r'{self.root_dir or '.'}');"
+                    f"spec=importlib.util.spec_from_file_location('_tala_probe',r'{target_path}');"
+                    "m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);"
+                )
+                if _is_skill:
+                    _probe += (
+                        "from sdk.agent.tools import ToolRegistry;"
+                        "assert ToolRegistry._tools, 'code declares @register_tool but registered nothing';"
+                    )
+                _probe += "print('IMPORT_OK')"
+
+                try:
+                    imp = await AsyncShellExecutor.run(
+                        f'python -c "{_probe}"',
+                        cwd=str(self.root_dir or target_path.parent),
+                        timeout=45.0,
+                    )
+                except Exception as exc:
+                    node.outputs = {"success": False, "error": f"Import check could not run: {exc}"}
+                    return False
+
+                if "IMPORT_OK" not in (imp.get("stdout") or ""):
+                    node.outputs = {
+                        "success": False,
+                        "error": (
+                            "Code parses but fails to import/run:\n"
+                            + (imp.get("stderr") or imp.get("stdout") or "no output")
+                        ),
+                        "stdout": imp.get("stdout", ""),
+                        "stderr": imp.get("stderr", ""),
+                    }
+                    log.warning(
+                        "DAG validation: %s compiled but failed import check", target_file
+                    )
+                    return False
+
             # 2. Test suite run
-            if test_file:
+            if test_file and "pytest" in checks:
                 test_path = (
                     Path(test_file) if Path(test_file).is_absolute()
                     else Path(worktree_path) / test_file
@@ -802,12 +1255,34 @@ class DAGExecutionEngine:
             # never from prose). A goal that explicitly asked for tests to be
             # written and run could report full success with zero tests ever
             # having executed. The message must say plainly whether tests ran.
-            if test_file:
-                node.outputs = {"success": True, "output": "Compilation and test suite verification passed successfully."}
+            if test_file and "pytest" in checks:
+                node.outputs = {"success": True, "output": "Compilation, import check, and test suite verification passed successfully."}
             else:
+                # The message must only claim checks that actually ran — a
+                # workflow-spec edit that narrows `checks` must be visible
+                # here, not papered over by the default wording.
+                if {"py_compile", "import_probe"} <= checks:
+                    prefix = (
+                        "Compilation and import check passed -- the code loads and runs at "
+                        "module level."
+                    )
+                else:
+                    ran = sorted(checks & {"py_compile", "import_probe"})
+                    prefix = (
+                        f"Checks passed: {', '.join(ran)} (narrowed by workflow spec)."
+                        if ran else
+                        "No code checks ran -- all disabled by the workflow spec."
+                    )
+                if test_file:
+                    tail = (
+                        " A test file was specified but the pytest check is disabled "
+                        "in the workflow spec, so no automated tests were run."
+                    )
+                else:
+                    tail = " No test file was specified, so no automated tests were run."
                 node.outputs = {
                     "success": True,
-                    "output": "Compilation check passed. No test file was specified, so no automated tests were run.",
+                    "output": prefix + tail,
                     "tests_ran": False,
                 }
             return True
@@ -830,8 +1305,24 @@ class DAGExecutionEngine:
         """
         if node.node_type == "validation":
             log.warning("DAGExecutionEngine: Validation node failed. Triggering rollback and self-healing synthesis.")
-            
+
+            # Heal behavior is part of the workflow node's contract: the spec's
+            # on_failure block can redirect the error feedback or keep failed
+            # output in place for inspection. Defaults reproduce the built-in
+            # behavior exactly.
+            on_failure = {}
+            spec = getattr(self, "_active_workflow_spec", None)
+            if isinstance(spec, dict):
+                on_failure = spec.get("on_failure") or {}
+            do_rollback = bool(on_failure.get("rollback_written_files", True))
+            feedback_to = str(on_failure.get("feedback_to") or "synthesis")
+            reset_steps = on_failure.get("reset_steps")
+            if not isinstance(reset_steps, list) or not reset_steps:
+                reset_steps = ["writing"]
+
             # 1. Rollback file writes using backups
+            if not do_rollback:
+                backups = {}
             for target_file, original_content in backups.items():
                 target_path = Path(worktree_path) / target_file
                 try:
@@ -845,22 +1336,26 @@ class DAGExecutionEngine:
                 except Exception as roll_exc:
                     log.warning("DAGExecutionEngine: Rollback failed for %s: %s", target_file, roll_exc)
 
-            # 2. Inject validation error feedback into Synthesis Node inputs
-            syn_node = nodes.get(f"synthesis-{node.task_id}")
-            wri_node = nodes.get(f"writing-{node.task_id}")
-            
+            # 2. Inject validation error feedback into the feedback target
+            # (the synthesis step unless the workflow node redirects it).
+            def _resolve(step_or_type: str) -> GraphNode | None:
+                return nodes.get(f"{step_or_type}-{node.task_id}") or self._first_node_of_type(nodes, step_or_type)
+
+            syn_node = _resolve(feedback_to)
             if syn_node:
                 error_msg = node.outputs.get("error") or "Unknown validation error"
                 syn_node.inputs["error_feedback"] = error_msg
-                # Reset synthesis and writing nodes to pending
+                # Reset the feedback target so the chain re-runs from it
                 syn_node.status = "pending"
                 syn_node.retry_count += 1
                 await self.save_node(syn_node)
-                
-            if wri_node:
-                wri_node.status = "pending"
-                wri_node.retry_count += 1
-                await self.save_node(wri_node)
-                
+
+            for step_name in reset_steps:
+                reset_node = _resolve(str(step_name))
+                if reset_node and reset_node is not syn_node and reset_node is not node:
+                    reset_node.status = "pending"
+                    reset_node.retry_count += 1
+                    await self.save_node(reset_node)
+
             # Reset validation node itself
             node.status = "pending"

@@ -189,8 +189,21 @@ async def test_dag_execution_success(tmp_path):
         await _reset_task(task.task_id)
         await BatchQueue.enqueue_task(task.task_id, task.description, payload=task.payload)
 
+        # This test's subject is the research->synthesis->writing->validation
+        # orchestration, not LLM code quality — with a live synthesis call it
+        # was confirmed intermittently flaky (2026-08-11): the 8B's output
+        # doesn't always survive the validation node's import probe, so the
+        # identical run failed and then passed on re-run. Mock the LLM so the
+        # test isolates the DAG plumbing (same rationale as
+        # test_validation_failure_triggers_rollback_and_retry below).
+        mock_llm_response = json.dumps(
+            {"result": {"text": "```python\ndef run():\n    return True\n```"}}
+        )
+
         # Mock Fleet worktree and port allocation; no sandbox patching needed (runs locally)
         with patch("python.harness.server.handle_task_create_worktree", return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})), \
+             patch("python.harness.server.handle_inference_generate",
+                   new_callable=AsyncMock, return_value=mock_llm_response), \
              patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=14000), \
              patch("sdk.agent.port_router.PortRouter.release_port", return_value=True):
 
@@ -201,6 +214,47 @@ async def test_dag_execution_success(tmp_path):
             assert (scratch_dir / "run.py").exists()
     finally:
         await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_tool_payload_runs_through_full_dag(tmp_path, monkeypatch):
+    """
+    Regression: a tool-shaped plan step ({"tool": ...} in the payload) used
+    to short-circuit _execute_task_as_dag_inner by building the tool node,
+    calling a save_nodes() method that never existed (AttributeError,
+    crashing the whole task in production the moment the decomposer's live
+    tool catalogue made plans actually emit tool steps), and returning the
+    node map instead of a result dict -- the tool itself was never invoked.
+    The prior tests only exercised _execute_node's tool branch directly, so
+    the full-path wiring was never covered. This drives execute_task_as_dag
+    end to end and asserts the tool genuinely ran and its result came back.
+    """
+    from sdk.agent.tools import ToolRegistry
+
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))  # no workflow node; built-in path
+    engine = DAGExecutionEngine(root_dir=str(tmp_path))
+
+    calls = []
+
+    async def _probe_tool(message: str = ""):
+        calls.append(message)
+        return {"success": True, "echo": message}
+
+    monkeypatch.setitem(ToolRegistry._tools, "dag_probe_tool", {"func": _probe_tool})
+
+    task = TaskItem(description="Invoke the probe tool")
+    task.task_id = "test-tool-full-dag"
+    task.payload = {"tool": "dag_probe_tool", "tool_params": {"message": "hello-dag"}}
+
+    with patch("python.harness.server.handle_task_create_worktree",
+               return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})), \
+         patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=14002), \
+         patch("sdk.agent.port_router.PortRouter.release_port", return_value=True):
+        res = await engine.execute_task_as_dag(task)
+
+    assert calls == ["hello-dag"], "tool node existed but the tool never actually ran"
+    assert res["success"] is True
+    assert res["output"]["echo"] == "hello-dag"
 
 
 @pytest.mark.asyncio

@@ -74,7 +74,16 @@ async def test_orchestrator_cli_pause_resume():
 
 @pytest.mark.asyncio
 async def test_graph_engine_fleet_integration(tmp_path):
-    """execute_task_as_dag runs worktree spinup and port allocation, no Docker."""
+    """execute_task_as_dag allocates a port and executes in the engine's
+    workspace, no Docker.
+
+    Worktree semantics changed 2026-08-11: a git worktree of the install
+    checkout is only auto-created when the engine's root_dir IS the install
+    checkout (the fleet case it protects). A custom root_dir — like this
+    test's tmp_path — is already the isolation boundary, so no worktree is
+    created and handle_task_create_worktree must NOT be called (previously
+    every phase of a custom-root goal ran in an unrelated repo checkout and
+    its outputs died with it)."""
     await init_pool()
     try:
         engine = DAGExecutionEngine(root_dir=str(tmp_path))
@@ -85,14 +94,29 @@ async def test_graph_engine_fleet_integration(tmp_path):
         await db.execute("DELETE FROM tasks WHERE id = $1", task.task_id)
         await BatchQueue.enqueue_task(task.task_id, task.description)
 
+        # This test's subject is worktree spinup and port allocation, not LLM
+        # code quality — with a live synthesis call left in it was confirmed
+        # intermittently flaky (2026-08-10/11): the 8B's output doesn't always
+        # survive the validation node's import probe, so the same run failed
+        # and passed on identical re-runs. Mock the LLM so the test isolates
+        # the fleet plumbing it's named for (same rationale as
+        # test_validation_failure_triggers_rollback_and_retry).
+        mock_llm_response = json.dumps(
+            {"result": {"text": "```python\ndef test_integrate():\n    assert True\n```"}}
+        )
+
         with patch("python.harness.server.handle_task_create_worktree",
                    return_value=json.dumps({"result": {"success": True, "worktree_path": str(tmp_path)}})) as mock_wt, \
+             patch("python.harness.server.handle_inference_generate",
+                   new_callable=AsyncMock, return_value=mock_llm_response), \
              patch("sdk.agent.port_router.PortRouter.allocate_port", return_value=9005) as mock_port:
 
             res = await engine.execute_task_as_dag(task)
             assert res["success"] is True
-            assert mock_wt.called
+            assert not mock_wt.called, "custom root_dir must not spin up a repo worktree"
             assert mock_port.called
+            # The output must land in the engine's own workspace.
+            assert (tmp_path / "scratch" / "test_integrate.py").exists()
     finally:
         await close_pool()
 
