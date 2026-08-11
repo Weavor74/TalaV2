@@ -18,8 +18,13 @@ async def test_neural_node_path_resolution():
     assert res_core["status"] == "success"
     assert res_core["node_id"] == "tala-core-identity"
 
-    # 4. Simple ID 'skill-tree-of-thought-ideation' lookup
-    res_tot = await read_neural_node("skill-tree-of-thought-ideation")
+    # 4. Simple ID lookup by filename stem in nodes/. This used to look up
+    # 'skill-tree-of-thought-ideation' — a generated skill node that only
+    # ever existed as machine-local state on the machine the test was
+    # written on (never tracked in git), so the test broke permanently the
+    # day that junk node was pruned. persona-tala-rp.html is tracked and
+    # exercises the same bare-id -> nodes/<id>.html resolution path.
+    res_tot = await read_neural_node("persona-tala-rp")
     assert res_tot["status"] == "success"
 
     # 5. data-node-id fallback search

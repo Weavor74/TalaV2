@@ -14,6 +14,19 @@ from python.harness.db import init_pool, close_pool
 def get_benchmark_policy():
     return BatchPolicy(max_steps=15, max_duration_minutes=5.0, authority_level="auto")
 
+
+@pytest.fixture(autouse=True)
+def _isolate_user_data(tmp_path, monkeypatch):
+    """
+    Benchmark goals run the real GoalEngine, whose ToT interceptor and
+    self-documenter persist HTML-NN learning nodes via
+    resolve_active_nodes_dir(). Without this pin those writes land in the
+    live repo nodes/ wiki (the confirmed 2026-07-22 and 2026-08-11 junk-node
+    leaks both came from benchmark fixtures). root_dir alone does not
+    isolate node writes; TALA_USER_DATA must be pinned too.
+    """
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+
 @pytest.mark.asyncio
 async def test_logic_bug(tmp_path):
     """Test if the agent can fix a simple math logic bug."""

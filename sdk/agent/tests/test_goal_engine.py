@@ -65,44 +65,51 @@ def dummy_tasks():
 
 @pytest.mark.asyncio
 @patch("sdk.agent.queue.GoalTreeDecomposer.decompose", new_callable=AsyncMock)
-@patch("sdk.agent.dispatcher.TalaExecutionDispatcher.dispatch", new_callable=AsyncMock)
 @patch("sdk.agent.validator.PhaseValidator.validate", new_callable=MagicMock)
 @patch("sdk.agent.queue.BatchQueue.enqueue_task", new_callable=AsyncMock)
 @patch("sdk.agent.queue.BatchQueue.transition_task", new_callable=AsyncMock)
 @patch("sdk.agent.persistence.TaskEventStore.append_event", new_callable=AsyncMock)
 @patch("sdk.agent.telemetry.LiveStatusReporter.broadcast_status", new_callable=AsyncMock)
 @patch("sdk.agent.goal_engine.GoalEngine._auto_document_skill", new_callable=AsyncMock)
+@patch("sdk.agent.ghost_persistence.commit_to_ghost", new_callable=AsyncMock)
 @patch("sdk.agent.ghost_persistence.restore_from_ghost", new_callable=AsyncMock)
 @patch("sdk.agent.ghost_persistence.check_hash", new_callable=MagicMock)
+@patch("sdk.agent.graph_engine.DAGExecutionEngine.execute_task_as_dag", new_callable=AsyncMock)
 async def test_run_goal_success(
-    mock_check_hash, mock_restore, mock_auto_doc, mock_broadcast, mock_append, 
-    mock_transition, mock_enqueue, mock_validate, mock_dispatch, mock_decompose, dummy_tasks
+    mock_dag, mock_check_hash, mock_restore, mock_commit_ghost, mock_auto_doc, mock_broadcast,
+    mock_append, mock_transition, mock_enqueue, mock_validate, mock_decompose, dummy_tasks
 ):
-    # Setup mock returns
+    # This test used to mock TalaExecutionDispatcher.dispatch and assert it
+    # ran twice — but run_goal has executed phases through
+    # DAGExecutionEngine.execute_task_as_dag since the DAG refactor, so the
+    # dispatcher mock sat unused (call_count 0) while the two tasks silently
+    # ran through the REAL DAG engine, live LLM calls and all. Mock the
+    # phase executor run_goal actually uses, same harness as
+    # test_run_goal_threads_prior_phase_output_forward.
     mock_restore.return_value = None
     mock_check_hash.return_value = "none"
     mock_decompose.return_value = dummy_tasks
-    mock_dispatch.return_value = {"command": "echo", "stdout": "Success", "success": True}
-    
+    mock_dag.return_value = {"success": True, "output": "Success", "error": None}
+
     val_result = MagicMock()
     val_result.success = True
     val_result.output = "OK"
     val_result.error = None
     mock_validate.return_value = val_result
-    
+
     engine = GoalEngine()
     policy = BatchPolicy.auto()
-    
+
     result = await engine.run_goal("Test Goal", policy=policy)
-    
+
     assert result["success"] is True
     assert len(result["phases_completed"]) == 2
     assert "Task 1" in result["phases_completed"]
     assert "Task 2" in result["phases_completed"]
-    
-    # Verify dispatcher called twice
-    assert mock_dispatch.call_count == 2
-    
+
+    # Verify one DAG execution per phase
+    assert mock_dag.call_count == 2
+
     # Verify enqueue and transitions
     assert mock_enqueue.call_count >= 2
 
