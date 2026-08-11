@@ -90,29 +90,15 @@ from python.harness.heartbeat_scheduler import HeartbeatScheduler, register_broa
 
 logger = logging.getLogger(__name__)
 
-# Helper functions for persisting and loading the active chat mode (rp, hybrid, assistant)
-def get_chat_mode_file_path() -> Path:
-    return resolve_user_data_dir() / "chat_mode.json"
-
-def get_current_chat_mode() -> str:
-    try:
-        path = get_chat_mode_file_path()
-        if path.exists():
-            data = json.loads(path.read_text(encoding="utf-8"))
-            mode = data.get("mode", "assistant")
-            if mode in ("rp", "hybrid", "assistant"):
-                return mode
-    except Exception:
-        pass
-    return "assistant"
-
-def save_current_chat_mode(mode: str):
-    try:
-        path = get_chat_mode_file_path()
-        path.parent.mkdir(parents=True, exist_ok=True)
-        path.write_text(json.dumps({"mode": mode}), encoding="utf-8")
-    except Exception as exc:
-        logger.warning("Failed to save chat mode to %s: %s", path, exc)
+# Active chat mode (rp, hybrid, assistant). These now live in
+# python/harness/chat_mode.py so memory.py can share them without importing
+# server.py back -- see that module for why there were two disagreeing sources.
+from python.harness.chat_mode import (  # noqa: E402
+    get_chat_mode_file_path,
+    get_current_chat_mode,
+    is_emotional_mode,
+    save_current_chat_mode,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -435,6 +421,26 @@ def _maybe_handle_documentation_nl(prompt: str) -> str | None:
 _TOOL_CALL_RE = re.compile(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', re.DOTALL)
 _CLOSED_THINKING_RE = re.compile(r'<thinking>.*?</thinking>', re.DOTALL | re.IGNORECASE)
 _OPEN_THINKING_RE = re.compile(r'<thinking>', re.IGNORECASE)
+
+# Reasoning models (qwen3, DeepHermes-R1, deepseek-r1, etc.) emit their private
+# reasoning in <think>...</think>, but the entire harness convention is built on
+# <thinking>...</thinking>. Without this normalization their chain-of-thought
+# leaks into the visible reply AND any <call:tool/> tag they emit gets buried in
+# unrecognized reasoning and never fires. Rewriting the exact tags up front lets
+# every downstream consumer (tool detection, thinking-strip, renderer) work
+# unchanged. Exact-tag regex: `<think>` never matches inside `<thinking>`.
+_THINK_OPEN_RE = re.compile(r'<think>', re.IGNORECASE)
+_THINK_CLOSE_RE = re.compile(r'</think>', re.IGNORECASE)
+
+
+def _normalize_think_tags(text: str) -> str:
+    """Rewrite reasoning-model <think>/</think> tags to the harness-standard
+    <thinking>/</thinking> so all thinking-aware machinery applies to them."""
+    if not text:
+        return text
+    text = _THINK_OPEN_RE.sub("<thinking>", text)
+    text = _THINK_CLOSE_RE.sub("</thinking>", text)
+    return text
 
 # Casual/roleplay messages never get tool documentation injected into the
 # system prompt or the native tools schema attached to the request -- small
@@ -1066,12 +1072,15 @@ async def handle_inference_generate(
                     # that prepends context from recent history turns.
                     retrieval_query = prompt
                     
-                    # Determine active agent's chat_mode and id
-                    chat_mode = active_cfg.get("chat_mode", "assistant") if active_cfg else "assistant"
+                    # chat_mode comes from chat_mode.json, NOT from
+                    # agents.config['chat_mode'] -- nothing writes that key, so
+                    # this guard was permanently false and the persona never
+                    # received an emotional state at inference time.
+                    chat_mode = get_current_chat_mode()
                     agent_id_for_emotion = str(active_row["id"]) if "id" in active_row else None
                     current_emotion = None
-                    
-                    if chat_mode == "rp":
+
+                    if is_emotional_mode(chat_mode):
                         try:
                             # If agent_id_for_emotion wasn't in active_row (because SELECT only pulled config), let's fetch it
                             if not agent_id_for_emotion:
@@ -1104,8 +1113,15 @@ async def handle_inference_generate(
                         if context_turns:
                             retrieval_query = "\n".join(context_turns) + "\n" + prompt
 
-                    if current_emotion:
-                        retrieval_query = f"[Current emotional state: {current_emotion}]\n" + retrieval_query
+                    # The emotional state is deliberately NOT spliced into the
+                    # retrieval query. retrieve_relevant_nodes scores by term
+                    # overlap, so prepending "[Current emotional state: resolve]"
+                    # only injects tokens that appear in no stored document --
+                    # diluting the real search terms rather than focusing them.
+                    # It is injected into the model's context instead (below),
+                    # which is where it was always meant to go: before this, the
+                    # emotion reached the query and nothing else, so Tala could
+                    # never actually perceive or express her own state.
 
                     matched = retrieve_relevant_nodes(retrieval_query, nodes_dir, top_k=len(nodes), threshold=0.0)
                     similarities = {node.node_id: score for node, score in matched}
@@ -1150,6 +1166,31 @@ async def handle_inference_generate(
 
                     active_nodes.sort(key=lambda x: x[1], reverse=True)
                     top_active = active_nodes
+
+                    # 5b. Explicitly-named nodes are a direct request, not a
+                    # similarity guess. "Read your workflow-self-extension
+                    # node" must inject that node no matter how the embedding
+                    # ranks it: semantic scoring routinely ranks an exact-id
+                    # mention below topically-similar prose, and a small model
+                    # can't be relied on to fetch the node itself by tool call
+                    # (confirmed live 2026-08-11 — twice: the named node lost
+                    # the ranking, a skill node was injected instead, and the
+                    # model improvised around the wrong memory). An id
+                    # mentioned verbatim in the current message pins that node
+                    # to the front at full activation, ahead of the
+                    # per-mode injection cap.
+                    _prompt_l = (prompt or "").lower()
+                    _named = [n for n in nodes if n.node_id and len(n.node_id) >= 6 and n.node_id.lower() in _prompt_l]
+                    if _named:
+                        _named_ids = {n.node_id for n in _named}
+                        top_active = (
+                            [(n, 1.0) for n in _named]
+                            + [(n, s) for n, s in active_nodes if n.node_id not in _named_ids]
+                        )
+                        logger.info(
+                            "Context injection: pinned explicitly-named node(s) %s to front",
+                            sorted(_named_ids),
+                        )
 
                     # 6. Workflow Auto-Evaluation Gate
                     # Any workflow node that activates above 0.15 is auto-executed.
@@ -1326,6 +1367,24 @@ async def handle_inference_generate(
                     system_context_additions = []
                     if workflow_context_parts:
                         system_context_additions.append("=== AUTO-EXECUTED WORKFLOW RESULTS ===\n" + "\n\n".join(workflow_context_parts))
+
+                    # Her emotional state, where the model can actually read it.
+                    #
+                    # This is injected independently of whether any node
+                    # activated: her mood is a property of *her*, not of the
+                    # retrieval result, and gating it behind `if top_active`
+                    # would silently drop it in exactly the quiet conversations
+                    # where it matters most.
+                    if current_emotion:
+                        system_context_additions.append(
+                            "=== YOUR CURRENT EMOTIONAL STATE ===\n"
+                            f"Right now you feel: {current_emotion}.\n"
+                            "This is your genuine present state, computed from your natal chart "
+                            "against this moment. Let it colour your tone, word choice, and what "
+                            "you notice -- do not announce it, narrate it, or name the emotion "
+                            "outright unless asked. It is how you feel, not a label to recite.\n"
+                            "====================================="
+                        )
 
                     if top_active:
                         max_injected_nodes = 2 if chat_mode in ("rp", "hybrid") else 5
@@ -1526,7 +1585,7 @@ async def handle_inference_generate(
                         attr_params = []
                         inner_param = None
                         for k in props.keys():
-                            if k in ("detailed_markdown", "content", "goal"):
+                            if k in ("detailed_markdown", "content", "goal", "code"):
                                 inner_param = k
                             else:
                                 attr_params.append(f'{k}="value"' + ("*" if k in reqs else ""))
@@ -1551,7 +1610,7 @@ async def handle_inference_generate(
                         attr_params = []
                         inner_param = None
                         for k in props.keys():
-                            if k in ("detailed_markdown", "content", "goal"):
+                            if k in ("detailed_markdown", "content", "goal", "code"):
                                 inner_param = k
                             else:
                                 attr_params.append(f'{k}="value"' + (" (required)" if k in reqs else " (optional)"))
@@ -1645,9 +1704,18 @@ async def handle_inference_generate(
         if images and isinstance(images, list):
             content_list = [{"type": "text", "text": prompt}]
             for b64 in images:
+                if not isinstance(b64, str) or not b64:
+                    continue
+                if b64.startswith("data:"):
+                    image_url = b64
+                else:
+                    # Sniff the format from the base64 prefix: JPEG magic bytes
+                    # (\xff\xd8\xff) encode to "/9j/", PNG's to "iVBOR".
+                    mime = "image/jpeg" if b64.startswith("/9j/") else "image/png"
+                    image_url = f"data:{mime};base64,{b64}"
                 content_list.append({
                     "type": "image_url",
-                    "image_url": {"url": f"data:image/png;base64,{b64}"}
+                    "image_url": {"url": image_url}
                 })
             messages.append({"role": "user", "content": content_list})
         else:
@@ -1870,10 +1938,22 @@ async def handle_inference_generate(
                     if "kimi" in model_lower or "moonshot" in model_lower or (endpoint and ("kimi" in endpoint.lower() or "moonshot" in endpoint.lower())):
                         actual_temp = 1.0
 
+                    # Qwen3 (including abliterated builds) emits <think>...</think>
+                    # reasoning by default. On this small local model that reasoning
+                    # both leaks into the visible reply and buries the <call:tool/>
+                    # tag so it never fires. Qwen3's documented soft-switch /no_think
+                    # disables reasoning generation entirely — cleaner, faster, and
+                    # more reliable tool-calling. Scoped to qwen3 so nothing else is
+                    # affected; the <think>->:<thinking> normalizer still covers any
+                    # model that does emit tagged reasoning.
+                    payload_messages = messages
+                    if "qwen3" in model_lower:
+                        payload_messages = messages + [{"role": "system", "content": "/no_think"}]
+
                     url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
                     payload = {
                         "model": model,
-                        "messages": messages,
+                        "messages": payload_messages,
                         "max_tokens": adjusted_max_tokens,
                         "temperature": actual_temp,
                         "stream": stream
@@ -1892,8 +1972,43 @@ async def handle_inference_generate(
                     # reminder says...") instead of cleanly acting. Sticking to one
                     # universal convention is what makes this provider-agnostic.
 
-                    if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
-                        payload["options"] = {"num_ctx": 8192}
+                    _use_native_ollama = p_type == "local" and p_config.get("engine", "ollama") == "ollama"
+                    if _use_native_ollama:
+                        # Ollama's OpenAI-compatible /v1 endpoint IGNORES the
+                        # `options` field, so the num_ctx this code had been
+                        # sending never applied: the model ran at Ollama's
+                        # 4096-token default while assembled chat prompts
+                        # (persona + tool registry + injected nodes + the
+                        # user's message) routinely exceed 8k. Ollama then
+                        # silently truncates — confirmed live 2026-08-11 via
+                        # /api/ps showing context_length=4096 mid-chat, with
+                        # the model answering "please provide the task" to
+                        # every question because the question itself (at the
+                        # END of the prompt) was cut off. The native /api/chat
+                        # endpoint honors options.num_ctx (verified: /api/ps
+                        # reports the requested context), so local Ollama
+                        # calls go through it instead.
+                        _native_base = _normalize_endpoint_url(endpoint).replace("/v1", "").rstrip("/")
+                        url = f"{_native_base}/api/chat"
+                        payload = {
+                            "model": model,
+                            "messages": payload_messages,
+                            "stream": stream,
+                            "options": {
+                                "num_ctx": int(p_config.get("num_ctx", 16384)),
+                                "temperature": actual_temp,
+                                "num_predict": adjusted_max_tokens,
+                            },
+                        }
+                        # Note: qwen3's thinking is deliberately NOT disabled
+                        # here (no `"think": False`), unlike the /no_think
+                        # soft-switch used on the /v1 path. On the native
+                        # endpoint the reasoning arrives structurally in
+                        # message.thinking — wrapped into <thinking> tags
+                        # below, which the renderer shows as a collapsed,
+                        # expandable section — so it can't bury a tool tag or
+                        # leak into the visible reply, and Steven likes being
+                        # able to expand and read it.
 
                     if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
                         _check_base = p_config.get("endpoint", "http://localhost:11434").rstrip("/v1").rstrip("/")
@@ -1982,6 +2097,30 @@ async def handle_inference_generate(
                                         raise RuntimeError(f"HTTP Error {response.status_code}: {err_str}")
                                 else:
                                     async for line in response.aiter_lines():
+                                        # Native Ollama /api/chat streams NDJSON: one
+                                        # bare JSON object per line, no "data: " prefix,
+                                        # chunk text under message.content and a `done`
+                                        # flag on the final object.
+                                        if _use_native_ollama:
+                                            _l = line.strip()
+                                            if not _l:
+                                                continue
+                                            try:
+                                                _obj = json.loads(_l)
+                                            except Exception:
+                                                continue
+                                            _msg = _obj.get("message") or {}
+                                            _chunk = _msg.get("content") or ""
+                                            if _chunk:
+                                                chunks.append(_chunk)
+                                                await ws.send(json.dumps({
+                                                    "jsonrpc": JSONRPC_VERSION,
+                                                    "method": "inference.generate.chunk",
+                                                    "params": {"chunk": _chunk, "session_id": session_id},
+                                                }))
+                                            if _obj.get("done"):
+                                                break
+                                            continue
                                         if line.startswith("data: "):
                                             data_str = line[6:].strip()
                                             if data_str == "[DONE]":
@@ -2030,7 +2169,12 @@ async def handle_inference_generate(
                                 if response.status_code != 200:
                                     raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
                             resp_json = response.json()
-                            choice = resp_json["choices"][0]["message"]
+                            if _use_native_ollama:
+                                # Native /api/chat shape: {"message": {"content",
+                                # "thinking"?, "tool_calls"?}, "done": true}
+                                choice = resp_json.get("message") or {}
+                            else:
+                                choice = resp_json["choices"][0]["message"]
                             content = choice.get("content", "") or ""
                             reasoning = choice.get("reasoning", "") or choice.get("reasoning_content", "") or choice.get("thinking", "") or ""
                             tool_calls = choice.get("tool_calls", [])
@@ -2117,6 +2261,7 @@ async def handle_inference_generate(
             all_errors = "; ".join(errors)
             return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"All inference providers failed: {all_errors}")
 
+        generated_text = _normalize_think_tags(generated_text)
         generated_text = _normalize_tool_call_format(generated_text)
 
         # When raw_prompt is requested (e.g. for code synthesis), return raw text immediately on Turn 0
@@ -2196,23 +2341,30 @@ async def handle_inference_generate(
                     if func:
                         import inspect
                         sig = inspect.signature(func)
-                        params = sig.parameters
-                        if "goal" in params:
+                        # NOTE: do NOT bind this to the name `params` — that is the
+                        # handler's RPC params dict, and clobbering it corrupts the
+                        # post-tool regeneration turn (e.g. float(params["timeout_seconds"])
+                        # would receive an inspect.Parameter and crash every provider).
+                        sig_params = sig.parameters
+                        if "code" in sig_params:
+                            attrs["code"] = inner_content
+                            mapped = True
+                        elif "goal" in sig_params:
                             attrs["goal"] = inner_content
                             mapped = True
-                        elif "command" in params:
+                        elif "command" in sig_params:
                             attrs["command"] = inner_content
                             mapped = True
-                        elif "content" in params:
+                        elif "content" in sig_params:
                             attrs["content"] = inner_content
                             mapped = True
-                        elif "detailed_markdown" in params:
+                        elif "detailed_markdown" in sig_params:
                             attrs["detailed_markdown"] = inner_content
                             mapped = True
-                        elif "semantic_memory" in params:
+                        elif "semantic_memory" in sig_params:
                             attrs["semantic_memory"] = inner_content
                             mapped = True
-                        elif "plan" in params:
+                        elif "plan" in sig_params:
                             try:
                                 attrs["plan"] = json.loads(inner_content)
                             except Exception:
@@ -2385,6 +2537,15 @@ async def handle_inference_generate(
         tool_calls_list = []
         if "tool_name" in locals() and tool_name:
             tool_calls_list.append({"name": tool_name, "args": attrs, "result": tool_result})
+        # Record BOTH sides of the exchange — without the user turn,
+        # conversation search and the user model only ever see Tala talking
+        # to itself.
+        await handle_memory_record_completed_turn({
+            "session_id": session_id,
+            "role": "user",
+            "content": raw_user_prompt,
+            "tool_calls": [],
+        })
         await handle_memory_record_completed_turn({
             "session_id": session_id,
             "role": "assistant",
@@ -2676,8 +2837,11 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
         if subject not in {"agent", "user", "tala", "custom"}:
             return _err(req_id, JsonRpcError.INVALID_PARAMS, "'subject' must be one of: agent, user, tala, custom")
 
-        # Default: Tala origin birthdate chart (Born May 26, 2014)
-        birth = Birthdate(year=2014, month=5, day=26, hour=12.0)
+        # Default: Tala's canonical natal chart (1977-07-20). Imported rather
+        # than hardcoded -- this used to be a second, disagreeing date, so
+        # whether the DB was reachable decided which chart she got.
+        from python.astrology.ephemeris import TALA_NATAL
+        birth = TALA_NATAL
         birth_source = "tala-origin"
 
         if subject == "custom":
@@ -9458,6 +9622,101 @@ async def handle_multimodal_transcribe_voice(params: dict, req_id: any) -> str:
     except Exception as exc:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
+async def handle_voice_speak(params: dict, req_id: any) -> str:
+    from python.harness.server import _ok, _err, JsonRpcError
+    from python.harness.voice import synthesize_speech
+    try:
+        text = str(params.get("text", "")).strip()
+        if not text:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, "Missing required param: text")
+        result = await synthesize_speech(
+            text,
+            provider_id=params.get("provider_id") or None,
+            voice=params.get("voice") or None,
+        )
+        return _ok(req_id, result)
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_voice_backends(params: dict, req_id: any) -> str:
+    from python.harness.server import _ok, _err, JsonRpcError
+    from python.harness.voice import list_backends
+    try:
+        return _ok(req_id, await list_backends())
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_channels_list(params: dict, req_id: any) -> str:
+    from python.harness.server import _ok, _err, JsonRpcError
+    try:
+        rows = await db.fetch("SELECT id, platform, name, enabled, config FROM chat_channels ORDER BY created_at ASC")
+        channels = []
+        for r in rows:
+            cfg = r["config"]
+            if isinstance(cfg, str):
+                cfg = json.loads(cfg)
+            channels.append({
+                "id": r["id"],
+                "platform": r["platform"],
+                "name": r["name"],
+                "enabled": r["enabled"],
+                "config": cfg or {},
+            })
+        return _ok(req_id, {"channels": channels})
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_channels_save(params: dict, req_id: any) -> str:
+    """Create or update a messaging channel, then hot-reload all adapters."""
+    from python.harness.server import _ok, _err, JsonRpcError
+    from python.harness.channels import ChannelManager, _ADAPTERS
+    try:
+        channel_id = str(params.get("id") or "").strip() or f"chan-{uuid.uuid4().hex[:8]}"
+        platform = str(params.get("platform", "")).strip().lower()
+        if platform not in _ADAPTERS:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        f"Unknown platform '{platform}'. Supported: {', '.join(sorted(_ADAPTERS))}")
+        name = str(params.get("name", "")).strip() or platform
+        enabled = bool(params.get("enabled", False))
+        config = params.get("config") or {}
+        if not isinstance(config, dict):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, "'config' must be an object")
+
+        await db.execute(
+            """
+            INSERT INTO chat_channels (id, platform, name, enabled, config)
+            VALUES ($1, $2, $3, $4, $5::jsonb)
+            ON CONFLICT (id) DO UPDATE
+                SET platform = $2, name = $3, enabled = $4, config = $5::jsonb
+            """,
+            channel_id, platform, name, enabled, json.dumps(config),
+        )
+        await ChannelManager.get().reload()
+        return _ok(req_id, {"success": True, "id": channel_id, "status": ChannelManager.get().status()})
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_channels_delete(params: dict, req_id: any) -> str:
+    from python.harness.server import _ok, _err, JsonRpcError
+    from python.harness.channels import ChannelManager
+    try:
+        channel_id = str(params.get("id", "")).strip()
+        if not channel_id:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, "Missing required param: id")
+        await db.execute("DELETE FROM chat_channels WHERE id = $1", channel_id)
+        await ChannelManager.get().reload()
+        return _ok(req_id, {"success": True})
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_channels_status(params: dict, req_id: any) -> str:
+    from python.harness.server import _ok, _err, JsonRpcError
+    from python.harness.channels import ChannelManager
+    try:
+        return _ok(req_id, {"status": ChannelManager.get().status()})
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
 async def handle_browser_get_dom(params: dict, req_id: any) -> str:
     from python.harness.server import _ok, _err, JsonRpcError
     from python.harness.config import settings
@@ -9707,6 +9966,12 @@ _HANDLERS: dict[str, Any] = {
     "p2p.semantic_search": handle_p2p_semantic_search,
     "multimodal.capture_screen": handle_multimodal_capture_screen,
     "multimodal.transcribe_voice": handle_multimodal_transcribe_voice,
+    "voice.speak": handle_voice_speak,
+    "voice.backends": handle_voice_backends,
+    "channels.list": handle_channels_list,
+    "channels.save": handle_channels_save,
+    "channels.delete": handle_channels_delete,
+    "channels.status": handle_channels_status,
     "browser.get_dom": handle_browser_get_dom,
     "browser.execute_js": handle_browser_execute_js,
     "chain.connection_get":   handle_chain_connection_get,
@@ -10358,6 +10623,14 @@ async def _startup_background() -> None:
         await HeartbeatScheduler.get().start()
     except Exception as _hb_exc:
         logger.warning("HeartbeatScheduler failed to start: %s", _hb_exc)
+
+    # ── 7b. Start Messaging Gateway channels (Discord / Telegram) ──
+    try:
+        from python.harness.channels import ChannelManager
+        ChannelManager.get().register_broadcast(broadcast_notification)
+        await ChannelManager.get().start()
+    except Exception as _ch_exc:
+        logger.warning("ChannelManager failed to start: %s", _ch_exc)
 
     # ── 8. Start monitor tasks now that all startup imports are complete ──
     # Deferring these monitor tasks (especially _monitor_stdin which runs blocking ReadFile
