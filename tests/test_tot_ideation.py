@@ -113,7 +113,14 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
     # HTML-NN learning node -- not just the disposable scratch JSON file.
     learning_nodes = list((tmp_path / "nodes").glob("learning-*.html"))
     assert len(learning_nodes) == 1, f"expected exactly one learning node, found {learning_nodes}"
-    assert "Tree-of-Thought ideation ranked" in learning_nodes[0].read_text(encoding="utf-8")
+
+    html = learning_nodes[0].read_text(encoding="utf-8")
+    # Assert the node's substance, not one exact sentence. It must read as a
+    # decision record -- the shortlist and its scores -- rather than a
+    # restatement of the goal, which is what assess_learning_quality rejects.
+    assert "Architectural approaches weighed for" in html
+    assert "decision-record" in html
+    assert "cognitive frames" in html
 
     # Clean up
     if os.path.exists("tot_shortlist.json"):

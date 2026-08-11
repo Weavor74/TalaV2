@@ -1,7 +1,7 @@
 import os
 import pytest
 import json
-from unittest.mock import patch
+from unittest.mock import patch, AsyncMock
 from pathlib import Path
 
 from sdk.agent.queue import GoalTreeDecomposer, BatchQueue
@@ -9,6 +9,19 @@ from sdk.agent.planner import TaskItem
 from sdk.agent.graph_engine import DAGExecutionEngine
 from python.harness.db import init_pool, close_pool
 from python.harness import db
+
+
+@pytest.fixture(autouse=True)
+def _isolate_user_data(tmp_path, monkeypatch):
+    """
+    The decomposer's ToT interceptor persists its shortlist as a real HTML-NN
+    learning node via resolve_active_nodes_dir() — without this pin, every run
+    of this test minted a node into the live repo nodes/ wiki (confirmed
+    2026-08-11: three test-goal learning nodes found and pruned). root_dir
+    alone does not isolate node writes; TALA_USER_DATA must be pinned too.
+    """
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+
 
 @pytest.mark.asyncio
 async def test_tot_graph_fleet_unified_workflow(tmp_path):
@@ -49,9 +62,14 @@ async def test_tot_graph_fleet_unified_workflow(tmp_path):
             # Check shortlist json written
             assert os.path.exists("tot_shortlist.json")
 
-            # 3. Execute the first task through the real DAG engine. Synthesis
-            # routes through the real handle_inference_generate (local model
-            # fallback chain) and the real token ledger, so no mock here.
+            # 3. Execute the first task through the real DAG engine. The LLM
+            # synthesis call is mocked: this test's subjects are ToT
+            # interception, task mapping, DAG orchestration, worktree merge,
+            # and port cleanup — not live model code quality. With the real
+            # 8B left in, the same run failed and passed on identical
+            # re-runs (its output doesn't always survive the validation
+            # node's import probe). Live-model capability is the benchmark
+            # suite's job (tests/benchmarks/test_agent_benchmarks.py).
             tasks[0].payload = {
                 "context": {
                     "path": "cache_module.py"
@@ -64,8 +82,13 @@ async def test_tot_graph_fleet_unified_workflow(tmp_path):
             await db.execute("DELETE FROM tasks WHERE id = $1", tasks[0].task_id)
             await BatchQueue.enqueue_task(tasks[0].task_id, tasks[0].description, payload=tasks[0].payload)
 
+            mock_synthesis = json.dumps(
+                {"result": {"text": "```python\nclass CacheModule:\n    def get(self, key):\n        return None\n```"}}
+            )
             graph_engine = DAGExecutionEngine(root_dir=str(root_dir))
-            res = await graph_engine.execute_task_as_dag(tasks[0])
+            with patch("python.harness.server.handle_inference_generate",
+                       new_callable=AsyncMock, return_value=mock_synthesis):
+                res = await graph_engine.execute_task_as_dag(tasks[0])
 
             # 4. Assert workflow output & merge
             assert res["success"] is True

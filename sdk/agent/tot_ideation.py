@@ -48,7 +48,7 @@ ARCHITECTURAL_KEYWORDS = [
     "architecture", "microservices", "class diagram", "folder structure",
     "uml", "api design", "database schema", "data pipeline", "module",
     "framework", "decompose", "refactor", "scalable", "high-performance",
-    "tot ideation", "ideate",
+    "low-latency", "tot ideation", "ideate",
 ]
 
 def is_architectural_or_decomposition_prompt(prompt: str) -> bool:
