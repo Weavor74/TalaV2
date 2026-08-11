@@ -38,3 +38,8 @@ nodes/.workflow_state.json
 # Build and scratch directories
 dist/
 scratch/
+
+# Runtime state written into the user-data root (which defaults to the install
+# directory for USB portability), not source.
+emotion_state.json
+mcp_servers.json
