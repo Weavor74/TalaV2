@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="system-neural-node-v2-schema">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-06-04T05:57:12Z">
+  <meta name="tala-author" content="tala-system">
+  <title>Neural Node: HTML-NN v2 Schema</title>
+</head>
+<body>
+<article
+  data-node-id="system-neural-node-v2-schema"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="1.00"
+  data-governance-status="context-only"
+  data-doc-target="neural-node-v2-schema"
+  data-source-files="D:/Downloads/Tala_HTML_Neural_Node_Graph_Paper.md;sdk/agent/parser.py;sdk/agent/templates/base_node.html"
+  data-source-fingerprint="sha256:F94584E0BF01333E625E4B990CBE8C8AC26A3822767429EFDFE6E0C668CE273D"
+  data-generated-at="2026-06-04T05:57:12Z"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">HTML Neural Node v2 Schema</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-neural-node-v2-schema</code></dd>
+      <dt>Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>Canonical contract for authoring, validating, indexing, and governing Tala HTML Neural Nodes.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-06-04T05:57:12Z">2026-06-04</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>An HTML Neural Node is a governed, weighted, machine-readable and human-readable HTML document that acts as a first-class node in Tala's external cognition graph. It is not a generic custom tag, not a freeform prompt response, and not inherently a persona, memory, or workflow. The root object is an HTML <code>&lt;article&gt;</code> element with parser-readable <code>data-*</code> attributes.</p>
+    <p>The required parser contract is a document containing one root <code>&lt;article&gt;</code> with non-empty <code>data-node-id</code>, non-empty <code>data-node-type</code>, and numeric <code>data-execution-authority</code> between <code>0.00</code> and <code>1.00</code>. Versioned v2 nodes should also declare <code>data-schema-version="neural-node/v2"</code>, authority fields, weights, governance status, source evidence, inert JSON state, and optional director blocks for bounded workflow orchestration.</p>
+    <p>The semantic memory section is the human-readable meaning of the node. It is the primary content Tala can embed, search, summarize, and assemble into bounded context. Activation may make a node relevant, but relevance is not permission. Read does not mean obey. Activation does not mean authority. Weight does not mean approval.</p>
+  </section>
+
+  <section id="node-contract">
+    <h2>Node Contract</h2>
+    <ul>
+      <li>Root element: <code>&lt;article data-node-id="..." data-node-type="..." data-execution-authority="..."&gt;</code>.</li>
+      <li>Required identity: <code>data-node-id</code>, <code>data-node-type</code>, <code>data-execution-authority</code>.</li>
+      <li>Recommended v2 identity: <code>data-schema-version</code>, <code>data-governance-status</code>, <code>data-doc-target</code>, <code>data-source-files</code>, <code>data-source-fingerprint</code>, <code>data-generated-at</code>.</li>
+      <li>Recommended authority fields: <code>data-memory-authority</code>, <code>data-provider-authority</code>, <code>data-wallet-authority</code>, <code>data-tool-authority</code>.</li>
+      <li>Recommended weight fields: <code>data-weight-relevance</code>, <code>data-weight-confidence</code>, <code>data-weight-behavior-influence</code>, <code>data-weight-governance-importance</code>.</li>
+      <li>Required readable content: <code>&lt;section id="semantic-memory"&gt;</code>.</li>
+      <li>Optional machine state: <code>&lt;script type="application/json" id="node-state"&gt;</code> containing a JSON object only.</li>
+      <li>Optional director blocks: <code>&lt;script type="application/tala-director+json"&gt;</code> containing JSON-only workflow, reference, validation, submission, or audit instructions.</li>
+    </ul>
+  </section>
+
+  <section id="relationship-contract">
+    <h2>Relationship Contract</h2>
+    <p>Navigation links are graph edges. A normal link becomes parseable when it declares target, relationship type, relationship weight, navigation role, and authority requirement.</p>
+    <pre><code>&lt;a href="./target-node.html"
+   data-target-node-id="target-node"
+   data-relationship-type="depends-on"
+   data-relationship-weight="0.80"
+   data-navigation-role="primary-context"
+   data-authority-required="none"&gt;
+  Target Node
+&lt;/a&gt;</code></pre>
+    <p>Valid relationship types include <code>depends-on</code>, <code>supports</code>, <code>contradicts</code>, <code>bounded-by</code>, <code>activates</code>, <code>modulates</code>, <code>blocks</code>, <code>requires-approval-from</code>, <code>source-of</code>, and <code>supersedes</code>.</p>
+  </section>
+
+  <section id="activation-and-governance">
+    <h2>Activation and Governance</h2>
+    <p>Activation is calculated from semantic match, relevance, confidence, freshness, provider trust, governance multiplier, and risk adjustment. Relationship propagation is explainable: <code>related_node_activation = source_activation * relationship_weight</code>.</p>
+    <p>Allowed influence includes context selection, source-evidence support, bounded style modulation, workflow suggestion, reference routing, MCP/RPC request preparation, and diagnostic explanation. Blocked influence includes truth override, direct tool authorization, memory-write authorization, provider changes, wallet actions, governance approval, direct network access, and direct file writes.</p>
+  </section>
+
+  <section id="director-contract">
+    <h2>Director Contract</h2>
+    <p>Director blocks are inert JSON instructions that help Tala decide what context to load, what data to collect, how to validate workflow state, and which registered bridge should receive a request. They are not browser JavaScript, not Python payloads, and not self-executing code.</p>
+    <p>Valid director kinds include <code>reference</code>, <code>workflow</code>, <code>validator</code>, <code>submission</code>, and <code>audit</code>. A director must declare side effects as <code>none</code> or <code>request-only</code>. Any mutation, file write, network call, shell command, or MCP/RPC action must pass through a registered Tala bridge and be checked against authority metadata and user/app policy.</p>
+    <pre><code>&lt;script type="application/tala-director+json"
+        id="director-reference-html-nn-authoring"
+        data-script-kind="reference"
+        data-side-effects="none"&gt;
+{
+  "when": { "intent": "author_html_nn" },
+  "reference": [
+    { "type": "html-nn", "node_id": "system-neural-node-v2-schema", "required": true },
+    { "type": "html-nn", "node_id": "system-html-nn-authoring-guide", "required": true }
+  ],
+  "then": {
+    "instruction": "Load these nodes before generating, validating, or repairing HTML-NNs."
+  }
+}
+&lt;/script&gt;</code></pre>
+  </section>
+
+  <section id="validator-contract">
+    <h2>Validator Contract</h2>
+    <p>Blocking validation errors include missing node ID, missing node type, missing or invalid execution authority, invalid JSON state blocks, invalid director JSON blocks, duplicate node ID, invalid relationship weights, relationships that target missing nodes, executable JavaScript, executable Python blocks, and nodes that grant themselves runtime permissions.</p>
+    <p>Warnings include low confidence, stale source evidence, orphan nodes, weak evidence, deprecated targets, and missing audit trail. A generator must write the file, parse it back with Tala's parser, verify metadata, and only then report success.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>D:/Downloads/Tala_HTML_Neural_Node_Graph_Paper.md</code> supplies the architectural contract.</li>
+      <li><code>sdk/agent/parser.py</code> supplies the current parser contract.</li>
+      <li><code>sdk/agent/templates/base_node.html</code> supplies the legacy base template.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This node was created as a foundational schema memory so Tala can author future HTML Neural Nodes from a canonical contract instead of inventing raw HTML structures. It is context-only and carries no authority to execute tools, write files, change settings, or approve governance.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="./system-html-nn-authoring-guide.html"
+           data-target-node-id="system-html-nn-authoring-guide"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="authoring-guide"
+           data-authority-required="none">HTML-NN Authoring Guide</a>
+      </li>
+      <li>
+        <a href="./system-program-documentation-generator.html"
+           data-target-node-id="system-program-documentation-generator"
+           data-relationship-type="bounded-by"
+           data-relationship-weight="0.85"
+           data-navigation-role="generator-contract"
+           data-authority-required="none">Program Documentation Generator Contract</a>
+      </li>
+      <li>
+        <a href="./system-self-improvement-loop.html"
+           data-target-node-id="system-self-improvement-loop"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="self-improvement-protocol"
+           data-authority-required="none">Self-Improvement Loop</a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-html-nn-schema"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "author_or_validate_html_nn"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use the schema and authoring guide as canonical context before generating, validating, or repairing HTML-NNs."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "HTML Neural Node v2 Schema",
+  "description": "Canonical contract for Tala HTML Neural Node v2 documents.",
+  "tags": [
+    "html-nn",
+    "schema",
+    "documentation",
+    "governance",
+    "validation",
+    "graph"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created": "2026-06-04T05:57:12Z",
+    "updated": "2026-06-04T05:57:12Z",
+    "version": "1.0.0",
+    "schema": "neural-node/v2",
+    "source_fingerprint": "sha256:F94584E0BF01333E625E4B990CBE8C8AC26A3822767429EFDFE6E0C668CE273D"
+  },
+  "required_article_attributes": [
+    "data-node-id",
+    "data-node-type",
+    "data-execution-authority"
+  ],
+  "recommended_article_attributes": [
+    "data-schema-version",
+    "data-memory-authority",
+    "data-provider-authority",
+    "data-wallet-authority",
+    "data-tool-authority",
+    "data-weight-relevance",
+    "data-weight-confidence",
+    "data-weight-behavior-influence",
+    "data-weight-governance-importance",
+    "data-doc-target",
+    "data-source-files",
+    "data-source-fingerprint",
+    "data-generated-at"
+  ],
+  "required_sections": [
+    "node-identity",
+    "semantic-memory"
+  ],
+  "optional_sections": [
+    "relationship-anchors",
+    "director-contract",
+    "source-evidence",
+    "audit-activation-trace"
+  ],
+  "director_contract": {
+    "allowed_mime_types": [
+      "application/tala-director+json"
+    ],
+    "allowed_kinds": [
+      "reference",
+      "workflow",
+      "validator",
+      "submission",
+      "audit"
+    ],
+    "allowed_side_effects": [
+      "none",
+      "request-only"
+    ],
+    "forbidden_capabilities": [
+      "direct file writes",
+      "direct shell execution",
+      "direct network calls",
+      "direct MCP execution",
+      "browser JavaScript execution",
+      "embedded Python execution"
+    ]
+  },
+  "relationship_types": [
+    "depends-on",
+    "supports",
+    "contradicts",
+    "bounded-by",
+    "activates",
+    "modulates",
+    "blocks",
+    "requires-approval-from",
+    "source-of",
+    "supersedes"
+  ],
+  "blocked_influences": [
+    "truth override",
+    "direct tool authorization",
+    "memory-write authorization",
+    "provider changes",
+    "wallet actions",
+    "governance approval",
+    "direct network access",
+    "direct file writes"
+  ]
+}
+  </script>
+</article>
+</body>
+</html>

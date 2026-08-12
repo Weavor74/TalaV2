@@ -1,0 +1,314 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Program Documentation Generator Contract</title>
+</head>
+<body>
+<article
+  data-node-id="system-program-documentation-generator"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="1.00"
+  data-governance-status="context-only"
+  data-doc-target="docs.generate_program_nodes"
+  data-source-files="nodes/system-neural-node-v2-schema.html;nodes/system-html-nn-authoring-guide.html;renderer/renderer.js;python/harness/server.py;sdk/agent/parser.py"
+  data-source-fingerprint="sha256:schema-FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8-guide-4DE51B2E3AF504EFBF4586233919D91B1429234DE3C1011EFA8A606C74DF82E2"
+  data-generated-at="2026-06-04T12:20:41Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Program Documentation Generator Contract</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-program-documentation-generator</code></dd>
+      <dt>Node Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Tool Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>Contract for intentionally generating program documentation HTML-NNs through a registered Tala bridge.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-06-04T12:20:41Z">2026-06-04</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>The Program Documentation Generator creates HTML Neural Nodes that document Tala's program structure. It is an intentional workflow, not an automatic startup task and not a persona or private memory generator. Generated nodes describe panels, settings categories, workflow screens, chat tools, vault/profile behavior, neural nodes, logs/diagnostics, blockchain/ledger surfaces, and search/research features.</p>
+    <p>The generator is invoked only through approved entry points: the Settings System action labeled Generate Documentation Nodes, the slash command <code>/generate-doc-nodes</code>, or the registered RPC/MCP-style bridge <code>docs.generate_program_nodes</code>. A director block may prepare a request, but the actual generator must run through the trusted bridge and policy checks.</p>
+    <p>Every generated documentation node must use the canonical <code>&lt;article&gt;</code> HTML-NN v2 format, mark itself as <code>documentation</code> or <code>program-doc</code>, carry zero execution authority by default, include source metadata and fingerprints, parse successfully after writing, and exclude private profile data, credentials, vault contents, persona history, roleplay memory, and LTMF-derived content.</p>
+  </section>
+
+  <section id="entry-points">
+    <h2>Entry Points</h2>
+    <ul>
+      <li>UI: <code>Settings -&gt; System -&gt; Generate Documentation Nodes</code>.</li>
+      <li>Command: <code>/generate-doc-nodes</code>.</li>
+      <li>Bridge: <code>docs.generate_program_nodes</code>.</li>
+    </ul>
+  </section>
+
+  <section id="generation-scope">
+    <h2>Generation Scope</h2>
+    <p>The generator scans program structure and creates one documentation node per meaningful panel, category, or feature area. It should prefer granular nodes over a single giant reference node.</p>
+    <ul>
+      <li><code>neural-nodes</code>: node grid, filtering, node metadata, validation state, and graph relationships.</li>
+      <li><code>chat-tools</code>: chat panel, slash commands, tool-call affordances, and safe bridge behavior.</li>
+      <li><code>workflow</code>: workflow builder, executor, validation, run history, and step status.</li>
+      <li><code>settings</code>: one node per settings category, including system, model/provider, UI, memory, privacy, and diagnostics categories when present.</li>
+      <li><code>vault-profile</code>: documented behavior only; no private profile payloads, secrets, or vault contents.</li>
+      <li><code>logs-diagnostics</code>: log panels, doctor checks, error surfaces, benchmark/status views, and troubleshooting actions.</li>
+      <li><code>blockchain-ledger</code>: visible ledger panels, verification concepts, and non-secret configuration surfaces.</li>
+      <li><code>search-research</code>: search panels, research flow, source capture, and evidence display behavior.</li>
+    </ul>
+  </section>
+
+  <section id="input-contract">
+    <h2>Input Contract</h2>
+    <p>The bridge receives a structured request object. Source paths must be repo-relative or runtime-resolved app paths. The request must not contain machine-specific absolute output paths.</p>
+    <pre><code>{
+  "targets": ["panels", "settings", "workflow", "tools", "vault-profile", "nodes", "logs"],
+  "mode": "create-or-update",
+  "output": {
+    "directory": "active-user-data-nodes",
+    "resolution": "electron-userData-or-TALA_USER_DATA"
+  },
+  "node_type": "documentation",
+  "schema_version": "neural-node/v2",
+  "require_confirmation": true,
+  "validate_after_write": true,
+  "archive_stale": false
+}</code></pre>
+  </section>
+
+  <section id="output-contract">
+    <h2>Output Contract</h2>
+    <p>The generator returns a summary that is based on files that were actually written and parsed. It must not report success from an intended plan alone.</p>
+    <pre><code>{
+  "created": 0,
+  "updated": 0,
+  "unchanged": 0,
+  "stale": 0,
+  "errors": [],
+  "nodes": [
+    {
+      "node_id": "program-doc-settings-system",
+      "path": "active-user-data-nodes/program-doc-settings-system.html",
+      "doc_target": "settings.system",
+      "source_fingerprint": "sha256:...",
+      "validated": true
+    }
+  ]
+}</code></pre>
+  </section>
+
+  <section id="workflow-contract">
+    <h2>Workflow Contract</h2>
+    <ol>
+      <li>Resolve the active node directory at runtime.</li>
+      <li>Load <code>system-neural-node-v2-schema</code> and <code>system-html-nn-authoring-guide</code>.</li>
+      <li>Scan source files for panels, settings categories, routes, commands, tool bridges, and diagnostics surfaces.</li>
+      <li>Create a structured specification for each documentation target.</li>
+      <li>Compute a source fingerprint from the source files and relevant extracted structure.</li>
+      <li>Render canonical HTML-NN v2 using the approved generator.</li>
+      <li>Write nodes into the active node directory only.</li>
+      <li>Parse each written file with Tala's parser and validate director JSON blocks.</li>
+      <li>Compare existing fingerprints to mark nodes created, updated, unchanged, stale, or errored.</li>
+      <li>Return a verified summary and audit record.</li>
+    </ol>
+  </section>
+
+  <section id="self-healing-contract">
+    <h2>Self-Healing Contract</h2>
+    <p>Self-healing documentation means the generator can intentionally compare source fingerprints and refresh stale program documentation nodes when the app changes. Self-healing does not mean silent autonomous execution. Automatic regeneration must be disabled by default unless a user or explicit policy enables it.</p>
+    <ul>
+      <li>If source fingerprints match, leave the node unchanged.</li>
+      <li>If source fingerprints differ, regenerate the node and validate the replacement before reporting updated.</li>
+      <li>If a target disappears, mark stale or archive according to request policy.</li>
+      <li>If validation fails, preserve the prior valid node when possible and report an error.</li>
+      <li>If source context is missing, stop and request the missing context rather than inventing documentation.</li>
+    </ul>
+  </section>
+
+  <section id="safety-boundaries">
+    <h2>Safety Boundaries</h2>
+    <ul>
+      <li>Do not generate persona, backstory, roleplay, private profile, vault-content, credential, or LTMF-derived nodes.</li>
+      <li>Do not use absolute machine-specific output paths in generator code.</li>
+      <li>Do not run raw JavaScript, Python, shell commands, or network calls from node content.</li>
+      <li>Do not let a generated node grant itself tool authority, execution authority, file-write permission, provider-change permission, wallet permission, or governance approval.</li>
+      <li>Do not report created or updated unless the written file parses successfully.</li>
+    </ul>
+  </section>
+
+  <section id="implementation-notes">
+    <h2>Implementation Notes</h2>
+    <ul>
+      <li>Electron resolves output with <code>path.join(app.getPath("userData"), "nodes")</code>.</li>
+      <li>Python resolves output with <code>Path(os.environ["TALA_USER_DATA"]) / "nodes"</code> when <code>TALA_USER_DATA</code> is available.</li>
+      <li>Fallbacks may map to platform user-data conventions, but generated metadata should describe the logical target rather than embedding one user's absolute path.</li>
+      <li>The registered bridge should own filesystem mutation; HTML-NN director blocks only prepare requests.</li>
+    </ul>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>nodes/system-neural-node-v2-schema.html</code> supplies the canonical schema memory.</li>
+      <li><code>nodes/system-html-nn-authoring-guide.html</code> supplies authoring and director rules.</li>
+      <li><code>sdk/agent/parser.py</code> supplies parser enforcement.</li>
+      <li><code>renderer/renderer.js</code> is expected to expose UI surfaces and commands.</li>
+      <li><code>python/harness/server.py</code> is expected to expose or route backend RPC behavior.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This node defines the bounded contract for generating program documentation nodes. It is documentation and orchestration context only. It carries no authority to execute the generator by itself.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="./system-neural-node-v2-schema.html"
+           data-target-node-id="system-neural-node-v2-schema"
+           data-relationship-type="bounded-by"
+           data-relationship-weight="1.00"
+           data-navigation-role="schema-contract"
+           data-authority-required="none">HTML Neural Node v2 Schema</a>
+      </li>
+      <li>
+        <a href="./system-html-nn-authoring-guide.html"
+           data-target-node-id="system-html-nn-authoring-guide"
+           data-relationship-type="depends-on"
+           data-relationship-weight="1.00"
+           data-navigation-role="authoring-guide"
+           data-authority-required="none">HTML-NN Authoring Guide</a>
+      </li>
+      <li>
+        <a href="./system-self-improvement-loop.html"
+           data-target-node-id="system-self-improvement-loop"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="self-improvement-protocol"
+           data-authority-required="none">Self-Improvement Loop</a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-program-doc-generator-request"
+          data-script-kind="submission"
+          data-side-effects="request-only"
+          data-tool-target="docs.generate_program_nodes">
+{
+  "when": {
+    "intent": "generate_program_documentation"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-program-documentation-generator",
+      "required": true
+    }
+  ],
+  "collect": [
+    "panel_inventory",
+    "settings_categories",
+    "workflow_screens",
+    "registered_commands",
+    "registered_rpc_bridges",
+    "diagnostic_surfaces"
+  ],
+  "validate": [
+    "active node directory is runtime-resolved",
+    "generated nodes are documentation or program-doc",
+    "generated documentation nodes have zero execution authority",
+    "source fingerprints are present",
+    "written files parse before success is reported"
+  ],
+  "submit": {
+    "target": "mcp:docs.generate_program_nodes",
+    "mode": "request",
+    "requires_user_confirmation": true
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Program Documentation Generator Contract",
+  "description": "Contract for intentionally generating program documentation HTML-NNs through a registered Tala bridge.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "program-doc",
+    "generator",
+    "workflow",
+    "director",
+    "self-healing"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created": "2026-06-04T12:20:41Z",
+    "updated": "2026-06-04T12:20:41Z",
+    "version": "1.0.0",
+    "schema": "neural-node/v2",
+    "doc_target": "docs.generate_program_nodes",
+    "source_fingerprint": "sha256:schema-FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8-guide-4DE51B2E3AF504EFBF4586233919D91B1429234DE3C1011EFA8A606C74DF82E2"
+  },
+  "entry_points": [
+    "Settings -> System -> Generate Documentation Nodes",
+    "/generate-doc-nodes",
+    "docs.generate_program_nodes"
+  ],
+  "default_generated_node_type": "documentation",
+  "allowed_generated_node_types": [
+    "documentation",
+    "program-doc"
+  ],
+  "required_validation": [
+    "parse after write",
+    "validate authority fields",
+    "validate source metadata",
+    "validate director JSON",
+    "verify no private/persona/LTMF-derived content"
+  ],
+  "director_rules": {
+    "allowed_mime_type": "application/tala-director+json",
+    "side_effects": "request-only",
+    "target": "docs.generate_program_nodes"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

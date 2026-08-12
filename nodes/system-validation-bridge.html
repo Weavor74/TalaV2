@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Validation Bridge</title>
+</head>
+<body>
+<article
+  data-node-id="system-validation-bridge"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="test.validation.bridge"
+  data-source-files="sdk/agent/safe_code_bridges.py;sdk/agent/tools.py;python/harness/server.py"
+  data-source-fingerprint="sha256:FC2C1EE5B39DB34BEC3AED9CEEA56CD0FDA07D2FFCE9556E985A361D72E48D57"
+  data-generated-at="2026-06-05T13:00:03Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Validation Bridge</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>The Validation Bridge documents test.run_validation. It runs allowlisted validation commands such as python -m py_compile and pytest-style commands. Arbitrary shell commands are not allowed. Validation reports command, exit code, stdout, stderr, timeout status, and success. Tala should use this bridge after code mutation or documentation generation whenever a validation command is relevant.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/safe_code_bridges.py</code></li>
+      <li><code>sdk/agent/tools.py</code></li>
+      <li><code>python/harness/server.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-system-validation-bridge"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "test.validation.bridge"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-self-improvement-loop",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Validation Bridge",
+  "description": "Program documentation for test.validation.bridge.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "program-doc"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-06-05T13:00:03Z",
+    "schema": "neural-node/v2",
+    "doc_target": "test.validation.bridge",
+    "source_fingerprint": "sha256:FC2C1EE5B39DB34BEC3AED9CEEA56CD0FDA07D2FFCE9556E985A361D72E48D57"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

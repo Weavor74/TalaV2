@@ -1,0 +1,416 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="system-html-nn-authoring-guide">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-06-04T11:55:44Z">
+  <meta name="tala-author" content="tala-system">
+  <title>Neural Node: HTML-NN Authoring Guide</title>
+</head>
+<body>
+<article
+  data-node-id="system-html-nn-authoring-guide"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="1.00"
+  data-governance-status="context-only"
+  data-doc-target="html-nn-authoring"
+  data-source-files="nodes/system-neural-node-v2-schema.html;D:/Downloads/Tala_HTML_Neural_Node_Graph_Paper.md;sdk/agent/parser.py;sdk/agent/templates/base_node.html"
+  data-source-fingerprint="sha256:FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8"
+  data-generated-at="2026-06-04T11:55:44Z"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">HTML-NN Authoring Guide</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-html-nn-authoring-guide</code></dd>
+      <dt>Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>Operational guide for authoring valid, governed Tala HTML Neural Nodes from structured node specifications.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-06-04T11:55:44Z">2026-06-04</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>Tala authors HTML Neural Nodes by preparing a structured node specification and passing that specification through a deterministic generator and validator. Tala must not invent raw node wrappers, must not use a custom <code>&lt;node&gt;</code> element, and must not report success until a file exists on disk and parses successfully.</p>
+    <p>The root format is an HTML document containing a parser-readable <code>&lt;article&gt;</code> element with <code>data-node-id</code>, <code>data-node-type</code>, and <code>data-execution-authority</code>. Documentation nodes use <code>data-node-type="documentation"</code>, zero execution authority, zero memory authority unless explicitly justified, and source metadata that explains what files or sources produced the node.</p>
+    <p>This guide describes how to author safe documentation, workflow, validator, and director-aware nodes. It is context-only. It does not grant Tala permission to execute tools, write files, alter settings, approve governance, change providers, access private vault content, or create persona/backstory/history nodes.</p>
+  </section>
+
+  <section id="authoring-workflow">
+    <h2>Authoring Workflow</h2>
+    <ol>
+      <li>Identify the node purpose, target, and allowed node type.</li>
+      <li>Collect source files or source documents that justify the node.</li>
+      <li>Load any required reference nodes declared by a director block.</li>
+      <li>Compute a source fingerprint from those inputs.</li>
+      <li>Create a structured node specification with title, type, target, source metadata, semantic content, relationships, director rules, and state data.</li>
+      <li>Use the approved Python generator to render the specification into the canonical <code>&lt;article&gt;</code> HTML-NN format.</li>
+      <li>Write the file to the runtime-resolved active node directory.</li>
+      <li>Parse the written file with Tala's parser.</li>
+      <li>Verify schema fields, authority boundaries, relationship weights, JSON blocks, and forbidden content.</li>
+      <li>Only then report created, updated, unchanged, stale, or error counts.</li>
+    </ol>
+  </section>
+
+  <section id="node-specification">
+    <h2>Structured Node Specification</h2>
+    <p>A generator input should be a data object, not freeform HTML. A documentation node specification should include these fields:</p>
+    <ul>
+      <li><code>node_id</code>: stable kebab-case identifier.</li>
+      <li><code>node_type</code>: <code>documentation</code> for program documentation.</li>
+      <li><code>title</code>: human-readable title matching <code>h1#node-title</code>.</li>
+      <li><code>doc_target</code>: the panel, category, schema, or feature being documented.</li>
+      <li><code>source_files</code>: files or source documents used to generate the node.</li>
+      <li><code>source_fingerprint</code>: hash over the relevant source inputs.</li>
+      <li><code>semantic_memory</code>: clear prose that explains what the node means.</li>
+      <li><code>relationships</code>: typed weighted links to related nodes.</li>
+      <li><code>directors</code>: optional inert JSON instructions for reference routing, workflow validation, request preparation, or audit summaries.</li>
+      <li><code>state_data</code>: JSON object for structured metadata, tags, sections, and verification results.</li>
+    </ul>
+  </section>
+
+  <section id="director-authoring">
+    <h2>Director Authoring</h2>
+    <p>Director blocks let an HTML-NN act as a scripted coordinator without becoming an unsafe executable payload. Tala may use a director to reference other nodes or documents, collect required information, validate workflow readiness, prepare an MCP/RPC request, or record an audit summary.</p>
+    <p>Director blocks must be JSON-only and inert. Use <code>type="application/tala-director+json"</code>, declare <code>data-script-kind</code>, and declare <code>data-side-effects</code> as <code>none</code> or <code>request-only</code>. A director may request a registered bridge such as <code>docs.generate_program_nodes</code>, but the bridge performs the action only after normal authority and policy checks.</p>
+    <pre><code>&lt;script type="application/tala-director+json"
+        id="director-generate-program-docs"
+        data-script-kind="workflow"
+        data-side-effects="request-only"
+        data-tool-target="docs.generate_program_nodes"&gt;
+{
+  "when": { "intent": "generate_program_documentation" },
+  "reference": [
+    { "type": "html-nn", "node_id": "system-neural-node-v2-schema", "required": true },
+    { "type": "html-nn", "node_id": "system-html-nn-authoring-guide", "required": true }
+  ],
+  "collect": [
+    "panels",
+    "settings_categories",
+    "workflow_screens",
+    "chat_tools",
+    "vault_profile",
+    "logs_diagnostics"
+  ],
+  "validate": [
+    "source paths are runtime-safe",
+    "node_type is documentation or program-doc",
+    "execution authority is zero for documentation nodes",
+    "director side effects are none or request-only"
+  ],
+  "submit": {
+    "target": "mcp:docs.generate_program_nodes",
+    "mode": "request",
+    "requires_user_confirmation": true
+  }
+}
+&lt;/script&gt;</code></pre>
+  </section>
+
+  <section id="required-html-format">
+    <h2>Required HTML Format</h2>
+    <pre><code>&lt;!DOCTYPE html&gt;
+&lt;html lang="en"&gt;
+&lt;head&gt;
+  &lt;meta charset="UTF-8"&gt;
+  &lt;meta name="tala-schema" content="neural-node/v2"&gt;
+  &lt;title&gt;Neural Node: Example Documentation&lt;/title&gt;
+&lt;/head&gt;
+&lt;body&gt;
+&lt;article
+  data-node-id="example-documentation-node"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-doc-target="example-target"
+  data-source-files="renderer/renderer.js"
+  data-source-fingerprint="sha256:..."
+  data-generated-at="2026-06-04T11:55:44Z"&gt;
+
+  &lt;header id="node-identity"&gt;
+    &lt;h1 id="node-title"&gt;Example Documentation&lt;/h1&gt;
+  &lt;/header&gt;
+
+  &lt;section id="semantic-memory"&gt;
+    &lt;h2&gt;Semantic Memory&lt;/h2&gt;
+    &lt;p&gt;Explain the documented target here.&lt;/p&gt;
+  &lt;/section&gt;
+
+  &lt;nav id="relationship-anchors" aria-label="Node relationships"&gt;
+    &lt;ul&gt;
+      &lt;li&gt;
+        &lt;a href="./system-neural-node-v2-schema.html"
+           data-target-node-id="system-neural-node-v2-schema"
+           data-relationship-type="depends-on"
+           data-relationship-weight="1.00"
+           data-navigation-role="schema-contract"
+           data-authority-required="none"&gt;HTML-NN v2 Schema&lt;/a&gt;
+      &lt;/li&gt;
+    &lt;/ul&gt;
+  &lt;/nav&gt;
+
+  &lt;script type="application/tala-director+json"
+          id="director-reference-example"
+          data-script-kind="reference"
+          data-side-effects="none"&gt;
+  {
+    "when": { "intent": "author_or_validate_html_nn" },
+    "reference": [
+      { "type": "html-nn", "node_id": "system-neural-node-v2-schema", "required": true },
+      { "type": "html-nn", "node_id": "system-html-nn-authoring-guide", "required": true }
+    ],
+    "then": {
+      "instruction": "Use these nodes as canonical context before authoring or repairing HTML-NNs."
+    }
+  }
+  &lt;/script&gt;
+
+  &lt;script type="application/json" id="node-state" data-cognitive-block="state"&gt;
+  {
+    "title": "Example Documentation",
+    "description": "Example valid documentation node.",
+    "tags": ["documentation"],
+    "metadata": {
+      "schema": "neural-node/v2"
+    }
+  }
+  &lt;/script&gt;
+&lt;/article&gt;
+&lt;/body&gt;
+&lt;/html&gt;</code></pre>
+  </section>
+
+  <section id="active-node-directory">
+    <h2>Active Node Directory</h2>
+    <p>Nodes must be written to Tala's active Electron user-data node directory, resolved at runtime. Do not hardcode a machine-specific absolute path in generator code.</p>
+    <ul>
+      <li>Electron main process: <code>path.join(app.getPath("userData"), "nodes")</code>.</li>
+      <li>Python backend: use <code>Path(os.environ["TALA_USER_DATA"]) / "nodes"</code> when <code>TALA_USER_DATA</code> is available.</li>
+      <li>Fallback Windows: <code>%APPDATA%/tala-engine/nodes</code>.</li>
+      <li>Fallback macOS: <code>~/Library/Application Support/tala-engine/nodes</code>.</li>
+      <li>Fallback Linux: <code>${XDG_CONFIG_HOME:-~/.config}/tala-engine/nodes</code>.</li>
+    </ul>
+  </section>
+
+  <section id="security-boundaries">
+    <h2>Security Boundaries</h2>
+    <ul>
+      <li>Do not include executable JavaScript in generated nodes.</li>
+      <li>Use <code>script type="application/json"</code> for inert state data blocks.</li>
+      <li>Use <code>script type="application/tala-director+json"</code> only for inert director blocks.</li>
+      <li>Do not create or endorse <code>script type="application/x-python"</code> executable blocks for documentation nodes.</li>
+      <li>Do not include private profile data, vault contents, credentials, API keys, personal backstory, roleplay memory, persona history, or LTMF-derived content.</li>
+      <li>Do not assign documentation nodes operational authority. Use <code>data-execution-authority="0.00"</code>.</li>
+      <li>Do not allow a node to grant itself tool access, file-write permission, provider-change permission, wallet permission, or governance approval.</li>
+    </ul>
+  </section>
+
+  <section id="validation-checklist">
+    <h2>Validation Checklist</h2>
+    <ul>
+      <li>File exists in the active node directory.</li>
+      <li>Parser finds one root <code>&lt;article&gt;</code>.</li>
+      <li><code>data-node-id</code>, <code>data-node-type</code>, and <code>data-execution-authority</code> are present.</li>
+      <li><code>data-node-type</code> matches the intended type.</li>
+      <li><code>data-execution-authority</code> is numeric and within <code>0.00</code> to <code>1.00</code>.</li>
+      <li>Documentation nodes include <code>data-doc-target</code>, <code>data-source-files</code>, <code>data-source-fingerprint</code>, and <code>data-generated-at</code>.</li>
+      <li>All JSON state and director blocks parse as JSON objects.</li>
+      <li>Director blocks declare valid kind, side effects, references, validation rules, and optional registered request targets.</li>
+      <li>Relationship weights are within <code>0.00</code> to <code>1.00</code>.</li>
+      <li>No forbidden private or personal content appears in generated program documentation.</li>
+      <li>Generator reports success only after disk verification passes.</li>
+    </ul>
+  </section>
+
+  <section id="self-healing-rules">
+    <h2>Self-Healing Rules</h2>
+    <p>Self-healing documentation compares the current source fingerprint to the fingerprint stored in the existing node. If the fingerprint matches, leave the node unchanged. If the fingerprint changes, regenerate and validate the node. If a documented target disappears, mark the node stale or archive it rather than silently deleting it.</p>
+    <p>A self-healing director may reference the canonical schema, authoring guide, and source files; collect current panel or settings metadata; validate staleness; and submit a request to a registered documentation generator. The director itself must not write files or call external systems directly.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>nodes/system-neural-node-v2-schema.html</code> supplies the canonical schema memory.</li>
+      <li><code>D:/Downloads/Tala_HTML_Neural_Node_Graph_Paper.md</code> supplies the architecture paper.</li>
+      <li><code>sdk/agent/parser.py</code> supplies current parser enforcement.</li>
+      <li><code>sdk/agent/templates/base_node.html</code> supplies the legacy template baseline.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This authoring guide was created after the schema node to give Tala a bounded process for dynamic HTML-NN creation. It constrains Tala to structured specification, deterministic generation, parser validation, and explicit success verification.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="./system-neural-node-v2-schema.html"
+           data-target-node-id="system-neural-node-v2-schema"
+           data-relationship-type="depends-on"
+           data-relationship-weight="1.00"
+           data-navigation-role="schema-contract"
+           data-authority-required="none">HTML Neural Node v2 Schema</a>
+      </li>
+      <li>
+        <a href="./system-program-documentation-generator.html"
+           data-target-node-id="system-program-documentation-generator"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="generator-contract"
+           data-authority-required="none">Program Documentation Generator Contract</a>
+      </li>
+      <li>
+        <a href="./system-self-improvement-loop.html"
+           data-target-node-id="system-self-improvement-loop"
+           data-relationship-type="supports"
+           data-relationship-weight="0.90"
+           data-navigation-role="self-improvement-protocol"
+           data-authority-required="none">Self-Improvement Loop</a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-generate-program-documentation"
+          data-script-kind="workflow"
+          data-side-effects="request-only"
+          data-tool-target="docs.generate_program_nodes">
+{
+  "when": {
+    "intent": "generate_program_documentation"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "collect": [
+    "panels",
+    "settings_categories",
+    "workflow_screens",
+    "chat_tools",
+    "vault_profile",
+    "nodes",
+    "logs_diagnostics"
+  ],
+  "validate": [
+    "source paths are runtime-safe",
+    "node_type is documentation or program-doc",
+    "documentation execution authority is zero",
+    "director side effects are none or request-only",
+    "generated nodes parse before success is reported"
+  ],
+  "submit": {
+    "target": "mcp:docs.generate_program_nodes",
+    "mode": "request",
+    "requires_user_confirmation": true
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "HTML-NN Authoring Guide",
+  "description": "Operational guide for authoring valid, governed Tala HTML Neural Nodes from structured node specifications.",
+  "tags": [
+    "html-nn",
+    "authoring",
+    "documentation",
+    "generator",
+    "validation",
+    "governance",
+    "director",
+    "workflow"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created": "2026-06-04T11:55:44Z",
+    "updated": "2026-06-04T12:08:19Z",
+    "version": "1.0.0",
+    "schema": "neural-node/v2",
+    "source_fingerprint": "sha256:FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8"
+  },
+  "authoring_rule": "Generate structured node specifications and render them through an approved generator; do not freestyle raw HTML.",
+  "required_pipeline": [
+    "collect sources",
+    "load director-declared references",
+    "compute fingerprint",
+    "create node specification",
+    "include inert director contracts when needed",
+    "render canonical article HTML",
+    "write to active node directory",
+    "parse with sdk.agent.parser",
+    "verify metadata and boundaries",
+    "report result"
+  ],
+  "forbidden_content": [
+    "LTMF content",
+    "personal backstory",
+    "persona history",
+    "roleplay memory",
+    "private profile data",
+    "vault contents",
+    "credentials",
+    "executable JavaScript",
+    "direct MCP execution from nodes",
+    "direct file writes from director blocks",
+    "documentation node executable Python"
+  ],
+  "director_rules": {
+    "allowed_mime_type": "application/tala-director+json",
+    "allowed_kinds": [
+      "reference",
+      "workflow",
+      "validator",
+      "submission",
+      "audit"
+    ],
+    "allowed_side_effects": [
+      "none",
+      "request-only"
+    ],
+    "bridge_rule": "Director blocks may prepare requests for registered Tala, RPC, or MCP-style bridges, but bridges perform actions only after authority and policy checks."
+  }
+}
+  </script>
+</article>
+</body>
+</html>

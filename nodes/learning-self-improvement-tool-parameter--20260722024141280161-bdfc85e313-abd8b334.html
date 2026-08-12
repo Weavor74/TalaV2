@@ -1,0 +1,120 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Self-improvement tool parameter discipline</title>
+</head>
+<body>
+<article
+  data-node-id="learning-self-improvement-tool-parameter--20260722024141280161-bdfc85e313-abd8b334"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:EF33FEE79A6F8E6061AE0F5145E4B43042BB7E3EA71E625087F83603DC1B271C"
+  data-generated-at="2026-07-22T02:41:41Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Self-improvement tool parameter discipline</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Self-improvement tool parameter discipline.</p>
+    <p>Two failure modes discovered during a live self-improvement session: (1) self_improvement.execute_plan requires structured replacements or file_writes payloads — free-form goal text passes dry-run but is rejected at execution; (2) tool call attribute values must never contain literal angle brackets, because they break the tool XML parser and silently abort the call.</p>
+    <p>Details:</p>
+    <p>- Lesson one</p>
+    <p>- parameter shape: when invoking self_improvement.execute_plan</p>
+    <p>- always supply exact old_text and new_text replacement pairs or explicit file_writes content. A plan described only in prose will validate in dry-run mode but fail at apply time with no mutations performed. Diagnose the real target file first</p>
+    <p>- then bound the change to a single file with exact-match replacements. Lesson two</p>
+    <p>- attribute hygiene: never embed literal less-than or greater-than characters inside tool attribute values. Write phrases like raw script tags or angle brackets in words instead. This applies to all ToolRegistry calls</p>
+    <p>- including distill_workflow_to_skill and docs.create_learning_node. Both lessons are now encoded in skill node skill-self-check-discipline and documentation target self-improvement.discipline</p>
+    <p>- so future goals inherit them automatically.</p>
+    <p>- Lesson one, parameter shape: when invoking self_improvement.execute_plan, always supply exact old_text and new_text replacement pairs or explicit file_writes content. A plan described only in prose will validate in dry-run mode but fail at apply time with no mutations performed. Diagnose the real target file first, then bound the change to a single file with exact-match replacements. Lesson two, attribute hygiene: never embed literal less-than or greater-than characters inside tool attribute values. Write phrases like raw script tags or angle brackets in words instead. This applies to all ToolRegistry calls, including distill_workflow_to_skill and docs.create_learning_node. Both lessons are now encoded in skill node skill-self-check-discipline and documentation target self-improvement.discipline, so future goals inherit them automatically.</p>
+    <p>Canonical topic node: self-improvement.system.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./self-improvement-system.html" data-target-node-id="self-improvement-system" data-relationship-type="relates-to" data-relationship-weight="0.95" data-navigation-role="canonical-topic" data-authority-required="none">Canonical Topic Node</a></li>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-self-improvement-tool-parameter--20260722024141280161-bdfc85e313-abd8b334"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Self-improvement tool parameter discipline",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "self-improvement",
+    "tool-contracts",
+    "parameter-shape",
+    "xml-parsing",
+    "failure-mode",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-07-22T02:41:41Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:EF33FEE79A6F8E6061AE0F5145E4B43042BB7E3EA71E625087F83603DC1B271C"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

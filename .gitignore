@@ -19,11 +19,18 @@ data/chroma/
 data/pytest_temp/
 blockchain/data/*.json
 blockchain/data/admin_secret.txt
-nodes/*.html
-# The self-extension workflow node is part of the engine contract (the DAG
-# chain's source of truth, with the built-in chain as fallback) — tracked
-# like the other canonical nodes.
-!nodes/workflow-self-extension.html
+# Neural nodes ARE the data, not build output — they are Tala's memory,
+# persona, documentation and learned knowledge, and most of them exist in
+# exactly one place on disk. Ignoring them is what turned the 2026-08-11
+# rollback bug from "a bad night" into permanent loss: ~58 nodes had no copy
+# in git, in the snapshot, or in the AppData install, and are simply gone.
+# The whole directory is 614K. It is tracked.
+#
+# The exception is settings-*: those are regenerated deterministically from
+# the database on every startup (settings_nn.sync_settings_to_nodes), so
+# tracking them is pure churn — 13 rewritten files per launch.
+nodes/settings-*.html
+nodes/settings-*_lora/
 nodes/*.html.bak
 nodes/_archive_legacy/
 nodes/.wizard_state.json
