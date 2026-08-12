@@ -223,6 +223,7 @@ class GoalEngine:
         policy: BatchPolicy | None = None,
         adapter_packet: "AdapterPacket | None" = None,
         pre_decomposed_tasks: list | None = None,
+        fresh_start: bool = False,
     ) -> dict[str, Any]:
         """
         Decompose a high-level goal, execute it phase-by-phase with checkpoints,
@@ -326,9 +327,41 @@ class GoalEngine:
                     if not restored_state or state["process_context"].get("idx", 0) > restored_state["process_context"].get("idx", 0):
                         restored_state = state
 
+            # Resume is for a run that was INTERRUPTED, never for one that
+            # already reached the end.
+            #
+            # Task ids are deterministic from goal text, so every re-run of
+            # the same goal restores the previous run's thought-state. When
+            # that state pointed at (or past) the last phase, the while-loop
+            # below had nothing to execute and the goal returned success
+            # having done absolutely nothing -- confirmed live 2026-08-11:
+            # "decomposed into 2 phase(s)" immediately followed by "Resuming
+            # at phase index 2", then straight to auto-documentation. Asking
+            # for the same goal again is a request to run it again; only a
+            # genuinely partial run (0 < idx < len) is resumable, and the
+            # caller can force a clean run with fresh_start.
+            _resume_idx = None
+            if restored_state:
+                _resume_idx = restored_state["process_context"].get("idx", 0) + 1
+
+            if restored_state and fresh_start:
+                log.info(
+                    "GoalEngine: ignoring restored thought-state (fresh_start): would have "
+                    "resumed at phase %d of %d.", _resume_idx, len(tasks),
+                )
+                restored_state = None
+            elif restored_state and _resume_idx >= len(tasks):
+                log.warning(
+                    "GoalEngine: discarding stale thought-state -- it resumes at phase %d of "
+                    "only %d, which would skip every phase and report success without "
+                    "executing anything. Starting this run from the beginning.",
+                    _resume_idx, len(tasks),
+                )
+                restored_state = None
+
             if restored_state:
                 log.info("GoalEngine: Restoring thought-state from local Ghost Blockchain.")
-                idx = restored_state["process_context"].get("idx", 0) + 1
+                idx = _resume_idx
                 phase_retry_counts = restored_state["process_context"].get("phase_retry_counts", {})
                 phases_completed = restored_state["variable_state"].get("phases_completed", [])
                 checkpoint_ids = restored_state["variable_state"].get("checkpoint_ids", [])
@@ -670,7 +703,11 @@ class GoalEngine:
                     log.info("GoalEngine: rolling back to checkpoint %s", checkpoint_id)
                     try:
                         import asyncio
-                        await asyncio.to_thread(self.recovery.restore_checkpoint)
+                        # Restore the checkpoint THIS phase created. The
+                        # no-argument call restored whatever sat under the
+                        # default name "checkpoint" -- which could be, and on
+                        # 2026-08-11 was, a snapshot days older than the run.
+                        await asyncio.to_thread(self.recovery.restore_checkpoint, checkpoint_id)
                         await TaskEventStore.append_event(
                             task.task_id,
                             "phase_rollback",

@@ -15,6 +15,7 @@ from __future__ import annotations
 import json
 import logging
 import os
+import re
 import uuid
 from datetime import UTC, datetime
 from typing import Any, Callable
@@ -321,6 +322,30 @@ Output JSON array only, wrapped in a Markdown code block like:
                     cached_json = json.loads(best_tasks)
                 else:
                     cached_json = best_tasks
+
+                # A cached plan is not exempt from being a valid plan.
+                #
+                # Quality checks used to run only on freshly generated
+                # decompositions, so once a junk plan reached the cache it was
+                # replayed verbatim on every later run of that goal, forever,
+                # with no LLM call and no validation. That is how phases named
+                # "Step 3 description" (the prompt template's own placeholder)
+                # kept executing long after the generator was fixed. Evict the
+                # poisoned row so the cache self-cleans instead of pinning the
+                # goal to a broken plan.
+                if self._plan_is_placeholder(cached_json):
+                    log.warning(
+                        "GoalTreeDecomposer: cached decomposition for %r is placeholder junk — "
+                        "evicting it and re-decomposing.", user_goal,
+                    )
+                    cached_json = None
+                    try:
+                        await db.execute(
+                            "DELETE FROM goal_decompositions WHERE prompt_hash = $1 AND goal = $2",
+                            prompt_hash, user_goal,
+                        )
+                    except Exception as _del_exc:
+                        log.warning("GoalTreeDecomposer: could not evict cached plan: %s", _del_exc)
         except Exception as e:
             log.warning("GoalTreeDecomposer: Semantic cache lookup failed: %s", e)
 
@@ -329,7 +354,15 @@ Output JSON array only, wrapped in a Markdown code block like:
         if not json_data:
             # 2. Try LLM-based decomposition
             json_data = await self._decompose_via_llm(user_goal)
-            
+
+            if json_data and self._plan_is_placeholder(json_data):
+                log.warning(
+                    "GoalTreeDecomposer: rejecting LLM decomposition for %r — it echoes the "
+                    "prompt's own placeholder example; using deterministic fallback instead.",
+                    user_goal,
+                )
+                json_data = None
+
             # 3. Store in semantic cache if LLM succeeded
             if json_data and not bypass_cache:
                 try:
@@ -550,15 +583,53 @@ Output JSON array only, wrapped in a Markdown code block like:
             pass
         return None
 
+    _PLACEHOLDER_DESC_RE = re.compile(
+        r'^\s*(?:step\s*\d*\s*description|description|task\s*\d*|<[^>]*>)\s*$',
+        re.IGNORECASE,
+    )
+
+    @classmethod
+    def _plan_is_placeholder(cls, json_data: Any) -> bool:
+        """
+        True when a decomposition is the prompt's example echoed back rather
+        than a real plan.
+
+        The prompt template ends with a formatting example containing
+        {"description": "Step 1 description"}, and a small model routinely
+        copies it verbatim. Executing that produces phases literally named
+        "Step 3 description" -- confirmed live 2026-08-11, reported as a
+        completed goal. Applied to BOTH freshly generated and cached plans:
+        a junk plan that reaches the cache would otherwise be replayed on
+        every subsequent run of that goal.
+        """
+        if not isinstance(json_data, list) or not json_data:
+            return False
+        descs = [str(i.get("description", "")) for i in json_data if isinstance(i, dict)]
+        if not descs:
+            return False
+        bad = [d for d in descs if cls._PLACEHOLDER_DESC_RE.match(d)]
+        return bool(bad) and len(bad) >= max(1, len(descs) // 2)
+
     def _fallback_decompose(self, goal: str, parent_id: str | None = None) -> list[TaskItem]:
         """Simple split-based fallback when inference fails."""
-        # Split on separators
-        separators = (".", ";", "\n", "→", "->")
-        normalized = goal
-        for sep in separators:
+        # Sentence-split, but never inside a token.
+        #
+        # This used to blindly replace every "." with a separator, which
+        # shredded file paths and decimals: the goal "Create a new skill at
+        # sdk/agent/skills/word_reverser.py that registers a tool named
+        # reverse_words" became the phases "...word_reverser" and "py that
+        # registers a tool named reverse_words" (confirmed live 2026-08-11).
+        # Each phase then went to synthesis as a sentence fragment with no
+        # recoverable target path, and the model wrote unrelated code.
+        # A period only ends a sentence when followed by whitespace and the
+        # start of a new one; "." inside word_reverser.py or 3.14 is not a
+        # boundary.
+        normalized = re.sub(r'(?<=[a-z0-9\)\]"\'])\.(?=\s+[A-Z"\'])', "|", goal)
+        for sep in (";", "\n", "→", "->"):
             normalized = normalized.replace(sep, "|")
-        segments = [p.strip() for p in normalized.split("|") if p.strip()]
-        
+        segments = [p.strip().rstrip(".").strip() for p in normalized.split("|") if p.strip()]
+        segments = [s for s in segments if s]
+
         if not segments:
             segments = [goal.strip()]
 

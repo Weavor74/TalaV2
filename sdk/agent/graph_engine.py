@@ -1182,9 +1182,31 @@ class DAGExecutionEngine:
             # Runs in a subprocess: importing generated code executes its
             # module-level statements, which must not happen inside the harness.
             if target_path.suffix.lower() == ".py" and "import_probe" in checks:
-                _is_skill = "register_assert" in checks and "register_tool" in (
-                    target_path.read_text(encoding="utf-8", errors="replace")
-                )
+                _src_text = target_path.read_text(encoding="utf-8", errors="replace")
+                _is_skill = "register_assert" in checks and "register_tool" in _src_text
+
+                # Enforce the contract the GOAL states, not just the one the
+                # generated file happens to declare.
+                #
+                # The registration assertion only fired when the written file
+                # already contained @register_tool -- so code that ignored the
+                # requirement outright sailed through: a goal asking for "a
+                # skill that registers a tool named reverse_words" was
+                # satisfied by a file containing a factorial function, which
+                # compiled and imported cleanly and was reported as success
+                # (confirmed live 2026-08-11). If the goal names the tool it
+                # wants, that name must actually be in the registry after the
+                # module is imported.
+                _required_tool = None
+                if "register_assert" in checks:
+                    _m = re.search(
+                        r'(?:register(?:s|ing)?|expose[sd]?|provide[sd]?|call)\s+(?:a\s+)?tool\s+'
+                        r'(?:named|called)\s+[`"\']?([A-Za-z_][A-Za-z0-9_]*)',
+                        str(node.inputs.get("problem") or ""),
+                        re.IGNORECASE,
+                    )
+                    if _m:
+                        _required_tool = _m.group(1)
                 _probe = (
                     "import importlib.util,sys;"
                     f"sys.path.insert(0,r'{self.root_dir or '.'}');"
@@ -1195,6 +1217,13 @@ class DAGExecutionEngine:
                     _probe += (
                         "from sdk.agent.tools import ToolRegistry;"
                         "assert ToolRegistry._tools, 'code declares @register_tool but registered nothing';"
+                    )
+                if _required_tool:
+                    _probe += (
+                        "from sdk.agent.tools import ToolRegistry as _TR;"
+                        f"assert '{_required_tool}'.lower() in _TR._tools, "
+                        f"\\\"the goal requires a registered tool named '{_required_tool}', \\\""
+                        f"\\\" but importing this file registered: \\\" + (', '.join(sorted(_TR._tools)[:12]) or 'nothing');"
                     )
                 _probe += "print('IMPORT_OK')"
 

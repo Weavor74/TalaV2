@@ -242,3 +242,67 @@ async def test_heal_policy_feedback_target_from_spec(monkeypatch, tmp_path):
     assert write.status == "pending" and write.retry_count == 1
     assert check.status == "pending"
     assert target_path.read_text(encoding="utf-8") == "original content"
+
+
+# ---------------------------------------------------------------------------
+# Re-running a goal must actually re-run it
+# ---------------------------------------------------------------------------
+
+@pytest.mark.asyncio
+async def test_stale_ghost_state_does_not_skip_every_phase(monkeypatch, tmp_path):
+    """
+    Regression: task ids are deterministic from goal text, so every re-run of
+    the same goal restored the PREVIOUS run's ghost thought-state. When that
+    state pointed at (or past) the final phase, run_goal's phase loop had
+    nothing left to execute and returned success having done nothing --
+    confirmed live 2026-08-11: "decomposed into 2 phase(s)" immediately
+    followed by "Resuming at phase index 2", then straight to
+    auto-documentation, with no file written and no tool called.
+
+    Resume exists for an INTERRUPTED run; a restored index at or beyond the
+    phase count is stale and must be discarded.
+    """
+    from unittest.mock import AsyncMock, MagicMock, patch
+
+    from sdk.agent.goal_engine import GoalEngine
+    from sdk.agent.planner import TaskItem
+
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+
+    t1 = TaskItem(description="Phase one", dependencies=[])
+    t1.task_id, t1.payload = "ghost_t1", {}
+    t2 = TaskItem(description="Phase two", dependencies=["ghost_t1"])
+    t2.task_id, t2.payload = "ghost_t2", {}
+
+    # Ghost state claiming the last phase (index 1) already completed, so a
+    # naive resume starts at index 2 == len(tasks) and executes nothing.
+    stale_state = {
+        "process_context": {"idx": 1, "phase_retry_counts": {}},
+        "variable_state": {
+            "phases_completed": ["Phase one", "Phase two"],
+            "checkpoint_ids": [],
+            "phase_output_summaries": [],
+        },
+    }
+
+    with patch("sdk.agent.queue.GoalTreeDecomposer.decompose", new_callable=AsyncMock, return_value=[t1, t2]), \
+         patch("sdk.agent.ghost_persistence.restore_from_ghost", new_callable=AsyncMock, return_value=stale_state), \
+         patch("sdk.agent.ghost_persistence.commit_to_ghost", new_callable=AsyncMock), \
+         patch("sdk.agent.ghost_persistence.check_hash", new_callable=MagicMock, return_value="none"), \
+         patch("sdk.agent.queue.BatchQueue.enqueue_task", new_callable=AsyncMock), \
+         patch("sdk.agent.queue.BatchQueue.transition_task", new_callable=AsyncMock), \
+         patch("sdk.agent.persistence.TaskEventStore.append_event", new_callable=AsyncMock), \
+         patch("sdk.agent.telemetry.LiveStatusReporter.broadcast_status", new_callable=AsyncMock), \
+         patch("sdk.agent.goal_engine.GoalEngine._auto_document_skill", new_callable=AsyncMock), \
+         patch("sdk.agent.validator.PhaseValidator.validate", new_callable=MagicMock,
+               return_value=MagicMock(success=True, output="OK", error=None)), \
+         patch("sdk.agent.graph_engine.DAGExecutionEngine.execute_task_as_dag",
+               new_callable=AsyncMock, return_value={"success": True, "output": "ran", "error": None}) as mock_dag:
+        engine = GoalEngine(root_dir=str(tmp_path))
+        result = await engine.run_goal("Test Goal")
+
+    assert result["success"] is True
+    assert mock_dag.call_count == 2, (
+        "stale ghost state skipped every phase — the goal reported success "
+        f"having executed {mock_dag.call_count} of 2 phases"
+    )

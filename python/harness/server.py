@@ -719,6 +719,75 @@ async def handle_inference_generate(
 
     session_id: str = str(params.get("session_id", uuid.uuid4()))
 
+    # Deterministic goal routing. A chat message that literally says
+    # "execute this goal: ..." states its intent outright — routing it must
+    # not depend on the model choosing a goal tool out of a 73-entry
+    # registry. Confirmed live 2026-08-11: given exactly that phrasing, the
+    # 8B improvised with code.propose_file_write, got a parameter error, and
+    # then HALLUCINATED a success response — no file written, no goal run.
+    if not params.get("raw_prompt"):
+        _goal_m = re.match(
+            r'^\s*(?:execute|run|start)\s+(?:this\s+|the\s+following\s+)?goal\s*[::]\s*(.+)$',
+            raw_user_prompt,
+            re.IGNORECASE | re.DOTALL,
+        )
+        if _goal_m:
+            _goal_text = _goal_m.group(1).strip()
+            logger.info("Chat goal-route: executing as goal (not chat): %.120s", _goal_text)
+            try:
+                # GoalEngine.run_goal is the real executor (the one task.submit
+                # drives): decompose against the live tool registry -> DAG per
+                # phase -> the workflow node's synthesize/validate/heal chain.
+                # Deliberately NOT safe_code_bridges.execute_self_improvement_goal,
+                # which despite its name is a bounded patch applier: it defaults
+                # its target to README.md and no-ops entirely unless the caller
+                # already supplies concrete replacements/file_writes, so a
+                # freeform "create a skill and run it" goal returns success
+                # having done nothing.
+                from sdk.agent.goal_engine import GoalEngine
+                from sdk.agent.batch_policy import BatchPolicy
+
+                _engine = GoalEngine(_ROOT_DIR)
+                _goal_res = await asyncio.wait_for(
+                    # fresh_start: typing a goal in chat means "run this now",
+                    # never "resume whatever a previous identical goal left
+                    # behind" -- task ids are deterministic from goal text, so
+                    # without this a re-run silently resumes past every phase.
+                    _engine.run_goal(_goal_text, policy=BatchPolicy.auto(), fresh_start=True),
+                    timeout=float(params.get("goal_timeout_seconds", 1800.0)),
+                )
+                _ok_flag = bool(_goal_res.get("success")) if isinstance(_goal_res, dict) else False
+                _phases = (_goal_res or {}).get("phases_completed") if isinstance(_goal_res, dict) else None
+                _output = (_goal_res or {}).get("output") if isinstance(_goal_res, dict) else None
+                _error = (_goal_res or {}).get("error") if isinstance(_goal_res, dict) else None
+                _lines = [
+                    "**Goal execution finished.**" if _ok_flag else "**Goal execution FAILED.**",
+                ]
+                if _phases:
+                    _lines.append("Phases completed: " + "; ".join(str(p) for p in _phases))
+                if _output:
+                    _lines.append(f"Result: {json.dumps(_output) if isinstance(_output, (dict, list)) else _output}")
+                if _error:
+                    _lines.append(f"Error: {_error}")
+                return _ok(req_id, {
+                    "text": "\n\n".join(_lines),
+                    "tokens_used": 0,
+                    "cost_usd": 0.0,
+                    "goal_result": _goal_res,
+                    "routed": "goal_engine",
+                })
+            except Exception as _goal_exc:
+                logger.exception("Chat goal-route failed")
+                return _ok(req_id, {
+                    "text": (
+                        "**Goal execution failed to start:** "
+                        f"{type(_goal_exc).__name__}: {_goal_exc}"
+                    ),
+                    "tokens_used": 0,
+                    "cost_usd": 0.0,
+                    "routed": "goal_engine",
+                })
+
     # Computed once here and reused everywhere this classification matters.
     # See is_casual_chat_prompt (module level, near _CLOSED_THINKING_RE) for
     # what this checks and the regression it fixes.
@@ -1391,8 +1460,10 @@ async def handle_inference_generate(
                         nodes_to_inject = top_active[:max_injected_nodes]
                         
                         from python.inference.lora_trainer import queue_lora_training
-                        import asyncio
-                        
+                        # (asyncio is imported at module scope; a local import
+                        # here made `asyncio` a function-local name, so any use
+                        # of it EARLIER in this function raised UnboundLocalError.)
+
                         # Process LoRA for injected nodes
                         for node, score in nodes_to_inject:
                             # 1. Extract adapter if present
