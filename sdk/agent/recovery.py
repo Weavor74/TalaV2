@@ -56,56 +56,100 @@ class RollbackRecovery:
     def create_snapshot(cwd: str, checkpoint_name: str) -> bool:
         """
         Creates a directory snapshot by copying files to a .tala_snapshots directory.
+
+        The new snapshot is built beside the old one and swapped in only after
+        it completes. Previously this rmtree'd the existing snapshot FIRST and
+        then copied -- so any failure mid-copy (a locked file, a full disk)
+        destroyed the last known-good checkpoint and left a partial one in its
+        place, which the restore path would then happily treat as the truth.
         """
         import shutil
+        snapshot_root = os.path.join(cwd, ".tala_snapshots")
+        snapshot_dir = os.path.join(snapshot_root, checkpoint_name)
+        staging_dir = os.path.join(snapshot_root, f".{checkpoint_name}.incoming")
+        previous_dir = os.path.join(snapshot_root, f".{checkpoint_name}.previous")
         try:
-            snapshot_dir = os.path.join(cwd, ".tala_snapshots", checkpoint_name)
-            if os.path.exists(snapshot_dir):
-                shutil.rmtree(snapshot_dir)
-            
-            # Copy workspace files while excluding generated/dependency/cache folders.
             def ignore_dirs(dir_path, contents):
                 return [c for c in contents if c in SNAPSHOT_IGNORE_NAMES]
-            
-            shutil.copytree(cwd, snapshot_dir, ignore=ignore_dirs)
+
+            if os.path.exists(staging_dir):
+                shutil.rmtree(staging_dir, ignore_errors=True)
+            shutil.copytree(cwd, staging_dir, ignore=ignore_dirs)
+
+            # Swap: keep the old snapshot until the new one is in place.
+            if os.path.exists(previous_dir):
+                shutil.rmtree(previous_dir, ignore_errors=True)
+            if os.path.exists(snapshot_dir):
+                os.rename(snapshot_dir, previous_dir)
+            os.rename(staging_dir, snapshot_dir)
+            shutil.rmtree(previous_dir, ignore_errors=True)
+
             log.info("RollbackRecovery: created directory snapshot for %s", checkpoint_name)
             return True
         except Exception as exc:
             log.error("RollbackRecovery: snapshot failed: %s", exc)
+            shutil.rmtree(staging_dir, ignore_errors=True)
+            # If the swap died between the rename steps, put the old one back.
+            if not os.path.exists(snapshot_dir) and os.path.exists(previous_dir):
+                try:
+                    os.rename(previous_dir, snapshot_dir)
+                except Exception:
+                    pass
             return False
 
     @staticmethod
     def restore_snapshot(cwd: str, checkpoint_name: str) -> bool:
         """
-        Restores files from the .tala_snapshots directory.
+        Restore files from a .tala_snapshots checkpoint by copying the
+        snapshot OVER the workspace.
+
+        This must never delete the workspace first. It used to: the old
+        implementation walked the repo root and rmtree'd/removed every entry
+        not on the ignore list, then copied the snapshot back. That made an
+        automatic, unattended rollback the single most destructive operation
+        in the system, and on 2026-08-11 it destroyed this repo for real --
+        an overnight goal phase failed, rollback fired, the delete loop got
+        partway through the alphabet (…nodes, package.json, python, renderer)
+        and then died, leaving 427 of 706 tracked files gone and nothing
+        restored. Only the git history made it recoverable.
+
+        Copy-over is strictly weaker: files CREATED since the checkpoint
+        survive the rollback rather than being removed. That is the correct
+        trade. A rollback that leaves an extra file behind is a nuisance; a
+        rollback that deletes the user's working tree is a catastrophe, and
+        no automatic recovery path should be able to cause one.
         """
         import shutil
         try:
             snapshot_dir = os.path.join(cwd, ".tala_snapshots", checkpoint_name)
-            if not os.path.exists(snapshot_dir):
+            if not os.path.isdir(snapshot_dir):
                 log.warning("RollbackRecovery: snapshot %s not found.", checkpoint_name)
                 return False
 
-            # Delete current contents except generated/dependency/cache folders.
-            for item in os.listdir(cwd):
-                if item in SNAPSHOT_IGNORE_NAMES:
-                    continue
-                item_path = os.path.join(cwd, item)
-                if os.path.isdir(item_path):
-                    shutil.rmtree(item_path)
-                else:
-                    os.remove(item_path)
+            entries = [e for e in os.listdir(snapshot_dir) if e not in SNAPSHOT_IGNORE_NAMES]
+            if not entries:
+                log.error(
+                    "RollbackRecovery: refusing to restore from empty snapshot %s.",
+                    checkpoint_name,
+                )
+                return False
 
-            # Copy snapshot contents back
-            for item in os.listdir(snapshot_dir):
+            restored = 0
+            for item in entries:
                 src_path = os.path.join(snapshot_dir, item)
                 dst_path = os.path.join(cwd, item)
                 if os.path.isdir(src_path):
-                    shutil.copytree(src_path, dst_path)
+                    shutil.copytree(src_path, dst_path, dirs_exist_ok=True)
                 else:
+                    os.makedirs(os.path.dirname(dst_path) or cwd, exist_ok=True)
                     shutil.copy2(src_path, dst_path)
+                restored += 1
 
-            log.info("RollbackRecovery: restored directory snapshot for %s", checkpoint_name)
+            log.info(
+                "RollbackRecovery: restored %d top-level entr%s from snapshot %s "
+                "(copy-over; files created since the checkpoint were left in place).",
+                restored, "y" if restored == 1 else "ies", checkpoint_name,
+            )
             return True
         except Exception as exc:
             log.error("RollbackRecovery: snapshot restore failed: %s", exc)
