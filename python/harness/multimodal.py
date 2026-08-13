@@ -13,11 +13,25 @@ from python.harness.config import settings
 
 logger = logging.getLogger(__name__)
 
-# Fallback imports so the server doesn't crash if optional deps aren't installed yet
+# Fallback imports so the server doesn't crash if optional deps aren't
+# installed yet.
+#
+# These catch Exception rather than ImportError on purpose. A missing package
+# is only one of the two ways these imports fail: on a headless host
+# `import pyautogui` reaches mouseinfo, which evaluates
+# Display(os.environ['DISPLAY']) at import time and raises KeyError, and
+# sounddevice raises OSError when PortAudio finds no device. An
+# ImportError-only guard let the "gracefully failing if TALA_HEADLESS is
+# active" path in this module's own docstring crash outright instead --
+# which is what kept CI red.
 try:
     import pyautogui
     from PIL import Image
-except ImportError:
+except Exception as exc:  # noqa: BLE001 - optional dep, degrade don't crash
+    logger.warning(
+        "Screen-context dependencies unavailable (%s: %s); screen capture disabled.",
+        type(exc).__name__, exc,
+    )
     pyautogui = None
     Image = None
 
@@ -25,7 +39,11 @@ try:
     import whisper
     import sounddevice as sd
     import numpy as np
-except ImportError:
+except Exception as exc:  # noqa: BLE001 - optional dep, degrade don't crash
+    logger.warning(
+        "Voice dependencies unavailable (%s: %s); transcription disabled.",
+        type(exc).__name__, exc,
+    )
     whisper = None
     sd = None
     np = None
