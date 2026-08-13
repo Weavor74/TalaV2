@@ -1598,10 +1598,16 @@ async def handle_inference_generate(
                         settings_snapshots.append(f"[{title}]\n{sys_node.semantic_memory.strip()}")
                     
             if settings_snapshots:
+                # The join is hoisted out of the f-string deliberately: a
+                # backslash inside an f-string *expression* is a SyntaxError
+                # before Python 3.12, and pyproject declares
+                # requires-python = ">=3.10". Local dev on 3.12 parses it fine,
+                # which is why this only ever surfaced in CI (3.11).
+                snapshot_block = "\n\n".join(settings_snapshots)
                 system_settings_context = (
-                    f"\n\n=== LIVE HARNESS SETTINGS & SYSTEM SNAPSHOTS ===\n"
-                    f"{'\n\n'.join(settings_snapshots)}\n"
-                    f"================================================\n"
+                    "\n\n=== LIVE HARNESS SETTINGS & SYSTEM SNAPSHOTS ===\n"
+                    f"{snapshot_block}\n"
+                    "================================================\n"
                 )
         except Exception as sys_exc:
             logger.warning("Could not dynamically load settings nodes: %s", sys_exc)
