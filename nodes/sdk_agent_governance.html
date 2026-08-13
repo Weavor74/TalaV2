@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Governance</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_governance"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.governance"
+  data-source-files="sdk/agent/governance.py"
+  data-source-fingerprint="sha256:9688E11DE12F61D3FB09ECC3A3FB6051CCF6B8A8D12A18CB2EFDF2E12E91A508"
+  data-generated-at="2026-08-13T00:21:36Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Governance</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>sdk/agent/governance.py ====================== Runtime Governance &amp; Policy Evaluation — Tala Cognitive Engine Room Milestone 4 | Tasks 4.1, 4.2, 4.3, 4.4 Implements: • RuntimeGovernance — Maps directories and tools to specific authority levels.</p>
+    <p>It lives at sdk/agent/governance.py within the agent SDK.</p>
+    <p>Classes it defines: RuntimeGovernance — Defines security tiers for execution directories and tool schemas. (methods: get_resource_required_tier()); RiskClassifier — Dynamically grades the safety risk of proposed actions. (methods: classify_action()); PolicyEvaluator — Validates command execution inputs and Neural Node schema writes. (methods: evaluate_command(), evaluate_neural_node_write()); ToolGovernance — Constrains tool parameter access based on current authority clearances. (methods: filter_tool_parameters()).</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/governance.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_governance"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.governance"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Governance",
+  "description": "Program documentation for sdk.agent.governance.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "governance"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-13T00:21:36Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.governance",
+    "source_fingerprint": "sha256:9688E11DE12F61D3FB09ECC3A3FB6051CCF6B8A8D12A18CB2EFDF2E12E91A508"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

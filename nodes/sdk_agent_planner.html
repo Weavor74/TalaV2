@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Planner</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_planner"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.planner"
+  data-source-files="sdk/agent/planner.py"
+  data-source-fingerprint="sha256:DB86C74EBA4418CB5FA57E1BD8BAAEA55533997E6AD24589E60C660AF2A329C7"
+  data-generated-at="2026-08-13T00:21:37Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Planner</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>sdk/agent/planner.py ==================== Goal Decomposition &amp; Bounded Loop Engine — Tala Cognitive Engine Room Milestone 6 | Task 6.1.1 Implements the non-bypassable five-step Plan→Execute→Observe→Evaluate→Re-Plan loop.</p>
+    <p>It lives at sdk/agent/planner.py within the agent SDK.</p>
+    <p>Classes it defines: InvariantViolationError — Raised when a registered invariant returns False or raises.; LedgerAssertionError — Raised when a ledger assertion (required milestone checkpoint) fails.; MaxIterationsExceeded — Raised when the loop exhausts max_iterations without COMPLETE.; TaskStatus; LoopPhase; TaskItem — A single unit of work produced by GoalDecomposer. (methods: mark_complete(), mark_failed(), mark_in_progress(), mark_blocked()); PhasePlan — Represents a structured execution phase for a high-level goal.; ExecutionPlan — Structured plan produced by the PLAN phase.; ExecutionResult — Raw result from the EXECUTE phase.; Observation — Structured observation produced from an ExecutionResult.; EvaluationResult — Outcome of running invariants against an Observation.; GoalDecomposer — Parses a free-form user goal string into an ordered list of TaskItems. (methods: decompose()); BoundedMilestonePersistence — Enforces ledger checkpoint integrity. (methods: halt_on_missing_ledger_assertion()); ExecutionLoop — Non-bypassable five-step loop: Plan → Execute → Observe → Evaluate → Re-Plan. (methods: register_invariant(), set_execute_hook(), run(), plan(), execute(), observe(), evaluate(), re_plan()).</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/planner.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_planner"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.planner"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Planner",
+  "description": "Program documentation for sdk.agent.planner.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "planner"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-13T00:21:37Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.planner",
+    "source_fingerprint": "sha256:DB86C74EBA4418CB5FA57E1BD8BAAEA55533997E6AD24589E60C660AF2A329C7"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

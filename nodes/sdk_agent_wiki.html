@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Wiki</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_wiki"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.wiki"
+  data-source-files="sdk/agent/wiki.py"
+  data-source-fingerprint="sha256:BD719F5469D39F8D1F59055E4A8DFB799F52845A030A9418709DB5888DD06214"
+  data-generated-at="2026-08-13T00:21:38Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Wiki</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>sdk/agent/wiki.py ================= Knowledge Graph &amp; Self-Healing Docs — Tala Cognitive Engine Room Milestone 6 | Task 6.4.1 Provides: • WikiUpdater      — rewrites specific sections of HTML Neural Nodes • SelfHealingDocs  — compares actual resource structure to docs, finds gaps • Correction       — dataclass describing a documentation discrepancy • apply_corrections() — writes corrections to the node before code changes Design principle: Documentation is updated BEFORE executing a technical change, never after.</p>
+    <p>It lives at sdk/agent/wiki.py within the agent SDK.</p>
+    <p>Classes it defines: CorrectionSeverity — How badly out-of-date a documented field is.; Correction — Describes a single discrepancy between documentation and reality.; NodeUpdateResult — Result of a WikiUpdater.update_node() call.; WikiUpdater — Rewrites specific named sections inside an HTML Neural Node file. (methods: update_node(), get_section(), list_sections()); SelfHealingDocs — Compares actual resource structure to its documented Neural Node and produces a list of Corrections. (methods: run_comparative_check()); HTMLNNParser — Parses and serializes HTML Neural Nodes, extracting metadata and relations. (methods: parse_node_metadata()); WikiGenerator — Compiles maps, capabilities, and system schemas into self-documenting wiki nodes. (methods: compile_codebase_map_node()).</p>
+    <p>Functions it exposes: apply_corrections() — Write all *corrections* into the HTML node at *node_path*..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/wiki.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_wiki"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.wiki"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Wiki",
+  "description": "Program documentation for sdk.agent.wiki.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "wiki"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-13T00:21:38Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.wiki",
+    "source_fingerprint": "sha256:BD719F5469D39F8D1F59055E4A8DFB799F52845A030A9418709DB5888DD06214"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

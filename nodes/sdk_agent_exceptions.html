@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Exceptions</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_exceptions"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.exceptions"
+  data-source-files="sdk/agent/exceptions.py"
+  data-source-fingerprint="sha256:36071C48949991171ECE1111DFC0105D17E9FB984A13C40CEC64D2FEDEB028A2"
+  data-generated-at="2026-08-13T00:21:36Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Exceptions</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>exceptions.py — Tala Cognitive Engine Room: Agent SDK Custom Exceptions ======================================================================= All domain-specific exceptions raised by the Tala Agent SDK.</p>
+    <p>It lives at sdk/agent/exceptions.py within the agent SDK.</p>
+    <p>Classes it defines: TalaBaseError — Root exception for all Tala Agent SDK errors.; InvalidNodeSchemaError — Raised when an HTML Neural Node fails schema validation.; AuthorityBoundaryViolation — Raised when activation logic attempts to mutate a node&#x27;s ``execution_authority`` field.; Mem0WriteBlockedError — Raised when a write to the Mem0 persistent memory layer is blocked.; InsufficientTokenBalanceError — Raised when an agent operation requires more tokens than are currently available in the session balance.; InsufficientEscrowError — Raised when an inter-agent or cross-boundary operation cannot be funded because the escrow account holds less than the required amount.; PiiAccessBlockedError — Raised when a node or pipeline attempts to read, write, or emit data that has been classified as Personally Identifiable Information (PII) without the appropriate access clearance.; StyleCapExceededError — Raised when a node&#x27;s output exceeds the configured style or persona cap — for example, when a response exceeds the maximum permitted formality deviation, verbosity budget, or persona drift threshold.; SafetyGuardrailViolation — Raised when input prompts or model outputs violate configured safety guardrails..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/exceptions.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_exceptions"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.exceptions"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Exceptions",
+  "description": "Program documentation for sdk.agent.exceptions.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "exceptions"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-13T00:21:36Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.exceptions",
+    "source_fingerprint": "sha256:36071C48949991171ECE1111DFC0105D17E9FB984A13C40CEC64D2FEDEB028A2"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

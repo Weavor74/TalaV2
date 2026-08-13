@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Ingestion</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_ingestion"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.ingestion"
+  data-source-files="sdk/agent/ingestion.py"
+  data-source-fingerprint="sha256:108577E52E99A459400F49710F05FFB317F6722AE3CAA769809124C288910125"
+  data-generated-at="2026-08-13T00:21:36Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Ingestion</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>ingestion.py — Tala Cognitive Engine Room: Neural Compilation Pipeline ====================================================================== Provides the full lifecycle for reading, structuring, reconciling, and exporting HTML Neural Nodes.</p>
+    <p>It lives at sdk/agent/ingestion.py within the agent SDK.</p>
+    <p>Classes it defines: SemanticSection — A structured semantic unit extracted from a Neural Node document.; CorrectionRecord — A log entry produced by :func:`reconcile_contradictions`.; IngestionPipeline — High-level facade wrapping the full Neural Node ingestion lifecycle. (methods: ingest(), load_node(), load_node_from_html(), reconcile(), export()).</p>
+    <p>Functions it exposes: ingest_file() — Read a Neural Node HTML file exactly once (immutable read) and extract all semantic sections from it.; reconcile_contradictions() — Cascading modifier: detect adjacent nodes with conflicting definitions after *updated_node* has changed.; export_node() — Serialise *node* to the requested output format..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/ingestion.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_ingestion"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.ingestion"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Ingestion",
+  "description": "Program documentation for sdk.agent.ingestion.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "ingestion"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-13T00:21:36Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.ingestion",
+    "source_fingerprint": "sha256:108577E52E99A459400F49710F05FFB317F6722AE3CAA769809124C288910125"
+  }
+}
+  </script>
+</article>
+<section id="corrections"><p><em>Last auto-correction run: 2026-08-13T00:22:43.351080+00:00</em></p>
+<ul>
+  <li class="correction-warning"><strong>[WARNING]</strong> <code>functions.keywords</code>: expected "documented in node section 'functions'", found '[not documented]'. <em>Add <code>keywords</code> to the 'functions' section</em></li>
+</ul></section>
+</body>
+</html>

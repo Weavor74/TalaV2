@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Leases</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_leases"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.leases"
+  data-source-files="sdk/agent/leases.py"
+  data-source-fingerprint="sha256:F4AC32282A6AC48A2A6BA8E724AA74712C5E0741B0362D38E565FC73ED9963CF"
+  data-generated-at="2026-08-13T00:21:36Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Leases</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>sdk/agent/leases.py =================== Controlled Leases, Status Reports &amp; Contracts — Tala Cognitive Engine Room Milestone 6 | Task 6.5.1 Provides: • LeaseRequest    — dataclass for gate-controlled operations • LeaseGateway    — stores pending leases, requires user sign-off • LeaseToken      — represents an approved (or pending) lease • SystemStatusLog — structured application status logger • StatusReport    — dataclass for component health vectors • TelemetryChannel— emits status reports to Electron frontend via WebSocket Gate-controlled operations: &#x27;ledger&#x27;    — any write to the PostgreSQL financial ledger &#x27;file_edit&#x27; — any filesystem mutation outside the agent&#x27;s sandbox &#x27;wallet&#x27;    — any wallet balance or transaction operation A lease MUST be approved before the guarded operation executes.</p>
+    <p>It lives at sdk/agent/leases.py within the agent SDK.</p>
+    <p>Classes it defines: StatusLevel — Application vector health levels.; LeaseState; LeaseRequest — A request to perform a gate-controlled operation.; LeaseToken — Represents the approval state of a LeaseRequest. (methods: is_valid(), is_expired(), state()); StatusReport — Health report for a single application component or service. (methods: to_dict(), to_json()); LeaseGateway — Stores and manages pending leases. (methods: request_lease(), approve_lease(), deny_lease(), revoke_lease(), await_approval(), get_token(), pending_leases(), purge_expired()); SystemStatusLog — Structured logger for application vector health status. (methods: log(), latest(), all_latest(), degraded_components(), history(), summary()); TelemetryChannel — Emits StatusReport objects to the Electron frontend over WebSocket. (methods: emit(), emit_many(), stop()).</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/leases.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_leases"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.leases"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Leases",
+  "description": "Program documentation for sdk.agent.leases.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "leases"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-13T00:21:36Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.leases",
+    "source_fingerprint": "sha256:F4AC32282A6AC48A2A6BA8E724AA74712C5E0741B0362D38E565FC73ED9963CF"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

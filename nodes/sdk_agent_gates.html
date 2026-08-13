@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Gates</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_gates"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.gates"
+  data-source-files="sdk/agent/gates.py"
+  data-source-fingerprint="sha256:8B99F23D4E655683513688A8A5AB0B1FE5D5DACCB4A33A7FAEEB9393769683EF"
+  data-generated-at="2026-08-13T00:21:36Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Gates</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>sdk/agent/gates.py ================== Authorization Gates &amp; Emergency Halt Revocation — Tala Cognitive Engine Room Milestone 4 | Tasks 4.5, 4.6, 4.7 Implements: • AuthorizationGate         — Gatekeeper checking approval signatures or ledger assertions.</p>
+    <p>It lives at sdk/agent/gates.py within the agent SDK.</p>
+    <p>Classes it defines: AuthorizationGate — Interceptors enforcing user approvals and cryptographic ledger checkpoints. (methods: register_pre_approval(), request_authorization()); RevocationHalt — Global control switch to trigger emergency halt and revoke active workspace leases. (methods: trigger_emergency_halt(), release_emergency_halt(), is_halted()); PrivilegedCommandHandler — Escalation pathways requiring signed authorization confirmations. (methods: verify_privileged_token()).</p>
+    <p>Functions it exposes: trigger_emergency_halt() — Globally triggers emergency halt, freezing loop executions..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/gates.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_gates"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.gates"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Gates",
+  "description": "Program documentation for sdk.agent.gates.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "gates"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-13T00:21:36Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.gates",
+    "source_fingerprint": "sha256:8B99F23D4E655683513688A8A5AB0B1FE5D5DACCB4A33A7FAEEB9393769683EF"
+  }
+}
+  </script>
+</article>
+</body>
+</html>
