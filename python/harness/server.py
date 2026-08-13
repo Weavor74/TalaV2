@@ -365,9 +365,19 @@ def _maybe_handle_documentation_nl(prompt: str) -> str | None:
     if lowered.startswith("/"):
         return None
 
-    has_doc_context = any(term in lowered for term in ("doc", "docs", "documentation", "html-nn", "neural node", "program target")) or bool(
-        re.search(r"\bdocument\b", lowered)
-    )
+    # Word-boundary matched, not substring. A bare "doc" in this list matched
+    # inside ordinary words -- "docker", "doctor" -- so any message containing
+    # one of those plus "check"/"verify" was intercepted here, ran a
+    # documentation audit, and returned that as the entire reply. The user's
+    # message never reached the model. Confirmed live: a prompt mentioning
+    # terminal_backends/docker_backend.py was answered with
+    # "Documentation disk verification complete."
+    #
+    # The multi-word phrases below stay as substrings -- they cannot collide
+    # with a single ordinary word.
+    has_doc_context = bool(
+        re.search(r"\b(docs?|documents?|documentation)\b", lowered)
+    ) or any(term in lowered for term in ("html-nn", "neural node", "program target"))
     if not has_doc_context:
         return None
 
