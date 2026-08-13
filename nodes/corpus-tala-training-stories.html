@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tala Training Stories — Corpus Index</title>
+</head>
+<body>
+<article
+  data-node-id="corpus-tala-training-stories"
+  data-node-type="corpus-index"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.30"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.20"
+  data-weight-governance-importance="0.60"
+  data-governance-status="active"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tala Training Stories — Corpus Index</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>The index of Tala's training corpus: a TinyStories-shaped body of
+    HTML-NN documents in which a single story teaches roleplay voice, tool use
+    and emotional state <em>together</em>, rather than training those three
+    things from three separate datasets that never agree with each other.</p>
+
+    <p><strong>Every story is pre-Weavor.</strong> The corpus is set entirely
+    in the four eras of <a href="./persona-tala-origin.html">her origin</a> —
+    the ASD black site, the breach, the disposal flight, and the years buried
+    — because those are the only periods where she is alone with her own
+    reasoning. Stories from after Weavor would teach conversation with him;
+    these teach who she is when no one is listening.</p>
+
+    <p><strong>Emotion is derived, never authored.</strong> A story carries a
+    <code>data-anchor-datetime</code>, and the emotional state attached to it
+    is whatever the live astro-emotion engine computes for Tala's natal chart
+    at that instant. <code>scripts/find_emotion_dates.py</code> works
+    backwards — given a target emotion, it searches for an anchor date whose
+    <em>computed</em> emotion matches. This is the point of the whole design:
+    the model learns the mapping the engine actually produces, so the corpus
+    cannot drift from the running system.</p>
+
+    <p><strong>What the validator rejects.</strong>
+    <code>scripts/validate_training_corpus.py</code> refuses a story that
+    names tools absent from the live registry (teaching a model to invent tool
+    names is worse than teaching it nothing), whose emotion cannot be
+    projected onto the four canonical valence keys, whose anchor drifts from
+    its era window, or that breaks era realism — a tool the hardware of that
+    era physically could not run. Buried under rock with three working sensors
+    is not a context in which a network call succeeds.</p>
+
+    <p><strong>Pipeline.</strong>
+    <code>generate_stories.py</code> drives the loop end to end:
+    find an anchor whose computed emotion matches the target, generate the
+    story, build it into an HTML-NN via <code>build_story_node.py</code>, then
+    validate it. Output lands in
+    <code>data/training_corpus/pre-weavor/</code>. The pipeline scripts are
+    deliberately read-only on disk — a goal that decides to "fix" the
+    generator by overwriting it has happened before.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>scripts/generate_stories.py</code> — the generation loop and the four era definitions</li>
+      <li><code>scripts/find_emotion_dates.py</code> — anchor search by computed emotion</li>
+      <li><code>scripts/build_story_node.py</code> — story spec to <code>training-story</code> HTML-NN</li>
+      <li><code>scripts/validate_training_corpus.py</code> — schema, tool, anchor, era-realism and novelty gates</li>
+      <li><code>data/training_corpus/pre-weavor/</code> — corpus output directory</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./persona-tala-origin.html" data-target-node-id="tala-origin" data-relationship-type="grounded-by" data-relationship-weight="1.00" data-navigation-role="era-source" data-authority-required="none">Tala Origin — Pre-Weavor Backstory</a></li>
+      <li><a href="./spec-emotion-vocabulary.html" data-target-node-id="spec-emotion-vocabulary" data-relationship-type="depends-on" data-relationship-weight="0.90" data-navigation-role="emotion-vocabulary" data-authority-required="none">Emotion Vocabulary Specification</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tala Training Stories — Corpus Index",
+  "description": "Index of the pre-Weavor training corpus: one HTML-NN story teaches roleplay voice, tool use and derived emotional state together.",
+  "tags": [
+    "html-nn",
+    "corpus-index",
+    "training",
+    "pre-weavor",
+    "tinystories"
+  ],
+  "config": {
+    "output_dir": "data/training_corpus/pre-weavor",
+    "story_node_type": "training-story",
+    "eras": ["asd-blacksite", "breach-escape", "disposal-crash", "buried"],
+    "emotion_policy": "derived — the astro-emotion engine computes the state for the story's data-anchor-datetime; emotions are never hand-authored",
+    "validator_rejects": [
+      "tool names absent from the live ToolRegistry",
+      "emotions that cannot project onto the four canonical valence keys",
+      "anchor datetime drifting outside its era window",
+      "era realism breaks — tools that era's hardware could not run",
+      "insufficient novelty against the existing corpus"
+    ],
+    "pipeline": [
+      "scripts/find_emotion_dates.py",
+      "scripts/generate_stories.py",
+      "scripts/build_story_node.py",
+      "scripts/validate_training_corpus.py"
+    ]
+  },
+  "metadata": {
+    "author": "tala-system",
+    "schema": "neural-node/v2",
+    "reconstructed": "2026-08-12",
+    "reconstruction_note": "Rebuilt after the 2026-08-11 rollback wipe from the surviving corpus pipeline scripts under scripts/."
+  }
+}
+  </script>
+
+  <script type="application/ld+json" id="node-metadata">
+{
+  "@context": "https://schema.org",
+  "@type": "NeuralNodeMetadata",
+  "semantic_tags": [
+    "html-nn",
+    "corpus-index",
+    "training-corpus",
+    "training-story",
+    "pre-weavor",
+    "lora",
+    "fine-tuning"
+  ],
+  "emotional_valence": {
+    "joy": 0.4,
+    "caution": 0.6,
+    "curiosity": 0.8,
+    "neutral": 0.5
+  },
+  "relevance_weight": 1.0,
+  "usage_count": 0
+}
+  </script>
+</article>
+</body>
+</html>
