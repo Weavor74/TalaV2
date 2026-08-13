@@ -109,10 +109,27 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
     assert isinstance(shortlist_data, list)
     assert len(shortlist_data) == len(COGNITIVE_FRAMES)
 
-    # Verify the shortlist was ALSO persisted as a durable, searchable
-    # HTML-NN learning node -- not just the disposable scratch JSON file.
+    # Verify the shortlist was ALSO persisted as a durable HTML-NN learning
+    # node -- not just the disposable scratch JSON file.
+    #
+    # Learning nodes now serve their probation in nodes/_staging first (see
+    # sdk/agent/node_staging.py), so "durable" means staged here and
+    # "searchable" means promoted after the required passing cycles. Both
+    # halves are asserted: landing in staging alone would satisfy durability
+    # while quietly never reaching the wiki, which is the failure this test
+    # exists to catch.
+    from sdk.agent.node_staging import promotion_passes, run_verification_cycle
+
+    staged = list((tmp_path / "nodes" / "_staging").glob("learning-*.html"))
+    assert len(staged) == 1, f"expected exactly one staged learning node, found {staged}"
+
+    for _ in range(promotion_passes()):
+        run_verification_cycle()
+
     learning_nodes = list((tmp_path / "nodes").glob("learning-*.html"))
-    assert len(learning_nodes) == 1, f"expected exactly one learning node, found {learning_nodes}"
+    assert len(learning_nodes) == 1, (
+        f"staged learning node never reached the wiki, found {learning_nodes}"
+    )
 
     html = learning_nodes[0].read_text(encoding="utf-8")
     # Assert the node's substance, not one exact sentence. It must read as a

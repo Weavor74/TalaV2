@@ -31,6 +31,10 @@ blockchain/data/admin_secret.txt
 # tracking them is pure churn — 13 rewritten files per launch.
 nodes/settings-*.html
 nodes/settings-*_lora/
+# Probation areas for newly authored nodes: transient by definition. A node
+# is tracked once it earns promotion into nodes/ (see sdk/agent/node_staging.py).
+nodes/_staging/
+nodes/_quarantine/
 nodes/*.html.bak
 nodes/_archive_legacy/
 nodes/.wizard_state.json

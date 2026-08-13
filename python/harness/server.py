@@ -10703,6 +10703,25 @@ async def _startup_background() -> None:
     except Exception as _ch_exc:
         logger.warning("ChannelManager failed to start: %s", _ch_exc)
 
+    # ── 7c. Node promotion cycle ──
+    # Nodes Tala authored since the last run sit in nodes/_staging/ on
+    # probation. One cycle per startup means a node must survive several
+    # separate sessions before it joins the retrieval corpus, so a node
+    # written and immediately regretted never reaches production.
+    try:
+        from sdk.agent.node_staging import run_verification_cycle
+
+        _stage_summary = run_verification_cycle()
+        if _stage_summary["promoted"] or _stage_summary["quarantined"] or _stage_summary["pending"]:
+            logger.info(
+                "NodeStaging: %d promoted, %d quarantined, %d still on probation",
+                len(_stage_summary["promoted"]),
+                len(_stage_summary["quarantined"]),
+                len(_stage_summary["pending"]),
+            )
+    except Exception as _stage_exc:
+        logger.warning("NodeStaging cycle failed: %s", _stage_exc)
+
     # ── 8. Start monitor tasks now that all startup imports are complete ──
     # Deferring these monitor tasks (especially _monitor_stdin which runs blocking ReadFile
     # in an executor thread) prevents Windows process loader lock / console handle lock deadlocks

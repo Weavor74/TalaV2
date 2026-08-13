@@ -75,6 +75,10 @@ class DocumentationNodeResult:
     doc_target: str
     validation_passed: bool
     path: str
+    #: True when the node went to nodes/_staging/ instead of production and
+    #: is awaiting promotion. Callers that report "node created" to a user
+    #: should say "staged" instead when this is set.
+    staged: bool = False
 
     def as_dict(self) -> dict[str, Any]:
         return {
@@ -88,6 +92,7 @@ class DocumentationNodeResult:
             "doc_target": self.doc_target,
             "validation_passed": self.validation_passed,
             "path": self.path,
+            "staged": self.staged,
         }
 
 
@@ -445,7 +450,19 @@ def create_documentation_node(
     relationships: Any = None,
     references: Any = None,
     tags: Any = None,
+    stage: bool = False,
 ) -> dict[str, Any]:
+    """
+    Write a neural node.
+
+    ``stage=True`` routes the node into ``nodes/_staging/`` instead of
+    production: it must then pass verification on several consecutive
+    cycles before ``node_staging.run_verification_cycle`` promotes it (see
+    that module for why). Callers authoring a node from model output —
+    anything Tala decided to write — should stage it. Deterministic
+    generators that rebuild a node from source on demand should not: their
+    output is reproducible and re-verified every time it is regenerated.
+    """
     safe_node_id = _safe_node_id(node_id)
     node_type = str(node_type or "documentation").strip()
     if node_type not in ALLOWED_NODE_TYPES:
@@ -553,6 +570,29 @@ def create_documentation_node(
 </body>
 </html>
 """
+
+    # Probation. A brand-new node written from model output goes to staging
+    # rather than straight into the retrieval corpus; an update to a node
+    # that already exists in production writes through, so the self-healing
+    # docs path is never blocked behind a promotion cycle.
+    if stage and previous_content is None:
+        from sdk.agent.node_staging import stage_node, staging_enabled
+
+        if staging_enabled():
+            staged_path = stage_node(safe_node_id, html)
+            return DocumentationNodeResult(
+                created=False,
+                updated=False,
+                unchanged=False,
+                errors=[],
+                file_name=staged_path.name,
+                node_id=safe_node_id,
+                node_type=node_type,
+                doc_target=doc_target,
+                validation_passed=True,
+                path=str(staged_path),
+                staged=True,
+            ).as_dict()
 
     if previous_content == html:
         created = False
@@ -903,6 +943,13 @@ def create_learning_documentation_node(
         relationships=relationship_list,
         references=references,
         tags=learning_tags,
+        # Learning nodes are the model deciding something is worth
+        # remembering, and historically the dominant source of wiki junk
+        # (3 of 17 were real). assess_learning_quality above screens the
+        # obvious cases at write time; probation catches the rest by
+        # requiring the node to survive several verification cycles before
+        # it joins the retrieval corpus.
+        stage=True,
     )
 
 
