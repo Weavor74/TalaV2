@@ -123,6 +123,10 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
     staged = list((tmp_path / "nodes" / "_staging").glob("learning-*.html"))
     assert len(staged) == 1, f"expected exactly one staged learning node, found {staged}"
 
+    # Dwell is a wall-clock policy tested in tests/test_node_staging.py; this
+    # test is about the shortlist reaching the wiki at all, so waive it here
+    # rather than sleeping out the probation period.
+    monkeypatch.setenv("TALA_NODE_PROMOTION_MIN_MINUTES", "0")
     for _ in range(promotion_passes()):
         run_verification_cycle()
 

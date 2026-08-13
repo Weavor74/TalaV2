@@ -65,7 +65,12 @@ def main() -> int:
     for item in summary["quarantined"]:
         print(f"quarantined: {item['node_id']} — {item['reason']}")
     for item in summary["pending"]:
-        state = f"{item['passes']}/{item['required']}"
+        state = f"{item['passes']}/{item['required']} passes"
+        if item.get("required_dwell_minutes"):
+            state += (
+                f", {item.get('dwell_minutes', 0):.0f}/"
+                f"{item['required_dwell_minutes']:.0f} min"
+            )
         suffix = f" — {item['last_error']}" if item.get("last_error") else ""
         print(f"pending:     {item['node_id']} ({state}){suffix}")
 

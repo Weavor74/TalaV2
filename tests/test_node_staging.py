@@ -53,6 +53,9 @@ def _isolate(tmp_path, monkeypatch):
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     monkeypatch.delenv("TALA_NODE_STAGING", raising=False)
     monkeypatch.setenv("TALA_NODE_PROMOTION_PASSES", "3")
+    # Dwell is asserted on its own below; most tests are about the pass
+    # counter, so they must not have to wait out wall-clock minutes.
+    monkeypatch.setenv("TALA_NODE_PROMOTION_MIN_MINUTES", "0")
     (tmp_path / "nodes").mkdir(parents=True, exist_ok=True)
     return tmp_path
 
@@ -158,3 +161,58 @@ def test_staging_can_be_turned_off(_isolate, monkeypatch):
     """An operator must be able to opt out without editing code."""
     monkeypatch.setenv("TALA_NODE_STAGING", "off")
     assert node_staging.staging_enabled() is False
+
+
+def test_dwell_time_gates_promotion_independently_of_passes(_isolate, monkeypatch):
+    """
+    Probation must mean elapsed time, not just a counter.
+
+    Tala is meant to run continuously, so the verification loop runs on a
+    short interval. Without a wall-clock requirement, three cycles fifteen
+    seconds apart would satisfy "three passes" and probation would collapse
+    to under a minute.
+    """
+    monkeypatch.setenv("TALA_NODE_PROMOTION_MIN_MINUTES", "60")
+    node_staging.stage_node("waiting-node", VALID_NODE.format(node_id="waiting-node", body=REAL_BODY))
+
+    for _ in range(10):
+        summary = node_staging.run_verification_cycle()
+        assert summary["promoted"] == [], "promoted before serving its dwell time"
+
+    pending = {row["node_id"]: row for row in summary["pending"]}
+    assert pending["waiting-node"]["passes"] >= 3, "passes should still accumulate while waiting"
+    assert not (_nodes(_isolate) / "waiting-node.html").exists()
+
+
+def test_promotion_lands_once_dwell_is_satisfied(_isolate, monkeypatch):
+    """The counterpart: time served plus clean passes does promote."""
+    monkeypatch.setenv("TALA_NODE_PROMOTION_MIN_MINUTES", "60")
+    node_staging.stage_node("aging-node", VALID_NODE.format(node_id="aging-node", body=REAL_BODY))
+
+    for _ in range(3):
+        node_staging.run_verification_cycle()
+    assert not (_nodes(_isolate) / "aging-node.html").exists()
+
+    # Backdate the staging timestamp: the node has now been on probation
+    # long enough, without the test sleeping for an hour.
+    import json
+
+    ledger_path = node_staging.resolve_staging_dir() / node_staging.LEDGER_FILENAME
+    ledger = json.loads(ledger_path.read_text(encoding="utf-8"))
+    ledger["aging-node"]["first_staged"] = "2020-01-01T00:00:00+00:00"
+    ledger_path.write_text(json.dumps(ledger), encoding="utf-8")
+
+    summary = node_staging.run_verification_cycle()
+    assert summary["promoted"] == ["aging-node"]
+    assert (_nodes(_isolate) / "aging-node.html").is_file()
+
+
+def test_promotion_loop_is_time_based_not_restart_based(_isolate):
+    """
+    Regression guard for the always-on case: the module must expose a
+    running loop, so promotion never depends on the process restarting.
+    """
+    import inspect
+
+    assert inspect.iscoroutinefunction(node_staging.run_promotion_loop)
+    assert node_staging.staging_interval_minutes() > 0

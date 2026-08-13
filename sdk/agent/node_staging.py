@@ -26,9 +26,22 @@ directory: every consumer (retrieval indexing, the node grid, the wiki
 healer) globs ``nodes/*.html`` non-recursively, so staged nodes are
 invisible to all of them without a single change at those call sites.
 
+Promotion is gated on two independent things, deliberately:
+
+* **passes** — the node verified cleanly on N separate cycles;
+* **dwell** — it has been in staging for at least M minutes.
+
+Passes alone would be meaningless once the verification loop runs on a
+short interval (three cycles at 15s apart is not probation), and dwell
+alone would promote a node nobody ever checked. Requiring both means the
+loop can run often enough to be useful on an always-on instance without
+the waiting period collapsing.
+
 Configuration
 -------------
-``TALA_NODE_PROMOTION_PASSES``   consecutive passes required (default 3)
+``TALA_NODE_PROMOTION_PASSES``   clean cycles required (default 3)
+``TALA_NODE_PROMOTION_MIN_MINUTES``  minimum time in staging (default 60)
+``TALA_NODE_STAGING_INTERVAL_MINUTES``  harness verification loop period (default 15)
 ``TALA_NODE_STAGING``            set to "off" to write straight through
 """
 
@@ -51,6 +64,11 @@ LEDGER_FILENAME = ".promotion_ledger.json"
 
 DEFAULT_PROMOTION_PASSES = 3
 DEFAULT_MAX_FAILURES = 3
+#: Minimum wall-clock time a node spends on probation, independent of how
+#: often the verification loop happens to run.
+DEFAULT_PROMOTION_MIN_MINUTES = 60.0
+#: How often the harness re-verifies the queue while it is running.
+DEFAULT_STAGING_INTERVAL_MINUTES = 15.0
 
 #: Below this, a node's semantic memory is a stub rather than content.
 MIN_SEMANTIC_MEMORY_CHARS = 80
@@ -66,12 +84,45 @@ def staging_enabled() -> bool:
     return str(os.environ.get("TALA_NODE_STAGING", "")).strip().lower() not in ("off", "0", "false")
 
 
+def _env_float(name: str, default: float, minimum: float = 0.0) -> float:
+    raw = os.environ.get(name)
+    if raw is None or not str(raw).strip():
+        return default
+    try:
+        return max(minimum, float(raw))
+    except ValueError:
+        return default
+
+
 def promotion_passes() -> int:
     raw = os.environ.get("TALA_NODE_PROMOTION_PASSES")
     try:
         return max(1, int(raw)) if raw else DEFAULT_PROMOTION_PASSES
     except ValueError:
         return DEFAULT_PROMOTION_PASSES
+
+
+def promotion_min_minutes() -> float:
+    return _env_float("TALA_NODE_PROMOTION_MIN_MINUTES", DEFAULT_PROMOTION_MIN_MINUTES)
+
+
+def staging_interval_minutes() -> float:
+    return _env_float(
+        "TALA_NODE_STAGING_INTERVAL_MINUTES", DEFAULT_STAGING_INTERVAL_MINUTES, minimum=0.25
+    )
+
+
+def _dwell_minutes(entry: dict[str, Any], now: datetime) -> float:
+    stamp = entry.get("first_staged")
+    if not stamp:
+        return 0.0
+    try:
+        then = datetime.fromisoformat(str(stamp))
+        if then.tzinfo is None:
+            then = then.replace(tzinfo=UTC)
+    except Exception:
+        return 0.0
+    return max(0.0, (now - then).total_seconds() / 60.0)
 
 
 def _nodes_dir() -> Path:
@@ -266,6 +317,8 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
     when nothing is staged.
     """
     required = promotion_passes()
+    min_dwell = promotion_min_minutes()
+    now = datetime.now(UTC)
     ledger = _load_ledger()
     promoted: list[str] = []
     quarantined: list[dict[str, str]] = []
@@ -283,13 +336,23 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
             entry["last_error"] = None
             ledger[node_id] = entry
 
-            if promote and entry["passes"] >= required:
+            dwell = _dwell_minutes(entry, now)
+            earned = entry["passes"] >= required and dwell >= min_dwell
+            if promote and earned:
                 _save_ledger(ledger)
                 if promote_node(node_id):
                     promoted.append(node_id)
                     ledger = _load_ledger()
                     continue
-            pending.append({"node_id": node_id, "passes": entry["passes"], "required": required})
+            pending.append(
+                {
+                    "node_id": node_id,
+                    "passes": entry["passes"],
+                    "required": required,
+                    "dwell_minutes": round(dwell, 1),
+                    "required_dwell_minutes": min_dwell,
+                }
+            )
         else:
             entry["passes"] = 0
             entry["failures"] = int(entry.get("failures", 0)) + 1
@@ -313,6 +376,7 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
         "quarantined": quarantined,
         "pending": pending,
         "required_passes": required,
+        "required_dwell_minutes": min_dwell,
     }
     if promoted or quarantined:
         log.info(
@@ -320,3 +384,35 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
             len(promoted), len(quarantined), len(pending),
         )
     return summary
+
+
+async def run_promotion_loop(interval_minutes: float | None = None) -> None:
+    """
+    Re-verify the staging queue forever, on an interval.
+
+    Promotion must not depend on the process restarting. Tala is meant to
+    run continuously, and a restart-triggered cycle on an always-on
+    instance means nodes sit in staging indefinitely — the queue silently
+    becomes a graveyard rather than a probation period. The wall-clock
+    dwell requirement is what keeps probation meaningful, so this loop can
+    run often without weakening it.
+
+    Never raises: a failure in one cycle is logged and the loop continues,
+    because this runs unattended for the life of the process.
+    """
+    import asyncio
+
+    period = (interval_minutes or staging_interval_minutes()) * 60.0
+    log.info(
+        "node_staging: promotion loop started — every %.0fs, promoting after "
+        "%d clean cycle(s) and %.0f minute(s) on probation",
+        period, promotion_passes(), promotion_min_minutes(),
+    )
+    while True:
+        try:
+            await asyncio.sleep(period)
+            await asyncio.to_thread(run_verification_cycle)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            log.warning("node_staging: promotion cycle failed: %s", exc)

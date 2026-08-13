@@ -10703,13 +10703,15 @@ async def _startup_background() -> None:
     except Exception as _ch_exc:
         logger.warning("ChannelManager failed to start: %s", _ch_exc)
 
-    # ── 7c. Node promotion cycle ──
-    # Nodes Tala authored since the last run sit in nodes/_staging/ on
-    # probation. One cycle per startup means a node must survive several
-    # separate sessions before it joins the retrieval corpus, so a node
-    # written and immediately regretted never reaches production.
+    # ── 7c. Node promotion ──
+    # Nodes Tala authored sit in nodes/_staging/ on probation until they
+    # verify cleanly enough times AND have waited out their dwell period.
+    # The loop is time-based rather than restart-based on purpose: Tala is
+    # meant to run continuously, so a restart-triggered cycle would leave
+    # the queue as a graveyard on an always-on instance. One cycle runs now
+    # to catch up after downtime, then the loop takes over.
     try:
-        from sdk.agent.node_staging import run_verification_cycle
+        from sdk.agent.node_staging import run_promotion_loop, run_verification_cycle
 
         _stage_summary = run_verification_cycle()
         if _stage_summary["promoted"] or _stage_summary["quarantined"] or _stage_summary["pending"]:
@@ -10719,8 +10721,9 @@ async def _startup_background() -> None:
                 len(_stage_summary["quarantined"]),
                 len(_stage_summary["pending"]),
             )
+        asyncio.create_task(run_promotion_loop())
     except Exception as _stage_exc:
-        logger.warning("NodeStaging cycle failed: %s", _stage_exc)
+        logger.warning("NodeStaging failed to start: %s", _stage_exc)
 
     # ── 8. Start monitor tasks now that all startup imports are complete ──
     # Deferring these monitor tasks (especially _monitor_stdin which runs blocking ReadFile
