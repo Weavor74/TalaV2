@@ -54,6 +54,14 @@ class MemoryManager:
             )
 
         if not tasks:
+            # An empty provider list is indistinguishable from "nothing matched"
+            # to every caller -- and providers are only registered during server
+            # startup, so any out-of-process caller silently gets zero results
+            # against a fully populated index.
+            logger.warning(
+                "MemoryManager.search called with no registered providers -- "
+                "returning empty. This is a wiring failure, not an empty index."
+            )
             return []
 
         results_lists = await asyncio.gather(*tasks, return_exceptions=True)
@@ -82,6 +90,11 @@ class MemoryManager:
             )
 
         if not tasks:
+            logger.warning(
+                "MemoryManager.session_search called with no registered "
+                "providers -- returning empty. This is a wiring failure, not "
+                "an empty index."
+            )
             return []
 
         results_lists = await asyncio.gather(*tasks, return_exceptions=True)
