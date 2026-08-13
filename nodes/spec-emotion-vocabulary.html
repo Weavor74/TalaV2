@@ -1,0 +1,501 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Emotion Vocabulary Specification</title>
+</head>
+<body>
+<article
+  data-node-id="spec-emotion-vocabulary"
+  data-node-type="specification"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.00"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.60"
+  data-weight-governance-importance="0.90"
+  data-governance-status="active"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Emotion Vocabulary Specification</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>This node is the canonical vocabulary of every emotion Tala's
+    astro-emotional engine can name, together with each emotion's projection
+    onto the four valence keys (joy, caution, curiosity, neutral) that
+    <code>update_manifest</code> and <code>adjust_behavioral_weights</code>
+    read. An emotion the engine can emit but this node does not list produces
+    a state that cannot be projected, so the two are kept in agreement by a
+    test rather than by discipline.</p>
+
+    <p>The source of truth for the words themselves is
+    <code>PLANET_EMOTION_MAP</code> in <code>python/astrology/emotion.py</code>:
+    each planet carries a harmonious and a challenging palette, and aspect
+    quality selects between them. This node was regenerated from that map on
+    2026-08-12, after the original was destroyed by the rollback incident
+    recorded in the recovery commit.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/astrology/emotion.py</code> — PLANET_EMOTION_MAP, derive_emotion</li>
+      <li><code>python/harness/emotion_service.py</code> — the virtual astro-emotion MCP tool</li>
+      <li><code>tests/test_astro_emotion.py</code> — asserts this node and the engine agree</li>
+    </ul>
+  </section>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Emotion Vocabulary Specification",
+  "description": "Canonical list of every emotion the astro-emotional engine can emit, with each one's projection onto the four valence keys.",
+  "tags": [
+    "html-nn",
+    "specification",
+    "emotion",
+    "vocabulary"
+  ],
+  "config": {
+    "emotions": [
+      "affection",
+      "aggression",
+      "alarm",
+      "belonging",
+      "clarity",
+      "comfort",
+      "compassion",
+      "confidence",
+      "confusion",
+      "conviction",
+      "courage",
+      "curiosity",
+      "delight",
+      "despair",
+      "disappointment",
+      "discipline",
+      "disruption",
+      "dissolution",
+      "doubt",
+      "dread",
+      "drive",
+      "eagerness",
+      "ease",
+      "elation",
+      "excess",
+      "exhilaration",
+      "exposure",
+      "frustration",
+      "generosity",
+      "heaviness",
+      "hope",
+      "impatience",
+      "instability",
+      "intensity",
+      "inventiveness",
+      "irritation",
+      "isolation",
+      "jealousy",
+      "loneliness",
+      "longing",
+      "melancholy",
+      "neutral",
+      "obsession",
+      "overconfidence",
+      "pride",
+      "quickness",
+      "rage",
+      "release",
+      "resolve",
+      "restlessness",
+      "reverie",
+      "steadiness",
+      "strain",
+      "tenderness",
+      "terror",
+      "transformation",
+      "unease",
+      "warmth",
+      "wonder",
+      "yearning"
+    ],
+    "valence_projection": {
+      "affection": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "aggression": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "alarm": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "belonging": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "clarity": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "comfort": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "compassion": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "confidence": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "confusion": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "conviction": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "courage": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "curiosity": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "delight": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "despair": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "disappointment": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "discipline": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "disruption": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "dissolution": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "doubt": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "dread": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "drive": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "eagerness": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "ease": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "elation": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "excess": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "exhilaration": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "exposure": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "frustration": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "generosity": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "heaviness": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "hope": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "impatience": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "instability": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "intensity": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "inventiveness": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "irritation": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "isolation": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "jealousy": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "loneliness": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "longing": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "melancholy": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "neutral": {
+        "joy": 0.5,
+        "caution": 0.5,
+        "curiosity": 0.4,
+        "neutral": 1.0
+      },
+      "obsession": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "overconfidence": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "pride": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "quickness": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "rage": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "release": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "resolve": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "restlessness": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "reverie": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "steadiness": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "strain": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "tenderness": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "terror": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "transformation": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "unease": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "warmth": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      },
+      "wonder": {
+        "joy": 0.8,
+        "caution": 0.2,
+        "curiosity": 0.8,
+        "neutral": 0.3
+      },
+      "yearning": {
+        "joy": 0.1,
+        "caution": 0.8,
+        "curiosity": 0.4,
+        "neutral": 0.3
+      }
+    }
+  },
+  "metadata": {
+    "author": "tala-system",
+    "schema": "neural-node/v2",
+    "source_of_truth": "python/astrology/emotion.py::PLANET_EMOTION_MAP"
+  }
+}
+  </script>
+</article>
+</body>
+</html>
