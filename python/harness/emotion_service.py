@@ -201,6 +201,7 @@ async def get_emotional_state(
     its colour, not the reply itself.
     """
     from python.astrology.emotion import emotion_vs_person, emotion_vs_time
+    from python.astrology.ephemeris import ephemeris_source
 
     now = when or datetime.now(UTC)
     try:
@@ -213,6 +214,10 @@ async def get_emotional_state(
         )
         payload["birth_source"] = birth_source
         payload["computed_at"] = now.isoformat()
+        # Which engine produced the positions. The approximation fallback
+        # disagrees with swisseph on essentially every date, so anything that
+        # persists this label downstream stays auditable after the fact.
+        payload["ephemeris_source"] = ephemeris_source()
 
         # Climate: a permanent relational disposition, never the user's DOB.
         user_chart, relational_source = await _resolve_user_birthdate()

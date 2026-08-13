@@ -4421,11 +4421,17 @@ async def starcitizen_lookup(
     import urllib.request as _req
 
     resource = (resource or "").strip().lower()
+    # Ships live under the "vehicles" resource -- the wiki has no "ships"
+    # endpoint. Callers reading the description reach for the in-universe
+    # word first, so map the obvious synonyms rather than bouncing them.
+    resource = {"ships": "vehicles", "ship": "vehicles", "vehicle": "vehicles"}.get(
+        resource, resource
+    )
     if resource not in _SC_RESOURCES:
-        return {
-            "error": f"unknown resource {resource!r}",
-            "valid_resources": sorted(_SC_RESOURCES),
-        }
+        raise ValueError(
+            f"unknown resource {resource!r}; valid resources: "
+            + ", ".join(sorted(_SC_RESOURCES))
+        )
 
     path, filter_field = _SC_RESOURCES[resource]
     limit = max(1, min(int(limit or 5), 25))

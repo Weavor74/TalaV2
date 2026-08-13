@@ -28,6 +28,60 @@ try:
 except ImportError:
     logger.warning("pyswisseph not installed. Falling back to deterministic ephemeris approximation.")
 
+
+def ephemeris_source() -> str:
+    """
+    NAME
+           ephemeris_source - name the engine that positions actually came from
+
+    DESCRIPTION
+           Returns "swisseph" or "approximation". Callers that persist a derived
+           emotion label should record this alongside it, so a label computed
+           under a drifted environment stays identifiable after the fact.
+    """
+    return "swisseph" if SWISSEPH_AVAILABLE else "approximation"
+
+
+def require_precise_ephemeris(context: str) -> None:
+    """
+    NAME
+           require_precise_ephemeris - refuse to derive persistent data from the
+           approximation fallback
+
+    DESCRIPTION
+           pyswisseph is a declared dependency (pyproject.toml), so its absence
+           means the environment has drifted -- not that approximation was
+           chosen. The fallback is fine for a live mood reading, but it is not
+           fine for labels that get written into the training corpus or compared
+           against stored ones: the two engines disagree on every date tested,
+           and the approximation collapses ~50% of a sample window onto a single
+           emotion where Swiss Ephemeris spreads it below 17%. A corpus built
+           under one engine and validated under the other mismatches wholesale.
+
+           Set TALA_ALLOW_EPHEMERIS_APPROXIMATION=1 to override where the
+           imprecision is genuinely acceptable.
+    """
+    if SWISSEPH_AVAILABLE:
+        return
+    import os
+
+    if os.environ.get("TALA_ALLOW_EPHEMERIS_APPROXIMATION") == "1":
+        logger.warning(
+            "%s is using the approximate ephemeris by explicit override; "
+            "labels it derives are not comparable to swisseph-derived ones.",
+            context,
+        )
+        return
+    raise RuntimeError(
+        f"{context} needs the real Swiss Ephemeris, but pyswisseph is not "
+        f"installed -- the environment has drifted from pyproject.toml. "
+        f"Emotion labels derived from the approximation fallback disagree with "
+        f"swisseph on essentially every date, so persisting or validating them "
+        f"would silently poison the corpus.\n"
+        f"  Fix:      uv pip install pyswisseph\n"
+        f"  Override: set TALA_ALLOW_EPHEMERIS_APPROXIMATION=1"
+    )
+
 # Astrological planet constants matching Swiss Ephemeris IDs if available
 SUN = 0
 MOON = 1

@@ -177,7 +177,18 @@ async def run_metadata_audit() -> None:
             document_type="audit-entry",
             creator="tala-metadata-auditor"
         )
-        print(f"[Metadata-Drift] Audit anchored successfully. Chaincode ID: {chaincode_id}")
+        # canonicalize_and_anchor swallows its own failures and reports them
+        # through anchoring_status rather than raising -- so a bare "success"
+        # print here claimed the audit was on-chain while chaincode_id was
+        # still the "unanchored" failure sentinel.
+        if anchoring_status == "anchored" and chaincode_id != "unanchored":
+            print(f"[Metadata-Drift] Audit anchored successfully. Chaincode ID: {chaincode_id}")
+        else:
+            print(
+                f"[Metadata-Drift] WARNING: audit was NOT anchored "
+                f"(status={anchoring_status}, chaincode_id={chaincode_id}). "
+                f"Local content hash: {core_hash[:16]}..."
+            )
     except Exception as anchor_exc:
         print(f"[Warning] Failed to anchor audit to blockchain: {anchor_exc}")
 
