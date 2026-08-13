@@ -44,12 +44,15 @@ class BaseEnvironment(abc.ABC):
         quoted_snap = shlex.quote(self._snapshot_path)
         quoted_cwd = shlex.quote(self.cwd)
         
+        # NOTE: these separators must be real newlines. They were previously
+        # written as "\\n", which in a non-raw Python string is a literal
+        # backslash-n, collapsing the whole script onto one line.
         script = (
-            f"export -p > {quoted_snap}\\n"
-            f"declare -f | grep -vE '^_[^_]' >> {quoted_snap}\\n"
-            f"alias -p >> {quoted_snap}\\n"
-            f"echo 'shopt -s expand_aliases' >> {quoted_snap}\\n"
-            f"builtin cd {quoted_cwd} 2>/dev/null || true\\n"
+            f"export -p > {quoted_snap}\n"
+            f"declare -f | grep -vE '^_[^_]' >> {quoted_snap}\n"
+            f"alias -p >> {quoted_snap}\n"
+            f"echo 'shopt -s expand_aliases' >> {quoted_snap}\n"
+            f"builtin cd {quoted_cwd} 2>/dev/null || true\n"
         )
         try:
             result = self._run_bash(script, login=True, timeout=30)
@@ -65,7 +68,10 @@ class BaseEnvironment(abc.ABC):
         
         quoted_snap = shlex.quote(self._snapshot_path)
         quoted_cwd = shlex.quote(target_cwd)
-        escaped_cmd = command.replace("'", "'\\\\''")
+        # The POSIX single-quote escape is '\'' -- close, escaped quote, reopen.
+        # This previously emitted an extra backslash ('\\''), which breaks any
+        # command containing a single quote.
+        escaped_cmd = command.replace("'", "'\\''")
         
         parts = []
         if self._snapshot_ready:
@@ -79,10 +85,16 @@ class BaseEnvironment(abc.ABC):
             parts.append(f"export -p > {quoted_snap} 2>/dev/null || true")
             
         # Emit CWD marker
+        # The \\n here is intentional and must stay escaped: it is consumed by
+        # printf as a format escape, not by Python. Do not "fix" it to a real
+        # newline -- that would embed a raw newline in the shell literal.
         parts.append(f"printf '\\n{self._cwd_marker}%s{self._cwd_marker}\\n' \"$(pwd -P)\"")
         parts.append("exit $__tala_ec")
         
-        full_script = "\\n".join(parts)
+        # Real newline. As "\\n" this joined every statement onto a single line,
+        # so `builtin cd ... || exit 126` short-circuited over the rest and the
+        # command never ran -- exit 0, empty output, success reported.
+        full_script = "\n".join(parts)
         
         result = self._run_bash(full_script, login=False, timeout=self.timeout)
         self._update_cwd(result)
@@ -104,11 +116,13 @@ class BaseEnvironment(abc.ABC):
             self.cwd = new_cwd
             
         # Strip marker from output
-        line_start = output.rfind("\\n", 0, first)
+        # Real newline: the captured output contains actual newlines (printf
+        # expands the \n in its format string), not literal backslash-n.
+        line_start = output.rfind("\n", 0, first)
         if line_start == -1:
             line_start = first
             
-        line_end = output.find("\\n", last + len(self._cwd_marker))
+        line_end = output.find("\n", last + len(self._cwd_marker))
         if line_end == -1:
             line_end = len(output)
         else:

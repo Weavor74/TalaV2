@@ -1,3 +1,5 @@
+import platform
+
 import pytest
 from sdk.agent.tools import get_system_info_tool
 
@@ -7,7 +9,11 @@ async def test_get_system_info_tool():
     assert isinstance(info, dict)
     assert "os" in info or "cpu" in info or "services" in info
     if "os" in info:
-        assert info["os"]["system"] == "Windows"
+        # Assert the tool reports the host it is actually running on, not the
+        # OS it happened to be written on. This previously hardcoded "Windows",
+        # which passed on the dev machine and failed on every Linux CI runner --
+        # the sibling GPU test below already handles portability this way.
+        assert info["os"]["system"] == platform.system()
 
 
 @pytest.mark.asyncio
