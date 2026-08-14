@@ -15,6 +15,7 @@ import logging
 import os
 import subprocess
 import sys
+import uuid
 from typing import Any
 
 from sdk.agent.persistence import project_task_state
@@ -115,8 +116,19 @@ class RollbackRecovery:
         import shutil
         snapshot_root = os.path.join(cwd, ".tala_snapshots")
         snapshot_dir = os.path.join(snapshot_root, checkpoint_name)
-        staging_dir = os.path.join(snapshot_root, f".{checkpoint_name}.incoming")
-        previous_dir = os.path.join(snapshot_root, f".{checkpoint_name}.previous")
+        # Staging path must be unique per call. It used to be a single fixed
+        # ".{name}.incoming" shared by every caller, so two goal phases starting
+        # in the same second raced: the second one found the first's directory
+        # mid-copy, could not clear it, and got no checkpoint. Concurrent goals
+        # are normal here -- GoalEngine runs phases from several tasks at once
+        # -- so this was not an edge case, it was most of the time.
+        staging_dir = os.path.join(
+            snapshot_root, f".{checkpoint_name}.incoming.{os.getpid()}.{uuid.uuid4().hex[:8]}"
+        )
+        # Unique for the same reason as staging: two concurrent snapshots would
+        # otherwise both try to park the old directory at the same "previous"
+        # path and clobber each other mid-swap.
+        previous_dir = staging_dir + ".previous"
         try:
             def ignore_dirs(dir_path, contents):
                 return [c for c in contents if c in SNAPSHOT_IGNORE_NAMES]
@@ -133,10 +145,32 @@ class RollbackRecovery:
             shutil.copytree(cwd, staging_dir, ignore=ignore_dirs)
 
             # Swap: keep the old snapshot until the new one is in place.
+            #
+            # Tolerant of a concurrent snapshot having already moved or replaced
+            # snapshot_dir. Two goals checkpointing at once both target the same
+            # name, so last-writer-wins is the expected outcome -- what must not
+            # happen is either one reporting success without a snapshot, or one
+            # destroying the other's completed directory.
             _force_rmtree(previous_dir)
             if os.path.exists(snapshot_dir):
-                os.rename(snapshot_dir, previous_dir)
-            os.rename(staging_dir, snapshot_dir)
+                try:
+                    os.rename(snapshot_dir, previous_dir)
+                except OSError:
+                    # Someone else swapped it out from under us; theirs is just
+                    # as valid a checkpoint of the same tree.
+                    _force_rmtree(previous_dir)
+            try:
+                os.rename(staging_dir, snapshot_dir)
+            except OSError:
+                # The other writer landed first. Drop our copy rather than
+                # clobbering a directory another phase may already be restoring.
+                _force_rmtree(staging_dir)
+                _force_rmtree(previous_dir)
+                log.info(
+                    "RollbackRecovery: snapshot %s was written concurrently; "
+                    "keeping the one already in place.", checkpoint_name,
+                )
+                return os.path.isdir(snapshot_dir)
             _force_rmtree(previous_dir)
 
             log.info("RollbackRecovery: created directory snapshot for %s", checkpoint_name)
