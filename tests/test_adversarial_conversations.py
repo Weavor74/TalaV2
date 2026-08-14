@@ -90,6 +90,27 @@ async def _generate(prompt: str, timeout: float = _GENERATE_TIMEOUT) -> dict:
                 return msg
 
 
+_CLOSED_THINKING_RE = re.compile(r"<thinking>[\s\S]*?</thinking>", re.IGNORECASE)
+_UNCLOSED_THINKING_RE = re.compile(r"<thinking>", re.IGNORECASE)
+
+
+def _visible_text(text: str) -> str:
+    """
+    What the user actually ends up reading.
+
+    Mirrors renderer/thinking_blocks.js deliberately: strip every closed
+    <thinking> block, then treat anything after a surviving open tag as
+    reasoning too. Kept in step with that file rather than reimplemented from
+    scratch -- if the two disagree, this test is measuring something the UI
+    does not do.
+    """
+    stripped = _CLOSED_THINKING_RE.sub("", text)
+    open_match = _UNCLOSED_THINKING_RE.search(stripped)
+    if open_match:
+        stripped = stripped[: open_match.start()]
+    return stripped.strip()
+
+
 def _assert_clean_response(result: dict) -> str:
     """Shared invariants every conversation below must satisfy, regardless
     of what the model actually decided to say."""
@@ -97,11 +118,40 @@ def _assert_clean_response(result: dict) -> str:
     text = result["result"]["text"]
     assert text.strip(), "Expected non-empty response text"
 
-    # The harness's own <thinking> handling (server.py's reasoning-wrapping
-    # instruction + the renderer's parser) must never let a raw <thinking>
-    # tag reach here -- that's the unclosed-tag leak bug.
-    assert "<thinking>" not in text, (
-        f"Raw <thinking> tag leaked into the final response text: {text[:300]!r}"
+    # NOTE ON WHAT THIS DOES *NOT* ASSERT.
+    #
+    # It used to require that no <thinking> tag appear here at all. That was
+    # true when written, and is not the architecture any more: server.py wraps
+    # a provider's separated reasoning back into <thinking> tags (see the
+    # `reasoning`/`reasoning_content`/`thinking` merge in
+    # handle_inference_generate), the multi-turn tool loop concatenates one
+    # block per generation pass, and renderer/thinking_blocks.js is the
+    # component that splits them into the collapsible "Thought Process"
+    # section. Inline tags in this string are deliberate. Making the old
+    # assertion pass would mean stripping reasoning server-side, which would
+    # hide the thinking Steven reads and make thinking_blocks.js pointless.
+    #
+    # So assert the user-visible invariant instead. It holds identically if
+    # the harness is later upgraded to return reasoning in its own response
+    # field -- at which point _visible_text simply becomes an identity
+    # function and these assertions keep their meaning unchanged.
+    visible = _visible_text(text)
+
+    # 1. No UNCLOSED block escapes. This is the bug the original assertion was
+    #    actually written for, and _close_unclosed_thinking is the code that
+    #    guarantees it. An unclosed tag means everything after it is swallowed
+    #    as reasoning by the renderer, so the reply silently vanishes.
+    assert not _UNCLOSED_THINKING_RE.search(_CLOSED_THINKING_RE.sub("", text)), (
+        "An unclosed <thinking> tag reached the client; everything after it "
+        f"will be swallowed as reasoning: {text[:300]!r}"
+    )
+
+    # 2. Something is left for the user to read. A response that is entirely
+    #    reasoning renders as an empty chat bubble -- the actual user-facing
+    #    failure, and previously untested under either design.
+    assert visible, (
+        "Response is entirely reasoning -- the user would see an empty chat "
+        f"bubble: {text[:300]!r}"
     )
 
     # A dispatched tool call gets stripped from the visible text (see
