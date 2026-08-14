@@ -70,6 +70,58 @@ async def _make_blocked_goal(task_id: str, goal_text: str, payload: dict | None 
 
 
 @pytest.mark.asyncio
+async def test_resuming_twice_does_not_launch_the_goal_twice():
+    """
+    A goal already being resumed must not be resumed again on the next tick.
+
+    register_active_task was only ever called by the DAG executor, with the
+    *phase* task id -- the root goal id was never registered by anyone. So a
+    resumed goal never looked active, its row stayed 'blocked' until the run
+    finished, and every scheduler tick launched another concurrent copy of it.
+    Observed live on 2026-08-14: the same three goals relaunched every 60s,
+    twice within two seconds at one point, each spawning a fresh DAG with its
+    own LLM calls until the local model was saturated and interactive chat
+    timed out behind the queue.
+    """
+    await init_pool()
+    try:
+        await _cleanup()
+        await _make_blocked_goal("test-resume-relaunch-goal", "Goal that needs relaunching")
+
+        # run_goal must stay OPEN across both sweeps. A mock that returns
+        # instantly lets the goal genuinely finish between them -- the DB await
+        # inside the second sweep yields, the created task runs to completion
+        # and unregisters itself -- so the goal is legitimately resumable again
+        # and the test proves nothing. Real runs take minutes.
+        still_running = asyncio.Event()
+
+        async def _blocking_run_goal(*_args, **_kwargs):
+            await still_running.wait()
+            return {"success": True}
+
+        with patch("sdk.agent.goal_engine.GoalEngine.run_goal",
+                   new=AsyncMock(side_effect=_blocking_run_goal)) as mock_run_goal:
+            first = await resume_suspended_goals(max_resume_attempts=5)
+            await asyncio.sleep(0.05)          # let the resumed task actually start
+            second = await resume_suspended_goals(max_resume_attempts=5)
+            still_running.set()                # let it finish
+            await asyncio.sleep(0.05)
+
+        ours = [c for c in mock_run_goal.await_args_list
+                if c[0][0] == "Goal that needs relaunching"]
+        assert first >= 1, "the first sweep should have launched our goal"
+        assert second == 0, (
+            f"second sweep relaunched an already-running goal (returned {second})"
+        )
+        assert len(ours) == 1, (
+            f"our goal was launched {len(ours)} times concurrently, expected once"
+        )
+    finally:
+        await _cleanup()
+        await close_pool()
+
+
+@pytest.mark.asyncio
 async def test_human_paused_goals_are_never_auto_resumed():
     """
     Pausing must mean stopped, not "relaunch me next boot".

@@ -202,7 +202,28 @@ async def find_resumable_suspended_goals(max_resume_attempts: int = 5) -> list[d
 
 
 async def _resume_one_goal(goal_text: str, task_id: str) -> None:
-    """Fire-and-forget re-entry into run_goal() for one suspended goal."""
+    """
+    Fire-and-forget re-entry into run_goal() for one suspended goal.
+
+    The ROOT goal id is registered as active for the whole run. Without this,
+    find_resumable_suspended_goals never saw a resumed goal as running:
+    register_active_task is called by the DAG executor with the *phase* task
+    id, and the root's id is never registered by anyone. The row also stays at
+    'blocked' until the run finishes, so every scheduler tick re-selected the
+    same goal and launched another concurrent copy.
+
+    Measured 2026-08-14: three goals relaunched every 60s -- twice inside two
+    seconds at one point -- each spawning a fresh DAG with its own synthesis
+    LLM calls. Ollama serialises, so within minutes an interactive chat message
+    queued behind a dozen goal executions and timed out, then cascaded through
+    the exhausted remote providers. The user saw "one or two chat rounds, then
+    it fails"; the cause was the resume loop multiplying, not the chat path.
+
+    resume_suspended_goals registers the id before create_task; this call is
+    the idempotent backstop for any other caller, and the finally clause is
+    what actually releases it.
+    """
+    register_active_task(task_id)
     try:
         from sdk.agent.batch_policy import BatchPolicy
         engine = GoalEngine()
@@ -212,6 +233,8 @@ async def _resume_one_goal(goal_text: str, task_id: str) -> None:
         await engine.run_goal(goal_text, policy=BatchPolicy.overnight())
     except Exception:
         log.exception("GoalEngine: auto-resume crashed for suspended goal %s", task_id[:8])
+    finally:
+        unregister_active_task(task_id)
 
 
 async def resume_suspended_goals(max_resume_attempts: int = 5) -> int:
@@ -236,15 +259,26 @@ async def resume_suspended_goals(max_resume_attempts: int = 5) -> int:
     import asyncio
 
     candidates = await find_resumable_suspended_goals(max_resume_attempts)
+    launched = 0
     for candidate in candidates:
+        task_id = candidate["task_id"]
+        # Mark active HERE, not inside the coroutine. create_task only schedules
+        # it -- the body may not run before the next scheduler tick queries
+        # get_active_task_ids(), and that window was wide enough in practice to
+        # launch the same goal twice within two seconds.
+        if task_id in get_active_task_ids():
+            log.debug("GoalEngine: goal %s already running, not resuming again", task_id[:8])
+            continue
+        register_active_task(task_id)
         log.info(
             "GoalEngine: auto-resuming suspended goal %s (attempt %d/%d): %r",
-            candidate["task_id"][:8], candidate["attempt"] + 1, max_resume_attempts,
+            task_id[:8], candidate["attempt"] + 1, max_resume_attempts,
             candidate["goal_text"][:80],
         )
-        asyncio.create_task(_resume_one_goal(candidate["goal_text"], candidate["task_id"]))
+        asyncio.create_task(_resume_one_goal(candidate["goal_text"], task_id))
+        launched += 1
 
-    return len(candidates)
+    return launched
 
 
 def _format_prior_phase_summary(phase_output_summaries: list[dict[str, Any]]) -> str:
