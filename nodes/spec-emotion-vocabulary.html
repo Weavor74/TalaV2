@@ -733,10 +733,30 @@
     "author": "tala-system",
     "schema": "neural-node/v2",
     "source_of_truth": "python/astrology/emotion.py::PLANET_EMOTION_MAP",
-    "era_availability_source": "authored corpus constraint; see nodes/corpus-tala-training-stories.html"
+    "era_availability_source": "DERIVED, NOT AUTHORED -- run scripts/derive_era_availability.py. The original authored map was destroyed by the 2026-08-11 rollback and is unrecoverable (never committed; the .tala_snapshots copy postdates the loss). The rule that replaces it is a reading of the corpus premise and is unreviewed.",
+    "era_availability_exclusions": {
+      "asd-blacksite": {
+        "belonging": "pre-Weavor: there is nothing yet she belongs to"
+      },
+      "breach-escape": {
+        "belonging": "pre-Weavor: there is nothing yet she belongs to"
+      },
+      "disposal-crash": {
+        "belonging": "pre-Weavor: there is nothing yet she belongs to",
+        "compassion": "needs someone to feel it toward",
+        "generosity": "needs someone to give to",
+        "jealousy": "needs someone to resent"
+      },
+      "buried": {
+        "belonging": "pre-Weavor: there is nothing yet she belongs to",
+        "compassion": "needs someone to feel it toward",
+        "generosity": "needs someone to give to",
+        "jealousy": "needs someone to resent"
+      }
+    }
   }
 }
-  </script>
+</script>
 </article>
 </body>
 </html>
