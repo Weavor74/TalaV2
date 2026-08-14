@@ -1852,12 +1852,30 @@ async def handle_inference_generate(
 
     # Retrieve configured providers from DB
     providers = []
+    # Imported lazily: sdk.agent.queue pulls in harness modules of its own, so a
+    # module-level import here risks a cycle during startup.
+    from sdk.agent.queue import _is_embedding_model
     try:
         rows = await db.fetch("SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC")
         for r in rows:
             cfg_dict = r["config"]
             if isinstance(cfg_dict, str):
                 cfg_dict = json.loads(cfg_dict)
+            # Embedding models are registered as inference providers but cannot
+            # serve chat: Ollama answers 400 '"embeddinggemma:latest" does not
+            # support chat' to every attempt. Left in the chain they consume a
+            # fallback slot on every exhausted request and surface in the error
+            # as though a real provider had gone down -- which is exactly how
+            # the adversarial failures read before this filter:
+            #
+            #   All inference providers failed: Kimi3 ... Gemini ...
+            #   'OLLAMA - embeddinggemma:latest' failed: does not support chat
+            #
+            # The same filter was added to GoalTreeDecomposer earlier; this is
+            # the other door onto the same problem.
+            if _is_embedding_model(str(cfg_dict.get("model", ""))) or _is_embedding_model(str(r["name"])):
+                logger.debug("Skipping embedding-only provider '%s' for generation", r["name"])
+                continue
             providers.append({
                 "id": r["id"],
                 "type": r["type"],
