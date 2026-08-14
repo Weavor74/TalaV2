@@ -27,6 +27,55 @@ from typing import Any
 log = logging.getLogger(__name__)
 
 
+async def _kill_process_tree(proc: "asyncio.subprocess.Process | None") -> None:
+    """
+    Kill a timed-out subprocess *and everything it spawned*.
+
+    proc.kill() alone is not enough for create_subprocess_shell: it kills the
+    shell, and the shell's child -- the command the caller actually asked for
+    -- keeps running, detached, forever. That is how a 30-second timeout on
+    `python scripts/generate_stories.py` left a long-running generator alive
+    with no parent; the DAG then retried the node three more times and each
+    attempt added another one. Six of them ended up queued against the same
+    local model, which is what starved the chat path into ReadTimeouts.
+    """
+    if proc is None or proc.returncode is not None:
+        return
+    pid = proc.pid
+    try:
+        if os.name == "nt":
+            # taskkill /T walks the child tree; there are no process groups
+            # to signal here.
+            killer = await asyncio.create_subprocess_exec(
+                "taskkill", "/F", "/T", "/PID", str(pid),
+                stdout=asyncio.subprocess.DEVNULL,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            await asyncio.wait_for(killer.wait(), timeout=10)
+        else:
+            import signal
+            try:
+                pgid = os.getpgid(pid)
+                # Only signal the group if the child really got its own. A
+                # child that shares our group would mean killpg takes the
+                # harness down with it.
+                if pgid != os.getpgid(0):
+                    os.killpg(pgid, signal.SIGKILL)
+                else:
+                    os.kill(pid, signal.SIGKILL)
+            except ProcessLookupError:
+                pass
+    except Exception as exc:
+        log.warning(
+            "AsyncShellExecutor: could not kill process tree for pid %s: %s", pid, exc
+        )
+    finally:
+        try:
+            proc.kill()
+        except Exception:
+            pass
+
+
 class AsyncShellExecutor:
     """
     Non-blocking asyncio-based shell executor.
@@ -127,11 +176,7 @@ class AsyncShellExecutor:
             }
         except asyncio.TimeoutError:
             log.warning("AsyncShellExecutor: exec timed out after %.1fs — exec=%r args=%r", timeout, executable, args)
-            if proc is not None:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+            await _kill_process_tree(proc)
             return {
                 "success": False,
                 "exit_code": -1,
@@ -195,6 +240,9 @@ class AsyncShellExecutor:
                     stdin=asyncio.subprocess.DEVNULL,
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
+                    # Own session on POSIX so a timeout can signal the whole
+                    # group without touching the harness's own process group.
+                    **({"start_new_session": True} if os.name != "nt" else {}),
                 )
                 stdout_bytes, stderr_bytes = await proc.communicate()
                 return (
@@ -224,12 +272,9 @@ class AsyncShellExecutor:
             log.warning(
                 "AsyncShellExecutor: command timed out after %.1fs — command=%r", timeout, command
             )
-            # Attempt to kill the lingering subprocess
-            if proc is not None:
-                try:
-                    proc.kill()
-                except Exception:
-                    pass
+            # Kill the shell AND whatever it spawned, or the real workload
+            # outlives the timeout as an orphan.
+            await _kill_process_tree(proc)
             return {
                 "success": False,
                 "exit_code": -1,

@@ -46,6 +46,16 @@ class GraphNode:
     retry_count: int = 0
     max_retries: int = 3
 
+
+#: Ceiling for a single synthesis LLM call, in seconds. Override with
+#: TALA_SYNTHESIS_TIMEOUT for slower or faster hardware.
+#:
+#: This was 60s, which no local model on this hardware can meet -- measured
+#: chat turns against the local 8B run 60-160s. Synthesis therefore failed on
+#: the clock every time, and the fallback that reused a stale file reported
+#: that failure as a completed phase.
+SYNTHESIS_TIMEOUT_SECONDS = float(os.getenv("TALA_SYNTHESIS_TIMEOUT", "300"))
+
 # ---------------------------------------------------------------------------
 # DAG Execution Engine
 # ---------------------------------------------------------------------------
@@ -619,6 +629,23 @@ class DAGExecutionEngine:
                     node.status = "completed"
                     log.info("DAGExecutionEngine: Successfully completed node %s (%s)", node.id, node.node_type)
                 else:
+                    # Some failures are not worth repeating. A node that failed
+                    # because the model did not answer within its timeout will
+                    # almost certainly not answer within the same timeout three
+                    # more times -- it just costs another N x timeout of dead
+                    # waiting. Measured on this box: a 60s synthesis timeout
+                    # retried 3 times turned one minute of waiting into four,
+                    # per phase, every phase.
+                    if node.outputs.get("retryable") is False:
+                        node.status = "failed"
+                        log.error(
+                            "DAGExecutionEngine: Node %s failed non-retryably (%s) — "
+                            "not retrying",
+                            node.id, node.outputs.get("error", "no error recorded"),
+                        )
+                        await self.save_node(node)
+                        continue
+
                     node.retry_count += 1
                     if node.retry_count <= node.max_retries:
                         # Isolated failure self-healing retry or rollback
@@ -832,6 +859,44 @@ class DAGExecutionEngine:
             for k in dropped:
                 params.pop(k)
 
+            # A re-planned step often arrives with the tool named but its
+            # arguments paraphrased away entirely. Calling through anyway
+            # raised a bare TypeError from deep inside the call, which told
+            # the log nothing about *which* plan step was malformed. Name the
+            # missing arguments instead.
+            try:
+                required = [
+                    name for name, p in sig.parameters.items()
+                    if p.default is _inspect.Parameter.empty
+                    and p.kind not in (
+                        _inspect.Parameter.VAR_POSITIONAL,
+                        _inspect.Parameter.VAR_KEYWORD,
+                    )
+                ]
+            except Exception:
+                required = []
+            missing = [name for name in required if name not in params]
+            if missing:
+                node.outputs = {
+                    "success": False,
+                    "tool": tool_name,
+                    "error": (
+                        f"plan step for tool {tool_name!r} is missing required "
+                        f"argument(s) {missing}; supplied: {sorted(params)}"
+                    ),
+                    # Deterministic: the same plan step will be missing the same
+                    # argument on every attempt. Retrying it three times bought
+                    # nothing and cost the goal its time budget -- measured on
+                    # test_logic_bug, which exhausted 6.4 of its 5.0 minutes
+                    # re-running an identical empty code.propose_patch call.
+                    "retryable": False,
+                }
+                log.error(
+                    "DAGExecutionEngine: tool %s plan step missing required arg(s) %s "
+                    "(supplied: %s)", tool_name, missing, sorted(params),
+                )
+                return False
+
             try:
                 # Workspace tools must act in THIS task's workspace (its
                 # worktree, or the engine root_dir), not the install
@@ -984,7 +1049,13 @@ class DAGExecutionEngine:
                     }
                     return await handle_inference_generate(p, ws=None, req_id="dag-synthesis")
 
-                res_str = await asyncio.wait_for(_call_llm(), timeout=60.0)
+                # Sized from measurement, not habit: a chat turn against the
+                # local 8B on this hardware runs 60-160s, so the old 60s ceiling
+                # meant synthesis could essentially never finish -- it failed on
+                # the clock every time and the stale-file fallback above dressed
+                # that up as success. 300s leaves headroom over the slowest
+                # measured turn.
+                res_str = await asyncio.wait_for(_call_llm(), timeout=SYNTHESIS_TIMEOUT_SECONDS)
                 res_dict = json.loads(res_str)
 
                 if isinstance(res_dict, dict) and "result" in res_dict and isinstance(res_dict["result"], dict):
@@ -1042,39 +1113,37 @@ class DAGExecutionEngine:
                                 code = ""
 
             except asyncio.TimeoutError:
-                log.warning("DAGExecutionEngine: LLM synthesis timed out after 60s.")
-                existing_p = Path(worktree_path) / target_file
-                if existing_p.exists():
-                    try:
-                        existing_content = existing_p.read_text(encoding="utf-8")
-                        import ast
-                        ast.parse(existing_content)
-                        code = existing_content
-                        log.info("DAGExecutionEngine: Synthesis timeout fallback — reusing existing valid Python file (%d bytes) at %s", len(code), target_file)
-                    except Exception:
-                        node.outputs = {"error": "LLM synthesis timed out."}
-                        return False
-                else:
-                    node.outputs = {"error": "LLM synthesis timed out."}
-                    return False
+                # No "reuse whatever is already at target_file" fallback here.
+                # That fallback read back a stale scratch/output.py from some
+                # earlier run, called it this phase's synthesis, wrote the
+                # identical bytes out again, validated them, and reported the
+                # phase COMPLETED SUCCESSFULLY -- so a goal whose model never
+                # answered still advanced through its phases and told the user
+                # it had done the work. A timeout is a failure; say so.
+                #
+                # retryable=False: the model that did not answer in 300s will
+                # not answer in the next 300s either, and the retry loop would
+                # spend 20 minutes proving it.
+                log.warning(
+                    "DAGExecutionEngine: LLM synthesis timed out after %ss — "
+                    "failing the node (no code was produced).",
+                    SYNTHESIS_TIMEOUT_SECONDS,
+                )
+                node.outputs = {
+                    "error": f"LLM synthesis timed out after {SYNTHESIS_TIMEOUT_SECONDS}s; no code produced.",
+                    "retryable": False,
+                }
+                return False
             except Exception as exc:
                 log.warning("DAGExecutionEngine: LLM synthesis failed: %s", exc)
                 node.outputs = {"error": f"LLM synthesis failed: {exc}"}
                 return False
 
             if not code:
-                existing_p = Path(worktree_path) / target_file
-                if existing_p.exists():
-                    try:
-                        existing_content = existing_p.read_text(encoding="utf-8")
-                        import ast
-                        ast.parse(existing_content)
-                        code = existing_content
-                        log.info("DAGExecutionEngine: Synthesis fallback — reusing existing valid Python file (%d bytes) at %s", len(code), target_file)
-                    except Exception:
-                        pass
-
-            if not code:
+                # Same reasoning as the timeout branch above: an empty or
+                # unparseable model response is a failed synthesis, not a
+                # licence to re-adopt the previous run's file as this run's
+                # output.
                 log.warning("DAGExecutionEngine: LLM synthesis returned no valid Python code.")
                 node.outputs = {"error": "LLM synthesis returned no valid Python code."}
                 return False
