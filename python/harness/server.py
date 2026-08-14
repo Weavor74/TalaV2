@@ -8665,6 +8665,18 @@ async def handle_repo_checkpoint(params: dict[str, Any], req_id: Any) -> str:
         checkpoint_name = str(params.get("checkpoint_name", "checkpoint") or "checkpoint").strip()
         rr = RollbackRecovery(_ROOT_DIR)
         stash_id = rr.create_checkpoint(checkpoint_name)
+        # create_checkpoint returns None when no snapshot was written. This
+        # reported {"success": True} unconditionally, so the UI showed a
+        # checkpoint the workspace did not actually have.
+        if not stash_id:
+            return _ok(req_id, {
+                "success": False,
+                "checkpoint_id": None,
+                "error": (
+                    f"checkpoint {checkpoint_name!r} was not created; see the "
+                    "harness log for the snapshot failure"
+                ),
+            })
         return _ok(req_id, {"success": True, "checkpoint_id": stash_id})
     except Exception as exc:
         logger.exception("repo.checkpoint error")

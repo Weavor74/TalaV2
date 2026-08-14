@@ -474,8 +474,15 @@ class GoalEngine:
             try:
                 import asyncio
                 checkpoint_id = await asyncio.to_thread(self.recovery.create_checkpoint)
-                checkpoint_ids.append((task.task_id, checkpoint_id))
-                log.info("GoalEngine: created checkpoint %s", checkpoint_id)
+                if checkpoint_id:
+                    checkpoint_ids.append((task.task_id, checkpoint_id))
+                    log.info("GoalEngine: created checkpoint %s", checkpoint_id)
+                else:
+                    log.warning(
+                        "GoalEngine: no checkpoint created for phase %r — this phase "
+                        "runs WITHOUT rollback protection.",
+                        task.description,
+                    )
             except Exception as exc:
                 log.warning("GoalEngine: failed to create checkpoint: %s", exc)
 
@@ -707,17 +714,45 @@ class GoalEngine:
                         # no-argument call restored whatever sat under the
                         # default name "checkpoint" -- which could be, and on
                         # 2026-08-11 was, a snapshot days older than the run.
-                        await asyncio.to_thread(self.recovery.restore_checkpoint, checkpoint_id)
+                        # Report what actually happened. restore_checkpoint
+                        # returns False when the snapshot is missing or empty,
+                        # and that False used to be discarded -- so a rollback
+                        # that restored nothing still announced itself as a
+                        # completed rollback in the log and the telemetry feed.
+                        restored = await asyncio.to_thread(
+                            self.recovery.restore_checkpoint, checkpoint_id
+                        )
                         await TaskEventStore.append_event(
                             task.task_id,
                             "phase_rollback",
-                            {"phase": phase_name, "checkpoint_id": checkpoint_id},
+                            {
+                                "phase": phase_name,
+                                "checkpoint_id": checkpoint_id,
+                                "restored": bool(restored),
+                            },
                         )
+                        if restored:
+                            message = (
+                                f"Rolled back phase {task.description} "
+                                f"to checkpoint {checkpoint_id}"
+                            )
+                        else:
+                            log.error(
+                                "GoalEngine: rollback of phase %r did NOT restore "
+                                "anything (checkpoint %s missing or empty); the "
+                                "workspace still holds this phase's partial edits.",
+                                task.description, checkpoint_id,
+                            )
+                            message = (
+                                f"Rollback FAILED for phase {task.description}: "
+                                f"checkpoint {checkpoint_id} restored nothing — "
+                                "partial edits remain in the workspace"
+                            )
                         await LiveStatusReporter.broadcast_status(
                             task_id=task.task_id,
                             phase=task.description,
                             status="rollback",
-                            message=f"Rolled back phase {task.description} to checkpoint {checkpoint_id}"
+                            message=message,
                         )
                     except Exception as rollback_exc:
                         log.error("GoalEngine: rollback failed: %s", rollback_exc)

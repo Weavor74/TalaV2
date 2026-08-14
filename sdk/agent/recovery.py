@@ -14,11 +14,52 @@ from __future__ import annotations
 import logging
 import os
 import subprocess
+import sys
 from typing import Any
 
 from sdk.agent.persistence import project_task_state
 
 log = logging.getLogger(__name__)
+
+
+def _force_rmtree(path: str) -> bool:
+    """
+    Remove a tree, clearing the read-only bit on anything that blocks it.
+
+    shutil.rmtree(ignore_errors=True) is a trap on Windows: a read-only file
+    raises PermissionError, the flag swallows it, and the *directory survives*
+    while the caller believes it is gone. The corpus pipeline scripts are
+    deliberately chmod'd read-only, so their copies inside the snapshot
+    staging directory made every later rmtree a no-op -- and the copytree
+    that followed then died with WinError 183 ("cannot create a file when
+    that file already exists"). Every checkpoint from 2026-08-12 19:02
+    onward failed that way, so no goal phase has had rollback protection
+    since.
+
+    Returns True if the path is gone afterwards.
+    """
+    import shutil
+    import stat
+
+    def _on_error(func, target, _exc_info):
+        try:
+            os.chmod(target, stat.S_IWRITE)
+            func(target)
+        except Exception:
+            pass
+
+    if not os.path.exists(path):
+        return True
+    try:
+        # onexc replaced onerror in 3.12; keep working on both.
+        if sys.version_info >= (3, 12):
+            shutil.rmtree(path, onexc=lambda f, t, e: _on_error(f, t, e))
+        else:
+            shutil.rmtree(path, onerror=_on_error)
+    except Exception as exc:
+        log.warning("RollbackRecovery: could not remove %s: %s", path, exc)
+    return not os.path.exists(path)
+
 
 SNAPSHOT_IGNORE_NAMES = {
     ".tala_snapshots",
@@ -43,11 +84,19 @@ class RollbackRecovery:
     def __init__(self, root_dir: str) -> None:
         self.root_dir = root_dir
 
-    def create_checkpoint(self, checkpoint_name: str = "checkpoint") -> str:
+    def create_checkpoint(self, checkpoint_name: str = "checkpoint") -> str | None:
+        """
+        Return the checkpoint name, or None if no checkpoint was created.
+
+        This used to return the string "failed" on failure. That is a truthy
+        value the caller stored as a checkpoint *id*, so a failed snapshot
+        was logged as "created checkpoint failed", and the rollback path
+        later "restored" a checkpoint named "failed" -- printing a reassuring
+        "Rolled back phase ... to checkpoint failed" while restoring nothing.
+        None makes the absence of protection unmistakable to the caller.
+        """
         success = self.create_snapshot(self.root_dir, checkpoint_name)
-        if success:
-            return checkpoint_name
-        return "failed"
+        return checkpoint_name if success else None
 
     def restore_checkpoint(self, checkpoint_name: str = "checkpoint") -> bool:
         return self.restore_snapshot(self.root_dir, checkpoint_name)
@@ -72,23 +121,29 @@ class RollbackRecovery:
             def ignore_dirs(dir_path, contents):
                 return [c for c in contents if c in SNAPSHOT_IGNORE_NAMES]
 
-            if os.path.exists(staging_dir):
-                shutil.rmtree(staging_dir, ignore_errors=True)
+            if not _force_rmtree(staging_dir):
+                # Bail out loudly rather than letting copytree fail with an
+                # opaque WinError 183 on every single run from here on.
+                log.error(
+                    "RollbackRecovery: stale staging dir %s could not be removed; "
+                    "no checkpoint will be created until it is cleared by hand.",
+                    staging_dir,
+                )
+                return False
             shutil.copytree(cwd, staging_dir, ignore=ignore_dirs)
 
             # Swap: keep the old snapshot until the new one is in place.
-            if os.path.exists(previous_dir):
-                shutil.rmtree(previous_dir, ignore_errors=True)
+            _force_rmtree(previous_dir)
             if os.path.exists(snapshot_dir):
                 os.rename(snapshot_dir, previous_dir)
             os.rename(staging_dir, snapshot_dir)
-            shutil.rmtree(previous_dir, ignore_errors=True)
+            _force_rmtree(previous_dir)
 
             log.info("RollbackRecovery: created directory snapshot for %s", checkpoint_name)
             return True
         except Exception as exc:
             log.error("RollbackRecovery: snapshot failed: %s", exc)
-            shutil.rmtree(staging_dir, ignore_errors=True)
+            _force_rmtree(staging_dir)
             # If the swap died between the rename steps, put the old one back.
             if not os.path.exists(snapshot_dir) and os.path.exists(previous_dir):
                 try:
