@@ -52,17 +52,31 @@ def strip_replan_wrapper(description: str, max_depth: int = 6) -> str:
     """
     text = str(description or "").strip()
     for _ in range(max_depth):
-        if not text.startswith(_REPLAN_PREFIX):
+        # The marker is NOT reliably at position 0. The decomposer prefixes its
+        # own lead-in -- "Implement solution: You were trying to accomplish
+        # ..." is the shape actually observed -- so an anchored startswith()
+        # check matches nothing and the wrapper survives. That is exactly how
+        # this function shipped ineffective the first time: it was tested
+        # against strings already collected from the wiki rather than against
+        # what the re-planner emits. Search anywhere instead.
+        idx = text.find(_REPLAN_PREFIX)
+        if idx == -1:
             break
-        rest = text[len(_REPLAN_PREFIX):].strip()
+        rest = text[idx + len(_REPLAN_PREFIX):].strip()
         # Drop the failure narration the re-planner appends after the task.
         cut = rest.find(". However,")
         if cut != -1:
             rest = rest[:cut]
         rest = rest.strip().rstrip(".").strip()
-        # The task itself is quoted; unwrap one matching pair.
-        if len(rest) >= 2 and rest[0] in "\"'" and rest[-1] == rest[0]:
-            rest = rest[1:-1]
+        # The task is quoted, but cutting at ". However," removes the CLOSING
+        # quote -- so a matched-pair check leaves the opener stranded on the
+        # front of every unwrapped layer. Drop the opener unconditionally and
+        # the closer only if it is still there.
+        if rest and rest[0] in "\"'":
+            quote = rest[0]
+            rest = rest[1:]
+            if rest.endswith(quote):
+                rest = rest[:-1]
         rest = rest.strip()
         if not rest:
             break
