@@ -164,10 +164,42 @@ def find_anchor(rng: random.Random, window: tuple[str, str], era: str):
 
 
 def _era_emotions(era: str) -> list[str]:
-    raw = (REPO_ROOT / "nodes" / "spec-emotion-vocabulary.html").read_text("utf-8")
+    """
+    Emotions the spec node permits in `era`.
+
+    Raises with the fix instead of a bare KeyError. The rollback of
+    2026-08-11 destroyed the vocabulary node, and the reconstruction rebuilt
+    it from PLANET_EMOTION_MAP -- which carries emotions and valence but no
+    era information. The generator then died on `cfg["era_availability"]`
+    every single run, which is what killed the scheduled corpus job.
+    """
+    node = REPO_ROOT / "nodes" / "spec-emotion-vocabulary.html"
+    raw = node.read_text("utf-8")
     m = re.search(r'<script[^>]*id="node-state"[^>]*>(.*?)</script>', raw, re.S)
+    if not m:
+        raise SystemExit(f"{node.name} has no node-state block.")
     cfg = json.loads(m.group(1).strip())["config"]
-    return cfg["era_availability"][era]
+    avail = cfg.get("era_availability")
+    if not avail:
+        raise SystemExit(
+            f"{node.name} has no 'era_availability' in its node-state config. "
+            "Every corpus era needs a list of the emotions it permits; add it "
+            "there (the validator reads the same key)."
+        )
+    if era not in avail:
+        raise SystemExit(
+            f"era {era!r} is not defined in {node.name} "
+            f"(defined: {sorted(avail)})."
+        )
+    allowed = avail[era]
+    # The arc builder below picks 3 distinct-in-sequence emotions from this
+    # list; with fewer than 2 it spins forever instead of failing.
+    if len(allowed) < 2:
+        raise SystemExit(
+            f"era {era!r} permits only {len(allowed)} emotion(s) in {node.name}; "
+            "at least 2 are needed to build a 3-beat arc."
+        )
+    return allowed
 
 
 # --- model ------------------------------------------------------------------

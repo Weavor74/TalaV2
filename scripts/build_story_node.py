@@ -100,9 +100,28 @@ _FUTURE_KNOWLEDGE_LEAKS = (
 
 
 def load_spec_tables() -> tuple[dict, dict]:
+    """
+    Return (valence table, era availability) from the vocabulary node.
+
+    The valence table must be a mapping emotion -> {joy, caution, ...}.
+    In the current node shape that lives under "valence_projection", while
+    "emotions" is a flat list of names. This used to return cfg["emotions"]
+    directly, so project_valence called .get() on a list and every single
+    story died with "AttributeError: 'list' object has no attribute 'get'".
+    The older node shape kept the projections inside "emotions" itself, so
+    accept that too rather than depending on which shape is on disk.
+    """
     raw = VOCAB_NODE.read_text(encoding="utf-8")
     cfg = json.loads(STATE_RE.search(raw).group(1).strip())["config"]
-    return cfg["emotions"], cfg.get("era_availability", {})
+    table = cfg.get("valence_projection")
+    if not isinstance(table, dict):
+        table = cfg.get("emotions")
+    if not isinstance(table, dict):
+        raise SystemExit(
+            f"{VOCAB_NODE.name} has no emotion->valence mapping: expected a dict "
+            "under 'valence_projection' (or under 'emotions')."
+        )
+    return table, cfg.get("era_availability", {})
 
 
 def project_valence(emotions, table) -> dict[str, float]:

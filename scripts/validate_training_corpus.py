@@ -83,7 +83,19 @@ def load_emotion_spec() -> tuple[dict[str, dict[str, float]], dict[str, list[str
     if not m:
         raise SystemExit(f"Emotion spec node has no node-state block: {VOCAB_NODE}")
     cfg = json.loads(m.group(1).strip())["config"]
-    return cfg["emotions"], cfg.get("era_availability", {})
+    # The emotion -> valence mapping lives under "valence_projection"; the
+    # "emotions" key is a flat list of names in the current node shape. Older
+    # nodes carried the projections inside "emotions" itself, so accept both.
+    # Returning the list made project_valence raise AttributeError on .get().
+    table = cfg.get("valence_projection")
+    if not isinstance(table, dict):
+        table = cfg.get("emotions")
+    if not isinstance(table, dict):
+        raise SystemExit(
+            f"{VOCAB_NODE.name} has no emotion->valence mapping: expected a dict "
+            "under 'valence_projection' (or under 'emotions')."
+        )
+    return table, cfg.get("era_availability", {})
 
 
 def real_tool_names() -> set[str]:
