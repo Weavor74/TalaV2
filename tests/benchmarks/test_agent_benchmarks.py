@@ -11,6 +11,12 @@ from sdk.agent.goal_engine import GoalEngine
 from sdk.agent.batch_policy import BatchPolicy
 from python.harness.db import init_pool, close_pool
 
+#: Every benchmark below runs the real GoalEngine against the live model with a
+#: 5-minute ceiling apiece, so this module alone can account for most of a full
+#: suite run. Deselected from the default `pytest`; run with `pytest -m llm`.
+pytestmark = pytest.mark.llm
+
+
 def get_benchmark_policy():
     return BatchPolicy(max_steps=15, max_duration_minutes=5.0, authority_level="auto")
 

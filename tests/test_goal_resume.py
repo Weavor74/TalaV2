@@ -42,6 +42,18 @@ _TEST_TASK_IDS = [
     "test-resume-relaunch-goal",
 ]
 
+#: Goal texts this module creates. Assertions scope themselves to these rather
+#: than to global counts over the live tasks table -- the app creates blocked
+#: root goals during normal operation, so any count-based assertion here is
+#: really an assertion that nobody has used Tala recently.
+_TEST_GOAL_TEXTS = {
+    "Plain suspended goal",
+    "Swarm goal",
+    "Exhausted goal",
+    "Actively running goal",
+    "Goal that needs relaunching",
+}
+
 
 async def _cleanup():
     for tid in _TEST_TASK_IDS:
@@ -101,11 +113,23 @@ async def test_resume_suspended_goals_relaunches_run_goal_with_overnight_policy(
             # for background work) -- give it a turn to actually run.
             await asyncio.sleep(0.1)
 
-        assert count == 1
-        mock_run_goal.assert_awaited_once()
-        call_args = mock_run_goal.call_args
-        assert call_args[0][0] == "Goal that needs relaunching"
-        policy_used = call_args.kwargs["policy"]
+        # Assert about THIS test's goal, not about the global count.
+        # resume_suspended_goals scans the whole tasks table, and the app
+        # creates blocked root goals in normal operation -- so `count == 1`
+        # was really asserting "the live database contains no other suspended
+        # goal", which fails the moment anyone actually uses Tala. It failed
+        # as `assert 4 == 1` tonight for exactly that reason. The first test
+        # in this file already scopes itself by membership; do the same here.
+        ours = [
+            c for c in mock_run_goal.await_args_list
+            if c[0][0] == "Goal that needs relaunching"
+        ]
+        assert len(ours) == 1, (
+            f"expected our suspended goal to be relaunched exactly once, "
+            f"got {len(ours)} of {len(mock_run_goal.await_args_list)} relaunches"
+        )
+        assert count >= 1
+        policy_used = ours[0].kwargs["policy"]
         assert policy_used.max_steps == BatchPolicy.overnight().max_steps
         assert policy_used.max_duration_minutes == BatchPolicy.overnight().max_duration_minutes
     finally:
@@ -114,13 +138,20 @@ async def test_resume_suspended_goals_relaunches_run_goal_with_overnight_policy(
 
 
 @pytest.mark.asyncio
-async def test_resume_suspended_goals_no_candidates_returns_zero():
+async def test_resume_suspended_goals_skips_cleaned_up_goals():
+    """
+    Renamed from ..._no_candidates_returns_zero. That name described an
+    assertion this test cannot honestly make: it ran `assert count == 0`
+    against the live database, which only holds when nobody has used the app.
+    What it can verify is that goals this test removed are not resumed.
+    """
     await init_pool()
     try:
         await _cleanup()
         with patch("sdk.agent.goal_engine.GoalEngine.run_goal", new_callable=AsyncMock) as mock_run_goal:
-            count = await resume_suspended_goals(max_resume_attempts=5)
-        assert count == 0
-        mock_run_goal.assert_not_called()
+            await resume_suspended_goals(max_resume_attempts=5)
+        resumed = [c[0][0] for c in mock_run_goal.await_args_list]
+        ours = [g for g in resumed if g in _TEST_GOAL_TEXTS]
+        assert not ours, f"cleaned-up goals were still resumed: {ours}"
     finally:
         await close_pool()

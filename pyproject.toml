@@ -75,3 +75,21 @@ tala-tui = "cli.tui:main"
 [tool.setuptools]
 package-dir = {"" = "python"}
 packages = ["cli", "harness", "inference", "astrology"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests", "sdk/agent/tests"]
+markers = [
+    "llm: drives a real model or the running harness — minutes per test, and the result depends on machine state. Deselected by default; run with `pytest -m llm`.",
+]
+# The everyday `pytest` is the fast tier, so there is a check cheap enough to
+# run after every change. The 11 `llm` tests held essentially the whole 41
+# minutes of the old full run, which meant nothing gated a commit and breakage
+# surfaced days later.
+#
+# This deselection is NOT silent: conftest.py prints the deselected count and
+# the command to run them at the end of every run.
+#
+#   pytest            fast tier, the everyday gate
+#   pytest -m llm     the live-model tests only
+#   pytest -m ""      everything (CI, and any baseline comparison)
+addopts = '-m "not llm"'

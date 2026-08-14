@@ -1,3 +1,5 @@
+import json
+
 import pytest
 from unittest.mock import patch, MagicMock, AsyncMock
 from sdk.agent.goal_engine import GoalEngine
@@ -44,7 +46,19 @@ async def test_minor_divergence_continues_immediately(
         # args[2] is to_status
         assert args[2] != TaskStatus.BLOCKED
 
+#: The DAG's synthesis node makes a real inference.generate call. This test is
+#: about divergence pause/resume, not about the model, and leaving that call
+#: live made it the single most expensive test in the suite: it spent 4 minutes
+#: timing out against the local 8B and asserted nothing about the result.
+#: Stubbing it keeps the divergence coverage in the fast tier and makes the
+#: outcome independent of whatever the model happens to do.
+_STUB_SYNTHESIS = json.dumps(
+    {"result": {"text": "```python\ndef placeholder():\n    return True\n```"}}
+)
+
+
 @pytest.mark.asyncio
+@patch("python.harness.server.handle_inference_generate", new_callable=AsyncMock)
 @patch("sdk.agent.queue.GoalTreeDecomposer.decompose", new_callable=AsyncMock)
 @patch("sdk.agent.dispatcher.TalaExecutionDispatcher.dispatch", new_callable=AsyncMock)
 @patch("sdk.agent.validator.PhaseValidator.validate", new_callable=MagicMock)
@@ -53,8 +67,9 @@ async def test_minor_divergence_continues_immediately(
 @patch("sdk.agent.ghost_persistence.check_hash", new_callable=MagicMock)
 @patch("sdk.agent.ghost_persistence.pre_flight_reconciliation", new_callable=AsyncMock)
 async def test_major_divergence_pauses_syncs_resumes(
-    mock_pre_flight, mock_check_hash, mock_transition, mock_restore, mock_validate, mock_dispatch, mock_decompose
+    mock_pre_flight, mock_check_hash, mock_transition, mock_restore, mock_validate, mock_dispatch, mock_decompose, mock_infer
 ):
+    mock_infer.return_value = _STUB_SYNTHESIS
     await init_pool()
     try:
         t1 = TaskItem(description="Task 1", dependencies=[])

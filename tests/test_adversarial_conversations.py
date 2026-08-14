@@ -50,10 +50,15 @@ def _harness_reachable() -> bool:
         s.close()
 
 
-pytestmark = pytest.mark.skipif(
-    not _harness_reachable(),
-    reason="No live harness at ws://127.0.0.1:8765 -- start the app to run these adversarial conversation checks",
-)
+pytestmark = [
+    # Real inference.generate RPCs against the running app, 200s timeout each.
+    # Deselected from the default `pytest`; run with `pytest -m llm`.
+    pytest.mark.llm,
+    pytest.mark.skipif(
+        not _harness_reachable(),
+        reason="No live harness at ws://127.0.0.1:8765 -- start the app to run these adversarial conversation checks",
+    ),
+]
 
 
 async def _generate(prompt: str, timeout: float = 200.0) -> dict:
