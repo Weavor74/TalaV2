@@ -17,6 +17,7 @@ from python.harness.server import (
     _NATIVE_CALL_REMINDER,
     _NATIVE_TOOL_DIRECTIVE,
     _XML_CALL_REMINDER,
+    _accumulate_streamed_tool_calls,
     _find_tool_call,
     _ollama_native_tool_specs,
     _swap_xml_protocol_for_native,
@@ -125,6 +126,36 @@ def test_swap_leaves_non_string_content_alone():
     swapped, _ = _swap_xml_protocol_for_native(messages, "xml block\n")
 
     assert swapped[1]["content"] == [{"type": "text", "text": "describe this"}]
+
+
+def test_every_provider_keeps_a_way_to_call_tools():
+    """Native tools go to Ollama and to the OpenAI-shaped /v1 providers. The three
+    that do not get them -- embedded, anthropic, and any Ollama model whose
+    capabilities omit "tools" -- must keep the XML documentation, so the choice is
+    always which mechanism and never whether."""
+    source = Path("python/harness/server.py").read_text(encoding="utf-8")
+
+    # Each exclusion branch reports itself and falls through without setting tools.
+    assert '_tools_verdict = "anthropic endpoint takes a different tools schema"' in source
+    assert 'model reports no tool capability' in source
+    assert 'keeping the <call:/> text protocol' in source
+
+    # The XML block is only ever removed on the branch that attaches tools.
+    assert source.count("_swap_xml_protocol_for_native(") == 2  # definition + one call
+
+
+def test_a_400_with_tools_attached_falls_back_for_any_provider():
+    """The retry used to match Ollama's literal "does not support tools" string.
+    Now that every /v1 provider gets a tools array and none of them can be probed
+    for capability first, matching one provider's wording means the rest fail the
+    whole request instead of falling back to XML."""
+    source = Path("python/harness/server.py").read_text(encoding="utf-8")
+
+    assert 'if response.status_code == 400 and "tools" in payload:' in source
+    assert '"does not support tools" in err_str' not in source
+    assert '"does not support tools" in response.text' not in source
+    # And the fallback restores the documentation rather than just dropping tools.
+    assert '_retry["messages"] = payload_messages' in source
 
 
 def test_no_think_is_dropped_when_native_tools_are_attached():
@@ -266,6 +297,61 @@ def test_first_of_several_calls_is_the_one_dispatched():
     ])
 
     assert _parse_call_tag(tag)[0] == "web_search"
+
+
+# --- response side: streamed tool calls -------------------------------------
+
+
+def test_streamed_argument_fragments_are_joined_before_conversion():
+    """OpenAI-style streaming sends the name once and then `arguments` as string
+    fragments. Converting per-delta would emit a tag holding half a JSON object."""
+    acc = {}
+    for delta in (
+        [{"index": 0, "id": "call_1", "function": {"name": "web_search", "arguments": ""}}],
+        [{"index": 0, "function": {"arguments": '{"que'}}],
+        [{"index": 0, "function": {"arguments": 'ry": "webb '}}],
+        [{"index": 0, "function": {"arguments": 'status"}'}}],
+    ):
+        _accumulate_streamed_tool_calls(delta, acc)
+
+    tag = _tool_calls_to_call_tags([acc[k] for k in sorted(acc)])
+
+    assert _parse_call_tag(tag) == ("web_search", {"query": "webb status"})
+
+
+def test_streamed_parallel_tool_calls_stay_separate():
+    acc = {}
+    _accumulate_streamed_tool_calls(
+        [{"index": 0, "function": {"name": "web_search", "arguments": '{"query":"a"}'}},
+         {"index": 1, "function": {"name": "read_file", "arguments": '{"path":"b"}'}}],
+        acc,
+    )
+
+    assert len(acc) == 2
+    tags = _tool_calls_to_call_tags([acc[k] for k in sorted(acc)]).splitlines()
+    assert tags[0].startswith("<call:web_search ")
+    assert tags[1].startswith("<call:read_file ")
+
+
+def test_streamed_arguments_delivered_as_one_object_are_accepted():
+    """Not every provider fragments the arguments."""
+    acc = {}
+    _accumulate_streamed_tool_calls(
+        [{"index": 0, "function": {"name": "web_search", "arguments": {"query": "webb"}}}], acc
+    )
+
+    tag = _tool_calls_to_call_tags([acc[0]])
+
+    assert _parse_call_tag(tag) == ("web_search", {"query": "webb"})
+
+
+def test_accumulator_ignores_malformed_deltas():
+    acc = {}
+    _accumulate_streamed_tool_calls(None, acc)
+    _accumulate_streamed_tool_calls("not a list", acc)
+    _accumulate_streamed_tool_calls([None, 7, "x"], acc)
+
+    assert acc == {}
 
 
 def test_empty_or_nameless_tool_calls_produce_no_tag():

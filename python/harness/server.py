@@ -741,6 +741,40 @@ def _swap_xml_protocol_for_native(
     return out, removed
 
 
+def _accumulate_streamed_tool_calls(
+    delta_tool_calls: Any,
+    accumulator: dict[int, dict[str, Any]],
+) -> None:
+    """
+    Fold one streaming delta's ``tool_calls`` fragments into ``accumulator``.
+
+    OpenAI-style streaming does not deliver a tool call in one piece: the name
+    arrives in the first delta and ``arguments`` follows as a run of string
+    fragments that only parse as JSON once concatenated, with ``index`` tying
+    them together. Converting per-delta would emit a tag containing half a JSON
+    object, so fragments are joined here and rendered once the stream ends.
+    """
+    if not isinstance(delta_tool_calls, list):
+        return
+    for tc in delta_tool_calls:
+        if not isinstance(tc, dict):
+            continue
+        idx = tc.get("index", 0)
+        if not isinstance(idx, int):
+            idx = 0
+        slot = accumulator.setdefault(idx, {"function": {"name": "", "arguments": ""}})
+        fn = tc.get("function") or {}
+        if fn.get("name"):
+            slot["function"]["name"] = fn["name"]
+        fragment = fn.get("arguments")
+        if isinstance(fragment, str):
+            slot["function"]["arguments"] += fragment
+        elif isinstance(fragment, dict):
+            # Some providers send the whole object in one delta rather than
+            # fragmenting it; keep it as JSON so the join below stays uniform.
+            slot["function"]["arguments"] = json.dumps(fragment)
+
+
 def _tool_calls_to_call_tags(tool_calls: list[dict[str, Any]]) -> str:
     """
     Render native ``tool_calls`` into the harness's ``<call:name attr="v" />``
@@ -2376,35 +2410,65 @@ async def handle_inference_generate(
                             errors.append(f"Provider '{p_name}' skipped: {probe_desc}")
                             continue
 
-                    # Native function-calling, local path only.
+                    # Native function-calling.
                     #
                     # The XML convention asks the model to reproduce an exact tag from
-                    # prose instructions. Measured on this box: the 8B could do it, the
+                    # prose instructions, which is a test of instruction-following that
+                    # small models fail. Measured on this box: the 8B could do it, the
                     # 4B that replaced it (6GB VRAM, see the num_ctx note above) cannot
                     # -- it has the documentation in context and narrates what it would
                     # call instead of emitting the tag. The same 4B emits correct native
-                    # tool_calls, because Ollama renders the schema into the chat
+                    # tool_calls, because the provider renders the schema into the chat
                     # template and constrains decoding rather than relying on the model
-                    # following instructions. So on the one provider where the weakest
-                    # models run, use the mechanism that doesn't depend on model
-                    # strength.
+                    # following instructions. Bigger remote models pass the XML test,
+                    # but they get the structured protocol too: it removes a whole class
+                    # of parse failure (unescaped quotes, markdown fences, a tag emitted
+                    # inside <thinking>) rather than just being easier for the model.
                     #
                     # The one-protocol rule still holds: `tools` goes in and the XML
                     # documentation comes OUT of the system prompt, so the model is
-                    # offered exactly one way to call a tool. _tool_calls_to_call_tags
-                    # turns the response back into <call:/> tags, so nothing downstream
-                    # of this function knows which protocol was used.
+                    # offered exactly one way to call a tool. Sending both is what made
+                    # Kimi narrate its own confusion about which to use, which is why
+                    # this used to be XML-only. _tool_calls_to_call_tags turns the
+                    # response back into <call:/> tags, so nothing downstream of this
+                    # function knows which protocol was used.
                     #
-                    # Gated on the capability the /api/show probe just reported: a model
-                    # without tool support keeps the XML documentation and its (weaker
-                    # but universal) text protocol, rather than silently ending up with
-                    # neither.
-                    if _use_native_ollama and native_tool_specs:
-                        if "tools" not in _native_model_capabilities:
+                    # Who does NOT get it, and why:
+                    #  - embedded: a different branch entirely (transformers
+                    #    generate_stream), no tools parameter to send.
+                    #  - anthropic: this path posts an OpenAI-shaped body to
+                    #    /chat/completions, which is not Anthropic's API. Its tools
+                    #    schema differs too (input_schema, no function wrapper). Adding
+                    #    an OpenAI-shaped tools array would only change how it fails.
+                    #  - any Ollama model whose /api/show capabilities omit "tools".
+                    # All of those keep the XML documentation and the text protocol, so
+                    # every provider can still call tools -- the choice here is which
+                    # mechanism, not whether.
+                    _is_anthropic = (
+                        p_config.get("service") == "anthropic" or "anthropic" in (endpoint or "")
+                    )
+                    if not native_tool_specs:
+                        _tools_verdict = None
+                    elif _use_native_ollama:
+                        _tools_verdict = (
+                            "ok" if "tools" in _native_model_capabilities
+                            else f"model reports no tool capability ({_native_model_capabilities or 'none reported'})"
+                        )
+                    elif _is_anthropic:
+                        _tools_verdict = "anthropic endpoint takes a different tools schema"
+                    else:
+                        # OpenAI, Gemini's OpenAI-compat layer, Moonshot/Kimi, LM Studio
+                        # and anything else behind /v1/chat/completions take the same
+                        # OpenAI-shaped array. There is no capability probe for these,
+                        # so a provider that rejects `tools` is caught by the 400 retry
+                        # below, which puts the XML documentation back.
+                        _tools_verdict = "ok"
+
+                    if _tools_verdict is not None:
+                        if _tools_verdict != "ok":
                             logger.info(
-                                "Provider '%s': model '%s' reports no tool capability (%s); "
-                                "keeping the <call:/> text protocol",
-                                p_name, model, _native_model_capabilities or "none reported",
+                                "Provider '%s' (%s): %s; keeping the <call:/> text protocol",
+                                p_name, model, _tools_verdict,
                             )
                         else:
                             _swapped, _removed = _swap_xml_protocol_for_native(
@@ -2469,12 +2533,23 @@ async def handle_inference_generate(
                         if stream:
                             chunks = []
                             in_reasoning = False
+                            streamed_tool_calls: dict[int, dict[str, Any]] = {}
                             async with client.stream("POST", url, headers=headers, json=payload) as response:
                                 if response.status_code != 200:
                                     err_body = await response.aread()
                                     err_str = err_body.decode(errors='ignore')
-                                    if response.status_code == 400 and "does not support tools" in err_str and "tools" in payload:
-                                        logger.info("Provider '%s' does not support tools payload. Retrying without tools...", p_name)
+                                    if response.status_code == 400 and "tools" in payload:
+                                        # Any 400 with tools attached, not just the
+                                        # literal "does not support tools" Ollama
+                                        # returns: every other provider words its
+                                        # rejection differently, and matching on one
+                                        # provider's phrasing means the rest fail the
+                                        # whole request instead of falling back.
+                                        logger.info(
+                                            "Provider '%s' rejected the request with tools attached (%s). "
+                                            "Retrying with the <call:/> text protocol...",
+                                            p_name, err_str[:200],
+                                        )
                                         payload_no_tools = _payload_without_tools(payload)
                                         async with client.stream("POST", url, headers=headers, json=payload_no_tools) as resp2:
                                             if resp2.status_code != 200:
@@ -2589,16 +2664,45 @@ async def handle_inference_generate(
                                                             "params": {"chunk": chunk, "session_id": session_id},
                                                         })
                                                         await ws.send(notification)
+
+                                                    # OpenAI-style streaming splits a tool
+                                                    # call across deltas: the name arrives
+                                                    # once, then `arguments` in fragments,
+                                                    # keyed by index. Accumulated here and
+                                                    # emitted once complete -- converting
+                                                    # per-delta would produce a tag with
+                                                    # half a JSON object in it.
+                                                    _accumulate_streamed_tool_calls(
+                                                        delta.get("tool_calls"), streamed_tool_calls
+                                                    )
                                             except Exception:
                                                 pass
                             if in_reasoning:
                                 chunks.append("\n</thinking>\n\n")
+                            if streamed_tool_calls:
+                                _tc_text = _tool_calls_to_call_tags(
+                                    [streamed_tool_calls[k] for k in sorted(streamed_tool_calls)]
+                                )
+                                if _tc_text:
+                                    chunks.append(f"\n{_tc_text}")
+                                    await ws.send(json.dumps({
+                                        "jsonrpc": JSONRPC_VERSION,
+                                        "method": "inference.generate.chunk",
+                                        "params": {"chunk": f"\n{_tc_text}", "session_id": session_id},
+                                    }))
                             generated_text = "".join(chunks)
                         else:
                             response = await client.post(url, headers=headers, json=payload)
                             if response.status_code != 200:
-                                if response.status_code == 400 and "does not support tools" in response.text and "tools" in payload:
-                                    logger.info("Provider '%s' does not support tools payload. Retrying non-stream without tools...", p_name)
+                                if response.status_code == 400 and "tools" in payload:
+                                    # See the streaming branch: match on "a 400 while
+                                    # tools were attached", not on one provider's
+                                    # wording of the rejection.
+                                    logger.info(
+                                        "Provider '%s' rejected the request with tools attached (%s). "
+                                        "Retrying non-stream with the <call:/> text protocol...",
+                                        p_name, response.text[:200],
+                                    )
                                     payload_no_tools = _payload_without_tools(payload)
                                     response = await client.post(url, headers=headers, json=payload_no_tools)
                                 if response.status_code != 200:
