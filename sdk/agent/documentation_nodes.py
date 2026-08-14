@@ -812,6 +812,34 @@ def assess_skill_quality(
     if any(marker in low for marker in _DEGENERATE_TITLE_MARKERS):
         return f"degenerate goal: {text[:60]!r}"
 
+    # The re-planner builds its prompt as "You were trying to accomplish the
+    # following task: '<desc>'. However, the execution failed with ...", hands
+    # that whole string to the decomposer as the goal, and the model echoes it
+    # back as the new task's description. Fail twice and the wrapper wraps
+    # itself. On 2026-08-14 that produced
+    # skill-you_were_trying_to_accomplish_the_following_task_you_were_tr --
+    # a "skill" whose entire content was the engine's own retry scaffolding,
+    # keyworded on "accomplish", "following", "trying", which are common enough
+    # to surface it as relevant prior experience for unrelated future goals.
+    #
+    # assess_learning_quality already rejects this shape via _NARRATION_STARTS
+    # ("you were"); the skill gate simply never checked. Same constant, same
+    # rule -- a goal that is narration is not a named capability.
+    if any(low.startswith(p) for p in _NARRATION_STARTS):
+        return f"goal is narration, not a named capability: {text[:60]!r}"
+
+    # A skill distilled from a *failure* teaches the failure. These markers are
+    # the engine's own error prose, not anything a human wrote as a goal.
+    if any(
+        marker in low
+        for marker in (
+            "however, the execution failed",
+            "failed validation/criteria",
+            "traceback (most recent call last)",
+        )
+    ):
+        return f"goal carries failure narration, not a capability: {text[:60]!r}"
+
     # NOTE: the presence of `executable_code` is deliberately NOT treated as
     # evidence of quality. synthesize_python_skill runs on every completed goal
     # and returns code regardless of whether the goal was worth distilling, so

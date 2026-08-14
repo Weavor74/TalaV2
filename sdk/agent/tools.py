@@ -2228,9 +2228,35 @@ async def distill_workflow_to_skill(skill_name: str, description: str, workflow_
     from pathlib import Path
     import os
 
+    # Quality gate. self_documenter's automatic per-goal path has run through
+    # assess_skill_quality since the junk-node cleanup, but this tool -- the one
+    # Tala calls on her own initiative -- was never gated, so it stayed an open
+    # door to the same wiki. It wrote
+    # skill-you_were_trying_to_accomplish_the_following_task_you_were_tr,
+    # a skill distilled from the re-planner's own retry scaffolding, roughly
+    # every five minutes with a model call attached.
+    #
+    # Skill nodes are retrieval sources whose bodies are raw Python, so a junk
+    # one does not just waste space -- it can be retrieved and reproduced
+    # instead of real work. Rejecting returns a result rather than raising, so
+    # a refused distillation never breaks the flow that proposed it.
+    from sdk.agent.documentation_nodes import assess_skill_quality
+
+    _rejection = assess_skill_quality(skill_name, workflow_steps, None)
+    if _rejection:
+        log.info(
+            "distill_workflow_to_skill: refused %r -- %s", str(skill_name)[:60], _rejection
+        )
+        return {
+            "success": False,
+            "status": "skipped",
+            "reason": _rejection,
+            "skill_name": skill_name,
+        }
+
     workspace_root = _get_workspace_root()
     nodes_dir = workspace_root / "nodes"
-    
+
     # Also save to user data nodes if applicable
     user_data = os.environ.get("TALA_USER_DATA")
     if user_data:

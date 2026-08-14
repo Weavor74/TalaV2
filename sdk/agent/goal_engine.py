@@ -25,6 +25,50 @@ from sdk.agent.repair_policy import RepairPolicyEngine, RepairContext
 
 log = logging.getLogger(__name__)
 
+
+#: Opening of the re-planner prompt. When a phase fails, the whole prompt is
+#: handed to the decomposer as its goal, and the model tends to echo this
+#: opening back as the new task's description.
+_REPLAN_PREFIX = "You were trying to accomplish the following task:"
+
+
+def strip_replan_wrapper(description: str, max_depth: int = 6) -> str:
+    """
+    Return the original task description, with any re-plan scaffolding removed.
+
+    A failed phase is re-planned by wrapping its description in
+    ``You were trying to accomplish the following task: '<desc>'. However, the
+    execution failed with ...``. That string is the decomposer's *goal*, so the
+    model echoes it into the new task's description -- and if that task fails
+    too, the wrapper wraps itself. Observed in the wild as a wiki node titled
+    ``You were trying to accomplish the following task: 'You were trying to
+    accomplish the following task: 'Modify the code to correct the addition
+    logic'''``, with the real task buried two layers down.
+
+    Nested scaffolding is not cosmetic: it becomes the phase name, the next
+    retry's input, the slug of any node distilled from it, and the keywords that
+    node is retrieved by. Unwrapping is bounded rather than recursive so a
+    pathological string cannot spin here.
+    """
+    text = str(description or "").strip()
+    for _ in range(max_depth):
+        if not text.startswith(_REPLAN_PREFIX):
+            break
+        rest = text[len(_REPLAN_PREFIX):].strip()
+        # Drop the failure narration the re-planner appends after the task.
+        cut = rest.find(". However,")
+        if cut != -1:
+            rest = rest[:cut]
+        rest = rest.strip().rstrip(".").strip()
+        # The task itself is quoted; unwrap one matching pair.
+        if len(rest) >= 2 and rest[0] in "\"'" and rest[-1] == rest[0]:
+            rest = rest[1:-1]
+        rest = rest.strip()
+        if not rest:
+            break
+        text = rest
+    return text or str(description or "").strip()
+
 _ACTIVE_TASK_IDS: set[str] = set()
 
 def register_active_task(task_id: str) -> None:
@@ -770,16 +814,22 @@ class GoalEngine:
                         message=f"Re-Planning fix for error (Retry {retries}/3)..."
                     )
                     
+                    # Always re-plan against the ORIGINAL task, never against a
+                    # previous re-plan's echo of this same prompt. See
+                    # strip_replan_wrapper: without this the phase description
+                    # accumulates a layer of scaffolding per retry.
+                    original_description = strip_replan_wrapper(task.description)
+
                     # Generate explicit repair policy rules via engine
                     repair_context = RepairContext(
-                        task_description=task.description,
+                        task_description=original_description,
                         error_msg=str(error_msg),
                         payload=getattr(task, "payload", {})
                     )
                     intent_instruction = RepairPolicyEngine.generate_instruction(repair_context)
-                    
+
                     replanner_prompt = (
-                        f"You were trying to accomplish the following task: '{task.description}'. "
+                        f"You were trying to accomplish the following task: '{original_description}'. "
                         f"However, the execution failed with the following error: '{error_msg}'. "
                         "Please generate a single, concrete repair action that circumvents the problem. "
                         "Do NOT generate tasks to 'analyze', 'review', or 'determine the root cause'. "
@@ -791,6 +841,14 @@ class GoalEngine:
                         fix_tasks = await decomposer.decompose(replanner_prompt, bypass_cache=True)
                         if fix_tasks:
                             fix_task = fix_tasks[0]
+                            # The decomposer is handed the whole replanner
+                            # prompt as its goal, and the model routinely echoes
+                            # the prompt's opening back as the task description.
+                            # Left alone, that echo becomes the phase name, the
+                            # next retry's input, and eventually a wiki node
+                            # title. Strip it here, at the one point where a
+                            # re-planned description enters the task graph.
+                            fix_task.description = strip_replan_wrapper(fix_task.description)
                             fix_id = generate_deterministic_id(fix_task.description, f"fix-{task.task_id}-{retries}")
                             fix_task.task_id = fix_id
                             
