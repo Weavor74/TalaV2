@@ -578,6 +578,212 @@ def _find_tool_call(text: str) -> "re.Match[str] | None":
     return _TOOL_CALL_RE.search(text, search_start)
 
 
+# Tail reminder appended to the user's own message, because small local models
+# lose earlier system instructions in a long prompt. Hoisted to a constant so the
+# native-tools path can swap it out by identity along with the rest of the XML
+# protocol -- left in place it would tell a model that has no XML documentation to
+# emit an XML tag anyway, which is how a working native tool call turns into a
+# hand-written tag with invented syntax.
+_XML_CALL_REMINDER = (
+    "[SYSTEM REMINDER]: If you decide to invoke a tool, you MUST output the raw XML `<call:...>` tag. "
+    "Do NOT wrap the tool call in markdown backticks like ```xml. "
+    "If you do NOT need a tool (for example, if you are asking the user a question or answering them), "
+    "simply respond with normal text."
+)
+
+_NATIVE_CALL_REMINDER = (
+    "[SYSTEM REMINDER]: If you decide to invoke a tool, call it directly through the tool interface. "
+    "Do NOT write the call out as text or as a code block. "
+    "If you do NOT need a tool (for example, if you are asking the user a question or answering them), "
+    "simply respond with normal text."
+)
+
+# Replaces the XML tool documentation when native `tools` are sent instead.
+# Ollama renders the tool schemas into the chat template itself, so listing them
+# again here would be redundant -- what does NOT survive the swap is the
+# behavioural directive, which is about willingness to act rather than syntax,
+# so that part is restated.
+_NATIVE_TOOL_DIRECTIVE = (
+    "[Agent Capability: Tools]\n"
+    "You have tools available; they are described to you directly by the runtime. "
+    "When Weavor asks you to search, find, crawl, open, or browse the web -- or to do "
+    "anything else one of your tools does -- call that tool immediately. Do NOT ask for "
+    "permission, do NOT ask for clarification first, and do NOT describe the call you "
+    "could make instead of making it. You will receive the result in the next turn.\n"
+    "Only call a tool when the request actually needs one. If Weavor is talking to you, "
+    "asking how you are, or asking something you can answer yourself, just answer -- "
+    "having a tool available is not a reason to use it.\n\n"
+)
+
+
+# research.search and research.crawl_and_summarize are dispatched through the
+# RPC METHODS table, not ToolRegistry, so they are documented by hand in the XML
+# protocol block and would be invisible to a model that only ever sees the native
+# `tools` array. Declared here so swapping the protocol swaps ALL of it -- losing
+# web search on the native path would look exactly like the model refusing to
+# search. Kept next to the XML text they mirror; the two must be edited together.
+_BUILTIN_RESEARCH_TOOL_SPECS: list[dict[str, Any]] = [
+    {
+        "type": "function",
+        "function": {
+            "name": "research.search",
+            "description": (
+                "Search the web (DuckDuckGo). Returns titles, snippets and URLs of the "
+                "top matching pages, and syncs the user's browser view to the results."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {"query": {"type": "string", "description": "The search query."}},
+                "required": ["query"],
+            },
+        },
+    },
+    {
+        "type": "function",
+        "function": {
+            "name": "research.crawl_and_summarize",
+            "description": (
+                "Download the full content of the given webpages, read them, and compile "
+                "them into a styled HTML Neural Node. The node is saved automatically -- "
+                "do not try to re-write or re-save the returned html_nn yourself."
+            ),
+            "parameters": {
+                "type": "object",
+                "properties": {
+                    "urls": {
+                        "type": "array",
+                        "items": {"type": "string"},
+                        "description": "Full URLs to crawl.",
+                    },
+                    "subject": {
+                        "type": "string",
+                        "description": "Short description of what the compiled node is about.",
+                    },
+                },
+                "required": ["urls", "subject"],
+            },
+        },
+    },
+]
+
+
+def _ollama_native_tool_specs(dyn_tools: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    Translate ToolRegistry entries into Ollama's native ``tools`` array.
+
+    ToolRegistry already stores a JSON Schema per tool (hand-written, or
+    derived from the function signature by ToolRegistry._generate_schema), so
+    this is a straight re-wrap into the OpenAI-style function envelope Ollama
+    expects -- no schema is invented here.
+
+    Only used on the native /api/chat path. Everywhere else the harness sticks
+    to its universal ``<call:tool />`` text convention; see the note at the
+    payload construction site for why the two are never offered at once.
+    """
+    specs = []
+    for t in dyn_tools:
+        name = t.get("name")
+        if not name:
+            continue
+        schema = t.get("schema") or {}
+        if schema.get("type") != "object":
+            # Ollama rejects a parameters block that isn't an object schema.
+            schema = {"type": "object", "properties": {}, "required": []}
+        specs.append({
+            "type": "function",
+            "function": {
+                "name": name,
+                "description": t.get("description", "") or "",
+                "parameters": {
+                    "type": "object",
+                    "properties": schema.get("properties", {}) or {},
+                    "required": schema.get("required", []) or [],
+                },
+            },
+        })
+    return specs
+
+
+def _swap_xml_protocol_for_native(
+    messages: list[dict[str, Any]],
+    xml_tool_protocol: str,
+) -> tuple[list[dict[str, Any]], bool]:
+    """
+    Return ``(messages, removed)`` with the XML tool-call protocol replaced by its
+    native-tools equivalent, so a request carrying a ``tools`` array documents
+    exactly one way to call a tool.
+
+    Two separate pieces have to go: the documentation block in the system prompt,
+    and the tail reminder appended to the user's own message. ``removed`` reports
+    only on the documentation block -- the reminder is a nudge, but the block is
+    the protocol, and shipping it alongside `tools` is the failure this guards.
+
+    The block is matched with an rstrip() fallback because the caller assembles it
+    into a larger prompt that then gets .strip()ed, which eats its trailing
+    newline and would otherwise defeat a verbatim match.
+    """
+    removed = not xml_tool_protocol
+    out = []
+    for m in messages:
+        content = m.get("content")
+        if not isinstance(content, str):
+            out.append(m)
+            continue
+        if xml_tool_protocol:
+            for candidate in (xml_tool_protocol, xml_tool_protocol.rstrip(), xml_tool_protocol.strip()):
+                if candidate and candidate in content:
+                    content = content.replace(candidate, _NATIVE_TOOL_DIRECTIVE)
+                    removed = True
+                    break
+        if _XML_CALL_REMINDER in content:
+            content = content.replace(_XML_CALL_REMINDER, _NATIVE_CALL_REMINDER)
+        out.append({**m, "content": content})
+    return out, removed
+
+
+def _tool_calls_to_call_tags(tool_calls: list[dict[str, Any]]) -> str:
+    """
+    Render native ``tool_calls`` into the harness's ``<call:name attr="v" />``
+    text form, which is what the turn loop downstream actually dispatches on.
+
+    Keeping the conversion here means native function-calling is purely an
+    input/output adapter at the provider boundary: everything after it --
+    _find_tool_call, the dispatch loop, the ``<response: ... />`` feedback
+    message, loop detection -- stays protocol-agnostic and untouched.
+    """
+    tags = []
+    for tc in tool_calls or []:
+        fn = tc.get("function", {}) or {}
+        fname = fn.get("name", "")
+        if not fname:
+            continue
+        fargs_raw = fn.get("arguments", "")
+        try:
+            fargs = json.loads(fargs_raw) if isinstance(fargs_raw, str) else fargs_raw
+            if isinstance(fargs, dict):
+                parts = []
+                for k, v in fargs.items():
+                    if isinstance(v, str):
+                        # The attribute parser understands backslash escapes inside a
+                        # double-quoted value, so a query containing a quote survives.
+                        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
+                        parts.append(f'{k}="{escaped}"')
+                    else:
+                        # Non-scalars (research.crawl_and_summarize's `urls` list) go
+                        # out as bare compact JSON, matching the unquoted branch of the
+                        # attribute parser, which json.loads it back into a real list.
+                        # Compact separators matter: the unquoted branch is \S+, so a
+                        # space anywhere in the array would truncate it mid-value.
+                        parts.append(f'{k}={json.dumps(v, separators=(",", ":"))}')
+                args_str = " ".join(parts)
+            else:
+                args_str = str(fargs_raw)
+        except Exception:
+            args_str = str(fargs_raw)
+        tags.append(f'<call:{fname} {args_str} />')
+    return "\n".join(tags)
+
+
 _CALL_COLON_RE = re.compile(r'\bCALL:([\w\.]+)\(([^)]*)\)', re.IGNORECASE)
 _ALLCAPS_CALL_RE = re.compile(r'\b([A-Z0-9_]{4,})\(([^)]*)\)')
 
@@ -1638,8 +1844,16 @@ async def handle_inference_generate(
             "visible reply or a tool call tag.\n\n"
         )
 
+        # The XML tool-call documentation is accumulated separately from the rest
+        # of the system prompt so a provider that takes a native `tools` array can
+        # swap this whole block out (see _native_ollama below) instead of being
+        # handed two competing calling protocols in one request.
+        xml_tool_protocol = ""
+        native_tool_specs: list[dict[str, Any]] = []
+
         if not is_casual_chat:
-            tool_instructions += (
+            native_tool_specs.extend(_BUILTIN_RESEARCH_TOOL_SPECS)
+            xml_tool_protocol += (
                 "[Agent Capability: Autonomous Web Search & Crawling]\n"
                 "You can search the web and crawl pages using the following XML-like tool calls:\n"
                 "1. Search: `<call:research.search query=\"your search term\" />`\n"
@@ -1659,6 +1873,7 @@ async def handle_inference_generate(
                 from sdk.agent.tot_ideation import get_tot_mode
                 dyn_tools = ToolRegistry.get_tools()
             if dyn_tools:
+                native_tool_specs.extend(_ollama_native_tool_specs(dyn_tools))
                 tot_mode_detect = await get_tot_mode()
                 use_compact = tot_mode_detect in ("fast", "programmatic")
                 
@@ -1708,9 +1923,11 @@ async def handle_inference_generate(
                             dyn_desc += f"   Usage: `<call:{t['name']} {params_str}>\n[your {inner_param} here]\n</call:{t['name']}>`\n"
                         else:
                             dyn_desc += f"   Usage: `<call:{t['name']} {params_str} />`\n"
-                tool_instructions += dyn_desc
+                xml_tool_protocol += dyn_desc
         except Exception as e:
             logger.warning("Could not append dynamic tools to system prompt: %s", e)
+
+        tool_instructions += xml_tool_protocol
 
         if active_system_prompt:
             active_system_prompt = f"{tool_instructions.strip()}\n\n{active_system_prompt}"
@@ -1720,12 +1937,7 @@ async def handle_inference_generate(
         # ensuring small local models follow instructions despite context size or distraction.
         prompt_lower = prompt.lower()
         if "[system reminder]" not in prompt_lower:
-            prompt = (
-                f"{prompt}\n\n"
-                f"[SYSTEM REMINDER]: If you decide to invoke a tool, you MUST output the raw XML `<call:...>` tag. "
-                f"Do NOT wrap the tool call in markdown backticks like ```xml. "
-                f"If you do NOT need a tool (for example, if you are asking the user a question or answering them), simply respond with normal text."
-            )
+            prompt = f"{prompt}\n\n{_XML_CALL_REMINDER}"
             
             # Additional hint for web search chaining if web keywords are detected
             if any(k in prompt_lower for k in ("search", "find", "crawl", "browse", "click", "open", "internet", "web")):
@@ -2064,18 +2276,22 @@ async def handle_inference_generate(
                         "stream": stream
                     }
 
-                    # Deliberately NOT attaching a native OpenAI-style `tools` array here.
-                    # The harness's actual dispatch mechanism is the text-based
+                    # Deliberately NOT attaching a native OpenAI-style `tools` array on
+                    # this /v1 path. The harness's dispatch mechanism is the text-based
                     # <call:tool_name attr="val" /> convention (see _find_tool_call,
-                    # dyn_desc above) -- it works identically across every provider,
-                    # including ones with no native function-calling support at all.
+                    # xml_tool_protocol above) -- it works identically across every
+                    # provider, including ones with no native function-calling support.
                     # Offering both mechanisms at once to a provider that DOES support
                     # native tool-calling (like Kimi/Moonshot here) hands the model two
                     # competing protocols in the same request; observed in production as
                     # the model narrating its own confusion about which one to use
                     # ("I also have native function calling available... the system
-                    # reminder says...") instead of cleanly acting. Sticking to one
-                    # universal convention is what makes this provider-agnostic.
+                    # reminder says...") instead of cleanly acting.
+                    #
+                    # The native-Ollama branch below is the one exception, and it holds
+                    # the same one-protocol-per-request rule: it sends `tools` and
+                    # REMOVES the XML documentation from the system prompt, rather than
+                    # sending both. See the note there for why the local path needs it.
 
                     _use_native_ollama = p_type == "local" and p_config.get("engine", "ollama") == "ollama"
                     if _use_native_ollama:
@@ -2106,15 +2322,21 @@ async def handle_inference_generate(
                             },
                         }
                         # Note: qwen3's thinking is deliberately NOT disabled
-                        # here (no `"think": False`), unlike the /no_think
-                        # soft-switch used on the /v1 path. On the native
-                        # endpoint the reasoning arrives structurally in
-                        # message.thinking — wrapped into <thinking> tags
-                        # below, which the renderer shows as a collapsed,
-                        # expandable section — so it can't bury a tool tag or
-                        # leak into the visible reply, and Steven likes being
-                        # able to expand and read it.
+                        # here (no `"think": False`). On the native endpoint the
+                        # reasoning arrives structurally in message.thinking —
+                        # wrapped into <thinking> tags below, which the renderer
+                        # shows as a collapsed, expandable section — so it can't
+                        # bury a tool tag or leak into the visible reply, and
+                        # Steven likes being able to expand and read it.
+                        #
+                        # The /no_think system message added above still rides
+                        # along on payload_messages, though, and it does disable
+                        # reasoning. It is removed further down whenever native
+                        # tools are attached, since its only justification was
+                        # protecting the XML tag. A qwen3 model that reports no
+                        # tool capability keeps it.
 
+                    _native_model_capabilities: list[str] = []
                     if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
                         _check_base = p_config.get("endpoint", "http://localhost:11434").rstrip("/v1").rstrip("/")
                         _check_base = _check_base.replace("/v1", "")
@@ -2133,6 +2355,17 @@ async def handle_inference_generate(
                                 )
                                 if _probe_resp.status_code != 200:
                                     raise RuntimeError(f"Model '{model}' not available in Ollama (status {_probe_resp.status_code})")
+                                # /api/show also reports what the model can do
+                                # (e.g. ["completion", "tools", "thinking"]).
+                                # Reused below to decide the calling protocol --
+                                # asking beforehand beats sending `tools` and
+                                # parsing the 400 that comes back.
+                                try:
+                                    _native_model_capabilities = list(
+                                        (_probe_resp.json() or {}).get("capabilities") or []
+                                    )
+                                except Exception:
+                                    _native_model_capabilities = []
                         except Exception as _probe_exc:
                             logger.warning(
                                 "Skipping provider '%s': model '%s' not available: %s",
@@ -2142,6 +2375,89 @@ async def handle_inference_generate(
                             probe_desc = f"{type(_probe_exc).__name__}: {_probe_exc}" if str(_probe_exc) else type(_probe_exc).__name__
                             errors.append(f"Provider '{p_name}' skipped: {probe_desc}")
                             continue
+
+                    # Native function-calling, local path only.
+                    #
+                    # The XML convention asks the model to reproduce an exact tag from
+                    # prose instructions. Measured on this box: the 8B could do it, the
+                    # 4B that replaced it (6GB VRAM, see the num_ctx note above) cannot
+                    # -- it has the documentation in context and narrates what it would
+                    # call instead of emitting the tag. The same 4B emits correct native
+                    # tool_calls, because Ollama renders the schema into the chat
+                    # template and constrains decoding rather than relying on the model
+                    # following instructions. So on the one provider where the weakest
+                    # models run, use the mechanism that doesn't depend on model
+                    # strength.
+                    #
+                    # The one-protocol rule still holds: `tools` goes in and the XML
+                    # documentation comes OUT of the system prompt, so the model is
+                    # offered exactly one way to call a tool. _tool_calls_to_call_tags
+                    # turns the response back into <call:/> tags, so nothing downstream
+                    # of this function knows which protocol was used.
+                    #
+                    # Gated on the capability the /api/show probe just reported: a model
+                    # without tool support keeps the XML documentation and its (weaker
+                    # but universal) text protocol, rather than silently ending up with
+                    # neither.
+                    if _use_native_ollama and native_tool_specs:
+                        if "tools" not in _native_model_capabilities:
+                            logger.info(
+                                "Provider '%s': model '%s' reports no tool capability (%s); "
+                                "keeping the <call:/> text protocol",
+                                p_name, model, _native_model_capabilities or "none reported",
+                            )
+                        else:
+                            _swapped, _removed = _swap_xml_protocol_for_native(
+                                payload["messages"], xml_tool_protocol
+                            )
+                            if not _removed:
+                                # The documentation is assembled and then .strip()ed into
+                                # the system prompt, so an edit up there can stop this
+                                # from matching. Failing closed matters: sending `tools`
+                                # while the XML instructions are still in context is the
+                                # two-competing-protocols case, and it degrades quietly
+                                # (the model narrates its confusion) instead of erroring.
+                                logger.warning(
+                                    "Provider '%s': could not remove the XML tool protocol from the "
+                                    "prompt, so native tools were NOT sent -- staying on <call:/>. "
+                                    "The xml_tool_protocol block and the assembled system prompt have "
+                                    "drifted apart; they must match verbatim.",
+                                    p_name,
+                                )
+                            else:
+                                # Drop the /no_think soft-switch added above. Its
+                                # stated reason is that qwen3's reasoning "buries the
+                                # <call:tool/> tag so it never fires" -- a property of
+                                # the XML protocol, which is not in use here. Native
+                                # tool_calls are a structured field and cannot be
+                                # buried by reasoning text. Leaving it would suppress
+                                # the thinking that the native branch's own comment
+                                # says it preserves, and that the renderer shows as an
+                                # expandable section.
+                                payload["messages"] = [
+                                    m for m in _swapped
+                                    if not (m.get("role") == "system" and m.get("content") == "/no_think")
+                                ]
+                                payload["tools"] = native_tool_specs
+                                logger.info(
+                                    "Provider '%s': sending %d native tool schemas to %s "
+                                    "(XML tool protocol withheld)",
+                                    p_name, len(native_tool_specs), model,
+                                )
+
+                    def _payload_without_tools(_p: dict[str, Any]) -> dict[str, Any]:
+                        """
+                        Build the retry payload for a provider that rejected `tools`.
+
+                        Dropping the array is not enough on its own: attaching tools
+                        also strips the XML documentation out of the system prompt, so
+                        a naive pop would leave the model with no tool protocol at all
+                        and no error to show for it. Put the documentation back.
+                        """
+                        _retry = dict(_p)
+                        _retry.pop("tools", None)
+                        _retry["messages"] = payload_messages
+                        return _retry
 
                     # Local (CPU-bound) inference is the SLOWER path, not the faster one --
                     # prompt prefill alone for a ~2000-token prompt routinely takes 15-25s+
@@ -2159,8 +2475,7 @@ async def handle_inference_generate(
                                     err_str = err_body.decode(errors='ignore')
                                     if response.status_code == 400 and "does not support tools" in err_str and "tools" in payload:
                                         logger.info("Provider '%s' does not support tools payload. Retrying without tools...", p_name)
-                                        payload_no_tools = dict(payload)
-                                        payload_no_tools.pop("tools", None)
+                                        payload_no_tools = _payload_without_tools(payload)
                                         async with client.stream("POST", url, headers=headers, json=payload_no_tools) as resp2:
                                             if resp2.status_code != 200:
                                                 err_body2 = await resp2.aread()
@@ -2223,6 +2538,22 @@ async def handle_inference_generate(
                                                     "method": "inference.generate.chunk",
                                                     "params": {"chunk": _chunk, "session_id": session_id},
                                                 }))
+                                            # Native tool_calls arrive as a field on a
+                                            # streamed message, not as text, so they have
+                                            # to be converted here too -- otherwise a
+                                            # streaming caller silently loses every tool
+                                            # call while the non-streaming path handles
+                                            # them fine.
+                                            _stream_tcs = _msg.get("tool_calls") or []
+                                            if _stream_tcs:
+                                                _tc_text = _tool_calls_to_call_tags(_stream_tcs)
+                                                if _tc_text:
+                                                    chunks.append(f"\n{_tc_text}")
+                                                    await ws.send(json.dumps({
+                                                        "jsonrpc": JSONRPC_VERSION,
+                                                        "method": "inference.generate.chunk",
+                                                        "params": {"chunk": f"\n{_tc_text}", "session_id": session_id},
+                                                    }))
                                             if _obj.get("done"):
                                                 break
                                             continue
@@ -2268,8 +2599,7 @@ async def handle_inference_generate(
                             if response.status_code != 200:
                                 if response.status_code == 400 and "does not support tools" in response.text and "tools" in payload:
                                     logger.info("Provider '%s' does not support tools payload. Retrying non-stream without tools...", p_name)
-                                    payload_no_tools = dict(payload)
-                                    payload_no_tools.pop("tools", None)
+                                    payload_no_tools = _payload_without_tools(payload)
                                     response = await client.post(url, headers=headers, json=payload_no_tools)
                                 if response.status_code != 200:
                                     raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
@@ -2284,19 +2614,15 @@ async def handle_inference_generate(
                             reasoning = choice.get("reasoning", "") or choice.get("reasoning_content", "") or choice.get("thinking", "") or ""
                             tool_calls = choice.get("tool_calls", [])
 
-                            if tool_calls and not content:
-                                tc_tags = []
-                                for tc in tool_calls:
-                                    fn = tc.get("function", {})
-                                    fname = fn.get("name", "")
-                                    fargs_raw = fn.get("arguments", "")
-                                    try:
-                                        fargs = json.loads(fargs_raw) if isinstance(fargs_raw, str) else fargs_raw
-                                        args_str = " ".join(f'{k}="{v}"' for k, v in fargs.items()) if isinstance(fargs, dict) else fargs_raw
-                                    except Exception:
-                                        args_str = fargs_raw
-                                    tc_tags.append(f'<call:{fname} {args_str} />')
-                                content = "\n".join(tc_tags)
+                            if tool_calls:
+                                # Appended rather than substituted-when-empty: a model
+                                # may return a sentence AND a tool call in the same
+                                # message, and dropping the call in that case is a
+                                # silent no-op that reads as "the model ignored me".
+                                # _find_tool_call takes the first tag either way.
+                                tc_tags = _tool_calls_to_call_tags(tool_calls)
+                                if tc_tags:
+                                    content = f"{content}\n{tc_tags}".strip() if content else tc_tags
 
                             if reasoning:
                                 generated_text = f"<thinking>\n{reasoning}\n</thinking>\n\n{content}"
