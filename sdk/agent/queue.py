@@ -51,6 +51,17 @@ log = logging.getLogger(__name__)
 # Goal Tree Decomposer
 # ---------------------------------------------------------------------------
 
+#: Substrings that mark an Ollama model as embedding-only. Kept deliberately
+#: narrow -- a generation model with "embed" in its name would be skipped, but
+#: none of the served families do that, whereas every embedding model does.
+_EMBEDDING_MODEL_MARKERS = ("embed", "bge-", "gte-", "e5-", "minilm")
+
+
+def _is_embedding_model(name: str) -> bool:
+    lowered = (name or "").lower()
+    return any(marker in lowered for marker in _EMBEDDING_MODEL_MARKERS)
+
+
 class GoalTreeDecomposer:
     """
     Parses a free-form user goal into a hierarchical list of TaskItems (DAG).
@@ -100,7 +111,23 @@ class GoalTreeDecomposer:
         lines = []
         for t in ordered:
             desc = " ".join(str(t.get("description") or "").split())
-            lines.append(f'  - "{t["name"]}": {desc[:75]}')
+            # Render each tool's argument names, required ones marked with *.
+            #
+            # This line used to be name + description only. The planner was
+            # told to emit "tool_params" but never told what parameters any
+            # tool takes, so it guessed -- and for anything non-obvious it
+            # emitted {}. Measured 2026-08-14: 4 of 6 agent benchmarks failed
+            # solely because every `code.propose_patch` step arrived with no
+            # arguments, burning the goal's whole time budget re-planning the
+            # same empty call. The registry has carried the JSON schema all
+            # along; nothing needed inventing, only passing through.
+            schema = t.get("schema") or {}
+            props = schema.get("properties") or {}
+            required = set(schema.get("required") or [])
+            sig = ", ".join(
+                f"{name}*" if name in required else name for name in props
+            )
+            lines.append(f'  - "{t["name"]}"({sig}): {desc[:75]}')
         return "\n".join(lines)
 
     @classmethod
@@ -124,6 +151,10 @@ Each sub-task must be structured as JSON with:
     "tool": "<exact name from the list below>"
     "tool_params": {{ ...arguments for that tool... }}
   Use the EXACT tool name. A name not on this list does not exist and the step will fail.
+  Each tool below is listed as name(arg, arg, ...). An argument marked with * is
+  REQUIRED: you MUST supply it in tool_params. A step that omits a required
+  argument fails immediately and is not retried, so do not emit "tool_params": {{}}
+  for a tool that takes required arguments.
   If a goal says to RUN or EXECUTE an existing file, use "run_workspace_command" -- do NOT
   plan to write that file. Writing to a path that already exists destroys it.
 
@@ -485,6 +516,18 @@ Output JSON array only, wrapped in a Markdown code block like:
 
                 model = config.get("model", "llama3.2")
                 provider_name_lower = (provider.get("name") or "").lower()
+
+                # Embedding models are registered as inference providers too,
+                # but they cannot generate: /api/generate answers 400 for every
+                # one of them. Each re-plan therefore burned a round-trip per
+                # embedding model and logged a warning that looked like a real
+                # provider outage. Skip them instead of asking.
+                if _is_embedding_model(model) or _is_embedding_model(provider_name_lower):
+                    log.debug(
+                        "GoalTreeDecomposer: Skipping embedding-only provider '%s'",
+                        provider.get("name"),
+                    )
+                    continue
 
                 # Detect API style: OpenAI-compatible (/v1/chat/completions) vs Ollama (/api/generate)
                 api_style = config.get("api_style", "")
