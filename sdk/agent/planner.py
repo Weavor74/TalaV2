@@ -78,7 +78,17 @@ class TaskStatus(Enum):
     IN_PROGRESS = auto()
     COMPLETE = auto()
     FAILED = auto()
+    #: Suspended by the SYSTEM -- BatchPolicy budget exhausted, lease timeout.
+    #: resume_suspended_goals hunts for exactly this and relaunches it, which is
+    #: the intended behaviour: the goal ran out of budget mid-flight and should
+    #: pick up where it left off.
     BLOCKED = auto()
+    #: Suspended by a HUMAN via task.control. Deliberately distinct from BLOCKED
+    #: so auto-resume leaves it alone -- pausing used to write BLOCKED, which is
+    #: the exact status auto-resume claims at startup, so "pause" silently meant
+    #: "relaunch me on next boot" and paused work could not be made to stay
+    #: stopped.
+    PAUSED = auto()
 
 
 class LoopPhase(Enum):

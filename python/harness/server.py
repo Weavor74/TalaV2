@@ -8591,7 +8591,14 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
             await trigger_emergency_halt()
             await db.execute("UPDATE tasks SET status = 'failed' WHERE id = $1 OR parent_id = $1", task_id)
         elif action == "pause":
-            await db.execute("UPDATE tasks SET status = 'blocked' WHERE id = $1 OR parent_id = $1", task_id)
+            # 'paused', NOT 'blocked'. resume_suspended_goals selects
+            # "status = 'blocked' AND parent_id IS NULL" at startup and
+            # relaunches every match, because 'blocked' means "the system
+            # suspended this for budget and it should carry on". Writing
+            # 'blocked' here made a human pause indistinguishable from that, so
+            # pausing a task queued it for automatic relaunch on the next app
+            # start -- a task could not be made to stay stopped.
+            await db.execute("UPDATE tasks SET status = 'paused' WHERE id = $1 OR parent_id = $1", task_id)
         elif action == "resume":
             await db.execute("UPDATE tasks SET status = 'pending' WHERE id = $1 OR parent_id = $1", task_id)
             

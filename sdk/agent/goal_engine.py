@@ -144,6 +144,12 @@ async def find_resumable_suspended_goals(max_resume_attempts: int = 5) -> list[d
         return []
 
     try:
+        # 'blocked' ONLY -- never 'paused'. The two statuses exist to be
+        # different: 'blocked' means the system suspended this goal (budget
+        # exhausted) and it should carry on, 'paused' means a human stopped it
+        # via task.control and it must stay stopped. task.control used to write
+        # 'blocked' for a pause, so this query relaunched human-paused work on
+        # every app start and there was no way to make a task stay stopped.
         rows = await db.fetch(
             "SELECT id, description, payload FROM tasks WHERE status = 'blocked' AND parent_id IS NULL"
         )

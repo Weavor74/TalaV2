@@ -40,6 +40,7 @@ _TEST_TASK_IDS = [
     "test-resume-exhausted-goal",
     "test-resume-active-goal",
     "test-resume-relaunch-goal",
+    "test-resume-paused-goal",
 ]
 
 #: Goal texts this module creates. Assertions scope themselves to these rather
@@ -52,6 +53,7 @@ _TEST_GOAL_TEXTS = {
     "Exhausted goal",
     "Actively running goal",
     "Goal that needs relaunching",
+    "Goal a human paused",
 }
 
 
@@ -65,6 +67,43 @@ async def _make_blocked_goal(task_id: str, goal_text: str, payload: dict | None 
     await BatchQueue.enqueue_task(task_id, goal_text, "in_progress", payload=payload or {})
     for _ in range(blocked_cycles):
         await BatchQueue.transition_task(task_id, TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED, reason="Suspended: budget exhausted")
+
+
+@pytest.mark.asyncio
+async def test_human_paused_goals_are_never_auto_resumed():
+    """
+    Pausing must mean stopped, not "relaunch me next boot".
+
+    task.control's pause action wrote status='blocked', which is exactly what
+    find_resumable_suspended_goals selects. So every human pause queued the task
+    for automatic relaunch at the next app start, and a task could not be made
+    to stay stopped -- confirmed live: aborting the queue and restarting simply
+    brought it all back. Pause now writes 'paused', which this query ignores.
+    """
+    await init_pool()
+    try:
+        await _cleanup()
+        # Budget-suspended: SHOULD be resumable.
+        await _make_blocked_goal("test-resume-plain-goal", "Plain suspended goal")
+        # Human-paused: must NOT be. Written exactly as task.control writes it.
+        await BatchQueue.enqueue_task(
+            "test-resume-paused-goal", "Goal a human paused", "in_progress", payload={}
+        )
+        await db.execute(
+            "UPDATE tasks SET status = 'paused' WHERE id = $1", "test-resume-paused-goal"
+        )
+
+        ids = {c["task_id"] for c in await find_resumable_suspended_goals(max_resume_attempts=5)}
+
+        assert "test-resume-plain-goal" in ids, (
+            "a budget-suspended goal must still auto-resume"
+        )
+        assert "test-resume-paused-goal" not in ids, (
+            "a human-paused goal was queued for auto-resume -- pause means stopped"
+        )
+    finally:
+        await _cleanup()
+        await close_pool()
 
 
 @pytest.mark.asyncio

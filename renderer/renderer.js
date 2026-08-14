@@ -10130,6 +10130,11 @@ const MissionControl = {
           if (t.status === 'failed') statusColor = '#ff5555';
           if (t.status === 'complete') statusColor = '#8be9fd';
           if (t.status === 'blocked') statusColor = '#ff79c6';
+          // Distinct from 'blocked': a human stopped this and it will NOT be
+          // auto-resumed at startup. Without its own colour it falls through to
+          // the pending amber and reads as "waiting to run", which is the
+          // opposite of what it means.
+          if (t.status === 'paused') statusColor = '#bd93f9';
 
           let bodyContent = '';
           if (t.status === 'in_progress') {
