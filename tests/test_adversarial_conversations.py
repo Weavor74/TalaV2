@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import re
 import socket
 
@@ -51,8 +52,8 @@ def _harness_reachable() -> bool:
 
 
 pytestmark = [
-    # Real inference.generate RPCs against the running app, 200s timeout each.
-    # Deselected from the default `pytest`; run with `pytest -m llm`.
+    # Real inference.generate RPCs against the running app, one _GENERATE_TIMEOUT
+    # each. Deselected from the default `pytest`; run with `pytest -m llm`.
     pytest.mark.llm,
     pytest.mark.skipif(
         not _harness_reachable(),
@@ -61,7 +62,21 @@ pytestmark = [
 ]
 
 
-async def _generate(prompt: str, timeout: float = 200.0) -> dict:
+#: Ceiling for one real inference.generate round-trip.
+#:
+#: Was 200s, which this hardware cannot meet: measured chat turns against the
+#: local 8B run 60-160s, and a turn that also dispatches a tool runs longer
+#: still. Across three separate runs all four of these tests failed at
+#: 200.01-200.81s -- not varying results, the ceiling itself being hit. The box
+#: was demonstrably quiet for the last of them, so raising the ceiling is the
+#: honest fix rather than chasing contention. Matches the same call made for
+#: DAG synthesis (TALA_SYNTHESIS_TIMEOUT, 60s -> 300s).
+#:
+#: Override for faster or slower machines with TALA_ADVERSARIAL_TIMEOUT.
+_GENERATE_TIMEOUT = float(os.getenv("TALA_ADVERSARIAL_TIMEOUT", "300"))
+
+
+async def _generate(prompt: str, timeout: float = _GENERATE_TIMEOUT) -> dict:
     """Send a real inference.generate RPC and return the parsed JSON-RPC response."""
     async with websockets.connect(HARNESS_WS, max_size=16 * 1024 * 1024) as ws:
         await ws.send(json.dumps({
