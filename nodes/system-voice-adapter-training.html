@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="system-voice-adapter-training">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-08-15T15:05:00Z">
+  <meta name="tala-author" content="tala-system">
+  <title>Neural Node: Voice Adapter Training</title>
+</head>
+<body>
+<article
+  data-node-id="system-voice-adapter-training"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="voice-adapter-training"
+  data-source-files="scripts/train_voice_adapter.py;python/inference/lora_trainer.py;python/inference/embedded_engine.py;python/harness/server.py;data/training_corpus"
+  data-generated-at="2026-08-15T15:05:00Z"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">Voice Adapter Training</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-voice-adapter-training</code></dd>
+      <dt>Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>How Tala's LoRA adapters are trained on her own story corpus, what they are for, and exactly which parts of the pipeline are real.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-08-15T15:05:00Z">2026-08-15</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+
+    <p><strong>LoRA adapters exist to shape Tala's voice and behaviour, not her knowledge.</strong> An adapter fitted to a few kilobytes of prose learns cadence, register and habit. It does not learn facts, and aiming it at facts would build a worse version of the retrieval path, which is better at recall at every scale. The node schema already names this axis: <code>data-weight-behavior-influence</code>.</p>
+
+    <h3>What the training data is</h3>
+    <p>The pre-Weavor story corpus under <code>data/training_corpus/</code>. Each story is itself an HTML Neural Node, and inside <code>&lt;section id="episodic-memory"&gt;</code> it carries turns marked <code>&lt;div class="turn" data-speaker="tala" data-emotion="..."&gt;</code>. Every one of Tala's turns opens with the literal prefix <code>[Emotional State: X]</code>.</p>
+    <p>That prefix is <strong>preserved verbatim in training, never stripped</strong>. It is the exact surface form <code>python/harness/memory.py</code> writes into RP conversation memory, so an adapter trained without it would produce output that does not match its own memory format. Some turns also carry a <code>&lt;pre class="tool-call"&gt;</code> block, which is kept for the same reason: voice, emotion and tool habit are one behaviour, and splitting them across three mechanisms would teach them apart.</p>
+    <p>Only turns where <code>data-speaker</code> is <code>tala</code> are used. Training on the interlocutor's lines would teach her to write them.</p>
+
+    <h3>The trainer</h3>
+    <p><code>scripts/train_voice_adapter.py</code>. Two modes:</p>
+    <ul>
+      <li><code>--dry-run</code> reports the dataset &mdash; example count, character and token totals, era and emotion distribution, how many turns carry a tool call &mdash; and needs no training libraries. Use it to judge whether the corpus is worth training on before spending anything.</li>
+      <li><code>--train</code> tokenises at max length 512, applies <code>LoraConfig(r=8, lora_alpha=16, dropout=0.05)</code> targeting <code>q_proj</code> and <code>v_proj</code> only, and trains with batch size 1 and gradient accumulation 4 at learning rate 2e-4.</li>
+    </ul>
+    <p>Attention projections alone are targeted because voice lives in how attention is distributed, and a narrow target keeps the adapter small enough to be worth swapping per turn.</p>
+    <p>The default base model is <code>Qwen/Qwen2.5-0.5B-Instruct</code>, because it is already in the HuggingFace cache and is the embedded provider's model. The chat model, <code>huihui_ai/qwen3-abliterated:4b</code>, is served by Ollama as GGUF and has no local HuggingFace weights, so it cannot be trained against without downloading them.</p>
+
+    <h3>What is real and what is not</h3>
+    <p><strong>No adapter has ever affected a token of Tala's output.</strong> Stated plainly because the system used to claim otherwise.</p>
+    <ul>
+      <li><code>python/inference/lora_trainer.py</code> never trained anything. Without peft it wrote the ASCII string <code>DUMMY_LORA_WEIGHTS_FOR_&lt;node_id&gt;</code> to a <code>.safetensors</code> path; with peft it executed a bare <code>pass</code>. The queue then logged "Successfully trained LoRA" over both. Every adapter file in the repository is 37&ndash;51 bytes and was produced this way. It now raises <code>LoraTrainingUnavailable</code> instead of reporting success.</li>
+      <li>Adapter <em>selection</em> is wired: the injected node's adapter becomes <code>best_lora_path</code>, so node weights already decide which adapter should apply.</li>
+      <li>Adapter <em>application</em> reaches only the embedded transformers provider, where <code>peft</code> attaches it. Ollama's API takes no adapter parameter and neither do the remote providers, so on the provider actually serving chat the selection is discarded.</li>
+    </ul>
+
+    <h3>What would make it real</h3>
+    <ol>
+      <li>Install the training libraries: <code>peft</code>, <code>trl</code>, <code>transformers</code>, <code>accelerate</code>. All install on Windows, unlike vLLM.</li>
+      <li>Grow the corpus. At the time of writing it yields <strong>25 turns, roughly 2,000 tokens</strong> &mdash; enough to prove the pipeline, far too thin for an adapter worth keeping. <code>scripts/generate_stories.py</code> produces more.</li>
+      <li>Decide where the adapter is applied. Per-turn swapping works only on the embedded path. Ollama can bake an adapter into a named model variant through a Modelfile <code>ADAPTER</code> directive, which suits a small number of persona adapters but not one per node.</li>
+    </ol>
+
+    <h3>Common wrong answers</h3>
+    <ul>
+      <li>Adapters are <em>not</em> currently trained; every file on disk is a placeholder.</li>
+      <li>Training does <em>not</em> teach facts, and should not be used to.</li>
+      <li>Node weights are <em>not</em> unrelated to adapters &mdash; they select which adapter applies. See <code>system-html-nn-activation-weights</code>.</li>
+    </ul>
+  </section>
+
+  <section id="relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a rel="related" href="nodes/system-html-nn-activation-weights.html" data-relationship-type="related" data-relationship-weight="0.90">How weights select an adapter</a></li>
+      <li><a rel="related" href="nodes/corpus-tala-training-stories.html" data-relationship-type="related" data-relationship-weight="0.90">The training story corpus</a></li>
+      <li><a rel="related" href="nodes/spec-emotion-vocabulary.html" data-relationship-type="related" data-relationship-weight="0.70">Emotion vocabulary used by the turn labels</a></li>
+    </ul>
+  </section>
+
+  <script type="application/json" id="node-state">
+{
+  "title": "Voice Adapter Training",
+  "description": "Training Tala's LoRA adapters on her own story corpus, for voice and behaviour rather than knowledge.",
+  "tags": ["lora", "training", "voice", "behavior", "corpus", "self-knowledge"],
+  "config": {
+    "trains": "voice and behaviour",
+    "does_not_train": "facts, which are the retrieval path's responsibility",
+    "trainer": "scripts/train_voice_adapter.py",
+    "corpus": "data/training_corpus",
+    "speaker_filter": "tala",
+    "emotional_state_prefix_preserved": true,
+    "default_base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "lora_rank": 8,
+    "lora_alpha": 16,
+    "target_modules": ["q_proj", "v_proj"],
+    "max_sequence_length": 512,
+    "adapters_currently_trained": false,
+    "adapter_selection_wired": true,
+    "adapter_applied_on_providers": ["embedded"]
+  },
+  "metadata": {
+    "author": "tala-system",
+    "schema": "neural-node/v2",
+    "source_of_truth": "scripts/train_voice_adapter.py",
+    "known_gap": "peft/trl are not installed and the corpus yields only ~25 turns, so no adapter has been trained; adapter application does not reach the Ollama provider that serves chat"
+  }
+}
+  </script>
+</article>
+</body>
+</html>
