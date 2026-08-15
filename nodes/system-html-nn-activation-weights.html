@@ -91,12 +91,24 @@
     <p>Nodes scoring at least <strong>0.01</strong> are sorted by activation descending. The number injected depends on chat mode: <strong>2</strong> nodes in <code>rp</code> and <code>hybrid</code>, <strong>5</strong> in <code>assistant</code>. Their semantic memory is written into the system prompt. A node explicitly named in the message is pinned to the front at full activation, ahead of the ranked list.</p>
 
     <h3>What does change a weight</h3>
-    <p>The <code>adjust_behavioral_weights</code> tool analyses feedback, shifts the relevance and valence values, and calls <code>update_manifest</code> to write them back into the node file. That is a deliberate edit to a document, not learning. LoRA adapters are a separate mechanism entirely and do not feed this arithmetic; every adapter file currently on disk is a 37&ndash;51 byte placeholder, so no trained weights exist anywhere in the system.</p>
+    <p>The <code>adjust_behavioral_weights</code> tool analyses feedback, shifts the relevance and valence values, and calls <code>update_manifest</code> to write them back into the node file. That is a deliberate edit to a document, not learning.</p>
+
+    <h3>How the weights are meant to reach the model: LoRA adapters</h3>
+    <p><strong>This is the design intent, and it is only half built.</strong> The point of weighting a node is not merely to decide what text gets pasted into a prompt. It is that an activated node should temporarily modulate the model itself, by attaching that node's LoRA adapter for the turn.</p>
+    <p>The selection half exists and works. For each node chosen for injection, <code>handle_inference_generate</code> looks for an adapter: the node's own <code>lora_adapter</code> attribute if the file exists, otherwise <code>nodes/&lt;node_id&gt;_lora/adapter_model.safetensors</code>. The first one found becomes <code>best_lora_path</code>. If neither exists, <code>queue_lora_training()</code> is fired to compile one from the node's semantic memory. So activation &mdash; and therefore the weights &mdash; already decide <em>which</em> adapter should apply.</p>
+    <p>The application half does not reach the model in practice. <code>best_lora_path</code> is passed to exactly one provider, the embedded transformers engine, where <code>peft</code> attaches it. Ollama's API takes no adapter parameter, and the remote providers take none either, so on every provider actually in use the selected adapter is silently dropped.</p>
+    <p>Two things therefore stand between the intent and the behaviour:</p>
+    <ul>
+      <li>Every <code>adapter_model.safetensors</code> on disk is a 37&ndash;51 byte placeholder, so there are no trained weights to apply even where the plumbing exists.</li>
+      <li>The one path that can apply an adapter is the embedded 0.5B, not the local Ollama model that serves normal chat.</li>
+    </ul>
+    <p>The correct statement is therefore not "LoRA is unrelated to node weights". It is that node weights <em>are</em> intended to reach the model through adapters, that the routing from activation to adapter is built, and that no adapter has yet affected a single token of output on any provider.</p>
 
     <h3>Common wrong answers</h3>
     <ul>
       <li>Weights are <em>not</em> learned from the training-stories corpus.</li>
       <li>Weights do <em>not</em> select or prioritise inference providers or models.</li>
+      <li>It is <em>wrong</em> to say weights have nothing to do with LoRA. They choose the node whose adapter is selected; the adapter simply never reaches the provider in use.</li>
       <li><code>data-execution-authority</code> values are decimals such as <code>0.60</code>, never labels such as <code>"high"</code> or <code>"medium"</code>.</li>
       <li>There is no execution pipeline that processes higher-authority nodes first; authority gates recall, it does not order work.</li>
     </ul>
@@ -125,7 +137,11 @@
     "injection_threshold": 0.01,
     "injected_node_count": {"rp": 2, "hybrid": 2, "assistant": 5},
     "governance_is_a_gate": true,
-    "weights_are_learned": false
+    "weights_are_learned": false,
+    "lora_intent": "an activated node's weights are meant to temporarily modulate the model by attaching that node's LoRA adapter for the turn",
+    "lora_selection_wired": true,
+    "lora_applied_on_providers": ["embedded"],
+    "lora_applied_on_ollama_or_remote": false
   },
   "metadata": {
     "author": "tala-system",
