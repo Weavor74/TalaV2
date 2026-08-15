@@ -10074,6 +10074,36 @@ const MissionControl = {
     this._console = qs('#mc-diagnostics-console');
     this._telemetry = qs('#mc-telemetry-stream');
 
+    // Scheduled goals (heartbeats)
+    this._scheduleList = qs('#mc-schedule-list');
+    this._scheduleEditor = qs('#mc-schedule-editor');
+    this._scheduleError = qs('#mc-schedule-error');
+    this._btnScheduleNew = qs('#btn-mc-schedule-new');
+    this._btnScheduleCancel = qs('#btn-mc-schedule-cancel');
+
+    if (this._btnScheduleNew) this._btnScheduleNew.addEventListener('click', () => this.openScheduleEditor());
+    if (this._btnScheduleCancel) this._btnScheduleCancel.addEventListener('click', () => this.closeScheduleEditor());
+    if (this._scheduleEditor) {
+      this._scheduleEditor.addEventListener('submit', (e) => {
+        e.preventDefault();
+        this.saveSchedule();
+      });
+    }
+    // One delegated listener rather than per-row handlers, so rows re-rendered
+    // by the 4s poll do not leave orphaned listeners behind.
+    if (this._scheduleList) {
+      this._scheduleList.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-schedule-action]');
+        if (!btn) return;
+        const id = btn.getAttribute('data-schedule-id');
+        const action = btn.getAttribute('data-schedule-action');
+        if (action === 'edit') this.openScheduleEditor(id);
+        else if (action === 'delete') this.deleteSchedule(id);
+        else if (action === 'run') this.fireSchedule(id);
+        else if (action === 'toggle') this.toggleSchedule(id, btn.getAttribute('data-schedule-enabled') === 'true');
+      });
+    }
+
     if (this._btnRefresh) this._btnRefresh.addEventListener('click', () => this.refreshAll());
     if (this._btnHalt) this._btnHalt.addEventListener('click', () => this.haltCurrentLoop());
     if (this._btnScan) this._btnScan.addEventListener('click', () => this.runScan());
@@ -10085,6 +10115,10 @@ const MissionControl = {
       if (TabManager.activeTabId === 'mission-control') {
         this.loadTasks();
         this.loadTelemetry();
+        // Refreshed on the same tick so a run started elsewhere -- by the cron
+        // tick, or by Tala calling schedule_goal herself -- shows its status
+        // here without the user having to press Refresh.
+        this.loadSchedules();
       }
     }, 4000);
     // Subscribe to telemetry stream on startup
@@ -10112,6 +10146,141 @@ const MissionControl = {
     await this.loadTasks();
     await this.loadTelemetry();
     await this.loadGitStatus();
+    await this.loadSchedules();
+  },
+
+  /* ── Scheduled goals ──────────────────────────────────────────────
+     The cron scheduler has run from server startup since it was built, but
+     nothing in the UI ever called its six RPC methods, so the only way to
+     create a recurring goal was for Tala to call the schedule_goal tool
+     herself. These handlers are that missing entry point. */
+
+  _scheduleCache: [],
+
+  async loadSchedules() {
+    if (!this._scheduleList) return;
+    try {
+      const response = await invoke('python:rpc', { method: 'heartbeat.list', params: {} });
+      const jobs = (response && response.jobs) || [];
+      this._scheduleCache = jobs;
+
+      if (jobs.length === 0) {
+        this._scheduleList.innerHTML = `<div class="empty-state" style="padding: var(--space-4); text-align: center; color: var(--text-muted);">No scheduled goals. Press <strong>New Schedule</strong> to add one.</div>`;
+        return;
+      }
+
+      this._scheduleList.innerHTML = jobs.map(job => {
+        // 'running' is shown only while a run is genuinely in flight; the
+        // harness reconciles rows orphaned by a restart back to 'interrupted'
+        // at startup, so a stale 'running' does not sit here indefinitely
+        // claiming work that is not happening.
+        let statusColor = 'var(--text-muted)';
+        if (job.last_status === 'success') statusColor = '#50fa7b';
+        else if (job.last_status === 'failed') statusColor = '#ff5555';
+        else if (job.last_status === 'running') statusColor = '#8be9fd';
+        else if (job.last_status === 'interrupted') statusColor = '#ffc107';
+
+        const lastRun = job.last_run_at
+          ? new Date(job.last_run_at).toLocaleString()
+          : 'never run';
+
+        return `
+        <div style="display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) var(--space-3); background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm);">
+          <span title="${escapeHtml(job.last_status || 'pending')}" style="width: 8px; height: 8px; border-radius: 50%; flex-shrink: 0; background: ${statusColor};"></span>
+          <div style="flex: 1; min-width: 0;">
+            <div style="font-size: 0.85rem; color: ${job.enabled ? 'var(--text-primary)' : 'var(--text-muted)'};">
+              ${escapeHtml(job.name)}${job.enabled ? '' : ' <span style="font-size:0.7rem; text-transform:uppercase;">(paused)</span>'}
+            </div>
+            <div style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
+              <code style="font-family: var(--font-mono);">${escapeHtml(job.cron_expr)}</code> &nbsp;·&nbsp; ${escapeHtml(lastRun)} &nbsp;·&nbsp; ${escapeHtml(job.goal_text || '')}
+            </div>
+          </div>
+          <button class="btn btn-ghost" data-schedule-action="toggle" data-schedule-id="${escapeHtml(job.id)}" data-schedule-enabled="${job.enabled}" style="font-size: 0.7rem; padding: 3px 8px;">${job.enabled ? 'Pause' : 'Resume'}</button>
+          <button class="btn btn-ghost" data-schedule-action="run" data-schedule-id="${escapeHtml(job.id)}" style="font-size: 0.7rem; padding: 3px 8px;">Run now</button>
+          <button class="btn btn-ghost" data-schedule-action="edit" data-schedule-id="${escapeHtml(job.id)}" style="font-size: 0.7rem; padding: 3px 8px;">Edit</button>
+          <button class="btn btn-ghost" data-schedule-action="delete" data-schedule-id="${escapeHtml(job.id)}" style="font-size: 0.7rem; padding: 3px 8px; color: #ff6b6b;">Delete</button>
+        </div>`;
+      }).join('');
+    } catch (err) {
+      this._scheduleList.innerHTML = `<div class="empty-state" style="padding: var(--space-4); text-align: center; color: #ff6b6b;">Could not load schedules: ${escapeHtml(err.message || String(err))}</div>`;
+    }
+  },
+
+  openScheduleEditor(id = null) {
+    if (!this._scheduleEditor) return;
+    const job = id ? this._scheduleCache.find(j => j.id === id) : null;
+    qs('#mc-schedule-id').value = job ? job.id : '';
+    qs('#mc-schedule-name').value = job ? job.name : '';
+    qs('#mc-schedule-cron').value = job ? job.cron_expr : '';
+    qs('#mc-schedule-goal').value = job ? (job.goal_text || '') : '';
+    qs('#mc-schedule-enabled').checked = job ? !!job.enabled : true;
+    if (this._scheduleError) this._scheduleError.textContent = '';
+    this._scheduleEditor.hidden = false;
+    qs('#mc-schedule-name').focus();
+  },
+
+  closeScheduleEditor() {
+    if (this._scheduleEditor) this._scheduleEditor.hidden = true;
+    if (this._scheduleError) this._scheduleError.textContent = '';
+  },
+
+  async saveSchedule() {
+    const id = qs('#mc-schedule-id').value.trim();
+    const params = {
+      name: qs('#mc-schedule-name').value.trim(),
+      cron_expr: qs('#mc-schedule-cron').value.trim(),
+      goal_text: qs('#mc-schedule-goal').value.trim(),
+      enabled: qs('#mc-schedule-enabled').checked,
+    };
+    if (id) params.id = id;
+
+    const btn = qs('#btn-mc-schedule-save');
+    if (btn) btn.disabled = true;
+    try {
+      // The harness validates the cron expression and returns the parse error
+      // as the RPC error, so an invalid schedule is reported here rather than
+      // being accepted and silently never firing.
+      await invoke('python:rpc', {
+        method: id ? 'heartbeat.update' : 'heartbeat.create',
+        params,
+      });
+      this.closeScheduleEditor();
+      await this.loadSchedules();
+    } catch (err) {
+      if (this._scheduleError) this._scheduleError.textContent = err.message || String(err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  },
+
+  async toggleSchedule(id, currentlyEnabled) {
+    try {
+      await invoke('python:rpc', { method: 'heartbeat.update', params: { id, enabled: !currentlyEnabled } });
+      await this.loadSchedules();
+    } catch (err) {
+      IPCLog.append('error', `Could not change schedule: ${err.message || err}`);
+    }
+  },
+
+  async fireSchedule(id) {
+    try {
+      await invoke('python:rpc', { method: 'heartbeat.fire_now', params: { id } });
+      IPCLog.append('info', 'Schedule triggered.');
+      await this.loadSchedules();
+    } catch (err) {
+      IPCLog.append('error', `Could not run schedule: ${err.message || err}`);
+    }
+  },
+
+  async deleteSchedule(id) {
+    const job = this._scheduleCache.find(j => j.id === id);
+    if (!confirm(`Delete the schedule "${job ? job.name : id}"? This cannot be undone.`)) return;
+    try {
+      await invoke('python:rpc', { method: 'heartbeat.delete', params: { id } });
+      await this.loadSchedules();
+    } catch (err) {
+      IPCLog.append('error', `Could not delete schedule: ${err.message || err}`);
+    }
   },
 
   async loadTasks() {

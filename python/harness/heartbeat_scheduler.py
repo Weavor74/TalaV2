@@ -253,6 +253,7 @@ class HeartbeatScheduler:
             log.warning("HeartbeatScheduler.start() called but already running — ignored")
             return
 
+        await self._reconcile_orphaned_runs()
         await self.reload_from_db()
         self._running = True
 
@@ -297,6 +298,42 @@ class HeartbeatScheduler:
     # ------------------------------------------------------------------
     # DB persistence
     # ------------------------------------------------------------------
+
+    async def _reconcile_orphaned_runs(self) -> None:
+        """
+        Settle any run that was in flight when the process last stopped.
+
+        ``last_status`` is set to 'running' before the goal starts and to
+        'success'/'failed' after it returns. Nothing writes it if the process
+        never gets there -- a harness restart, or a BaseException such as
+        CancelledError on shutdown, which the executor's ``except Exception``
+        does not catch. The row then reads 'running' forever.
+
+        Found live: the nightly corpus job showed 'running' sixteen hours after
+        its 02:00 start. It does not block anything -- is_due() ignores status --
+        so nothing failed, it simply reported work that was not happening, which
+        is worse than reporting a failure. Any UI built on this field inherits
+        the lie.
+
+        Rows are settled to 'interrupted' rather than 'failed': the run may well
+        have completed its work before the process died, and claiming a failure
+        we did not observe is the same class of mistake in the other direction.
+        """
+        try:
+            from python.harness import db
+            rows = await db.fetch(
+                "UPDATE heartbeats SET last_status = 'interrupted', updated_at = NOW() "
+                "WHERE last_status = 'running' RETURNING name"
+            )
+            if rows:
+                log.warning(
+                    "HeartbeatScheduler: %d job(s) were still marked 'running' from a previous "
+                    "process and have been settled to 'interrupted': %s",
+                    len(rows), ", ".join(r["name"] for r in rows),
+                )
+        except Exception as exc:
+            # Never block startup over a status cleanup.
+            log.warning("HeartbeatScheduler: could not reconcile orphaned runs: %s", exc)
 
     async def reload_from_db(self) -> None:
         """Load (or reload) all heartbeat jobs from PostgreSQL."""
@@ -468,6 +505,23 @@ class HeartbeatScheduler:
             status = "failed"
             result = {"success": False, "error": str(exc)}
             log.exception("HeartbeatScheduler: job %r raised an exception", job.name)
+        except BaseException as exc:
+            # CancelledError (shutdown) and SystemExit are BaseException, so the
+            # clause above misses them and the row below never gets written --
+            # leaving 'running' in the database permanently. The corpus pipeline
+            # raises SystemExit by design, which is exactly this path.
+            #
+            # Settled to 'interrupted' rather than 'failed' because the work may
+            # have completed before the interruption, then re-raised: this is
+            # not an error to swallow, only a status to record on the way out.
+            status = "interrupted"
+            result = {"success": False, "error": f"{type(exc).__name__}: {exc}"}
+            log.warning(
+                "HeartbeatScheduler: job %r interrupted by %s", job.name, type(exc).__name__
+            )
+            job.last_status = status
+            await self._persist_run_result(job, status)
+            raise
 
         # Update in-memory state
         job.last_status = status
