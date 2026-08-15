@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="system-html-nn-activation-weights">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-08-15T03:10:00Z">
+  <meta name="tala-author" content="tala-system">
+  <title>Neural Node: HTML-NN Weights and Activation</title>
+</head>
+<body>
+<article
+  data-node-id="system-html-nn-activation-weights"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="1.00"
+  data-governance-status="context-only"
+  data-doc-target="html-nn-activation-weights"
+  data-source-files="sdk/agent/activation.py;sdk/agent/parser.py;python/harness/retrieval.py;python/harness/server.py"
+  data-generated-at="2026-08-15T03:10:00Z"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">HTML-NN Weights and Activation</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-html-nn-activation-weights</code></dd>
+      <dt>Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>What each weight on an HTML Neural Node actually does, and the exact arithmetic that decides which nodes are recalled into a prompt.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-08-15T03:10:00Z">2026-08-15</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+
+    <p><strong>Weights on an HTML Neural Node are static numbers stored as attributes in the node's own HTML file. They are not learned, not trained, and not updated by inference.</strong> They are read at parse time and multiplied together to decide how strongly a node activates for a given query. Nothing about answering a question changes them. This node exists because that mechanism was previously documented nowhere, and the gap was filled with plausible invention instead.</p>
+
+    <h3>The weight fields</h3>
+    <p>Every node declares these as <code>data-*</code> attributes, each clamped to the range 0.0 to 1.0 and parsed by <code>sdk/agent/parser.py</code>:</p>
+    <ul>
+      <li><code>data-weight-relevance</code> &mdash; how strongly this node's content should count when it matches. Read into <code>weight_relevance</code>.</li>
+      <li><code>data-weight-confidence</code> &mdash; how much the content is trusted to be correct. Read into <code>weight_confidence</code>.</li>
+      <li><code>data-weight-behavior-influence</code> &mdash; how much the node should shape behaviour rather than supply facts. Parsed and stored; it is not part of the activation product below.</li>
+      <li><code>data-weight-governance-importance</code> &mdash; governance salience. Parsed and stored; also not part of the activation product.</li>
+      <li><code>data-execution-authority</code> &mdash; whether this node is permitted to <em>act</em>. Documentation nodes are 0.00 and must stay so.</li>
+      <li><code>data-memory-authority</code> &mdash; whether this node is permitted to be <em>recalled</em> into a prompt. These two are different permissions and conflating them is a known past defect: documentation generated with both at 0.00 became permanently unrecallable, because a zero here blocks activation entirely.</li>
+    </ul>
+
+    <h3>The activation formula</h3>
+    <p><code>ActivationEngine.score()</code> in <code>sdk/agent/activation.py</code> multiplies its inputs. There is no summation, no threshold function, and no learned component:</p>
+    <p><code>activation = semantic_match &times; relevance_weight &times; confidence_weight &times; freshness_weight &times; provider_trust_multiplier &times; governance_multiplier</code></p>
+    <p>Every input is clamped to 0.0&ndash;1.0 first, and the result is clamped again. Because it is a pure product, <strong>any single input of 0.0 makes the whole activation 0.0</strong>. That is deliberate for governance, which the engine documents as a hard gate.</p>
+    <p>In the live retrieval path, <code>freshness_weight</code> and <code>provider_trust_multiplier</code> are both passed as 1.0, so they currently have no effect.</p>
+
+    <h3>What governance contributes</h3>
+    <p>Governance is passed as a <strong>gate, not a ranking weight</strong>: 1.0 if either execution or memory authority is above zero, 0.0 otherwise. A node either may be recalled or may not; how well it matches decides its order. Passing the raw authority value instead made a node's permission double as its priority, so a document at 0.60 needed 1.67&times; the relevance of a settings node at 1.00 just to draw with it.</p>
+
+    <h3>How semantic_match is produced</h3>
+    <p><code>retrieve_relevant_nodes()</code> in <code>python/harness/retrieval.py</code> queries a ChromaDB vector collection, converts cosine distance to similarity as <code>1 - distance</code>, and returns <code>raw_similarity &times; weight_relevance &times; weight_confidence</code>.</p>
+    <p><strong>Known defect:</strong> that return value is then passed to <code>score()</code> as <code>semantic_match</code> while <code>weight_relevance</code> and <code>weight_confidence</code> are <em>also</em> passed separately &mdash; so both weights are applied twice and act as squares. A weight of 0.5 contributes 0.25. This is currently masked because 113 of 115 nodes carry 1.00 for both, and 1.00 squared is 1.00. It matters the moment any node is given a non-default weight.</p>
+
+    <h3>Propagation across relationships</h3>
+    <p>After base activation is computed for every node, activation spreads along typed relationship links for <strong>two hops</strong>. Each hop applies <code>ActivationEngine.propagate()</code>:</p>
+    <p><code>propagated = source_activation &times; relationship_weight &times; decay_factor</code>, with <code>decay_factor</code> defaulting to <strong>0.85</strong>.</p>
+    <p>A target node keeps the <em>maximum</em> of its own activation and any propagated value, so propagation can raise a node's activation but never lower it. Results below 1e-09 are floored to 0.0 to suppress underflow noise.</p>
+
+    <h3>From activation to the prompt</h3>
+    <p>Nodes scoring at least <strong>0.01</strong> are sorted by activation descending. The number injected depends on chat mode: <strong>2</strong> nodes in <code>rp</code> and <code>hybrid</code>, <strong>5</strong> in <code>assistant</code>. Their semantic memory is written into the system prompt. A node explicitly named in the message is pinned to the front at full activation, ahead of the ranked list.</p>
+
+    <h3>What does change a weight</h3>
+    <p>The <code>adjust_behavioral_weights</code> tool analyses feedback, shifts the relevance and valence values, and calls <code>update_manifest</code> to write them back into the node file. That is a deliberate edit to a document, not learning. LoRA adapters are a separate mechanism entirely and do not feed this arithmetic; every adapter file currently on disk is a 37&ndash;51 byte placeholder, so no trained weights exist anywhere in the system.</p>
+
+    <h3>Common wrong answers</h3>
+    <ul>
+      <li>Weights are <em>not</em> learned from the training-stories corpus.</li>
+      <li>Weights do <em>not</em> select or prioritise inference providers or models.</li>
+      <li><code>data-execution-authority</code> values are decimals such as <code>0.60</code>, never labels such as <code>"high"</code> or <code>"medium"</code>.</li>
+      <li>There is no execution pipeline that processes higher-authority nodes first; authority gates recall, it does not order work.</li>
+    </ul>
+  </section>
+
+  <section id="relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a rel="documents" href="nodes/sdk_agent_activation.html" data-relationship-type="documents" data-relationship-weight="0.90">ActivationEngine module documentation</a></li>
+      <li><a rel="related" href="nodes/system-neural-node-v2-schema.html" data-relationship-type="related" data-relationship-weight="0.80">Neural Node v2 schema</a></li>
+      <li><a rel="related" href="nodes/system-html-nn-authoring-guide.html" data-relationship-type="related" data-relationship-weight="0.80">HTML-NN authoring guide</a></li>
+    </ul>
+  </section>
+
+  <script type="application/json" id="node-state">
+{
+  "title": "HTML-NN Weights and Activation",
+  "description": "Exact arithmetic behind node weights, activation scoring, propagation and injection.",
+  "tags": ["activation", "weights", "memory", "retrieval", "self-knowledge"],
+  "config": {
+    "activation_formula": "semantic_match * relevance_weight * confidence_weight * freshness_weight * provider_trust_multiplier * governance_multiplier",
+    "propagation_formula": "source_activation * relationship_weight * decay_factor",
+    "decay_factor": 0.85,
+    "propagation_hops": 2,
+    "activation_epsilon": 1e-09,
+    "injection_threshold": 0.01,
+    "injected_node_count": {"rp": 2, "hybrid": 2, "assistant": 5},
+    "governance_is_a_gate": true,
+    "weights_are_learned": false
+  },
+  "metadata": {
+    "author": "tala-system",
+    "schema": "neural-node/v2",
+    "source_of_truth": "sdk/agent/activation.py::ActivationEngine",
+    "known_defect": "weight_relevance and weight_confidence are applied twice - once inside retrieve_relevant_nodes and again as score() arguments - so they act as squares. Masked while 113 of 115 nodes carry 1.00."
+  }
+}
+  </script>
+</article>
+</body>
+</html>
