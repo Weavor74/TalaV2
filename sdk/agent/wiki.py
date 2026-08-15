@@ -326,7 +326,7 @@ class WikiUpdater:
   data-node-type="documentation"
   data-schema-version="neural-node/v2"
   data-execution-authority="0.00"
-  data-memory-authority="0.00"
+  data-memory-authority="0.60"
   data-provider-authority="0.00"
   data-wallet-authority="0.00"
   data-weight-relevance="0.30"

@@ -150,7 +150,7 @@ def _render_function_node(
   data-node-type="function-doc"
   data-schema-version="neural-node/v2"
   data-execution-authority="0.00"
-  data-memory-authority="0.00"
+  data-memory-authority="0.60"
   data-provider-authority="0.00"
   data-wallet-authority="0.00"
   data-tool-authority="0.00"

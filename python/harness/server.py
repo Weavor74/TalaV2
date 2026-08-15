@@ -1567,6 +1567,30 @@ async def handle_inference_generate(
                     active_nodes.sort(key=lambda x: x[1], reverse=True)
                     top_active = active_nodes
 
+                    # Governance is a hard gate: activation is a product, so a
+                    # node whose execution AND memory authority are both zero
+                    # scores zero no matter how well it matches, and vanishes
+                    # without a trace. That is how 94 of 115 nodes -- almost the
+                    # whole documentation and learning graph -- became
+                    # permanently unrecallable while retrieval kept answering
+                    # every query from the ~18% that had authority. Name them,
+                    # so a graph that cannot remember itself says so.
+                    gated = [
+                        (nid, similarities.get(nid, 0.0))
+                        for nid in (n.node_id for n in nodes)
+                        if similarities.get(nid, 0.0) >= 0.15
+                        and final_activations.get(nid, 0.0) <= 0.0
+                    ]
+                    if gated:
+                        gated.sort(key=lambda kv: -kv[1])
+                        logger.warning(
+                            "Context injection: %d well-matching node(s) scored 0 because their "
+                            "governance authority is 0 -- they can never be recalled. Highest: %s. "
+                            "Fix with scripts/backfill_memory_authority.py",
+                            len(gated),
+                            ", ".join(f"{nid} (sim={sim:.2f})" for nid, sim in gated[:5]),
+                        )
+
                     # 5b. Explicitly-named nodes are a direct request, not a
                     # similarity guess. "Read your workflow-self-extension
                     # node" must inject that node no matter how the embedding
@@ -4085,7 +4109,13 @@ async def handle_graph_query_activations(params: dict[str, Any], req_id: Any) ->
             confidence_weight=node.weight_confidence,
             freshness_weight=1.0,
             provider_trust_multiplier=1.0,
-            governance_multiplier=node.execution_authority,
+            # Must match the retrieval path in handle_inference_generate, which
+            # gates on max(execution, memory). Reporting execution_authority
+            # alone made this endpoint -- the instrument you would reach for to
+            # debug what got recalled -- disagree with the recall it is meant to
+            # describe: 8 of 115 nodes scored differently, six of them reported
+            # as 0.0000 while actually clearing the 0.01 injection threshold.
+            governance_multiplier=max(node.execution_authority, node.memory_authority),
         )
         base_activations[node.node_id] = engine.score(inputs)
 

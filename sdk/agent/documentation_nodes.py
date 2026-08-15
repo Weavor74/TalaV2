@@ -518,7 +518,7 @@ def create_documentation_node(
   data-node-type="{escape(node_type)}"
   data-schema-version="neural-node/v2"
   data-execution-authority="0.00"
-  data-memory-authority="0.00"
+  data-memory-authority="0.60"
   data-provider-authority="0.00"
   data-wallet-authority="0.00"
   data-tool-authority="0.00"
