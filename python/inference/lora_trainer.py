@@ -16,6 +16,17 @@ _training_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 _trainer_task: asyncio.Task[None] | None = None
 _training_lock = threading.Lock()
 
+class LoraTrainingUnavailable(RuntimeError):
+    """
+    Raised when a training job could not actually train anything.
+
+    Exists because the alternative was returning normally: the queue logged
+    "Successfully trained LoRA for node X" whether the job wrote a real adapter,
+    wrote a 51-byte placeholder, or executed a bare `pass`. Every adapter in the
+    repository was produced by one of the latter two.
+    """
+
+
 def is_peft_available() -> bool:
     """Check if the necessary PEFT/TRL training libraries are installed."""
     try:
@@ -47,22 +58,39 @@ def _perform_training_sync(job: dict[str, Any]) -> None:
     semantic_memory = job["semantic_memory"]
     
     if not is_peft_available():
-        logger.warning("PEFT/TRL not installed. Simulating LoRA training for node %s", node_id)
-        # Simulation: Create a dummy safetensors file just to satisfy the runtime check
+        # The placeholder is written to a .safetensors path, so every later check
+        # -- Path.exists() in the retrieval path, the adapter selector, the UI --
+        # sees a trained adapter that is 51 bytes of ASCII. It is named clearly
+        # so that anything reading the file can tell, but nothing does.
+        logger.warning(
+            "PEFT/TRL not installed: writing a PLACEHOLDER for node %s, not a trained "
+            "adapter. Install peft and trl to train for real.",
+            node_id,
+        )
         Path(output_path).parent.mkdir(parents=True, exist_ok=True)
         with open(output_path, "w", encoding="utf-8") as f:
             f.write(f"DUMMY_LORA_WEIGHTS_FOR_{node_id}")
-        return
+        raise LoraTrainingUnavailable(
+            f"peft/trl not installed; wrote a placeholder for {node_id} instead of training"
+        )
 
     logger.info("Starting real JIT LoRA training for %s", node_id)
     try:
-        # Placeholder for actual peft/trl SFTTrainer logic
-        # 1. Convert semantic_memory to HuggingFace Dataset
-        # 2. Load model in 4-bit (bitsandbytes)
-        # 3. Configure LoraConfig(r=8, lora_alpha=16)
-        # 4. Train and model.save_pretrained(output_path)
-        pass
-    except Exception as exc:
+        # NOT IMPLEMENTED. peft and trl being importable is not the same as this
+        # function training anything -- the body below is the plan, never the
+        # work, and the caller used to log "Successfully trained LoRA" over the
+        # top of it either way.
+        #
+        # 1. Convert semantic_memory to a HuggingFace Dataset
+        # 2. Load the base model (Qwen/Qwen2.5-0.5B-Instruct is already cached)
+        # 3. LoraConfig(r=8, lora_alpha=16)
+        # 4. Train, then model.save_pretrained(output_path)
+        raise LoraTrainingUnavailable(
+            f"JIT LoRA training is not implemented; no adapter was produced for {node_id}"
+        )
+    except LoraTrainingUnavailable:
+        raise
+    except Exception:
         logger.exception("Failed to train LoRA for %s", node_id)
         raise
 
@@ -75,10 +103,20 @@ async def _training_loop() -> None:
             
             # Offload heavy training to a thread so we don't block the asyncio event loop
             loop = asyncio.get_running_loop()
-            await loop.run_in_executor(None, _perform_training_sync, job)
-            
-            logger.info("Successfully trained LoRA for node %s. Saved to %s", job["node_id"], job["output_path"])
-            _training_queue.task_done()
+            try:
+                await loop.run_in_executor(None, _perform_training_sync, job)
+                logger.info(
+                    "Successfully trained LoRA for node %s. Saved to %s",
+                    job["node_id"], job["output_path"],
+                )
+            except LoraTrainingUnavailable as exc:
+                # Reported once per job at warning level rather than as an
+                # exception trace: it is a missing capability, not a crash, and
+                # the loop must keep draining the queue. What it must NOT do is
+                # log success, which is what it did for every adapter on disk.
+                logger.warning("LoRA training did not run for %s: %s", job["node_id"], exc)
+            finally:
+                _training_queue.task_done()
         except asyncio.CancelledError:
             break
         except Exception as exc:
