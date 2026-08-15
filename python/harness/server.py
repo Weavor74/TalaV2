@@ -578,6 +578,85 @@ def _find_tool_call(text: str) -> "re.Match[str] | None":
     return _TOOL_CALL_RE.search(text, search_start)
 
 
+# Appended to every injected-node block.
+#
+# Asked how her own weights work, Tala answered that they are "learned through
+# iterative training on the Tala Training Stories corpus" and that they select
+# inference providers. Both invented. The nodes she had described structure --
+# function and class names from AST analysis -- and said nothing about the
+# activation arithmetic, so the mechanism was not available to her and she
+# supplied one.
+#
+# Better ranking would not have helped: the node that documents ActivationEngine
+# ranked 9th for that question and does not contain the formula either. When the
+# fact is absent from the graph, the only correct behaviour is to say so.
+#
+# So this does not try to make her right about herself -- coverage does that, and
+# it is a larger job. It makes her honest about the boundary of what she can see,
+# which is the part that is achievable now and the part that makes the wrong
+# answers stop looking like right ones.
+#
+# Scoped deliberately to her own architecture. A blanket "only say what is in
+# context" would make her refuse ordinary conversation, and a directive that
+# fires on everything is one the model learns to ignore.
+_SELF_KNOWLEDGE_GROUNDING = (
+    "\n[Grounding: statements about your own architecture]\n"
+    "When you describe how you yourself work -- your nodes, weights, memory, activation, "
+    "adapters, scheduling, tools, or any internal mechanism -- say only what the nodes above "
+    "actually state. Do not reason outward from a node's title, and do not fill a gap with "
+    "what would plausibly be true of a system like you.\n"
+    "If the nodes above do not cover the mechanism you were asked about, say plainly that it "
+    "is not in the memory you can see, name the node you would need, and offer to read the "
+    "source. An honest gap is correct; a confident reconstruction is not, and it is worse "
+    "than saying nothing because Weavor cannot tell the two apart.\n"
+    "This applies to your own internals only. Everything else -- conversation, opinion, the "
+    "world, work you are doing for Weavor -- is unaffected.\n"
+)
+
+
+# The same grounding, restated at the tail of the user's message.
+#
+# _SELF_KNOWLEDGE_GROUNDING in the system prompt is not enough on a 4B: asked the
+# same question with it in place, the model still invented
+# data-execution-authority="high" (the real values are floats) and a priority
+# pipeline to go with it. Moved to the tail and it answered "the mechanism is not
+# explicitly detailed in the nodes above", hedged the one thing it could infer,
+# and named what was not covered.
+#
+# Placement, not wording -- the same asymmetry as the XML tool tag earlier on
+# this branch, and the reason _XML_CALL_REMINDER already sits here. A small model
+# loses a system instruction behind several thousand tokens of injected context;
+# it does not lose the sentence directly above its own turn.
+_SELF_KNOWLEDGE_REMINDER = (
+    "[SYSTEM REMINDER]: This question is about your own internals. Answer ONLY from the "
+    "node text in your context. If it does not state the mechanism, say it is not in the "
+    "memory you can see and offer to read the source. Do NOT invent attribute values or "
+    "behaviour."
+)
+
+# What counts as a question about her own internals.
+#
+# Word boundaries throughout, and no bare fragments: substring gates have
+# short-circuited turns in this codebase three separate times ('doc' inside
+# 'docker'). This gate only appends a reminder, so a false positive costs one
+# sentence rather than the turn -- but a false positive on ordinary conversation
+# would still make her hedge about things she has no need to hedge about.
+_SELF_REFERENTIAL_RE = re.compile(
+    r"\b(?:"
+    r"html-?nn|neural node|semantic memory|activation|activate[sd]?|"
+    r"execution authority|memory authority|governance|"
+    r"lora|adapter[s]?|weight[s]?|node graph|cognitive net|"
+    r"heartbeat|scheduler|tool registry|your (?:memory|nodes|weights|architecture|internals)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _is_self_referential(prompt: str) -> bool:
+    """Whether the prompt asks how Tala herself works."""
+    return bool(_SELF_REFERENTIAL_RE.search(prompt or ""))
+
+
 # Tail reminder appended to the user's own message, because small local models
 # lose earlier system instructions in a long prompt. Hoisted to a constant so the
 # native-tools path can swap it out by identity along with the rest of the XML
@@ -1531,7 +1610,28 @@ async def handle_inference_generate(
                     base_activations = {}
                     for node in nodes:
                         sem_match = similarities.get(node.node_id, 0.0)
-                        gov_mult = max(node.execution_authority, node.memory_authority)
+                        # Governance GATES, it does not RANK.
+                        #
+                        # ActivationEngine multiplies every input together, so
+                        # passing the raw authority made a node's permission to
+                        # be recalled double as its priority once recalled.
+                        # Measured cost: asked how HTML-NN weights work,
+                        # settings-runtime (similarity 0.29, authority 1.00) tied
+                        # program-doc-html-nn-runtime (similarity 0.49, authority
+                        # 0.60) and took one of only two RP-mode slots. A
+                        # document needed 1.67x the relevance to draw with a
+                        # setting.
+                        #
+                        # The schema already has fields for priority --
+                        # weight_relevance and weight_confidence, both passed
+                        # below -- and they are 1.0 on 113 of 115 nodes, so
+                        # authority had quietly taken over a job that was never
+                        # its own. Same conflation as execution vs memory
+                        # authority earlier on this branch.
+                        #
+                        # Reduced to the hard gate the engine documents: zero
+                        # blocks entirely, anything above zero ranks on merit.
+                        gov_mult = 1.0 if max(node.execution_authority, node.memory_authority) > 0.0 else 0.0
                         inputs = ActivationInputs(
                             semantic_match=sem_match,
                             relevance_weight=node.weight_relevance,
@@ -1866,7 +1966,9 @@ async def handle_inference_generate(
                                     f"Semantic Memory: {node.semantic_memory.strip()}"
                                 )
                             context_parts.append("=========================================")
-                    
+
+                        context_parts.append(_SELF_KNOWLEDGE_GROUNDING)
+
                         system_context_additions.append("\n".join(context_parts))
 
                         # Log to db about context injection
@@ -2088,6 +2190,14 @@ async def handle_inference_generate(
         # Append a strong recency-focused system reminder to the end of the user prompt
         # ensuring small local models follow instructions despite context size or distraction.
         prompt_lower = prompt.lower()
+        # Appended before the tool reminder, so the last thing the model reads
+        # about a self-referential question is still the tool protocol -- but the
+        # grounding is close enough to the turn to survive, which it does not in
+        # the system prompt.
+        if _is_self_referential(prompt):
+            prompt = f"{prompt}\n\n{_SELF_KNOWLEDGE_REMINDER}"
+            logger.info("Self-referential question: grounding reminder appended")
+
         if "[system reminder]" not in prompt_lower:
             prompt = f"{prompt}\n\n{_XML_CALL_REMINDER}"
             
@@ -4110,12 +4220,11 @@ async def handle_graph_query_activations(params: dict[str, Any], req_id: Any) ->
             freshness_weight=1.0,
             provider_trust_multiplier=1.0,
             # Must match the retrieval path in handle_inference_generate, which
-            # gates on max(execution, memory). Reporting execution_authority
-            # alone made this endpoint -- the instrument you would reach for to
-            # debug what got recalled -- disagree with the recall it is meant to
-            # describe: 8 of 115 nodes scored differently, six of them reported
-            # as 0.0000 while actually clearing the 0.01 injection threshold.
-            governance_multiplier=max(node.execution_authority, node.memory_authority),
+            # gates on max(execution, memory) rather than scaling by it.
+            # Reporting a different number from the one recall uses made this
+            # endpoint -- the instrument you would reach for to debug what got
+            # recalled -- disagree with the recall it describes.
+            governance_multiplier=1.0 if max(node.execution_authority, node.memory_authority) > 0.0 else 0.0,
         )
         base_activations[node.node_id] = engine.score(inputs)
 
