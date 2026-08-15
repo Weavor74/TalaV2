@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v2">
+  <meta name="tala-node-id" content="system-ollama-adapter-deployment">
+  <meta name="tala-node-type" content="documentation">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-08-15T15:40:00Z">
+  <meta name="tala-author" content="tala-system">
+  <title>Neural Node: Deploying a LoRA Adapter to Ollama</title>
+</head>
+<body>
+<article
+  data-node-id="system-ollama-adapter-deployment"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="ollama-adapter-deployment"
+  data-source-files="python/harness/server.py;python/inference/embedded_engine.py;scripts/train_voice_adapter.py"
+  data-generated-at="2026-08-15T15:40:00Z"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">Deploying a LoRA Adapter to Ollama</h1>
+    <dl>
+      <dt>Node ID</dt>
+      <dd><code>system-ollama-adapter-deployment</code></dd>
+      <dt>Type</dt>
+      <dd><code>documentation</code></dd>
+      <dt>Schema Version</dt>
+      <dd><code>neural-node/v2</code></dd>
+      <dt>Governance Status</dt>
+      <dd><code>context-only</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>0.00</code></dd>
+      <dt>Memory Description</dt>
+      <dd>Why a trained adapter does not reach the model that serves chat, and the procedure for making it reach one.</dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-08-15T15:40:00Z">2026-08-15</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+
+    <p><strong>The provider that serves Tala's chat cannot load a LoRA adapter at runtime.</strong> Adapter selection works &mdash; the injected node's adapter becomes <code>best_lora_path</code> &mdash; but Ollama's API has no adapter parameter, and neither do the remote services. Only the embedded transformers provider can attach one, through <code>peft</code>, and that is the fallback engine rather than the model that answers.</p>
+    <p>This used to happen silently. The harness now logs a warning naming the adapter it selected and could not apply, so the gap is visible in the moment rather than inferred months later.</p>
+
+    <h3>Why per-turn swapping is not available here</h3>
+    <p>Ollama loads a model once and serves it. There is no request-level adapter field, so an adapter has to be part of the model the server already has. That makes swapping an adapter per recalled node impossible on this provider &mdash; and it is a reasonable constraint to design around rather than fight, because a voice adapter is a persona-level thing, not a per-document thing. One adapter per persona is the right granularity anyway.</p>
+
+    <h3>The procedure</h3>
+    <ol>
+      <li><strong>Train.</strong> <code>python scripts/train_voice_adapter.py --train</code> writes a peft adapter (<code>adapter_model.safetensors</code> plus <code>adapter_config.json</code>).</li>
+      <li><strong>Convert to GGUF.</strong> Ollama consumes GGUF, not safetensors. llama.cpp ships <code>convert_lora_to_gguf.py</code> for exactly this:
+        <br><code>python convert_lora_to_gguf.py --base &lt;base-model-dir&gt; --outfile tala-voice.gguf &lt;adapter-dir&gt;</code></li>
+      <li><strong>Write a Modelfile</strong> naming the base model and the adapter:
+        <br><code>FROM huihui_ai/qwen3-abliterated:4b</code>
+        <br><code>ADAPTER ./tala-voice.gguf</code></li>
+      <li><strong>Create the variant.</strong> <code>ollama create tala-voice -f Modelfile</code></li>
+      <li><strong>Point the provider at it.</strong> Set the local provider's model to <code>tala-voice</code> in Settings. Nothing else in the harness changes; adapter selection keeps running and keeps being informational on this path.</li>
+    </ol>
+
+    <h3>The constraint that decides the base model</h3>
+    <p>The adapter and the model it is baked into must share the same base. The corpus trainer defaults to <code>Qwen/Qwen2.5-0.5B-Instruct</code>, because those weights are already in the HuggingFace cache. The chat model is <code>huihui_ai/qwen3-abliterated:4b</code>, served as GGUF with no local HuggingFace weights. <strong>An adapter trained on the 0.5B cannot be baked into the 4B.</strong> Training for the chat model means fetching its HuggingFace weights first and passing <code>--base</code>.</p>
+
+    <h3>Hardware</h3>
+    <p>The card is an RTX 3050 with 6GB. A rank-8 adapter on a 0.5B trains comfortably, and on CPU as well, only slower. A 4B needs 4-bit loading and gradient checkpointing to fit, and the installed torch build is CPU-only (<code>2.13.0+cpu</code>), so CUDA requires reinstalling torch from the matching index before the training extra &mdash; installing it after will fight the resolved CPU build.</p>
+
+    <h3>What to expect</h3>
+    <ul>
+      <li>A voice adapter changes cadence, register and habit. It does not add knowledge, and should not be judged on whether it does.</li>
+      <li>An adapter trained on a thin corpus overfits to the phrasing it saw. Grow the corpus before keeping one.</li>
+      <li>The variant is a separate Ollama model, so the base model remains available and switching back is changing a setting.</li>
+    </ul>
+  </section>
+
+  <section id="relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a rel="related" href="nodes/system-voice-adapter-training.html" data-relationship-type="related" data-relationship-weight="0.90">How the adapter is trained</a></li>
+      <li><a rel="related" href="nodes/system-html-nn-activation-weights.html" data-relationship-type="related" data-relationship-weight="0.80">How weights select an adapter</a></li>
+    </ul>
+  </section>
+
+  <script type="application/json" id="node-state">
+{
+  "title": "Deploying a LoRA Adapter to Ollama",
+  "description": "Baking a trained adapter into an Ollama model variant, because Ollama cannot load one per request.",
+  "tags": ["lora", "ollama", "deployment", "adapter", "voice", "self-knowledge"],
+  "config": {
+    "runtime_adapter_swapping_supported": {"embedded": true, "ollama": false, "remote": false},
+    "ollama_mechanism": "Modelfile ADAPTER directive baked into a named model variant",
+    "adapter_format_required_by_ollama": "gguf",
+    "conversion_tool": "llama.cpp convert_lora_to_gguf.py",
+    "base_model_must_match_adapter": true,
+    "trainer_default_base": "Qwen/Qwen2.5-0.5B-Instruct",
+    "chat_model": "huihui_ai/qwen3-abliterated:4b",
+    "installed_torch_build": "2.13.0+cpu"
+  },
+  "metadata": {
+    "author": "tala-system",
+    "schema": "neural-node/v2",
+    "source_of_truth": "python/harness/server.py adapter selection; Ollama Modelfile ADAPTER",
+    "known_gap": "an adapter trained on the 0.5B cannot be baked into the 4B chat model; training for chat requires fetching its HuggingFace weights"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

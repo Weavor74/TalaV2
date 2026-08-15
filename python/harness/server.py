@@ -1919,22 +1919,50 @@ async def handle_inference_generate(
                         # here made `asyncio` a function-local name, so any use
                         # of it EARLIER in this function raised UnboundLocalError.)
 
-                        # Process LoRA for injected nodes
-                        for node, score in nodes_to_inject:
-                            # 1. Extract adapter if present
+                        # LoRA for this turn.
+                        #
+                        # An explicitly authored adapter on the highest-ranked node
+                        # wins: that is a deliberate act by whoever wrote the node,
+                        # and it should not be overridden by an inferred one.
+                        for node, _score in nodes_to_inject:
                             lora = getattr(node, "lora_adapter", None)
-                            if lora:
-                                lora_p = Path(nodes_dir) / lora if not Path(lora).is_absolute() else Path(lora)
-                                if lora_p.exists():
-                                    best_lora_path = str(lora_p)
-                                    logger.info("Found existing LoRA adapter for node %s: %s", node.node_id, best_lora_path)
-                            else:
-                                # 2. JIT Training Trigger if node lacks adapter
-                                out_path = str(Path(nodes_dir) / f"{node.node_id}_lora" / "adapter_model.safetensors")
-                                if not Path(out_path).exists():
-                                    asyncio.create_task(queue_lora_training(node.node_id, node.semantic_memory, out_path))
-                                else:
-                                    best_lora_path = out_path
+                            if not lora:
+                                continue
+                            lora_p = Path(nodes_dir) / lora if not Path(lora).is_absolute() else Path(lora)
+                            if lora_p.exists():
+                                best_lora_path = str(lora_p)
+                                logger.info("Using authored LoRA adapter from node %s: %s", node.node_id, best_lora_path)
+                                break
+
+                        if not best_lora_path:
+                            # JIT training over the injected SET, not one adapter per
+                            # node.
+                            #
+                            # Per-node was the original shape and it works against
+                            # itself: only one best_lora_path can be attached per
+                            # turn, so training an adapter for each recalled node
+                            # produces N adapters of which N-1 are discarded. Worse,
+                            # most nodes are AST-derived documentation, so a per-node
+                            # adapter learns the register of generated API prose and
+                            # then gets attached for the turn that recalled it --
+                            # the mechanism working exactly as written and producing
+                            # the opposite of a voice.
+                            #
+                            # Training on the combined semantic memory of everything
+                            # recalled this turn matches what an adapter is for: the
+                            # blend of context she is actually thinking in, led by
+                            # the primary node.
+                            primary = nodes_to_inject[0][0]
+                            combined = "\n\n".join(
+                                n.semantic_memory.strip() for n, _ in nodes_to_inject if n.semantic_memory.strip()
+                            )
+                            out_path = str(Path(nodes_dir) / f"{primary.node_id}_lora" / "adapter_model.safetensors")
+                            if Path(out_path).exists():
+                                best_lora_path = out_path
+                            elif combined:
+                                asyncio.create_task(
+                                    queue_lora_training(primary.node_id, combined, out_path)
+                                )
 
                         context_parts = []
                         if chat_mode in ("rp", "hybrid"):
@@ -2526,6 +2554,23 @@ async def handle_inference_generate(
                                 generated_text = f"{generated_text}\n{_tags}".strip()
 
                 elif p_type in ("local", "remote"):
+                    # Adapter selection ran and produced a path, and this provider
+                    # cannot apply it: Ollama's API takes no adapter parameter and
+                    # neither do the remote services. Said out loud because the
+                    # whole point of weighting a node is that its adapter reaches
+                    # the model, and dropping it silently is what made "no LoRA has
+                    # ever affected a token of output" invisible for months.
+                    #
+                    # See nodes/system-ollama-adapter-deployment.html for the way
+                    # through: bake the adapter into a named Ollama model variant.
+                    if best_lora_path:
+                        logger.warning(
+                            "Provider '%s' (%s) cannot apply a LoRA adapter; the selected "
+                            "adapter %s will NOT affect this turn. Bake it into an Ollama "
+                            "model variant instead -- see nodes/system-ollama-adapter-deployment.html",
+                            p_name, p_type, best_lora_path,
+                        )
+
                     endpoint = p_config.get("endpoint", "").strip()
                     model = p_config.get("model", "").strip()
                     api_key = p_config.get("apiKey", "").strip()
