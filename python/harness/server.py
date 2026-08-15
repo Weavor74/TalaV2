@@ -775,6 +775,40 @@ def _accumulate_streamed_tool_calls(
             slot["function"]["arguments"] = json.dumps(fragment)
 
 
+_QWEN_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+
+
+def _parse_chat_template_tool_calls(text: str) -> list[dict[str, Any]]:
+    """
+    Extract ``<tool_call>{...}</tool_call>`` blocks into OpenAI-shaped tool calls.
+
+    This is the reply format Qwen2.5-Instruct's bundled chat template asks for
+    when it is given `tools`, and the embedded 0.5B is the only provider that
+    speaks it. Normalising here means the same _tool_calls_to_call_tags used for
+    Ollama and the /v1 providers renders it, so the embedded path joins the same
+    protocol-agnostic dispatch as everything else rather than growing its own.
+
+    The template nests arguments under "arguments" with the name alongside;
+    OpenAI nests both under "function". Rewrapped rather than special-cased
+    downstream.
+    """
+    calls = []
+    for raw in _QWEN_TOOL_CALL_RE.findall(text or ""):
+        try:
+            obj = json.loads(raw)
+        except Exception:
+            continue
+        if not isinstance(obj, dict):
+            continue
+        name = obj.get("name")
+        if not name:
+            continue
+        calls.append({
+            "function": {"name": name, "arguments": obj.get("arguments", {})}
+        })
+    return calls
+
+
 def _tool_calls_to_call_tags(tool_calls: list[dict[str, Any]]) -> str:
     """
     Render native ``tool_calls`` into the harness's ``<call:name attr="v" />``
@@ -2236,9 +2270,43 @@ async def handle_inference_generate(
                     from python.inference.embedded_engine import check_model_cached, generate_stream
                     if not check_model_cached():
                         raise RuntimeError("Embedded model not fully downloaded / cached yet.")
-                    
+
+                    # The embedded 0.5B gets tools through the chat template, which
+                    # renders the schemas itself and asks for a <tool_call> JSON
+                    # reply. That is a structured protocol a model this small can
+                    # actually follow; the XML documentation is not, so it comes out
+                    # of the prompt for the same one-protocol reason as everywhere
+                    # else. Before this, the embedded model received thousands of
+                    # tokens of tag documentation it could not act on and no tool
+                    # definitions at all -- it was the one provider that could not
+                    # call a tool.
+                    embedded_messages = messages
+                    embedded_tools = None
+                    if native_tool_specs:
+                        _swapped, _removed = _swap_xml_protocol_for_native(
+                            messages, xml_tool_protocol
+                        )
+                        if _removed:
+                            embedded_messages = _swapped
+                            embedded_tools = native_tool_specs
+                            logger.info(
+                                "Provider '%s': %d tool schemas via chat template "
+                                "(XML tool protocol withheld)",
+                                p_name, len(native_tool_specs),
+                            )
+                        else:
+                            logger.warning(
+                                "Provider '%s': could not remove the XML tool protocol from "
+                                "the prompt, so template tools were NOT sent -- staying on "
+                                "<call:/>.",
+                                p_name,
+                            )
+
                     chunks = []
-                    async for chunk in generate_stream(messages, max_tokens, temperature, lora_path=best_lora_path):
+                    async for chunk in generate_stream(
+                        embedded_messages, max_tokens, temperature,
+                        lora_path=best_lora_path, tools=embedded_tools,
+                    ):
                         chunks.append(chunk)
                         if stream:
                             notification = json.dumps({
@@ -2248,6 +2316,17 @@ async def handle_inference_generate(
                             })
                             await ws.send(notification)
                     generated_text = "".join(chunks)
+
+                    # <tool_call>{...}</tool_call> -> <call:name attr="v" />, so the
+                    # turn loop below dispatches it without knowing this provider
+                    # used a different protocol.
+                    if embedded_tools:
+                        _tmpl_calls = _parse_chat_template_tool_calls(generated_text)
+                        if _tmpl_calls:
+                            _tags = _tool_calls_to_call_tags(_tmpl_calls)
+                            if _tags:
+                                generated_text = _QWEN_TOOL_CALL_RE.sub("", generated_text).strip()
+                                generated_text = f"{generated_text}\n{_tags}".strip()
 
                 elif p_type in ("local", "remote"):
                     endpoint = p_config.get("endpoint", "").strip()

@@ -26,31 +26,61 @@ _install_locks: Dict[str, threading.Lock] = {
     "llamacpp": threading.Lock(),
 }
 
+# `platforms` lists the sys.platform values an engine can actually be installed
+# on. It is not decoration: vLLM publishes no Windows wheels, so offering it in
+# the engine list on Windows sends the user into a pip build that fails on a
+# missing CUDA toolchain, with no indication beforehand that it was never going
+# to work. Tala is Windows-first and USB-portable, so "importable" and
+# "installable here" are different questions and both have to be answered.
+#
+# An empty/absent `platforms` means "everywhere".
 ENGINES = {
     "transformers": {
         "id": "transformers",
         "name": "HuggingFace Transformers (CPU/GPU)",
         "description": "Standard Python inference. Very compatible, moderate speed.",
         "packages": ["transformers", "accelerate", "sentencepiece"],
+        "platforms": ["win32", "linux", "darwin"],
     },
     "vllm": {
         "id": "vllm",
         "name": "vLLM (GPU Only)",
-        "description": "High-throughput inference for NVIDIA GPUs.",
+        "description": "High-throughput inference for NVIDIA GPUs. Linux or WSL only — "
+                       "there are no Windows wheels.",
         "packages": ["vllm"],
+        "platforms": ["linux"],
     },
     "llamacpp": {
         "id": "llamacpp",
         "name": "llama.cpp (CPU/GPU)",
-        "description": "Highly optimized C++ inference for GGUF models.",
+        "description": "Highly optimized C++ inference for GGUF models. Supports GBNF "
+                       "grammar-constrained sampling.",
         "packages": ["llama-cpp-python"],
+        "platforms": ["win32", "linux", "darwin"],
     }
 }
+
+
+def is_engine_supported(engine_id: str) -> bool:
+    """Whether this engine can be installed on the current platform at all."""
+    platforms = ENGINES.get(engine_id, {}).get("platforms")
+    if not platforms:
+        return True
+    return sys.platform in platforms
+
+
+def unsupported_reason(engine_id: str) -> Optional[str]:
+    """Why the engine is unavailable here, or None if it is available."""
+    if is_engine_supported(engine_id):
+        return None
+    supported = ", ".join(ENGINES.get(engine_id, {}).get("platforms", []))
+    return f"Not available on {sys.platform} - requires {supported or 'another platform'}."
+
 
 def is_engine_installed(engine_id: str) -> bool:
     """Checks if the packages for the given engine are importable without fully loading them."""
     import importlib.util
-    
+
     if engine_id == "transformers":
         return importlib.util.find_spec("transformers") is not None
     elif engine_id == "vllm":
@@ -126,10 +156,16 @@ def start_install(engine_id: str) -> None:
     if engine_id not in ENGINES:
         raise ValueError(f"Unknown engine: {engine_id}")
         
+    # Refuse here rather than letting pip deliver the news several minutes into a
+    # doomed source build. The UI should already be showing this engine as
+    # unsupported; this is the backstop for a direct RPC call.
+    if not is_engine_supported(engine_id):
+        raise RuntimeError(f"Cannot install '{engine_id}': {unsupported_reason(engine_id)}")
+
     status = _install_status.get(engine_id)
     if status == "installing":
         return
-        
+
     thread = threading.Thread(
         target=_install_engine_task,
         args=(engine_id, ENGINES[engine_id]["packages"]),
@@ -143,13 +179,22 @@ def get_status(engine_id: str) -> Dict[str, Any]:
         raise ValueError(f"Unknown engine: {engine_id}")
         
     installed = is_engine_installed(engine_id)
-    status = _install_status.get(engine_id, "ready" if installed else "not_installed")
-    
+    supported = is_engine_supported(engine_id)
+    # An engine that cannot be installed here reports "unsupported" rather than
+    # "not_installed", so the UI can grey it out instead of offering a button
+    # whose only outcome is a pip failure.
+    if not supported and not installed:
+        status = "unsupported"
+    else:
+        status = _install_status.get(engine_id, "ready" if installed else "not_installed")
+
     return {
         "id": engine_id,
         "name": ENGINES[engine_id]["name"],
         "description": ENGINES[engine_id]["description"],
         "is_installed": installed,
+        "is_supported": supported,
+        "unsupported_reason": unsupported_reason(engine_id),
         "status": status,
         "progress": _install_progress.get(engine_id, 100.0 if installed else 0.0),
         "logs": _install_logs.get(engine_id, []),

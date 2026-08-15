@@ -254,11 +254,48 @@ def _get_model_and_tokenizer() -> tuple[Any, Any]:
         raise RuntimeError("No embedded inference engines are installed. Please install one from Settings.")
 
 
+def _apply_template(tokenizer, prompt, tools):
+    """
+    Render the chat template, passing `tools` when there are any.
+
+    Qwen2.5-Instruct's bundled chat template natively supports tool calling: give
+    it `tools` and it renders the schemas itself and instructs the model to reply
+    with <tool_call>{"name": ..., "arguments": {...}}</tool_call>. That is a
+    structured, template-enforced protocol -- exactly what a 0.5B can follow, and
+    the opposite of asking it to reproduce a tag from prose documentation, which
+    it cannot.
+
+    This argument was simply never passed, so the embedded model received several
+    thousand tokens of XML tool documentation it had no way to act on and no tool
+    definitions it could. Same shape as the unreachable tool_calls converter in
+    server.py: the mechanism was present and the argument was missing.
+
+    Falls back to a tool-less render if the template does not understand `tools`
+    (a non-Qwen embedded model, or an older template revision) -- raising there
+    would take generation down over an optional capability.
+    """
+    if tools:
+        try:
+            return tokenizer.apply_chat_template(
+                prompt, tokenize=False, add_generation_prompt=True, tools=tools,
+            )
+        except Exception as exc:
+            logger.warning(
+                "Embedded engine: chat template rejected `tools` (%s: %s); "
+                "falling back to a prompt with no tool definitions",
+                type(exc).__name__, exc,
+            )
+    return tokenizer.apply_chat_template(
+        prompt, tokenize=False, add_generation_prompt=True,
+    )
+
+
 async def generate_stream(
     prompt: str | list[dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.7,
     lora_path: str | None = None,
+    tools: list[dict] | None = None,
 ) -> AsyncIterator[str]:
     """Generates a text completion stream using the installed local engine."""
     import asyncio
@@ -275,14 +312,10 @@ async def generate_stream(
         from vllm import SamplingParams
         
         if isinstance(prompt, list):
-            formatted_prompt = tokenizer.apply_chat_template(
-                prompt,
-                tokenize=False,
-                add_generation_prompt=True,
-            )
+            formatted_prompt = _apply_template(tokenizer, prompt, tools)
         else:
             formatted_prompt = prompt
-            
+
         sampling_params = SamplingParams(temperature=temperature, max_tokens=max_tokens)
         
         # vLLM generate() is blocking, so we run in executor.
@@ -351,11 +384,7 @@ async def generate_stream(
     )
 
     if isinstance(prompt, list):
-        formatted_prompt = tokenizer.apply_chat_template(
-            prompt,
-            tokenize=False,
-            add_generation_prompt=True,
-        )
+        formatted_prompt = _apply_template(tokenizer, prompt, tools)
     else:
         formatted_prompt = prompt
 

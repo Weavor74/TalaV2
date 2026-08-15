@@ -129,10 +129,11 @@ def test_swap_leaves_non_string_content_alone():
 
 
 def test_every_provider_keeps_a_way_to_call_tools():
-    """Native tools go to Ollama and to the OpenAI-shaped /v1 providers. The three
-    that do not get them -- embedded, anthropic, and any Ollama model whose
-    capabilities omit "tools" -- must keep the XML documentation, so the choice is
-    always which mechanism and never whether."""
+    """Native tools go to Ollama, to the OpenAI-shaped /v1 providers, and to the
+    embedded model via its chat template. The ones that do not get them --
+    anthropic, and any Ollama model whose capabilities omit "tools" -- must keep
+    the XML documentation, so the choice is always which mechanism, never
+    whether."""
     source = Path("python/harness/server.py").read_text(encoding="utf-8")
 
     # Each exclusion branch reports itself and falls through without setting tools.
@@ -140,8 +141,24 @@ def test_every_provider_keeps_a_way_to_call_tools():
     assert 'model reports no tool capability' in source
     assert 'keeping the <call:/> text protocol' in source
 
-    # The XML block is only ever removed on the branch that attaches tools.
-    assert source.count("_swap_xml_protocol_for_native(") == 2  # definition + one call
+
+def test_removing_the_xml_block_is_always_guarded_by_its_own_result():
+    """Every caller must act on the `removed` flag. An unguarded call would strip
+    the documentation whether or not the replacement landed, which is the one way
+    to end up with no tool protocol at all -- worse than either mechanism alone.
+    Asserted over call sites rather than a fixed count, so adding a provider does
+    not fail this test; forgetting the guard does."""
+    source = Path("python/harness/server.py").read_text(encoding="utf-8")
+
+    call_sites = source.count("_swap_xml_protocol_for_native(\n") + source.count(
+        "_swap_xml_protocol_for_native("
+    ) - source.count("def _swap_xml_protocol_for_native(")
+    destructures = source.count("_swapped, _removed = _swap_xml_protocol_for_native")
+    guards = source.count("if _removed:") + source.count("if not _removed:")
+
+    assert destructures >= 1
+    assert guards >= destructures, "a call site does not check whether the swap happened"
+    assert call_sites >= destructures
 
 
 def test_a_400_with_tools_attached_falls_back_for_any_provider():
