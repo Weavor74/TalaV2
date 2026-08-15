@@ -182,9 +182,10 @@ def test_no_think_is_dropped_when_native_tools_are_attached():
     renderer shows as an expandable section."""
     source = Path("python/harness/server.py").read_text(encoding="utf-8")
 
-    # The filter lives at the one site where `tools` is attached.
+    # Anchored on `payload["tools"] =` rather than on the exact expression
+    # assigned, which has already changed once (tool selection now wraps it).
     assert 'm.get("content") == "/no_think"' in source
-    attach = source.index('payload["tools"] = native_tool_specs')
+    attach = source.index('payload["tools"] =')
     drop = source.index('m.get("content") == "/no_think"')
     assert drop < attach, "/no_think must be filtered out before tools are attached"
 

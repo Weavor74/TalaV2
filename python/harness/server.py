@@ -704,6 +704,53 @@ def _ollama_native_tool_specs(dyn_tools: list[dict[str, Any]]) -> list[dict[str,
     return specs
 
 
+def _select_tools_for_turn(
+    specs: list[dict[str, Any]],
+    messages: list[dict[str, Any]],
+    tool_index: Any,
+    p_type: str,
+    p_config: dict[str, Any],
+    p_name: str,
+    sticky: set[str],
+) -> list[dict[str, Any]]:
+    """
+    Narrow this turn's tool specs to what the provider can afford to carry.
+
+    Returns the full set unchanged when there is no budget or no index, so a
+    failure anywhere in selection degrades to today's behaviour rather than to
+    a model with no tools.
+
+    Withheld tools are logged every time. A silently reduced toolset looks
+    exactly like a broken registry from the outside, and that ambiguity is the
+    failure family this branch exists to remove.
+    """
+    if not specs or tool_index is None:
+        return specs
+    try:
+        from python.harness.tool_selection import (  # noqa: PLC0415
+            budget_for,
+            conversation_text,
+            select_specs,
+        )
+
+        budget = budget_for(p_type, p_config)
+        if budget <= 0:
+            return specs
+        kept, withheld = select_specs(
+            specs, conversation_text(messages), tool_index, budget, sticky=sticky,
+        )
+        if withheld:
+            logger.info(
+                "Provider '%s': offering %d/%d tools this turn (budget %d, %d sticky); withheld %s",
+                p_name, len(kept), len(specs), budget, len(sticky),
+                ", ".join(sorted(withheld)[:8]) + ("..." if len(withheld) > 8 else ""),
+            )
+        return kept or specs
+    except Exception as exc:
+        logger.warning("Tool selection failed for '%s' (%s); offering all tools", p_name, exc)
+        return specs
+
+
 def _swap_xml_protocol_for_native(
     messages: list[dict[str, Any]],
     xml_tool_protocol: str,
@@ -1918,6 +1965,11 @@ async def handle_inference_generate(
         # handed two competing calling protocols in one request.
         xml_tool_protocol = ""
         native_tool_specs: list[dict[str, Any]] = []
+        tool_index = None
+        # Every tool dispatched during this request. Selection always re-offers
+        # these, so a task that searched on turn 1 and writes on turn 3 cannot
+        # lose the search tool from under itself as the conversation drifts.
+        sticky_tools: set[str] = set()
 
         if not is_casual_chat:
             native_tool_specs.extend(_BUILTIN_RESEARCH_TOOL_SPECS)
@@ -1942,6 +1994,14 @@ async def handle_inference_generate(
                 dyn_tools = ToolRegistry.get_tools()
             if dyn_tools:
                 native_tool_specs.extend(_ollama_native_tool_specs(dyn_tools))
+                try:
+                    from python.harness.tool_selection import ToolIndex  # noqa: PLC0415
+
+                    tool_index = ToolIndex(dyn_tools)
+                except Exception as sel_exc:
+                    # Selection is an optimisation; losing it must not cost tools.
+                    logger.warning("Could not build the tool selection index: %s", sel_exc)
+                    tool_index = None
                 tot_mode_detect = await get_tot_mode()
                 use_compact = tot_mode_detect in ("fast", "programmatic")
                 
@@ -2288,7 +2348,10 @@ async def handle_inference_generate(
                         )
                         if _removed:
                             embedded_messages = _swapped
-                            embedded_tools = native_tool_specs
+                            embedded_tools = _select_tools_for_turn(
+                                native_tool_specs, messages, tool_index,
+                                p_type, p_config, p_name, sticky_tools,
+                            )
                             logger.info(
                                 "Provider '%s': %d tool schemas via chat template "
                                 "(XML tool protocol withheld)",
@@ -2581,11 +2644,14 @@ async def handle_inference_generate(
                                     m for m in _swapped
                                     if not (m.get("role") == "system" and m.get("content") == "/no_think")
                                 ]
-                                payload["tools"] = native_tool_specs
+                                payload["tools"] = _select_tools_for_turn(
+                                    native_tool_specs, payload["messages"], tool_index,
+                                    p_type, p_config, p_name, sticky_tools,
+                                )
                                 logger.info(
                                     "Provider '%s': sending %d native tool schemas to %s "
                                     "(XML tool protocol withheld)",
-                                    p_name, len(native_tool_specs), model,
+                                    p_name, len(payload["tools"]), model,
                                 )
 
                     def _payload_without_tools(_p: dict[str, Any]) -> dict[str, Any]:
@@ -2925,6 +2991,15 @@ async def handle_inference_generate(
                             break
             except Exception:
                 pass
+
+        # Keep this tool on offer for the rest of the request. Two reasons: a
+        # multi-turn task must not lose a tool it is mid-way through using, and a
+        # tool the model reached for despite selection ranking it low is direct
+        # evidence the ranking was wrong about this conversation.
+        if tool_name:
+            if tool_name not in sticky_tools:
+                logger.info("Tool '%s' pinned for the rest of this request", tool_name)
+            sticky_tools.add(tool_name)
 
         # Parse attributes (handles double quotes, single quotes, escaped quotes, and unquoted values)
         attrs = {}
