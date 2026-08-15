@@ -2766,11 +2766,68 @@
                                  style="font-size: 0.8rem; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
                   </label>
                   <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
-                    Cron (min hour dom mon dow)
-                    <input type="text" id="mc-schedule-cron" required placeholder="*/30 22-23,0-6 * * *"
-                                 style="font-size: 0.8rem; padding: 6px 8px; font-family: var(--font-mono); background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
+                    Repeat
+                    <select id="mc-cron-mode" style="font-size: 0.8rem; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);">
+                      <option value="minutes">Every N minutes</option>
+                      <option value="hourly">Hourly</option>
+                      <option value="daily">Daily</option>
+                      <option value="weekly">Weekly</option>
+                      <option value="monthly">Monthly</option>
+                      <option value="startup">At startup</option>
+                      <option value="advanced">Advanced (raw cron)</option>
+                    </select>
                   </label>
                 </div>
+
+                <!-- Builder controls; each row is shown only for the modes that use it -->
+                <div style="display: flex; flex-wrap: wrap; align-items: flex-end; gap: var(--space-3);">
+                  <label data-cron-field="interval" style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
+                    Every
+                    <select id="mc-cron-interval" style="font-size: 0.8rem; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);">
+                      <option value="5">5 minutes</option>
+                      <option value="10">10 minutes</option>
+                      <option value="15">15 minutes</option>
+                      <option value="30" selected>30 minutes</option>
+                    </select>
+                  </label>
+                  <label data-cron-field="minute" style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
+                    At minute
+                    <input type="number" id="mc-cron-minute" min="0" max="59" value="0" style="width: 5.5rem; font-size: 0.8rem; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
+                  </label>
+                  <label data-cron-field="hour" style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
+                    At hour
+                    <input type="number" id="mc-cron-hour" min="0" max="23" value="2" style="width: 5.5rem; font-size: 0.8rem; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
+                  </label>
+                  <label data-cron-field="weekday" style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
+                    On
+                    <select id="mc-cron-weekday" style="font-size: 0.8rem; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);">
+                      <option value="1">Monday</option><option value="2">Tuesday</option>
+                      <option value="3">Wednesday</option><option value="4">Thursday</option>
+                      <option value="5">Friday</option><option value="6">Saturday</option>
+                      <option value="0">Sunday</option>
+                      <option value="1-5">Weekdays</option><option value="0,6">Weekends</option>
+                    </select>
+                  </label>
+                  <label data-cron-field="monthday" style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
+                    Day of month
+                    <input type="number" id="mc-cron-monthday" min="1" max="31" value="1" style="width: 5.5rem; font-size: 0.8rem; padding: 6px 8px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
+                  </label>
+                  <label data-cron-field="window" style="display: flex; align-items: center; gap: 6px; font-size: 0.75rem; color: var(--text-secondary); padding-bottom: 6px;">
+                    <input type="checkbox" id="mc-cron-window-on" /> only between
+                    <input type="number" id="mc-cron-window-from" min="0" max="23" value="22" style="width: 4rem; font-size: 0.8rem; padding: 4px 6px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
+                    and
+                    <input type="number" id="mc-cron-window-to" min="0" max="23" value="6" style="width: 4rem; font-size: 0.8rem; padding: 4px 6px; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
+                    <span style="color: var(--text-muted);">o'clock</span>
+                  </label>
+                </div>
+
+                <label data-cron-field="raw" style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
+                  Cron expression (min hour day-of-month month day-of-week)
+                  <input type="text" id="mc-schedule-cron" required placeholder="*/30 22-23,0-6 * * *"
+                               style="font-size: 0.8rem; padding: 6px 8px; font-family: var(--font-mono); background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);" />
+                </label>
+
+                <div id="mc-cron-preview" style="font-size: 0.75rem; color: var(--text-secondary); padding: 6px 8px; background: rgba(0,0,0,0.25); border-left: 2px solid var(--accent, #8be9fd); border-radius: var(--radius-sm);"></div>
                 <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
                   Goal
                   <textarea id="mc-schedule-goal" required rows="2" placeholder="Generate five training stories and validate them."

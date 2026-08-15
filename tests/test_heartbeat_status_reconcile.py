@@ -105,6 +105,67 @@ def test_save_surfaces_the_harness_error_instead_of_swallowing_it():
     assert "catch" in block
 
 
+def test_descending_range_is_rejected_rather_than_silently_empty():
+    """'8-6' is empty in every cron implementation. Accepted, it produces a
+    schedule that fires on a subset of what was written -- observed live, where
+    '*/30 22-23,8-6 * * *' resolved to hours [22, 23] alone."""
+    from python.harness.heartbeat_scheduler import CronExpression
+
+    import pytest as _pytest
+    with _pytest.raises(ValueError, match="do not wrap around"):
+        CronExpression("*/30 22-23,8-6 * * *")
+
+
+def test_an_unparseable_job_is_kept_and_flagged_not_dropped():
+    """heartbeat.list reads the scheduler's in-memory jobs, and reload_from_db
+    skips anything that raises on construction -- so a stricter parser would
+    make an existing schedule vanish from the UI, which is worse than the bad
+    expression it rejected."""
+    from datetime import UTC, datetime
+
+    from python.harness.heartbeat_scheduler import HeartbeatJob
+
+    job = HeartbeatJob(id="x", name="Test001", cron_expr="*/30 22-23,8-6 * * *", goal_text="Say hi")
+
+    assert job.parse_error, "the job must carry its error for the UI to show"
+    assert job.is_valid is False
+    assert not any(
+        job.is_due(datetime(2026, 8, 15, h, m, tzinfo=UTC))
+        for h in range(24) for m in (0, 30)
+    ), "a job that cannot be parsed must never fire"
+
+
+def test_parse_error_reaches_the_ui():
+    scheduler = SCHEDULER.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert '"parse_error": j.parse_error' in scheduler, "get_jobs must expose the error"
+    assert "job.parse_error" in renderer, "the panel must show a job that can never fire"
+
+
+def test_builder_covers_every_mode_it_offers():
+    """A mode in the dropdown with no branch in buildCronExpression would fall
+    through to the raw input and silently produce the previous mode's value."""
+    markup = INDEX.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    block = markup.split('id="mc-cron-mode"', 1)[1].split("</select>", 1)[0]
+    offered = set(re.findall(r'value="([a-z]+)"', block))
+    builder = renderer.split("buildCronExpression()", 1)[1].split("describeCron(", 1)[0]
+
+    for mode in offered - {"advanced"}:
+        assert f"case '{mode}'" in builder, f"mode '{mode}' is offered but never built"
+
+
+def test_overnight_window_is_emitted_as_two_ranges():
+    """The whole point: an hour window crossing midnight has no wrap form in
+    cron and must become 'from-23,0-to'."""
+    renderer = RENDERER.read_text(encoding="utf-8")
+    builder = renderer.split("buildCronExpression()", 1)[1].split("describeCron(", 1)[0]
+
+    assert "-23,0-" in builder, "overnight windows must be split into two ranges"
+
+
 def test_delete_asks_first():
     source = RENDERER.read_text(encoding="utf-8")
     block = source.split("async deleteSchedule(", 1)[1].split("},", 1)[0]

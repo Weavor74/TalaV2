@@ -82,13 +82,41 @@ def _parse_field(raw: str, lo: int, hi: int, names: dict[str, int] | None = None
             result.update(range(lo, hi + 1, step))
         elif "-" in part:
             a, b = part.split("-", 1)
-            result.update(range(int(a), int(b) + 1, step))
+            start, end = int(a), int(b)
+            # A descending range is almost always a wrap-around that was meant
+            # ("8-6" for evening through morning), and range() makes it the empty
+            # set. Silently contributing nothing is the worst available outcome:
+            # the schedule is accepted, stored, displayed, and fires on a subset
+            # of what was written. Observed live -- "*/30 22-23,8-6 * * *" was
+            # entered and resolved to hours [22, 23] alone.
+            #
+            # Rejected rather than auto-wrapped: standard cron has no wrap
+            # semantics, so guessing would silently disagree with every other
+            # cron implementation. The message names the two-range form instead.
+            if start > end:
+                raise ValueError(
+                    f"Invalid range {part!r}: {start} is after {end}. Cron ranges do not "
+                    f"wrap around -- to cover a period that crosses the end of the field, "
+                    f"use two ranges (e.g. '{start}-{hi},{lo}-{end}')."
+                )
+            if start < lo or end > hi:
+                raise ValueError(
+                    f"Range {part!r} is outside the permitted bounds {lo}-{hi} for this field."
+                )
+            result.update(range(start, end + 1, step))
         else:
             val = int(part)
+            if val < lo or val > hi:
+                raise ValueError(
+                    f"Value {val} is outside the permitted bounds {lo}-{hi} for this field."
+                )
             if step > 1:
                 result.update(range(val, hi + 1, step))
             else:
                 result.add(val)
+
+    if not result:
+        raise ValueError(f"Field {raw!r} matches no values, so the job would never fire.")
 
     return result
 
@@ -165,17 +193,40 @@ class HeartbeatJob:
     last_status: str = "pending"  # pending | running | success | failed
 
     # Parsed expression — populated lazily
-    _parsed: CronExpression = field(init=False, repr=False)
+    _parsed: CronExpression | None = field(init=False, repr=False, default=None)
+    #: Why this job's schedule could not be parsed, or None if it is valid.
+    parse_error: str | None = field(init=False, repr=False, default=None)
 
     def __post_init__(self) -> None:
-        self._parsed = CronExpression(self.cron_expr)
+        # A row whose expression no longer parses is KEPT, not dropped.
+        # reload_from_db skips any job that raises here, and heartbeat.list reads
+        # the scheduler's in-memory jobs -- so a stricter parser would make an
+        # existing schedule silently disappear from the UI, which is worse than
+        # the bad expression it was rejecting. Instead the job loads, never
+        # fires, and carries its error so the UI can show it as needing repair.
+        try:
+            self._parsed = CronExpression(self.cron_expr)
+        except Exception as exc:
+            self._parsed = None
+            self.parse_error = str(exc)
+            log.warning(
+                "HeartbeatScheduler: job %r has an unusable schedule %r and will not fire "
+                "until it is edited: %s",
+                self.name, self.cron_expr, exc,
+            )
+
+    @property
+    def is_valid(self) -> bool:
+        return self._parsed is not None
 
     @property
     def is_startup(self) -> bool:
-        return self._parsed.is_startup
+        return self._parsed is not None and self._parsed.is_startup
 
     def is_due(self, now: datetime) -> bool:
         """Return True if the job should fire at *now*."""
+        if self._parsed is None:
+            return False
         if not self.enabled:
             return False
         return self._parsed.matches(now)
@@ -569,6 +620,9 @@ class HeartbeatScheduler:
                 "enabled": j.enabled,
                 "last_run_at": j.last_run_at.isoformat() if j.last_run_at else None,
                 "last_status": j.last_status,
+                # Surfaced so a job that can never fire says so in the UI,
+                # rather than sitting in the list looking scheduled.
+                "parse_error": j.parse_error,
             }
             for j in self._jobs
         ]

@@ -10081,6 +10081,8 @@ const MissionControl = {
     this._btnScheduleNew = qs('#btn-mc-schedule-new');
     this._btnScheduleCancel = qs('#btn-mc-schedule-cancel');
 
+    this.initCronBuilder();
+
     if (this._btnScheduleNew) this._btnScheduleNew.addEventListener('click', () => this.openScheduleEditor());
     if (this._btnScheduleCancel) this._btnScheduleCancel.addEventListener('click', () => this.closeScheduleEditor());
     if (this._scheduleEditor) {
@@ -10175,10 +10177,18 @@ const MissionControl = {
         // at startup, so a stale 'running' does not sit here indefinitely
         // claiming work that is not happening.
         let statusColor = 'var(--text-muted)';
-        if (job.last_status === 'success') statusColor = '#50fa7b';
+        if (job.parse_error) statusColor = '#ff6b6b';
+        else if (job.last_status === 'success') statusColor = '#50fa7b';
         else if (job.last_status === 'failed') statusColor = '#ff5555';
         else if (job.last_status === 'running') statusColor = '#8be9fd';
         else if (job.last_status === 'interrupted') statusColor = '#ffc107';
+
+        // A job whose expression no longer parses is kept and listed rather
+        // than dropped, but it can never fire, so it has to say so instead of
+        // sitting here looking scheduled.
+        const brokenNote = job.parse_error
+          ? `<div style="font-size: 0.72rem; color: #ff6b6b;">Will not run — ${escapeHtml(job.parse_error)} Press Edit to fix.</div>`
+          : '';
 
         const lastRun = job.last_run_at
           ? new Date(job.last_run_at).toLocaleString()
@@ -10194,6 +10204,7 @@ const MissionControl = {
             <div style="font-size: 0.72rem; color: var(--text-muted); white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">
               <code style="font-family: var(--font-mono);">${escapeHtml(job.cron_expr)}</code> &nbsp;·&nbsp; ${escapeHtml(lastRun)} &nbsp;·&nbsp; ${escapeHtml(job.goal_text || '')}
             </div>
+            ${brokenNote}
           </div>
           <button class="btn btn-ghost" data-schedule-action="toggle" data-schedule-id="${escapeHtml(job.id)}" data-schedule-enabled="${job.enabled}" style="font-size: 0.7rem; padding: 3px 8px;">${job.enabled ? 'Pause' : 'Resume'}</button>
           <button class="btn btn-ghost" data-schedule-action="run" data-schedule-id="${escapeHtml(job.id)}" style="font-size: 0.7rem; padding: 3px 8px;">Run now</button>
@@ -10206,15 +10217,174 @@ const MissionControl = {
     }
   },
 
+  // ── Cron builder ─────────────────────────────────────────────────
+  // Cron is a poor thing to ask anyone to type. The first schedule created
+  // through this panel used the hour field "22-23,8-6", where the descending
+  // range 8-6 is empty in every cron implementation, so it silently fired on
+  // hours [22,23] alone instead of overnight. The builder composes the
+  // expression from named controls and writes it into the same text input the
+  // form submits, so the save path is unchanged and Advanced mode is still
+  // just typing.
+  //
+  // Which controls each mode uses. Anything not listed is hidden, so the form
+  // only ever shows fields that affect the result.
+  _CRON_MODE_FIELDS: {
+    minutes:  ['interval', 'window'],
+    hourly:   ['minute', 'window'],
+    daily:    ['minute', 'hour'],
+    weekly:   ['minute', 'hour', 'weekday'],
+    monthly:  ['minute', 'hour', 'monthday'],
+    startup:  [],
+    advanced: ['raw'],
+  },
+
+  initCronBuilder() {
+    this._cronMode = qs('#mc-cron-mode');
+    this._cronPreview = qs('#mc-cron-preview');
+    this._cronInput = qs('#mc-schedule-cron');
+    if (!this._cronMode) return;
+
+    const rebuild = () => this.syncCronBuilder();
+    this._cronMode.addEventListener('change', rebuild);
+    ['#mc-cron-interval', '#mc-cron-minute', '#mc-cron-hour', '#mc-cron-weekday',
+     '#mc-cron-monthday', '#mc-cron-window-on', '#mc-cron-window-from', '#mc-cron-window-to']
+      .forEach(sel => { const el = qs(sel); if (el) el.addEventListener('input', rebuild); });
+    // Advanced mode types straight into the expression, so the preview follows
+    // the box rather than driving it.
+    if (this._cronInput) this._cronInput.addEventListener('input', () => this.renderCronPreview());
+  },
+
+  buildCronExpression() {
+    const mode = this._cronMode ? this._cronMode.value : 'advanced';
+    const val = (sel, fallback) => { const el = qs(sel); return el && el.value !== '' ? el.value : fallback; };
+    const minute = val('#mc-cron-minute', '0');
+    const hour = val('#mc-cron-hour', '0');
+
+    // An overnight window crosses the end of the hour field. Cron has no
+    // wrap-around, so it has to be expressed as two ranges -- which is exactly
+    // the mistake the raw input invited.
+    let hourSpec = '*';
+    const windowOn = qs('#mc-cron-window-on');
+    if (windowOn && windowOn.checked) {
+      const from = parseInt(val('#mc-cron-window-from', '0'), 10);
+      const to = parseInt(val('#mc-cron-window-to', '23'), 10);
+      hourSpec = from <= to ? `${from}-${to}` : `${from}-23,0-${to}`;
+    }
+
+    switch (mode) {
+      case 'minutes':  return `*/${val('#mc-cron-interval', '30')} ${hourSpec} * * *`;
+      case 'hourly':   return `${minute} ${hourSpec} * * *`;
+      case 'daily':    return `${minute} ${hour} * * *`;
+      case 'weekly':   return `${minute} ${hour} * * ${val('#mc-cron-weekday', '1')}`;
+      case 'monthly':  return `${minute} ${hour} ${val('#mc-cron-monthday', '1')} * *`;
+      case 'startup':  return '@startup';
+      default:         return this._cronInput ? this._cronInput.value : '';
+    }
+  },
+
+  describeCron(expr) {
+    if (!expr) return 'No schedule set.';
+    if (expr.trim() === '@startup') return 'Runs once each time Tala starts.';
+    const parts = expr.trim().split(/\s+/);
+    if (parts.length !== 5) return 'Cron expressions have five fields: minute, hour, day-of-month, month, day-of-week.';
+    const [min, hr, dom, , dow] = parts;
+
+    let when;
+    if (min.startsWith('*/')) when = `every ${min.slice(2)} minutes`;
+    else if (min === '*') when = 'every minute';
+    else if (hr === '*') when = `at ${min} minutes past every hour`;
+    else when = `at ${String(hr).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+
+    let scope = '';
+    if (hr !== '*' && (min.startsWith('*/') || min === '*')) scope += `, during hour ${hr}`;
+    else if (hr !== '*' && min.startsWith('*/') === false && hr.includes('-')) scope += `, between hours ${hr}`;
+    if (min.startsWith('*/') && hr !== '*') scope = `, but only during hours ${hr}`;
+    if (dow !== '*') scope += `, on day-of-week ${dow}`;
+    if (dom !== '*') scope += `, on day ${dom} of the month`;
+
+    return `Runs ${when}${scope}.`;
+  },
+
+  renderCronPreview() {
+    if (!this._cronPreview) return;
+    const expr = this._cronInput ? this._cronInput.value : '';
+    this._cronPreview.textContent = `${expr || '(empty)'} — ${this.describeCron(expr)}`;
+  },
+
+  syncCronBuilder() {
+    const mode = this._cronMode ? this._cronMode.value : 'advanced';
+    const shown = this._CRON_MODE_FIELDS[mode] || [];
+    document.querySelectorAll('[data-cron-field]').forEach(el => {
+      el.hidden = !shown.includes(el.getAttribute('data-cron-field'));
+    });
+    if (mode !== 'advanced' && this._cronInput) {
+      this._cronInput.value = this.buildCronExpression();
+    }
+    this.renderCronPreview();
+  },
+
+  /** Best-effort reverse of buildCronExpression, so editing an existing job
+   *  reopens in the mode that produced it. Anything unrecognised -- including
+   *  hand-written expressions and the ones Tala schedules herself -- falls to
+   *  Advanced, which shows the raw text rather than silently rewriting it. */
+  detectCronMode(expr) {
+    if (!expr) return 'daily';
+    const trimmed = expr.trim();
+    if (trimmed === '@startup') return 'startup';
+    const parts = trimmed.split(/\s+/);
+    if (parts.length !== 5) return 'advanced';
+    const [min, hr, dom, mon, dow] = parts;
+    if (mon !== '*') return 'advanced';
+    if (min.startsWith('*/') && dom === '*' && dow === '*') return 'minutes';
+    if (/^\d+$/.test(min) && hr === '*' && dom === '*' && dow === '*') return 'hourly';
+    if (/^\d+$/.test(min) && /^\d+$/.test(hr)) {
+      if (dom === '*' && dow === '*') return 'daily';
+      if (dom === '*' && dow !== '*') return 'weekly';
+      if (dom !== '*' && dow === '*') return 'monthly';
+    }
+    return 'advanced';
+  },
+
+  loadCronIntoBuilder(expr) {
+    const mode = this.detectCronMode(expr);
+    if (this._cronMode) this._cronMode.value = mode;
+    const parts = (expr || '').trim().split(/\s+/);
+    const setVal = (sel, v) => { const el = qs(sel); if (el && v !== undefined) el.value = v; };
+
+    if (parts.length === 5) {
+      const [min, hr, dom, , dow] = parts;
+      if (min.startsWith('*/')) setVal('#mc-cron-interval', min.slice(2));
+      else setVal('#mc-cron-minute', min);
+      if (/^\d+$/.test(hr)) setVal('#mc-cron-hour', hr);
+      if (dow !== '*') setVal('#mc-cron-weekday', dow);
+      if (dom !== '*') setVal('#mc-cron-monthday', dom);
+
+      const windowOn = qs('#mc-cron-window-on');
+      if (windowOn) {
+        // Recognise both a plain range and the two-range overnight form.
+        const wrap = hr.match(/^(\d+)-23,0-(\d+)$/);
+        const plain = hr.match(/^(\d+)-(\d+)$/);
+        windowOn.checked = !!(wrap || plain);
+        if (wrap) { setVal('#mc-cron-window-from', wrap[1]); setVal('#mc-cron-window-to', wrap[2]); }
+        else if (plain) { setVal('#mc-cron-window-from', plain[1]); setVal('#mc-cron-window-to', plain[2]); }
+      }
+    }
+    if (this._cronInput) this._cronInput.value = expr || '';
+    this.syncCronBuilder();
+    // Advanced never rewrites what the user or Tala wrote.
+    if (mode === 'advanced' && this._cronInput) this._cronInput.value = expr || '';
+    this.renderCronPreview();
+  },
+
   openScheduleEditor(id = null) {
     if (!this._scheduleEditor) return;
     const job = id ? this._scheduleCache.find(j => j.id === id) : null;
     qs('#mc-schedule-id').value = job ? job.id : '';
     qs('#mc-schedule-name').value = job ? job.name : '';
-    qs('#mc-schedule-cron').value = job ? job.cron_expr : '';
     qs('#mc-schedule-goal').value = job ? (job.goal_text || '') : '';
     qs('#mc-schedule-enabled').checked = job ? !!job.enabled : true;
-    if (this._scheduleError) this._scheduleError.textContent = '';
+    if (this._scheduleError) this._scheduleError.textContent = job && job.parse_error ? job.parse_error : '';
+    this.loadCronIntoBuilder(job ? job.cron_expr : '0 2 * * *');
     this._scheduleEditor.hidden = false;
     qs('#mc-schedule-name').focus();
   },
