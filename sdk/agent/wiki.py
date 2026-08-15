@@ -481,15 +481,31 @@ class SelfHealingDocs:
             ))
             return corrections
 
-        # Collect real symbols
-        real_functions = [
-            n.name for n in ast.walk(tree)
-            if isinstance(n, (ast.FunctionDef, ast.AsyncFunctionDef))
-        ]
-        real_classes = [
-            n.name for n in ast.walk(tree)
-            if isinstance(n, ast.ClassDef)
-        ]
+        # Collect real symbols.
+        #
+        # Deliberately NOT ast.walk: that descends into function bodies and
+        # collects closures, callbacks and decorator inner functions as though
+        # they were public API. Four of the five drift reports across the whole
+        # SDK were exactly that -- `decorator` inside ToolRegistry.register,
+        # `ignore_dirs` inside a copytree call, and so on. Permanent false
+        # positives are worse than no check, because they train the reader to
+        # ignore a report that will one day be right.
+        #
+        # Module-level functions, classes, and their methods are API. Anything
+        # defined inside a function body is an implementation detail, so this
+        # descends into class bodies but never into function bodies.
+        real_functions: list[str] = []
+        real_classes: list[str] = []
+
+        def _collect_api(body: list) -> None:
+            for stmt in body:
+                if isinstance(stmt, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                    real_functions.append(stmt.name)
+                elif isinstance(stmt, ast.ClassDef):
+                    real_classes.append(stmt.name)
+                    _collect_api(stmt.body)
+
+        _collect_api(tree.body)
 
         # Extract documented symbols from node. Two content-generation paths
         # exist in this codebase and neither knows about the other:

@@ -1421,8 +1421,21 @@ def verify_documentation_nodes(
                 node_errors.append(f"schema_version must be neural-node/v2, got {schema_version}")
             if parsed.execution_authority != 0.0:
                 node_errors.append(f"execution_authority must be 0.00, got {parsed.execution_authority}")
-            if parsed.memory_authority != 0.0:
-                node_errors.append(f"memory_authority must be 0.00, got {parsed.memory_authority}")
+            # memory_authority is REQUIRED to be non-zero, not required to be zero.
+            #
+            # This rule used to demand 0.00, which is the same conflation that
+            # made the graph mute: execution authority 0.00 is correct (a
+            # document must never act), and copying it onto the memory axis means
+            # "never recallable" -- applied to nodes whose only purpose is recall.
+            # Activation is a product gated on governance, so 94 of 115 nodes
+            # could not be injected at any similarity. With the rule inverted,
+            # verification now fails a document that has gone mute instead of
+            # failing one that can be remembered.
+            if parsed.memory_authority <= 0.0:
+                node_errors.append(
+                    "memory_authority must be greater than 0.00 or the node can never be "
+                    f"recalled, got {parsed.memory_authority}"
+                )
 
             verified_nodes.append(
                 {
