@@ -1025,10 +1025,10 @@ const SwarmDashboardManager = {
       
       tbody.innerHTML = res.tasks.map(t => `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
-          <td style="padding: var(--space-2); color: var(--accent-light); font-family: monospace;">${t.id}</td>
-          <td style="padding: var(--space-2); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${t.description}</td>
-          <td style="padding: var(--space-2); font-family: monospace;">${t.branch_name || 'N/A'}</td>
-          <td style="padding: var(--space-2); font-family: monospace;">${t.port || 'N/A'}</td>
+          <td style="padding: var(--space-2); color: var(--accent-light); font-family: monospace;">${escapeHtml(t.id)}</td>
+          <td style="padding: var(--space-2); max-width: 200px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(t.description)}</td>
+          <td style="padding: var(--space-2); font-family: monospace;">${escapeHtml(t.branch_name || 'N/A')}</td>
+          <td style="padding: var(--space-2); font-family: monospace;">${escapeHtml(String(t.port || 'N/A'))}</td>
           <td style="padding: var(--space-2);">
             <span style="display: inline-block; padding: 2px 6px; border-radius: 4px; font-size: 0.7rem; 
                          background: ${t.container_status.includes('Up') ? 'rgba(34,197,94,0.1)' : 'rgba(239,68,68,0.1)'}; 
@@ -10081,6 +10081,7 @@ const MissionControl = {
     this._btnScheduleNew = qs('#btn-mc-schedule-new');
     this._btnScheduleCancel = qs('#btn-mc-schedule-cancel');
 
+    this.initTaskEditor();
     this.initCronBuilder();
 
     if (this._btnScheduleNew) this._btnScheduleNew.addEventListener('click', () => this.openScheduleEditor());
@@ -10149,6 +10150,116 @@ const MissionControl = {
     await this.loadTelemetry();
     await this.loadGitStatus();
     await this.loadSchedules();
+  },
+
+  /* ── Task queue editing ───────────────────────────────────────────
+     task.clear TRUNCATEs the whole table and was the only removal that
+     existed, so a single stuck row could not be dropped without wiping every
+     task and all of its telemetry. These call the new task.delete and
+     task.update alongside it. */
+
+  // Statuses where the goal loop is actively holding the row. Editing one races
+  // the loop, which writes its own status back afterwards -- the edit appears to
+  // work and then silently reverts. Mirrors _TASK_LIVE_STATUSES in server.py.
+  TASK_LIVE_STATUSES: ['in_progress', 'running'],
+
+  initTaskEditor() {
+    this._taskEditor = qs('#mc-task-editor');
+    this._taskError = qs('#mc-task-error');
+    this._btnTaskNew = qs('#btn-mc-task-new');
+    this._btnTaskClear = qs('#btn-mc-task-clear');
+    const btnCancel = qs('#btn-mc-task-cancel');
+
+    if (this._btnTaskNew) this._btnTaskNew.addEventListener('click', () => this.openTaskEditor());
+    if (btnCancel) btnCancel.addEventListener('click', () => this.closeTaskEditor());
+    if (this._btnTaskClear) this._btnTaskClear.addEventListener('click', () => this.clearTaskQueue());
+    if (this._taskEditor) {
+      this._taskEditor.addEventListener('submit', (e) => { e.preventDefault(); this.saveTask(); });
+    }
+    // Delegated, because the 4s poll re-renders these rows continuously.
+    if (this._taskList) {
+      this._taskList.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-task-action]');
+        if (!btn) return;
+        const id = btn.getAttribute('data-task-id');
+        const action = btn.getAttribute('data-task-action');
+        if (action === 'edit') this.openTaskEditor(id);
+        else if (action === 'delete') this.deleteTask(id);
+        else if (action === 'abort') this.abortTask(id);
+      });
+    }
+  },
+
+  openTaskEditor(id = null) {
+    if (!this._taskEditor) return;
+    const task = id ? (this._taskCache || []).find(t => t.id === id) : null;
+    qs('#mc-task-id').value = task ? task.id : '';
+    qs('#mc-task-description').value = task ? (task.description || '') : '';
+    qs('#mc-task-editor-label').textContent = task ? 'Description' : 'Goal';
+    if (this._taskError) this._taskError.textContent = '';
+    this._taskEditor.hidden = false;
+    qs('#mc-task-description').focus();
+  },
+
+  closeTaskEditor() {
+    if (this._taskEditor) this._taskEditor.hidden = true;
+    if (this._taskError) this._taskError.textContent = '';
+  },
+
+  async saveTask() {
+    const id = qs('#mc-task-id').value.trim();
+    const description = qs('#mc-task-description').value.trim();
+    const btn = qs('#btn-mc-task-save');
+    if (btn) btn.disabled = true;
+    try {
+      if (id) {
+        await invoke('python:rpc', { method: 'task.update', params: { task_id: id, description } });
+      } else {
+        // A new task is a goal for the engine to decompose, not a row to write.
+        await invoke('python:rpc', { method: 'task.submit', params: { goal: description } });
+      }
+      this.closeTaskEditor();
+      await this.loadTasks();
+    } catch (err) {
+      // The harness refuses to edit a task the goal loop is holding and says
+      // why; surfacing that beats a silent revert a few seconds later.
+      if (this._taskError) this._taskError.textContent = err.message || String(err);
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  },
+
+  async abortTask(id) {
+    try {
+      await invoke('python:rpc', { method: 'task.control', params: { task_id: id, action: 'abort' } });
+      await this.loadTasks();
+    } catch (err) {
+      IPCLog.append('error', `Could not abort task: ${err.message || err}`);
+    }
+  },
+
+  async deleteTask(id) {
+    const task = (this._taskCache || []).find(t => t.id === id);
+    const label = task ? `"${task.description}"` : id;
+    if (!confirm(`Delete task ${label} and any sub-tasks? This cannot be undone.`)) return;
+    try {
+      await invoke('python:rpc', { method: 'task.delete', params: { task_id: id } });
+      await this.loadTasks();
+    } catch (err) {
+      IPCLog.append('error', `Could not delete task: ${err.message || err}`);
+    }
+  },
+
+  async clearTaskQueue() {
+    const count = (this._taskCache || []).length;
+    if (!confirm(`Clear the entire task queue? This deletes all ${count} task(s) and their telemetry, and cannot be undone.`)) return;
+    try {
+      await invoke('python:rpc', { method: 'task.clear', params: {} });
+      IPCLog.append('info', 'Task queue cleared.');
+      await this.loadTasks();
+    } catch (err) {
+      IPCLog.append('error', `Could not clear the queue: ${err.message || err}`);
+    }
   },
 
   /* ── Scheduled goals ──────────────────────────────────────────────
@@ -10494,6 +10605,9 @@ const MissionControl = {
     try {
       const response = await invoke('python:rpc', { method: 'task.list', params: {} });
       if (response && response.tasks) {
+        // Cached so the row buttons can name the task in their confirm prompts
+        // without re-querying.
+        this._taskCache = response.tasks;
         if (response.tasks.length === 0) {
           this._taskList.innerHTML = `<div class="empty-state" style="padding: var(--space-4); text-align: center; color: var(--text-muted);">No active tasks in the queue. Start one using <code>/goal "..."</code></div>`;
           return;
@@ -10537,12 +10651,18 @@ const MissionControl = {
             <div class="task-item-card" style="padding: var(--space-3); margin-bottom: var(--space-2); background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-sm);">
               <div style="display: flex; justify-content: space-between; align-items: center;">
                 <div>
-                  <strong style="font-size: 0.85rem; color: var(--text-primary);">${t.description}</strong>
-                  <div style="font-size: 0.7rem; color: var(--text-muted);">ID: ${t.id.slice(0,8)}...</div>
+                  <strong style="font-size: 0.85rem; color: var(--text-primary);">${escapeHtml(t.description)}</strong>
+                  <div style="font-size: 0.7rem; color: var(--text-muted);">ID: ${escapeHtml(t.id.slice(0,8))}...</div>
                 </div>
-                <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; text-transform: uppercase;">
-                  ${t.status}
-                </span>
+                <div style="display: flex; align-items: center; gap: 6px;">
+                  <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; text-transform: uppercase;">
+                    ${t.status}
+                  </span>
+                  ${MissionControl.TASK_LIVE_STATUSES.includes(t.status)
+                    ? `<button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Abort</button>`
+                    : `<button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`}
+                  <button class="btn btn-ghost" data-task-action="delete" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;">Delete</button>
+                </div>
               </div>
               ${bodyContent}
             </div>

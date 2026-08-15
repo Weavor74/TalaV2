@@ -9234,6 +9234,108 @@ async def handle_task_clear(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+#: Statuses where the goal loop is actively holding the row. Editing or deleting
+#: one of these races the loop, which writes its own status back afterwards --
+#: the edit appears to work, then silently reverts, or the row is recreated.
+#: Callers must abort the task first, or pass force to accept the race.
+_TASK_LIVE_STATUSES = ("in_progress", "running")
+
+
+async def handle_task_delete(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``task.delete`` — Remove one task and its children.
+
+    task.clear TRUNCATEs the whole table, which is the only removal that
+    existed; there was no way to drop a single stuck row without wiping every
+    task and all of its telemetry.
+    """
+    task_id: str = params.get("task_id", "").strip()
+    force: bool = bool(params.get("force", False))
+    if not task_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'task_id' is required")
+
+    try:
+        row = await db.fetchrow("SELECT id, status FROM tasks WHERE id = $1", task_id)
+        if row is None:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, f"No task with id {task_id!r}")
+
+        if row["status"] in _TASK_LIVE_STATUSES and not force:
+            return _err(
+                req_id,
+                JsonRpcError.INVALID_PARAMS,
+                f"Task is {row['status']}; the goal loop is still writing to it. "
+                "Abort it first (task.control action='abort'), or pass force=true.",
+            )
+
+        # Children go explicitly rather than via ON DELETE SET NULL, which would
+        # orphan them into the queue as parentless rows that nothing ever runs.
+        deleted = await db.execute("DELETE FROM tasks WHERE id = $1 OR parent_id = $1", task_id)
+        return _ok(req_id, {"success": True, "task_id": task_id, "result": deleted})
+    except Exception as exc:
+        logger.exception("task.delete error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_task_update(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``task.update`` — Edit a task's description or status.
+
+    Deliberately narrow: description and status only. Dependencies, payload and
+    parentage describe a plan the goal engine is executing, and rewriting those
+    from the UI produces a graph the engine never planned.
+    """
+    task_id: str = params.get("task_id", "").strip()
+    description = params.get("description")
+    status = params.get("status")
+    force: bool = bool(params.get("force", False))
+
+    if not task_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'task_id' is required")
+    if description is None and status is None:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "Nothing to update: pass 'description' or 'status'")
+
+    valid_statuses = {"pending", "in_progress", "complete", "failed", "blocked", "paused"}
+    if status is not None and status not in valid_statuses:
+        return _err(
+            req_id, JsonRpcError.INVALID_PARAMS,
+            f"'status' must be one of {sorted(valid_statuses)}",
+        )
+
+    try:
+        row = await db.fetchrow("SELECT id, status FROM tasks WHERE id = $1", task_id)
+        if row is None:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, f"No task with id {task_id!r}")
+
+        if row["status"] in _TASK_LIVE_STATUSES and not force:
+            return _err(
+                req_id,
+                JsonRpcError.INVALID_PARAMS,
+                f"Task is {row['status']}; the goal loop writes its own status back, so an "
+                "edit made now would silently revert. Pause or abort it first, or pass force=true.",
+            )
+
+        sets, args = [], []
+        if description is not None:
+            desc = str(description).strip()
+            if not desc:
+                return _err(req_id, JsonRpcError.INVALID_PARAMS, "'description' cannot be empty")
+            args.append(desc)
+            sets.append(f"description = ${len(args)}")
+        if status is not None:
+            args.append(status)
+            sets.append(f"status = ${len(args)}")
+        args.append(task_id)
+
+        await db.execute(f"UPDATE tasks SET {', '.join(sets)} WHERE id = ${len(args)}", *args)
+        updated = await db.fetchrow(
+            "SELECT id, description, status FROM tasks WHERE id = $1", task_id
+        )
+        return _ok(req_id, {"success": True, "task": dict(updated) if updated else None})
+    except Exception as exc:
+        logger.exception("task.update error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_task_get_telemetry(params: dict[str, Any], req_id: Any) -> str:
     """
     ``task.get_telemetry`` — Fetch event telemetry streams.
@@ -10758,6 +10860,8 @@ _HANDLERS: dict[str, Any] = {
     "plugins.validate": handle_plugins_validate,
     "plugins.reload": handle_plugins_reload,
     "task.clear": handle_task_clear,
+    "task.delete": handle_task_delete,
+    "task.update": handle_task_update,
     "task.get_telemetry": handle_task_get_telemetry,
     "repo.scan": handle_repo_scan,
     "repo.lint": handle_repo_lint,

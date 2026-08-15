@@ -2732,7 +2732,29 @@
           <div class="mission-control-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); padding: var(--space-4); height: calc(100% - 70px); overflow-y: auto;">
             <!-- Left Side: Task Queue Status -->
             <div class="mc-card" style="background: rgba(255,255,255,0.02); border: 1px solid var(--glass-border); border-radius: var(--radius-md); padding: var(--space-4); display: flex; flex-direction: column;">
-              <h3 style="font-size: 0.95rem; text-transform: uppercase; margin-bottom: var(--space-3); border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px;">Active Task Queue</h3>
+              <div style="display: flex; align-items: center; justify-content: space-between; border-bottom: 1px solid rgba(255,255,255,0.05); padding-bottom: 8px; margin-bottom: var(--space-3);">
+                <h3 style="font-size: 0.95rem; text-transform: uppercase; margin: 0;">Active Task Queue</h3>
+                <div style="display: flex; gap: var(--space-2);">
+                  <button class="btn btn-secondary" id="btn-mc-task-new" style="font-size: 0.7rem; padding: 3px 10px;">New Task</button>
+                  <button class="btn btn-ghost" id="btn-mc-task-clear" style="font-size: 0.7rem; padding: 3px 10px; color: #ff6b6b;">Clear Queue</button>
+                </div>
+              </div>
+
+              <!-- Editor: New Task submits a goal; Edit rewrites one description -->
+              <form id="mc-task-editor" hidden style="margin-bottom: var(--space-3); padding: var(--space-3); background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.06); border-radius: var(--radius-sm); display: flex; flex-direction: column; gap: var(--space-2);">
+                <input type="hidden" id="mc-task-id" />
+                <label style="display: flex; flex-direction: column; gap: 4px; font-size: 0.7rem; text-transform: uppercase; color: var(--text-muted);">
+                  <span id="mc-task-editor-label">Goal</span>
+                  <textarea id="mc-task-description" required rows="2" placeholder="Generate five training stories and validate them."
+                                  style="font-size: 0.8rem; padding: 6px 8px; resize: vertical; background: rgba(0,0,0,0.3); border: 1px solid rgba(255,255,255,0.1); border-radius: var(--radius-sm); color: var(--text-primary);"></textarea>
+                </label>
+                <div style="display: flex; align-items: center; gap: var(--space-3);">
+                  <span id="mc-task-error" role="alert" style="flex: 1; font-size: 0.75rem; color: #ff6b6b;"></span>
+                  <button type="button" class="btn btn-ghost" id="btn-mc-task-cancel" style="font-size: 0.75rem; padding: 4px 10px;">Cancel</button>
+                  <button type="submit" class="btn btn-secondary" id="btn-mc-task-save" style="font-size: 0.75rem; padding: 4px 10px;">Save</button>
+                </div>
+              </form>
+
               <div id="mc-task-list" style="flex: 1; overflow-y: auto; display: flex; flex-direction: column; gap: var(--space-2);">
                 <div class="empty-state" style="padding: var(--space-4); text-align: center; color: var(--text-muted);">No active tasks in the queue. Start one using <code>/goal "..."</code></div>
               </div>
