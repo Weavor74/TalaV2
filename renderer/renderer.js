@@ -10309,6 +10309,32 @@ const MissionControl = {
     if (!this._cronPreview) return;
     const expr = this._cronInput ? this._cronInput.value : '';
     this._cronPreview.textContent = `${expr || '(empty)'} — ${this.describeCron(expr)}`;
+    this.renderCronChangeWarning(expr);
+  },
+
+  /** Warn when editing an existing job has changed when it fires.
+   *
+   *  Switching the Repeat dropdown regenerates the whole expression from that
+   *  mode's controls, which can quietly replace a schedule with a quite
+   *  different one -- opening the overnight sweep
+   *  "every 30 minutes, hours 22-23 and 0-6" and touching the dropdown turns it
+   *  into a single daily run. The preview always showed the new expression, but
+   *  showing it is not the same as pointing out that it replaced something.
+   *  Warn, do not block: changing the schedule is the point of the Edit button. */
+  renderCronChangeWarning(expr) {
+    const el = qs('#mc-cron-warning');
+    if (!el) return;
+    const original = this._scheduleOriginalCron;
+    const changed = original && expr && expr.trim() !== original.trim();
+    if (!changed) {
+      el.hidden = true;
+      el.textContent = '';
+      return;
+    }
+    el.hidden = false;
+    el.textContent =
+      `This changes when the job runs. Was: ${original} (${this.describeCron(original)}) ` +
+      `Now: ${expr} (${this.describeCron(expr)})`;
   },
 
   syncCronBuilder() {
@@ -10384,6 +10410,11 @@ const MissionControl = {
     qs('#mc-schedule-goal').value = job ? (job.goal_text || '') : '';
     qs('#mc-schedule-enabled').checked = job ? !!job.enabled : true;
     if (this._scheduleError) this._scheduleError.textContent = job && job.parse_error ? job.parse_error : '';
+    // Only set for an existing job: there is nothing to have changed when
+    // creating one, and a warning on every new schedule would be noise.
+    // An unparseable expression is excluded too -- being told you changed a
+    // schedule that could never fire is not a warning worth reading.
+    this._scheduleOriginalCron = (job && !job.parse_error) ? job.cron_expr : null;
     this.loadCronIntoBuilder(job ? job.cron_expr : '0 2 * * *');
     this._scheduleEditor.hidden = false;
     qs('#mc-schedule-name').focus();
@@ -10392,6 +10423,11 @@ const MissionControl = {
   closeScheduleEditor() {
     if (this._scheduleEditor) this._scheduleEditor.hidden = true;
     if (this._scheduleError) this._scheduleError.textContent = '';
+    // Cleared on close, which is also the path a successful save takes -- a
+    // stale original would otherwise warn about a change already committed.
+    this._scheduleOriginalCron = null;
+    const warning = qs('#mc-cron-warning');
+    if (warning) { warning.hidden = true; warning.textContent = ''; }
   },
 
   async saveSchedule() {

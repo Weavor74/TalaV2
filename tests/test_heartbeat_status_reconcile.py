@@ -166,6 +166,48 @@ def test_overnight_window_is_emitted_as_two_ranges():
     assert "-23,0-" in builder, "overnight windows must be split into two ranges"
 
 
+def test_editing_warns_when_the_schedule_would_change():
+    """Switching the Repeat dropdown regenerates the whole expression from that
+    mode's controls. Opening the overnight sweep and touching the dropdown turns
+    it into a single daily run -- the preview showed the new expression, but
+    showing it is not the same as saying it replaced something."""
+    markup = INDEX.read_text(encoding="utf-8")
+    renderer = RENDERER.read_text(encoding="utf-8")
+
+    assert 'id="mc-cron-warning"' in markup
+    assert "renderCronChangeWarning" in renderer
+    block = renderer.split("renderCronChangeWarning(expr)", 1)[1].split("syncCronBuilder()", 1)[0]
+    # Both the old and the new schedule have to be named, or the warning says a
+    # change happened without saying what it was.
+    assert "Was:" in block and "Now:" in block
+
+
+def test_the_warning_does_not_block_saving():
+    """Changing the schedule is what Edit is for."""
+    renderer = RENDERER.read_text(encoding="utf-8")
+    save = renderer.split("async saveSchedule()", 1)[1].split("async toggleSchedule(", 1)[0]
+
+    assert "_scheduleOriginalCron" not in save, "saving must not be gated on the warning"
+
+
+def test_creating_a_schedule_does_not_warn():
+    """There is nothing to have changed, and a warning on every new schedule is
+    noise that trains the reader to ignore it."""
+    renderer = RENDERER.read_text(encoding="utf-8")
+    opener = renderer.split("openScheduleEditor(id = null)", 1)[1].split("closeScheduleEditor()", 1)[0]
+
+    assert "job && !job.parse_error" in opener, "the baseline must only be set for a valid existing job"
+
+
+def test_the_baseline_is_cleared_when_the_editor_closes():
+    """A successful save closes the editor; a stale baseline would then warn
+    about a change already committed."""
+    renderer = RENDERER.read_text(encoding="utf-8")
+    closer = renderer.split("closeScheduleEditor()", 1)[1].split("async saveSchedule()", 1)[0]
+
+    assert "_scheduleOriginalCron = null" in closer
+
+
 def test_delete_asks_first():
     source = RENDERER.read_text(encoding="utf-8")
     block = source.split("async deleteSchedule(", 1)[1].split("},", 1)[0]
