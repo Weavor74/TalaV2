@@ -492,6 +492,33 @@ def create_documentation_node(
     node_path = nodes_dir / f"{safe_node_id}.html"
     previous_content = node_path.read_text(encoding="utf-8") if node_path.exists() else None
 
+    # Reuse the previous timestamp when the content fingerprint is unchanged.
+    #
+    # The `previous_content == html` check below is meant to skip writing a node
+    # that has not changed, but generated_at is stamped with datetime.now() and
+    # embedded in the HTML, so the two strings ALWAYS differed by at least the
+    # timestamp. The unchanged branch could never be reached: every regeneration
+    # rewrote every node and reported it as updated.
+    #
+    # The visible cost was a permanently dirty working tree -- program-doc-*
+    # nodes showing as modified with a two-line diff of nothing but the time,
+    # while data-source-fingerprint, which is the actual content identity, was
+    # byte-for-byte identical. The reporting cost is the same shape as the rest
+    # of this branch: "updated" for work that did not happen.
+    if previous_content:
+        previous_fingerprint = re.search(
+            r'data-source-fingerprint="([^"]*)"', previous_content
+        )
+        previous_generated = re.search(
+            r'data-generated-at="([^"]*)"', previous_content
+        )
+        if (
+            previous_fingerprint
+            and previous_generated
+            and previous_fingerprint.group(1) == fingerprint
+        ):
+            generated_at = previous_generated.group(1)
+
     state_data = {
         "title": title,
         "description": f"Program documentation for {doc_target}.",
