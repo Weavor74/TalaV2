@@ -58,3 +58,6 @@ scratch/
 # directory for USB portability), not source.
 emotion_state.json
 mcp_servers.json
+
+# Per-user runtime state: which chat mode is active. Machine-local, not shared.
+chat_mode.json
