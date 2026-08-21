@@ -79,6 +79,42 @@ class DAGExecutionEngine:
     SUPPORTED_STEP_TYPES = frozenset({"research", "synthesis", "writing", "validation", "tool"})
     WORKFLOW_NODE_FILENAME = "workflow-self-extension.html"
 
+    async def _resolve_persona_prompt(self, agent_id: str | None) -> str:
+        """
+        Look up a persona's system prompt by agent id.
+
+        Returns "" for no persona, which is the default and the normal case.
+        A persona that was deleted after the topology was authored is logged
+        as a warning rather than failing the node: losing the character is
+        worth continuing through, but it must not be silent, because the run
+        would otherwise look identical to one that never named a persona.
+        """
+        if not agent_id:
+            return ""
+        try:
+            row = await db.fetchrow("SELECT name, config FROM agents WHERE id = $1", agent_id)
+        except Exception:
+            log.warning("Could not resolve persona %r (no database) — running node without it", agent_id)
+            return ""
+        if not row:
+            log.warning(
+                "Node names persona %r, which no longer exists — running node without it", agent_id
+            )
+            return ""
+
+        config = row["config"]
+        if isinstance(config, str):
+            try:
+                config = json.loads(config)
+            except Exception:
+                config = {}
+        prompt = (config or {}).get("system_prompt", "").strip()
+        if not prompt:
+            log.info("Persona %r has no system prompt; node runs without one", agent_id)
+            return ""
+        log.info("Node running as persona %r (%s)", agent_id, row["name"])
+        return prompt
+
     def _load_workflow_spec(self) -> dict[str, Any] | None:
         """
         Load the self-extension chain definition from the workflow HTML-NN,
@@ -419,6 +455,13 @@ class DAGExecutionEngine:
         # of truth.
         workflow_spec = self._load_workflow_spec()
         self._active_workflow_spec = workflow_spec
+
+        # A swarm node can name the persona it runs as (TopologyNode.agent_id).
+        # Resolved once per task and held on the instance, since one engine
+        # instance executes exactly one task.
+        self._persona_prompt = await self._resolve_persona_prompt(
+            payload.get("agent_id") if isinstance(payload, dict) else None
+        )
 
         if not existing:
             chain: list[GraphNode] = []
@@ -1028,11 +1071,23 @@ class DAGExecutionEngine:
             if error_feedback:
                 prompt += f"\n\nCRITICAL FIX: The previous attempt failed validation with error:\n{error_feedback}\nModify the code to resolve this exact error."
 
-            system_prompt = (
-                "You are an expert Python software engineer. "
+            # The output contract goes last, and stays intact when a persona is
+            # present. A persona supplies character and priorities; it must not
+            # be able to override "emit only code", because the writing node
+            # downstream parses this response as source and a chatty answer
+            # fails validation rather than reading as a refusal.
+            output_contract = (
                 "Output ONLY valid Python code inside a single ```python ``` code block. "
                 "Never write prose, thinking logs, or markdown outside the code block."
             )
+            persona_prompt = getattr(self, "_persona_prompt", "")
+            if persona_prompt:
+                system_prompt = (
+                    f"{persona_prompt}\n\n"
+                    f"For this task you are working as an expert Python software engineer. {output_contract}"
+                )
+            else:
+                system_prompt = f"You are an expert Python software engineer. {output_contract}"
 
             log.info("DAGExecutionEngine: Synthesis node initiating LLM call for target %s...", target_file)
             code = ""

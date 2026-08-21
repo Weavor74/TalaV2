@@ -12,6 +12,19 @@ class GatedVerifier:
     """
     Validates a task's output against a set of gating rules before allowing it to proceed.
     """
+
+    #: Every rule `verify` below implements. Topology validation
+    #: (`sdk/agent/topology.py`) rejects an edge whose condition is not in
+    #: this set: an unknown rule falls through to the `return False` at the
+    #: bottom of `verify`, so the branch behind that edge could never advance
+    #: on any run. Add a rule to `verify` and to this set together.
+    KNOWN_RULES = frozenset({
+        "success",
+        "tests_passed",
+        "approved",
+        "no_forbidden_changes",
+    })
+
     @classmethod
     async def verify(cls, rule: str, task_payload: Dict[str, Any], result: Dict[str, Any]) -> tuple[bool, str, str]:
         """

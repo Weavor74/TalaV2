@@ -1,0 +1,201 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Swarm Topology: Parallel Audit Swarm</title>
+</head>
+<body>
+<article
+  data-node-id="swarm-topology-parallel-audit"
+  data-node-type="swarm-topology"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.60"
+  data-weight-governance-importance="0.90"
+  data-governance-status="active"
+  data-topology-id="swarm-parallel-audit"
+  data-generated-at="2026-08-21T13:32:17Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Swarm Topology: Parallel Audit Swarm</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>This node is the executable definition of the Parallel Audit Swarm, and it exists to exercise the one thing a chain cannot: real fan-out and a real join. When a run is started with topology_id &#x27;swarm-parallel-audit&#x27;, SwarmEngine reads the &#x27;topology&#x27; object in this node&#x27;s #node-state block and builds the run from it. Editing this node changes how the audit behaves on its next run.</p>
+    <p>The shape: scout scopes the work, then three surveyors run concurrently against the same workspace - one reading the implementation, one reading the tests, one reading the documentation and neural nodes. reconcile is a join: it has three incoming edges and does not run until all three surveyors have arrived, at which point it runs exactly once. report then writes the findings up.</p>
+    <p>The point of the split is disagreement. Asking one agent &#x27;is this subsystem healthy&#x27; gets one narrative; asking three agents to describe it from the code, from the tests, and from its own documentation, and then reconciling them, surfaces the gap between what a system does, what it proves, and what it claims. reconcile is instructed to lead with the disagreements because that is where the defects live - a subsystem that is documented but untested, or tested but never called, reads as healthy from any single vantage point.</p>
+    <p>No failure_policy is defined, which is deliberate: if a surveyor fails, its branch halts rather than retrying, the join never completes, and the run finalises with whatever did finish. The synthesis explicitly includes failed nodes, so a dead branch shows up in the report as a missing dimension instead of quietly narrowing the audit.</p>
+    <p>Rules for editing: node ids must be lowercase tokens and unique; every edge must reference nodes defined in this same spec; the edge graph must stay acyclic (backward movement is expressed with failure_policy.route_to, bounded by max_retries, not with an edge); and every edge condition must name a rule GatedVerifier actually implements, otherwise that branch could never advance. Adding a fourth surveyor means adding both its scout edge and its reconcile edge - add only the first and it runs but is never waited for; add only the second and the join waits forever on a node nothing dispatches.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/swarm_engine.py</code> — the engine that runs this topology</li>
+      <li><code>sdk/agent/topology.py</code> — spec validation and the registry that loads this node</li>
+      <li><code>sdk/agent/gated_verifier.py</code> — implements the edge gate conditions used below</li>
+    </ul>
+    <h3>Agents</h3>
+    <ul>
+      <li><code>scout</code> (planner) — Scope the audit and state what each surveyor should look for</li>
+      <li><code>survey-code</code> (researcher) — Survey the implementation: what the code actually does</li>
+      <li><code>survey-tests</code> (researcher) — Survey the tests: what is actually proven, and what is only asserted</li>
+      <li><code>survey-docs</code> (researcher) — Survey the docs and neural nodes: what the system claims about itself</li>
+      <li><code>reconcile</code> (reviewer) — Reconcile the three surveys and name every place they disagree</li>
+      <li><code>report</code> (documenter) — Write the audit findings up, disagreements first</li>
+    </ul>
+    <h3>Edges</h3>
+    <ul>
+      <li><code>scout</code> → <code>survey-code</code> gated on <code>success</code></li>
+      <li><code>scout</code> → <code>survey-tests</code> gated on <code>success</code></li>
+      <li><code>scout</code> → <code>survey-docs</code> gated on <code>success</code></li>
+      <li><code>survey-code</code> → <code>reconcile</code> gated on <code>success</code></li>
+      <li><code>survey-tests</code> → <code>reconcile</code> gated on <code>success</code></li>
+      <li><code>survey-docs</code> → <code>reconcile</code> gated on <code>success</code></li>
+      <li><code>reconcile</code> → <code>report</code> gated on <code>success</code></li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>Written 2026-08-21T13:32:17Z by tala-system as the canonical, editable
+    definition of this swarm. The registry validates this spec on every load and logs the exact
+    reason whenever it rejects an edit.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+      <li><a href="./system-tala-agent-architecture.html" data-target-node-id="system-tala-agent-architecture" data-relationship-type="extends" data-relationship-weight="0.90" data-navigation-role="context" data-authority-required="none">Tala Agent Architecture</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-swarm-topology-parallel-audit"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "modify_swarm_topology",
+    "doc_target": "swarm-parallel-audit"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Before editing the topology spec in this node, read the editing rules in #semantic-memory. After editing, the registry re-validates this spec on the next load; check the harness log for a 'rejecting topology node' warning, which names the exact reason an edit was refused."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Swarm Topology: Parallel Audit Swarm",
+  "description": "Executable swarm topology 'swarm-parallel-audit', read by SwarmEngine at run time.",
+  "tags": [
+    "html-nn",
+    "swarm",
+    "topology",
+    "executable",
+    "swarm-parallel-audit"
+  ],
+  "topology": {
+    "topology_id": "swarm-parallel-audit",
+    "name": "Parallel Audit Swarm",
+    "nodes": [
+      {
+        "id": "scout",
+        "role": "planner",
+        "description": "Scope the audit and state what each surveyor should look for"
+      },
+      {
+        "id": "survey-code",
+        "role": "researcher",
+        "description": "Survey the implementation: what the code actually does"
+      },
+      {
+        "id": "survey-tests",
+        "role": "researcher",
+        "description": "Survey the tests: what is actually proven, and what is only asserted"
+      },
+      {
+        "id": "survey-docs",
+        "role": "researcher",
+        "description": "Survey the docs and neural nodes: what the system claims about itself"
+      },
+      {
+        "id": "reconcile",
+        "role": "reviewer",
+        "description": "Reconcile the three surveys and name every place they disagree"
+      },
+      {
+        "id": "report",
+        "role": "documenter",
+        "description": "Write the audit findings up, disagreements first"
+      }
+    ],
+    "edges": [
+      {
+        "from_node": "scout",
+        "to_node": "survey-code",
+        "condition": "success"
+      },
+      {
+        "from_node": "scout",
+        "to_node": "survey-tests",
+        "condition": "success"
+      },
+      {
+        "from_node": "scout",
+        "to_node": "survey-docs",
+        "condition": "success"
+      },
+      {
+        "from_node": "survey-code",
+        "to_node": "reconcile",
+        "condition": "success"
+      },
+      {
+        "from_node": "survey-tests",
+        "to_node": "reconcile",
+        "condition": "success"
+      },
+      {
+        "from_node": "survey-docs",
+        "to_node": "reconcile",
+        "condition": "success"
+      },
+      {
+        "from_node": "reconcile",
+        "to_node": "report",
+        "condition": "success"
+      }
+    ],
+    "failure_policy": {},
+    "consumer": "sdk.agent.topology.TopologyRegistry.load_from_nodes"
+  },
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-21T13:32:17Z",
+    "schema": "neural-node/v2"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

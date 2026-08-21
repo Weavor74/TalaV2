@@ -4480,7 +4480,6 @@ const AgentManager = {
     this._typeSelect = qs('#agent-type-select');
     this._roleInput = qs('#agent-role-input');
     this._crewTypeSelect = qs('#agent-crew-type-select');
-    this._swarmSizeInput = qs('#agent-swarm-size-input');
     this._systemPromptInput = qs('#agent-system-prompt');
     this._birthdateInput = qs('#agent-birthdate-input');
     this._backgroundInput = qs('#agent-background-input');
@@ -4512,10 +4511,8 @@ const AgentManager = {
   updateConditionalFields() {
     const type = this._typeSelect ? this._typeSelect.value : 'standalone';
     const crewWrapper = qs('#crew-fields-wrapper');
-    const swarmWrapper = qs('#swarm-fields-wrapper');
 
     if (crewWrapper) crewWrapper.style.display = type === 'crew' ? 'block' : 'none';
-    if (swarmWrapper) swarmWrapper.style.display = type === 'swarm' ? 'block' : 'none';
   },
 
   async load() {
@@ -4556,8 +4553,11 @@ const AgentManager = {
       if (agent.type === 'standalone') {
         badgeHtml = `<span class="badge-agent-type badge-agent-standalone">standalone</span>`;
       } else if (agent.type === 'swarm') {
-        const size = agent.config ? (agent.config.swarm_size || 3) : 3;
-        badgeHtml = `<span class="badge-agent-type badge-agent-swarm">swarm (${size})</span>`;
+        // Legacy records only. The persona editor no longer offers this type —
+        // swarms are defined in the Topologies tab, and the old "multiplier"
+        // was never read by anything. Labelled so an existing record is not
+        // silently mistaken for a live swarm.
+        badgeHtml = `<span class="badge-agent-type badge-agent-swarm">swarm (legacy)</span>`;
       } else if (agent.type === 'crew') {
         const cat = (agent.crew_type || 'business').toUpperCase();
         badgeHtml = `
@@ -4678,9 +4678,6 @@ const AgentManager = {
     this._roleInput.value = agent.role || '';
     this._crewTypeSelect.value = agent.crew_type || 'business';
     
-    const swarmSize = agent.config ? (agent.config.swarm_size || 3) : 3;
-    this._swarmSizeInput.value = swarmSize;
-    
     this._systemPromptInput.value = agent.config ? (agent.config.system_prompt || '') : '';
     
     const birthdate = agent.config ? (agent.config.birthdate || '') : '';
@@ -4755,9 +4752,6 @@ const AgentManager = {
     const config = {
       system_prompt: systemPrompt
     };
-    if (type === 'swarm') {
-      config.swarm_size = parseInt(this._swarmSizeInput.value, 10) || 3;
-    }
     if (birthdate) config.birthdate = birthdate;
     if (backgroundFile) config.background_file = backgroundFile;
     if (tag) config.tag = tag;
@@ -12101,36 +12095,285 @@ const AgentBuilder = {
     }
   },
 
-  async refreshTopologies() {
+  async refreshTopologies(selectId) {
     try {
-      const res = await window.tala.invoke('swarm.topology.list', {});
+      // reload:true so the list reflects what is actually on disk — a swarm
+      // saved or deleted in this session must not linger from a stale registry.
+      const res = await window.tala.invoke('swarm.topology.list', { reload: true });
       const topologies = res.topologies || [];
+      this.topologies = topologies;
+      this.knownGateConditions = res.known_gate_conditions || ['success'];
+
+      // Personas available to assign per node. Failing to load them must not
+      // block editing the swarm's shape — the dropdown just falls back to
+      // "none" plus whatever the topology already names.
+      try {
+        const agentsRes = await invoke('python:rpc', { method: 'agent.get_agents', params: {} });
+        this.availableAgents = (agentsRes && agentsRes.agents) || [];
+      } catch (e) {
+        console.error('Failed to load personas for swarm editor', e);
+        this.availableAgents = [];
+      }
+
+      const newBtn = qs('#btn-topology-new');
+      if (newBtn && !newBtn.dataset.bound) {
+        newBtn.dataset.bound = '1';
+        newBtn.addEventListener('click', () => this.openTopologyEditor(null));
+      }
+      this.bindTopologyEditor();
+
       const listEl = qs('#topology-list');
       if (!listEl) return;
-      
+
       if (topologies.length === 0) {
-        listEl.innerHTML = '<div class="empty-state">No topologies registered.</div>';
+        listEl.innerHTML = '<div class="empty-state">No swarms yet. Click ＋ New to define one.</div>';
         return;
       }
-      
+
       listEl.innerHTML = topologies.map(t => `
         <div class="topology-list-item" data-id="${t.topology_id}" style="padding: var(--space-2); background: rgba(255,255,255,0.05); border-radius: 4px; cursor: pointer; border: 1px solid transparent;">
           <div style="font-weight: bold; font-size: 0.9rem;">${t.name}</div>
           <div style="font-size: 0.75rem; color: var(--text-muted);">${t.topology_id}</div>
+          <div style="font-size: 0.65rem; color: ${t.editable ? 'var(--text-muted)' : 'var(--accent-orange)'}; margin-top: 2px;">
+            ${t.editable ? 'neural node' : 'built-in · not editable'}
+          </div>
         </div>
       `).join('');
-      
+
+      const select = (item) => {
+        listEl.querySelectorAll('.topology-list-item').forEach(el => el.style.border = '1px solid transparent');
+        item.style.border = '1px solid var(--accent-blue)';
+        const t = topologies.find(x => x.topology_id === item.dataset.id);
+        this.selectedTopology = t;
+        this.closeTopologyEditor();
+        this.renderTopologyGraph(t);
+      };
+
       listEl.querySelectorAll('.topology-list-item').forEach(item => {
-        item.addEventListener('click', () => {
-          listEl.querySelectorAll('.topology-list-item').forEach(el => el.style.border = '1px solid transparent');
-          item.style.border = '1px solid var(--accent-blue)';
-          const t = topologies.find(x => x.topology_id === item.dataset.id);
-          this.renderTopologyGraph(t);
-        });
+        item.addEventListener('click', () => select(item));
+        // Keep the just-saved swarm selected across the refresh rather than
+        // dumping the user back to an empty pane.
+        if (selectId && item.dataset.id === selectId) select(item);
       });
-      
+
     } catch (e) {
       console.error('Failed to load topologies', e);
+    }
+  },
+
+  // --- Swarm editor ---------------------------------------------------
+  // Saving here writes an HTML-NN neural node; that node is the swarm
+  // definition, not a rendering of one held somewhere else.
+
+  bindTopologyEditor() {
+    const bind = (id, handler) => {
+      const el = qs(id);
+      if (!el || el.dataset.bound) return;
+      el.dataset.bound = '1';
+      el.addEventListener('click', handler);
+    };
+    bind('#btn-topology-edit', () => this.openTopologyEditor(this.selectedTopology));
+    bind('#btn-topology-delete', () => this.deleteTopology());
+    bind('#btn-topo-add-node', () => this.addTopologyNodeRow());
+    bind('#btn-topo-add-edge', () => this.addTopologyEdgeRow());
+    bind('#btn-topo-save', () => this.saveTopology());
+    bind('#btn-topo-cancel', () => {
+      this.closeTopologyEditor();
+      if (this.selectedTopology) this.renderTopologyGraph(this.selectedTopology);
+    });
+  },
+
+  openTopologyEditor(topology) {
+    this.editingTopologyId = topology ? topology.topology_id : null;
+    qs('#topology-graph').style.display = 'none';
+    qs('#topology-editor').style.display = 'block';
+    qs('#btn-topology-start').style.display = 'none';
+    qs('#btn-topology-edit').style.display = 'none';
+    qs('#btn-topology-delete').style.display = 'none';
+    qs('#topology-title').textContent = topology ? `Editing: ${topology.name}` : 'New Swarm';
+    this.showTopologyEditorError('');
+
+    const idInput = qs('#topo-edit-id');
+    idInput.value = topology ? topology.topology_id : '';
+    // The id is baked into the node's filename and into deterministic task
+    // ids, so renaming an existing swarm would orphan its node rather than
+    // move it. Create a new one instead.
+    idInput.disabled = !!topology;
+    qs('#topo-edit-name').value = topology ? topology.name : '';
+    qs('#topo-edit-prose').value = topology ? (topology.semantic_memory || '') : '';
+
+    qs('#topo-edit-nodes').innerHTML = '';
+    qs('#topo-edit-edges').innerHTML = '';
+    (topology ? topology.nodes : []).forEach(n => this.addTopologyNodeRow(n));
+    (topology ? topology.edges : []).forEach(e => this.addTopologyEdgeRow(e));
+    if (!topology) this.addTopologyNodeRow();
+  },
+
+  closeTopologyEditor() {
+    const editor = qs('#topology-editor');
+    if (editor) editor.style.display = 'none';
+    const graph = qs('#topology-graph');
+    if (graph) graph.style.display = 'flex';
+    this.editingTopologyId = null;
+  },
+
+  showTopologyEditorError(message) {
+    const el = qs('#topology-editor-error');
+    if (!el) return;
+    el.textContent = message || '';
+    el.style.display = message ? 'block' : 'none';
+  },
+
+  addTopologyNodeRow(node) {
+    const row = document.createElement('div');
+    row.className = 'topo-node-row';
+    row.style.cssText = 'display: flex; gap: var(--space-2); align-items: center;';
+    const field = 'padding: var(--space-2); background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;';
+    const selectedAgent = node && node.agent_id ? node.agent_id : '';
+    // "None" is the default and stays first. A persona the user has since
+    // deleted is kept as an option so opening the editor does not silently
+    // reassign that node to nobody.
+    const personaOptions = [`<option value=""${selectedAgent ? '' : ' selected'}>Persona: none</option>`]
+      .concat((this.availableAgents || []).map(a =>
+        `<option value="${a.id}"${a.id === selectedAgent ? ' selected' : ''}>${a.name}</option>`));
+    if (selectedAgent && !(this.availableAgents || []).some(a => a.id === selectedAgent)) {
+      personaOptions.push(`<option value="${selectedAgent}" selected>${selectedAgent} (missing)</option>`);
+    }
+    row.innerHTML = `
+      <input type="text" class="topo-node-id" placeholder="agent-id" value="${node ? node.id : ''}" style="${field} flex: 0 0 140px;" />
+      <input type="text" class="topo-node-role" placeholder="role" value="${node ? node.role : ''}" style="${field} flex: 0 0 110px;" />
+      <input type="text" class="topo-node-desc" placeholder="what this agent does" value="${node ? (node.description || '') : ''}" style="${field} flex: 1;" />
+      <select class="topo-node-agent" style="${field} flex: 0 0 160px;">${personaOptions.join('')}</select>
+      <button class="btn btn-secondary topo-row-remove" style="font-size: 0.7rem; padding: 3px 8px;">✕</button>
+    `;
+    row.querySelector('.topo-row-remove').addEventListener('click', () => {
+      row.remove();
+      this.refreshTopologyEdgeOptions();
+    });
+    row.querySelector('.topo-node-id').addEventListener('input', () => this.refreshTopologyEdgeOptions());
+    qs('#topo-edit-nodes').appendChild(row);
+    this.refreshTopologyEdgeOptions();
+  },
+
+  currentEditorNodeIds() {
+    return Array.from(document.querySelectorAll('#topo-edit-nodes .topo-node-id'))
+      .map(input => input.value.trim())
+      .filter(Boolean);
+  },
+
+  refreshTopologyEdgeOptions() {
+    const ids = this.currentEditorNodeIds();
+    document.querySelectorAll('#topo-edit-edges select.topo-edge-from, #topo-edit-edges select.topo-edge-to')
+      .forEach(select => {
+        const current = select.value;
+        select.innerHTML = ids.map(id => `<option value="${id}">${id}</option>`).join('');
+        if (ids.includes(current)) select.value = current;
+      });
+  },
+
+  addTopologyEdgeRow(edge) {
+    const ids = this.currentEditorNodeIds();
+    if (!ids.length) {
+      this.showTopologyEditorError('Add at least one agent before adding edges.');
+      return;
+    }
+    const conditions = this.knownGateConditions || ['success'];
+    const row = document.createElement('div');
+    row.className = 'topo-edge-row';
+    row.style.cssText = 'display: flex; gap: var(--space-2); align-items: center;';
+    const field = 'padding: var(--space-2); background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;';
+    const options = (selected) => ids.map(id => `<option value="${id}"${id === selected ? ' selected' : ''}>${id}</option>`).join('');
+    row.innerHTML = `
+      <select class="topo-edge-from" style="${field} flex: 1;">${options(edge && edge.from_node)}</select>
+      <span style="color: var(--text-muted);">→</span>
+      <select class="topo-edge-to" style="${field} flex: 1;">${options(edge && edge.to_node)}</select>
+      <span style="color: var(--text-muted); font-size: 0.7rem;">gated on</span>
+      <select class="topo-edge-cond" style="${field} flex: 0 0 150px;">
+        ${conditions.map(c => `<option value="${c}"${edge && edge.condition === c ? ' selected' : ''}>${c}</option>`).join('')}
+      </select>
+      <button class="btn btn-secondary topo-row-remove" style="font-size: 0.7rem; padding: 3px 8px;">✕</button>
+    `;
+    row.querySelector('.topo-row-remove').addEventListener('click', () => row.remove());
+    qs('#topo-edit-edges').appendChild(row);
+  },
+
+  collectTopologyForm() {
+    const nodes = Array.from(document.querySelectorAll('#topo-edit-nodes .topo-node-row')).map(row => {
+      const entry = {
+        id: row.querySelector('.topo-node-id').value.trim(),
+        role: row.querySelector('.topo-node-role').value.trim(),
+        description: row.querySelector('.topo-node-desc').value.trim(),
+      };
+      const agentId = row.querySelector('.topo-node-agent').value;
+      if (agentId) entry.agent_id = agentId;
+      return entry;
+    });
+    const edges = Array.from(document.querySelectorAll('#topo-edit-edges .topo-edge-row')).map(row => ({
+      from_node: row.querySelector('.topo-edge-from').value,
+      to_node: row.querySelector('.topo-edge-to').value,
+      condition: row.querySelector('.topo-edge-cond').value,
+    }));
+    return {
+      topology_id: qs('#topo-edit-id').value.trim(),
+      name: qs('#topo-edit-name').value.trim(),
+      nodes,
+      edges,
+      // Preserved as authored; the editor does not expose failure policy yet,
+      // so an existing one must not be silently dropped on save.
+      failure_policy: (this.selectedTopology && this.editingTopologyId === this.selectedTopology.topology_id)
+        ? (this.selectedTopology.failure_policy || {})
+        : {},
+    };
+  },
+
+  async saveTopology() {
+    const topology = this.collectTopologyForm();
+    this.showTopologyEditorError('');
+    try {
+      const res = await window.tala.invoke('swarm.topology.create', {
+        topology,
+        semantic_memory: qs('#topo-edit-prose').value.trim() || undefined,
+        created_by: 'user',
+      });
+      if (res && res.success) {
+        IPCLog.append('info', `Saved swarm "${topology.name}" as ${res.node_id}.html`);
+        this.closeTopologyEditor();
+        await this.refreshTopologies(topology.topology_id);
+      } else {
+        // Server-side validation is the authority — it is the same check the
+        // loader applies, so surfacing its exact message tells the user why
+        // the swarm would not have run rather than just that it failed.
+        this.showTopologyEditorError((res && res.error && res.error.message) || 'Save failed.');
+      }
+    } catch (err) {
+      this.showTopologyEditorError(String(err && err.message ? err.message : err));
+    }
+  },
+
+  async deleteTopology() {
+    const topology = this.selectedTopology;
+    if (!topology) return;
+    if (!confirm(`Delete the swarm "${topology.name}"?\n\nThis removes its neural node (${topology.source_node_id}.html).`)) return;
+    try {
+      const res = await window.tala.invoke('swarm.topology.delete', { topology_id: topology.topology_id });
+      if (res && res.success) {
+        IPCLog.append('info', `Deleted swarm "${topology.name}"`);
+        if (res.reverted_to_builtin) {
+          alert(`Deleted the saved definition. "${topology.name}" has a built-in fallback, so it is still listed — now in its original shape.`);
+        }
+        this.selectedTopology = null;
+        qs('#topology-title').textContent = 'Select a Topology';
+        qs('#btn-topology-start').style.display = 'none';
+        qs('#btn-topology-edit').style.display = 'none';
+        qs('#btn-topology-delete').style.display = 'none';
+        qs('#topology-nodes-container').innerHTML = '';
+        qs('#topology-edges-svg').innerHTML = '';
+        await this.refreshTopologies();
+      } else {
+        alert((res && res.error && res.error.message) || 'Delete failed.');
+      }
+    } catch (err) {
+      alert('RPC Error: ' + err);
     }
   },
 
@@ -12144,7 +12387,17 @@ const AgentBuilder = {
     
     titleEl.textContent = topology.name;
     startBtn.style.display = 'block';
-    
+    this.selectedTopology = topology;
+
+    // Built-ins have no node file behind them, so there is nothing on disk to
+    // edit or delete — the buttons stay hidden rather than failing on click.
+    const editBtn = qs('#btn-topology-edit');
+    const deleteBtn = qs('#btn-topology-delete');
+    if (editBtn) editBtn.style.display = topology.editable ? 'block' : 'none';
+    if (deleteBtn) deleteBtn.style.display = topology.editable ? 'block' : 'none';
+    this.bindTopologyEditor();
+
+
     startBtn.onclick = async () => {
       const goal = prompt("Enter the Swarm Goal:");
       if (!goal) return;
@@ -12161,27 +12414,85 @@ const AgentBuilder = {
       }
     };
     
-    // Render Nodes (simple left-to-right flex layout for now)
+    // Render nodes in dependency layers. A flat row drew a fan-out as a
+    // straight line, which is exactly the distinction that matters now that
+    // topologies can branch: concurrent nodes belong stacked in one column.
     nodesContainer.innerHTML = '';
-    topology.nodes.forEach(node => {
-      const nodeEl = document.createElement('div');
-      nodeEl.className = 'topology-node';
-      nodeEl.id = `topo-node-${node.id}`;
-      nodeEl.style.cssText = 'background: rgba(20,20,30,0.8); border: 1px solid var(--glass-border); border-radius: 8px; padding: var(--space-3); width: 180px; text-align: center; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2;';
-      nodeEl.innerHTML = `
-        <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${node.role}</div>
-        <div style="font-size: 0.85rem; font-weight: bold;">${node.id}</div>
-        <div style="font-size: 0.7rem; color: var(--text-muted);">${node.description}</div>
-      `;
-      nodesContainer.appendChild(nodeEl);
+    this.topologyLayers(topology).forEach(layer => {
+      const column = this.makeTopologyColumn();
+      layer.forEach(node => {
+        const joins = (topology.edges || []).filter(e => e.to_node === node.id).length;
+        const nodeEl = document.createElement('div');
+        nodeEl.className = 'topology-node';
+        nodeEl.id = `topo-node-${node.id}`;
+        nodeEl.style.cssText = 'background: rgba(20,20,30,0.8); border: 1px solid var(--glass-border); border-radius: 8px; padding: var(--space-3); width: 180px; text-align: center; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2;';
+        nodeEl.innerHTML = `
+          <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${node.role}</div>
+          <div style="font-size: 0.85rem; font-weight: bold;">${node.id}</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">${node.description}</div>
+          ${node.agent_id ? `<div style="font-size: 0.65rem; color: var(--accent-blue); margin-top: 2px;">as ${this.personaName(node.agent_id)}</div>` : ''}
+          ${joins > 1 ? `<div style="font-size: 0.65rem; color: var(--accent-orange); margin-top: 2px;">join · waits for ${joins}</div>` : ''}
+        `;
+        column.appendChild(nodeEl);
+      });
+      nodesContainer.appendChild(column);
     });
-    
+
     // We defer drawing edges to allow DOM to layout the nodes
     setTimeout(() => this.drawTopologyEdges(topology), 50);
     // Redraw on window resize
     window.addEventListener('resize', () => this.drawTopologyEdges(topology));
   },
   
+  personaName(agentId) {
+    const match = (this.availableAgents || []).find(a => a.id === agentId);
+    // Show the id when the persona is gone rather than a blank — that is the
+    // case the engine warns about at dispatch and runs without.
+    return match ? match.name : `${agentId} (missing)`;
+  },
+
+  makeTopologyColumn() {
+    const column = document.createElement('div');
+    column.className = 'topology-layer';
+    column.style.cssText = 'display: flex; flex-direction: column; gap: var(--space-4); justify-content: center;';
+    return column;
+  },
+
+  topologyLayers(topology) {
+    // Group nodes into columns by longest path from a start node, so a join
+    // always sits to the right of every branch that feeds it and concurrent
+    // branches share a column. Edge-graph acyclicity is enforced server-side
+    // (sdk/agent/topology.py rejects cycles), but the seen-set below keeps a
+    // hand-edited spec from hanging the UI.
+    const nodes = topology.nodes || [];
+    const edges = topology.edges || [];
+    const incoming = new Map(nodes.map(n => [n.id, []]));
+    edges.forEach(e => {
+      if (incoming.has(e.to_node)) incoming.get(e.to_node).push(e.from_node);
+    });
+
+    const depth = new Map();
+    const resolve = (id, seen) => {
+      if (depth.has(id)) return depth.get(id);
+      if (seen.has(id)) return 0;
+      seen.add(id);
+      const parents = incoming.get(id) || [];
+      const d = parents.length ? Math.max(...parents.map(p => resolve(p, seen) + 1)) : 0;
+      seen.delete(id);
+      depth.set(id, d);
+      return d;
+    };
+    nodes.forEach(n => resolve(n.id, new Set()));
+
+    const layers = [];
+    nodes.forEach(n => {
+      const d = depth.get(n.id) || 0;
+      if (!layers[d]) layers[d] = [];
+      layers[d].push(n);
+    });
+    return layers.filter(Boolean);
+  },
+
   drawTopologyEdges(topology) {
     const svgOverlay = qs('#topology-edges-svg');
     const graphContainer = qs('#topology-graph');
@@ -12346,18 +12657,24 @@ const AgentBuilder = {
         // Render Nodes (reuse logic from Topologies tab, but into Runs tab containers)
         const nodesContainer = qs('#runs-topology-nodes-container');
         nodesContainer.innerHTML = '';
-        topology.nodes.forEach(node => {
-          const nodeEl = document.createElement('div');
-          nodeEl.className = 'topology-node';
-          nodeEl.id = `runs-topo-node-${node.id}`;
-          nodeEl.dataset.nodeId = node.id;
-          nodeEl.style.cssText = 'background: rgba(20,20,30,0.8); border: 1px solid var(--glass-border); border-radius: 8px; padding: var(--space-3); width: 180px; text-align: center; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2; transition: all 0.3s ease;';
-          nodeEl.innerHTML = `
-            <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${node.role}</div>
-            <div style="font-size: 0.85rem; font-weight: bold;">${node.id}</div>
-            <div class="node-status" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">Waiting</div>
-          `;
-          nodesContainer.appendChild(nodeEl);
+        this.topologyLayers(topology).forEach(layer => {
+          const column = this.makeTopologyColumn();
+          layer.forEach(node => {
+            const joins = (topology.edges || []).filter(e => e.to_node === node.id).length;
+            const nodeEl = document.createElement('div');
+            nodeEl.className = 'topology-node';
+            nodeEl.id = `runs-topo-node-${node.id}`;
+            nodeEl.dataset.nodeId = node.id;
+            nodeEl.style.cssText = 'background: rgba(20,20,30,0.8); border: 1px solid var(--glass-border); border-radius: 8px; padding: var(--space-3); width: 180px; text-align: center; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2; transition: all 0.3s ease;';
+            nodeEl.innerHTML = `
+              <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${node.role}</div>
+              <div style="font-size: 0.85rem; font-weight: bold;">${node.id}</div>
+              ${joins > 1 ? `<div style="font-size: 0.65rem; color: var(--accent-orange);">join · waits for ${joins}</div>` : ''}
+              <div class="node-status" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">Waiting</div>
+            `;
+            column.appendChild(nodeEl);
+          });
+          nodesContainer.appendChild(column);
         });
         
         // Draw edges slightly delayed

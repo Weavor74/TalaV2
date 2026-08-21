@@ -162,3 +162,143 @@ async def test_swarm_topology_gate_failure_routes_to_blocked():
             assert mock_dag.await_count == 1
     finally:
         await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_swarm_fans_out_and_joins_before_the_downstream_node_runs():
+    """
+    The test that separates a swarm from a chain.
+
+    `scout` fans out to two surveyors that run concurrently; `reconcile` has an
+    incoming edge from each and must run exactly once, after both have
+    finished. Before join semantics existed, each surveyor independently
+    enqueued `reconcile` — and because `generate_deterministic_id` hands both
+    of them the same task id, `reconcile` was executed twice, concurrently,
+    against a single row, with only whichever upstream happened to arrive
+    first actually visible to it.
+
+    The two surveyors sleep for deliberately different durations so the fast
+    branch finishes well before the slow one. That is the window the old code
+    lost the join in, and it is also the window in which the run could
+    finalise early: the completion check used to be a COUNT over sibling task
+    rows, which reads zero in the moment between a node completing and its
+    successors being enqueued.
+    """
+    await init_pool()
+    try:
+        topology_id = "test-e2e-fan-in-swarm"
+        TopologyRegistry.register(SwarmTopology(
+            topology_id=topology_id,
+            name="E2E Fan-in Swarm",
+            nodes=[
+                TopologyNode(id="scout", role="planner", description="Scope the work"),
+                TopologyNode(id="fast", role="researcher", description="Finishes quickly"),
+                TopologyNode(id="slow", role="researcher", description="Finishes later"),
+                TopologyNode(id="reconcile", role="reviewer", description="Join both surveyors"),
+            ],
+            edges=[
+                TopologyEdge(from_node="scout", to_node="fast", condition="success"),
+                TopologyEdge(from_node="scout", to_node="slow", condition="success"),
+                TopologyEdge(from_node="fast", to_node="reconcile", condition="success"),
+                TopologyEdge(from_node="slow", to_node="reconcile", condition="success"),
+            ],
+            failure_policy={},
+        ))
+
+        # Ordered log of (event, node_id) so the assertions can talk about
+        # what happened relative to what, not just how many times.
+        timeline: list[tuple[str, str]] = []
+        delays = {"scout": 0.0, "fast": 0.05, "slow": 0.35, "reconcile": 0.0}
+
+        async def fake_dag(self, task, policy=None):
+            node_id = (getattr(task, "payload", None) or {}).get("node_id", "?")
+            timeline.append(("start", node_id))
+            await asyncio.sleep(delays.get(node_id, 0.0))
+            timeline.append(("end", node_id))
+            return {"success": True, "output": f"{node_id} did real work", "error": None}
+
+        with patch(
+            "sdk.agent.graph_engine.DAGExecutionEngine.execute_task_as_dag",
+            new=fake_dag,
+        ), patch(
+            "sdk.agent.synthesizer.SynthesizerWorker.synthesize",
+            new_callable=AsyncMock,
+        ) as mock_synth:
+            mock_synth.return_value = {"success": True, "output": "final synthesized report"}
+
+            parent_id = await SwarmEngine.spawn_topology("E2E fan-in swarm goal", topology_id)
+            final_status = await _wait_for_status(parent_id, {"complete", "failed", "blocked"}, timeout=30.0)
+
+            assert final_status == "complete", (
+                f"fan-in swarm never completed (last status={final_status!r}); timeline={timeline}"
+            )
+
+            starts = [node for event, node in timeline if event == "start"]
+            assert starts.count("reconcile") == 1, (
+                f"the join node ran {starts.count('reconcile')} times, expected exactly 1; timeline={timeline}"
+            )
+
+            # The join must start after BOTH surveyors have ended.
+            reconcile_start = timeline.index(("start", "reconcile"))
+            for surveyor in ("fast", "slow"):
+                assert timeline.index(("end", surveyor)) < reconcile_start, (
+                    f"reconcile started before {surveyor} finished; timeline={timeline}"
+                )
+
+            # The surveyors must genuinely overlap — if they ran one after the
+            # other this test would pass without any fan-out having happened.
+            assert timeline.index(("start", "slow")) < timeline.index(("end", "fast")), (
+                f"surveyors did not run concurrently; timeline={timeline}"
+            )
+
+            mock_synth.assert_awaited_once()
+            upstream = mock_synth.await_args[0][1]
+            assert {r["node_id"] for r in upstream} == {"scout", "fast", "slow", "reconcile"}, (
+                f"synthesis did not receive every node's output: {[r['node_id'] for r in upstream]}"
+            )
+
+        children = await db.fetch("SELECT id, status, payload FROM tasks WHERE parent_id = $1", parent_id)
+        assert len(children) == 4, f"expected 4 node tasks, got {len(children)}"
+        for c in children:
+            assert c["status"] == "complete", f"node task {c['id']} did not complete: {c['status']}"
+
+        state = await db.fetchrow(
+            "SELECT in_flight, finalised FROM swarm_run_state WHERE parent_task_id = $1", parent_id
+        )
+        assert state["in_flight"] == 0, "in-flight count must return to zero when the run closes"
+        assert state["finalised"] is True
+    finally:
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_rerunning_a_swarm_still_completes():
+    """
+    Parent task ids are deterministic in (goal, topology), so re-running the
+    same swarm reuses the same id. Its bookkeeping rows have to be reset with
+    it: inheriting the previous run's finalised flag would let the second run
+    execute every node and then never close.
+    """
+    await init_pool()
+    try:
+        _register_topology()
+        goal_text = "E2E swarm rerun goal"
+
+        with patch(
+            "sdk.agent.graph_engine.DAGExecutionEngine.execute_task_as_dag",
+            new_callable=AsyncMock,
+        ) as mock_dag, patch(
+            "sdk.agent.synthesizer.SynthesizerWorker.synthesize",
+            new_callable=AsyncMock,
+        ) as mock_synth:
+            mock_dag.return_value = {"success": True, "output": "node did real work", "error": None}
+            mock_synth.return_value = {"success": True, "output": "final synthesized report"}
+
+            for attempt in (1, 2):
+                parent_id = await SwarmEngine.spawn_topology(goal_text, TOPOLOGY_ID)
+                status = await _wait_for_status(parent_id, {"complete", "failed", "blocked"}, timeout=20.0)
+                assert status == "complete", f"run {attempt} of the same swarm ended at {status!r}"
+
+            assert mock_synth.await_count == 2, "each run must produce its own synthesis"
+    finally:
+        await close_pool()

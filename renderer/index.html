@@ -563,7 +563,6 @@
                           <select id="agent-type-select" style="width: 100%; padding: var(--space-2); background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
                             <option value="standalone" selected>Standalone (Single Direct Assistant)</option>
                             <option value="crew">Crew (Workforce Member)</option>
-                            <option value="swarm">Swarm (Parallel Multi-Agent)</option>
                           </select>
                         </div>
                         
@@ -597,15 +596,6 @@
                               <option value="military">Military (Tactical, Guardrails, Strict Constraints)</option>
                               <option value="guild">Guild (Developer, Creative, Specialized Craft)</option>
                             </select>
-                          </div>
-                        </div>
-                        
-                        <!-- Conditional section: Swarm Fields -->
-                        <div id="swarm-fields-wrapper" class="conditional-fields" style="display: none; margin-bottom: var(--space-3); border-left: 2px solid #8e44ad; padding-left: var(--space-3);">
-                          <div class="form-group">
-                            <label for="agent-swarm-size-input" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Swarm Multiplier (Scale)</label>
-                            <input type="number" id="agent-swarm-size-input" min="2" max="32" value="3" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
-                            <small class="form-help" style="display: block; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px;">Number of parallel agent instances spawned to coordinate execution.</small>
                           </div>
                         </div>
 
@@ -2624,7 +2614,10 @@
             <div id="builder-tab-topologies" class="builder-tab-pane" style="display: none; height: 100%;">
               <div style="display: flex; gap: var(--space-4); height: 100%;">
                 <div class="topology-sidebar" style="flex: 0 0 250px; border-right: 1px solid rgba(255,255,255,0.1); padding-right: var(--space-3); display: flex; flex-direction: column;">
-                  <h3 style="margin-bottom: var(--space-3); font-size: 0.9rem;">Available Topologies</h3>
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
+                    <h3 style="margin: 0; font-size: 0.9rem;">Available Topologies</h3>
+                    <button class="btn btn-primary" id="btn-topology-new" style="font-size: 0.7rem; padding: 3px 8px;">＋ New</button>
+                  </div>
                   <div id="topology-list" style="display: flex; flex-direction: column; gap: var(--space-2); flex: 1; overflow-y: auto;">
                     <div class="empty-state" style="padding: var(--space-2);">Loading topologies...</div>
                   </div>
@@ -2632,12 +2625,54 @@
                 <div class="topology-main" style="flex: 1; display: flex; flex-direction: column; position: relative;">
                   <div class="topology-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
                     <h3 id="topology-title" style="margin: 0; font-size: 1rem;">Select a Topology</h3>
-                    <button class="btn btn-primary" id="btn-topology-start" style="display: none;">▶ Run Swarm</button>
+                    <div style="display: flex; gap: var(--space-2);">
+                      <button class="btn btn-secondary" id="btn-topology-edit" style="display: none;">✎ Edit</button>
+                      <button class="btn btn-secondary" id="btn-topology-delete" style="display: none;">🗑 Delete</button>
+                      <button class="btn btn-primary" id="btn-topology-start" style="display: none;">▶ Run Swarm</button>
+                    </div>
                   </div>
                   <div class="topology-graph-container" id="topology-graph" style="flex: 1; background: rgba(0,0,0,0.2); border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,0.05); position: relative; overflow: auto; display: flex; align-items: center; justify-content: flex-start; padding: var(--space-5);">
                     <svg id="topology-edges-svg" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none;"></svg>
                     <div id="topology-nodes-container" style="display: flex; gap: var(--space-5); position: relative; z-index: 1;">
                       <!-- Populated dynamically -->
+                    </div>
+                  </div>
+
+                  <!-- Swarm editor. The swarm IS this form: saving writes an
+                       HTML-NN neural node that becomes the definition. -->
+                  <div id="topology-editor" style="display: none; flex: 1; overflow-y: auto; background: rgba(0,0,0,0.2); border-radius: var(--radius-md); border: 1px solid rgba(255,255,255,0.05); padding: var(--space-4);">
+                    <div id="topology-editor-error" style="display: none; margin-bottom: var(--space-3); padding: var(--space-2) var(--space-3); border-left: 3px solid var(--status-error, #e74c3c); background: rgba(231,76,60,0.1); font-size: 0.75rem; color: var(--text-primary); white-space: pre-wrap;"></div>
+
+                    <div style="display: flex; gap: var(--space-3); margin-bottom: var(--space-3);">
+                      <div style="flex: 1;">
+                        <label class="form-label" for="topo-edit-id" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Swarm ID</label>
+                        <input type="text" id="topo-edit-id" placeholder="swarm-my-pipeline" style="width: 100%; padding: var(--space-2); background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
+                        <div class="form-help" style="font-size: 0.65rem; margin-top: 2px;">Lowercase letters, numbers and dashes. Cannot be changed after saving.</div>
+                      </div>
+                      <div style="flex: 1;">
+                        <label class="form-label" for="topo-edit-name" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Display Name</label>
+                        <input type="text" id="topo-edit-name" placeholder="My Pipeline Swarm" style="width: 100%; padding: var(--space-2); background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
+                      </div>
+                    </div>
+
+                    <div style="margin-bottom: var(--space-4);">
+                      <label class="form-label" for="topo-edit-prose" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">What is this swarm for?</label>
+                      <textarea id="topo-edit-prose" rows="4" placeholder="Leave blank to generate a description from the shape of the swarm." style="width: 100%; padding: var(--space-2); background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; resize: vertical;"></textarea>
+                      <div class="form-help" style="font-size: 0.65rem; margin-top: 2px;">Saved as the neural node's semantic memory, so this swarm can be recalled later by what it does.</div>
+                    </div>
+
+                    <h4 style="font-size: 0.8rem; margin-bottom: var(--space-2);">Agents</h4>
+                    <div id="topo-edit-nodes" style="display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-2);"></div>
+                    <button class="btn btn-secondary" id="btn-topo-add-node" style="font-size: 0.7rem; padding: 3px 8px; margin-bottom: var(--space-4);">＋ Add agent</button>
+
+                    <h4 style="font-size: 0.8rem; margin-bottom: var(--space-2);">Edges</h4>
+                    <div id="topo-edit-edges" style="display: flex; flex-direction: column; gap: var(--space-2); margin-bottom: var(--space-2);"></div>
+                    <button class="btn btn-secondary" id="btn-topo-add-edge" style="font-size: 0.7rem; padding: 3px 8px; margin-bottom: var(--space-2);">＋ Add edge</button>
+                    <div class="form-help" style="font-size: 0.65rem; margin-bottom: var(--space-4);">An agent with no incoming edge starts the swarm. Two agents pointing at the same target makes it a join: that agent waits for both, then runs once.</div>
+
+                    <div style="display: flex; gap: var(--space-2); border-top: 1px solid rgba(255,255,255,0.1); padding-top: var(--space-3);">
+                      <button class="btn btn-primary" id="btn-topo-save">Save Swarm</button>
+                      <button class="btn btn-secondary" id="btn-topo-cancel">Cancel</button>
                     </div>
                   </div>
                 </div>

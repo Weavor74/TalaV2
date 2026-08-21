@@ -9143,20 +9143,86 @@ async def handle_swarm_workers_active(params: dict[str, Any], req_id: Any) -> st
 async def handle_swarm_topology_list(params: dict[str, Any], req_id: Any) -> str:
     try:
         from sdk.agent.topology import TopologyRegistry
-        topologies = TopologyRegistry.list_all()
-        # Convert to dict
-        data = []
-        for t in topologies:
-            data.append({
-                "topology_id": t.topology_id,
-                "name": t.name,
-                "nodes": [{"id": n.id, "role": n.role, "description": n.description} for n in t.nodes],
-                "edges": [{"from_node": e.from_node, "to_node": e.to_node, "condition": e.condition} for e in t.edges],
-                "failure_policy": t.failure_policy
-            })
-        return _ok(req_id, {"topologies": data})
+
+        if params.get("reload"):
+            # reset(), not reload(): reload only overwrites, so a topology
+            # whose node was deleted or renamed on disk would linger.
+            TopologyRegistry.reset()
+        from sdk.agent.gated_verifier import GatedVerifier
+
+        return _ok(req_id, {
+            "topologies": [t.to_wire() for t in TopologyRegistry.list_all()],
+            # Sent so the editor's gate dropdown is generated from the rules
+            # the verifier actually implements. A hardcoded UI list would let
+            # someone author an edge on a rule that can never pass, which
+            # stalls that branch silently on every run.
+            "known_gate_conditions": sorted(GatedVerifier.KNOWN_RULES),
+        })
     except Exception as exc:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_swarm_topology_delete(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``swarm.topology.delete`` — remove a hand-authored swarm's HTML-NN.
+
+    A topology that also has a built-in fallback reappears in its original
+    shape afterwards; the response says so explicitly rather than reporting a
+    clean delete the user can see did not happen.
+    """
+    topology_id = params.get("topology_id")
+    if not topology_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "topology_id is required")
+
+    try:
+        from sdk.agent.topology_nodes import delete_topology_node
+
+        result = delete_topology_node(str(topology_id))
+    except Exception as exc:
+        logger.exception("swarm.topology.delete error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    if not result["node_deleted"]:
+        return _err(
+            req_id, JsonRpcError.INVALID_PARAMS,
+            f"No authored definition to delete for topology {topology_id!r} "
+            "(it is a built-in, which has no node file behind it)",
+        )
+    return _ok(req_id, result)
+
+async def handle_swarm_topology_create(params: dict[str, Any], req_id: Any) -> str:
+    """
+    Create (or update) a swarm topology by writing its HTML-NN definition.
+
+    The node file *is* the swarm: this is the only creation path, so a
+    topology that ran once is on disk to be listed, inspected, edited and run
+    again rather than existing only in memory for one process lifetime.
+    Validation happens before anything is written, and the file is re-parsed
+    after writing, so a topology can never be "saved" in a state the loader
+    would refuse to read back.
+    """
+    from sdk.agent.topology import TopologySpecError, topology_from_spec
+    from sdk.agent.topology_nodes import write_topology_node
+
+    spec = params.get("topology") or params
+    try:
+        topology = topology_from_spec(spec)
+    except TopologySpecError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+
+    try:
+        result = write_topology_node(
+            topology,
+            semantic_memory=params.get("semantic_memory"),
+            created_by=str(params.get("created_by") or "tala-system"),
+            overwrite=bool(params.get("overwrite", True)),
+        )
+    except FileExistsError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("swarm.topology.create error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    return _ok(req_id, {**result, "topology": topology.to_wire()})
 
 async def handle_swarm_start(params: dict[str, Any], req_id: Any) -> str:
     topology_id = params.get("topology_id")
@@ -11050,6 +11116,8 @@ _HANDLERS: dict[str, Any] = {
     "swarm.fleet.resume": handle_swarm_fleet_resume,
     "swarm.fleet.terminate": handle_swarm_fleet_terminate,
     "swarm.topology.list": handle_swarm_topology_list,
+    "swarm.topology.create": handle_swarm_topology_create,
+    "swarm.topology.delete": handle_swarm_topology_delete,
     "swarm.start": handle_swarm_start,
     "swarm.pause": handle_swarm_pause,
     "swarm.resume": handle_swarm_resume,

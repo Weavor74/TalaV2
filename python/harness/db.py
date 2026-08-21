@@ -733,6 +733,45 @@ _DDL_STATEMENTS: list[str] = [
             execution_count  INTEGER     NOT NULL DEFAULT 1
         );
     """),
+    # ------------------------------------------------------------------
+    # Swarm run bookkeeping (sdk/agent/swarm_engine.py).
+    #
+    # Every branch of a fan-out swarm races every other branch, so the join
+    # barrier, the in-flight count and the one-shot finalisation claim all
+    # have to be single atomic statements. They deliberately do NOT live in
+    # tasks.payload: a jsonb type codec is registered on every connection
+    # (_configure_connection) while callers pass json.dumps(...) strings, so
+    # task payloads are stored double-encoded — a JSON *string* containing
+    # JSON, which is why every reader in this codebase does
+    # `if isinstance(payload, str): json.loads(payload)`. jsonb_set and the
+    # -> operators cannot address anything inside a scalar like that, so
+    # swarm state gets its own properly-typed rows instead.
+    # ------------------------------------------------------------------
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS swarm_run_state (
+            parent_task_id TEXT        PRIMARY KEY,
+            in_flight      INTEGER     NOT NULL DEFAULT 0,
+            finalised      BOOLEAN     NOT NULL DEFAULT FALSE,
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS swarm_join_arrivals (
+            parent_task_id TEXT        NOT NULL,
+            to_node        TEXT        NOT NULL,
+            arrived        TEXT[]      NOT NULL DEFAULT '{}',
+            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (parent_task_id, to_node)
+        );
+    """),
+    textwrap.dedent("""\
+        CREATE TABLE IF NOT EXISTS swarm_gate_retries (
+            parent_task_id TEXT    NOT NULL,
+            rule_name      TEXT    NOT NULL,
+            attempts       INTEGER NOT NULL DEFAULT 0,
+            PRIMARY KEY (parent_task_id, rule_name)
+        );
+    """),
 ]
 
 

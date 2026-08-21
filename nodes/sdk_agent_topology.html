@@ -22,8 +22,8 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.topology"
   data-source-files="sdk/agent/topology.py"
-  data-source-fingerprint="sha256:D613BB59FBA1BBFF1348EF17D1305C095D82EA242F6138453A12B568EFA2AE7D"
-  data-generated-at="2026-08-13T00:21:38Z"
+  data-source-fingerprint="sha256:A900B3B441115A0C817D22457B543172D7566AC0145F3C5FDF94A493B9B9F550"
+  data-generated-at="2026-08-21T13:49:07Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -32,9 +32,10 @@
   </header>
 
   <section id="semantic-memory">
-    <p>sdk/agent/topology.py ===================== Swarm Topology Definition</p>
+    <p>sdk/agent/topology.py ===================== Swarm Topology Definition.</p>
     <p>It lives at sdk/agent/topology.py within the agent SDK.</p>
-    <p>Classes it defines: TopologyNode; TopologyEdge; SwarmTopology; TopologyRegistry (methods: register(), get(), list_all()).</p>
+    <p>Classes it defines: TopologySpecError — Raised when a topology spec is structurally invalid.; TopologyNode; TopologyEdge; SwarmTopology (methods: node(), incoming_edges(), outgoing_edges(), start_nodes(), to_dict(), to_wire()); TopologyRegistry (methods: register(), ensure_loaded(), load_from_nodes(), unregister(), reload(), reset(), get(), list_all()).</p>
+    <p>Functions it exposes: topology_from_spec() — Build (and fully validate) a SwarmTopology from a plain dict -- the ``topology`` object inside an HTML-NN ``#node-state`` block, or the same shape arriving over RPC..</p>
   </section>
 
   <section id="source-evidence">
@@ -98,10 +99,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-08-13T00:21:38Z",
+    "created_or_updated": "2026-08-21T13:49:07Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.topology",
-    "source_fingerprint": "sha256:D613BB59FBA1BBFF1348EF17D1305C095D82EA242F6138453A12B568EFA2AE7D"
+    "source_fingerprint": "sha256:A900B3B441115A0C817D22457B543172D7566AC0145F3C5FDF94A493B9B9F550"
   }
 }
   </script>

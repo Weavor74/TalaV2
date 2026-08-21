@@ -37,7 +37,7 @@ class SynthesizerWorker:
                 evidence_blocks = []
                 for r in top_results:
                     evidence_blocks.append(f"Source [{r.get('source_type')}]: {r.get('snippet', '')}")
-                prior_evidence_text = "\\n\\n".join(evidence_blocks)
+                prior_evidence_text = "\n\n".join(evidence_blocks)
         except Exception as exc:
             log.warning(f"SynthesizerWorker failed to fetch prior evidence: {exc}")
             
@@ -48,9 +48,9 @@ class SynthesizerWorker:
         for idx, result in enumerate(upstream_results):
             if not result.get("success", False):
                 all_success = False
-            aggregated_output.append(f"--- Upstream Node {result.get('node_id', idx+1)} Output ---\\n{result.get('output', 'No output')}")
+            aggregated_output.append(f"--- Upstream Node {result.get('node_id', idx+1)} Output ---\n{result.get('output', 'No output')}")
             
-        upstream_text = "\\n\\n".join(aggregated_output)
+        upstream_text = "\n\n".join(aggregated_output)
         
         # 3. Call LLM to synthesize
         prompt = f"""
@@ -82,13 +82,13 @@ Output only the markdown report.
             if "result" in res_dict:
                 final_report = res_dict["result"]["text"].strip()
             else:
-                final_report = f"LLM Error: {res_dict.get('error')}\\n\\nRaw Upstreams:\\n{upstream_text}"
+                final_report = f"LLM Error: {res_dict.get('error')}\n\nRaw Upstreams:\n{upstream_text}"
         except Exception as exc:
             log.warning(f"SynthesizerWorker LLM generation failed: {exc}")
-            final_report = f"Fallback Synthesis:\\n{upstream_text}"
+            final_report = f"Fallback Synthesis:\n{upstream_text}"
             
         if not all_success:
-            final_report = "**Warning**: One or more upstream tasks failed.\\n\\n" + final_report
+            final_report = "**Warning**: One or more upstream tasks failed.\n\n" + final_report
             
         return {
             "success": all_success,
