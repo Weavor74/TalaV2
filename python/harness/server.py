@@ -9929,12 +9929,61 @@ async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> s
             stderr=asyncio.subprocess.PIPE,
         )
         stdout, stderr = await proc.communicate()
-        
-        await broadcast_notification("system.update_available")
+        out = stdout.decode().strip()
+        err = stderr.decode().strip()
+
+        # A failed pull used to broadcast "update available" and return
+        # status: success anyway -- returncode was never inspected. Clients then
+        # prompted the user, downloaded an archive of code that had not changed,
+        # and applied it. The push notification is the whole delivery mechanism,
+        # so announcing an update that did not happen is worse than announcing
+        # nothing.
+        if proc.returncode != 0:
+            logger.error("system.trigger_update: git pull failed (%s): %s", proc.returncode, err)
+            return _err(
+                req_id,
+                JsonRpcError.INTERNAL_ERROR,
+                f"git pull failed with exit code {proc.returncode}: {err or out}",
+            )
+
+        revision = ""
+        try:
+            rev_proc = await asyncio.create_subprocess_shell(
+                "git rev-parse HEAD",
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.DEVNULL,
+            )
+            rev_out, _ = await rev_proc.communicate()
+            if rev_proc.returncode == 0:
+                revision = rev_out.decode().strip()
+        except Exception:
+            pass
+
+        # The revision travels with the notification so a client can tell whether
+        # it already has this version instead of re-downloading the whole archive
+        # on every announcement.
+        delivered = await broadcast_notification(
+            "system.update_available", {"revision": revision}
+        )
+
+        # broadcast_notification reaches only clients connected at this instant --
+        # there is no queue and no replay. Saying how many were reached is the
+        # difference between "pushed to nobody" and "pushed", which otherwise
+        # look identical from here.
+        if not delivered:
+            logger.warning(
+                "system.trigger_update: pulled %s but no clients were connected, so "
+                "nobody was notified. They will not learn about this update until "
+                "the next push.",
+                revision[:8] or "HEAD",
+            )
+
         return _ok(req_id, {
-            "status": "success", 
-            "stdout": stdout.decode().strip(), 
-            "stderr": stderr.decode().strip()
+            "status": "success",
+            "revision": revision,
+            "clients_notified": delivered,
+            "stdout": out,
+            "stderr": err,
         })
     except Exception as exc:
         logger.exception("system.trigger_update error")
@@ -11219,20 +11268,30 @@ _shutdown_event: asyncio.Event = asyncio.Event()
 _active_connections: set[WebSocketServerProtocol] = set()
 
 
-async def broadcast_notification(method: str, params: dict[str, Any] = None) -> None:
-    """Send a JSON-RPC 2.0 notification to all connected WebSocket clients."""
+async def broadcast_notification(method: str, params: dict[str, Any] = None) -> int:
+    """
+    Send a JSON-RPC 2.0 notification to all connected WebSocket clients.
+
+    Returns the number of clients the notification actually reached.
+
+    There is no queue and no replay: a client that is not connected at this
+    instant never learns. Returning the count lets callers that depend on
+    delivery -- the OTA update push most of all -- distinguish "sent" from
+    "sent to nobody", which are otherwise indistinguishable from the call site.
+    """
     if not _active_connections:
-        return
+        return 0
     import json
     payload = json.dumps({
         "jsonrpc": "2.0",
         "method": method,
         "params": params or {},
     })
-    await asyncio.gather(
+    results = await asyncio.gather(
         *(ws.send(payload) for ws in _active_connections),
         return_exceptions=True
     )
+    return sum(1 for r in results if not isinstance(r, BaseException))
 
 
 async def _auto_detect_and_verify_providers() -> None:

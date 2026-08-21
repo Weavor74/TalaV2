@@ -12885,7 +12885,18 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log(`[TaskEvent] ${statusText}`);
                 }
             } else if (msg && msg.method === 'system.update_available') {
-                const confirmed = confirm('A server update is available from the VPS. Do you want to download and apply it now?');
+                // The push carries the revision it pulled. Without comparing it,
+                // every announcement prompted a full re-download of an archive
+                // the client may already be running -- there was no version
+                // anywhere in the exchange to compare.
+                const revision = (msg.params && msg.params.revision) || '';
+                const applied = localStorage.getItem('tala.appliedRevision') || '';
+                if (revision && revision === applied) {
+                    console.log(`[OTA] Already running ${revision.slice(0, 8)}; ignoring update push.`);
+                    return;
+                }
+                const short = revision ? ` (${revision.slice(0, 8)})` : '';
+                const confirmed = confirm(`A server update is available from the VPS${short}. Do you want to download and apply it now?`);
                 if (confirmed) {
                     try {
                         console.log('Downloading update payload from VPS...');
@@ -12893,6 +12904,10 @@ document.addEventListener('DOMContentLoaded', () => {
                         if (response.status === 'success' && response.zipBase64) {
                             console.log('Applying update payload locally...');
                             await window.tala.invoke('system:apply_update', { zipBase64: response.zipBase64 });
+                            // Recorded only after apply returns, so a failed
+                            // apply does not mark the revision as installed and
+                            // suppress the next push for it.
+                            if (revision) localStorage.setItem('tala.appliedRevision', revision);
                         } else {
                             alert('Failed to download update payload from VPS.');
                         }
