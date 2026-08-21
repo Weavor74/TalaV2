@@ -61,3 +61,7 @@ mcp_servers.json
 
 # Per-user runtime state: which chat mode is active. Machine-local, not shared.
 chat_mode.json
+
+# Corrupted-database backups taken before a rebuild. Machine-local salvage,
+# not source: data/chroma/ itself is already ignored.
+data/chroma.corrupted-backup-*/
