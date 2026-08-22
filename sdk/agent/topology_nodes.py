@@ -317,6 +317,30 @@ def write_topology_node(
 
     previous = node_path.read_text(encoding="utf-8") if node_path.exists() else None
 
+    # Refuse to overwrite a DIFFERENT topology that happens to share this file.
+    #
+    # topology_node_id strips a leading "swarm-" or "swarm_", so distinct ids
+    # collide onto one filename: `swarm-code-repair` and `code-repair` both
+    # resolve to swarm-topology-code-repair.html. With overwrite defaulting to
+    # True and no check on what was already there, saving the second silently
+    # destroyed the first and reported {"updated": true} -- a save that returns
+    # success while the previous authored definition is gone.
+    #
+    # The id field in the editor is free text and only has to match
+    # ID_PATTERN, so the shipped built-in `swarm-code-repair` and a
+    # user-authored `code-repair` collide without anything exotic. Rejected
+    # rather than silently renamed: the author picked the id, and quietly
+    # storing it somewhere else would be its own surprise.
+    if previous is not None:
+        prior_id = re.search(r'data-topology-id="([^"]*)"', previous)
+        if prior_id and prior_id.group(1) != topology.topology_id:
+            raise ValueError(
+                f"topology id {topology.topology_id!r} maps to the same node file as "
+                f"{prior_id.group(1)!r} ({node_path.name}); saving would destroy it. "
+                f"Both ids reduce to the same slug because a leading 'swarm-' is stripped. "
+                f"Choose an id that differs by more than that prefix."
+            )
+
     # Re-render at the existing node's timestamp first. If that reproduces the
     # file byte for byte, the topology genuinely has not changed and the node
     # is left alone -- saving an identical swarm should not churn the file or

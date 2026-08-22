@@ -362,8 +362,8 @@ async def test_finalisation_is_claimed_once(dummy_topology):
         )
         synth.return_value = {"success": True, "output": "report"}
 
-        await SwarmEngine._finalise_run("parent-1", dummy_topology)
-        await SwarmEngine._finalise_run("parent-1", dummy_topology)
+        await SwarmEngine._finalise_run("parent-1")
+        await SwarmEngine._finalise_run("parent-1")
 
         synth.assert_awaited_once()
 
@@ -397,7 +397,7 @@ async def test_finalisation_reports_failed_nodes(dummy_topology):
         )
         synth.return_value = {"success": False, "output": "report"}
 
-        await SwarmEngine._finalise_run("parent-1", dummy_topology)
+        await SwarmEngine._finalise_run("parent-1")
 
         upstream = synth.await_args[0][1]
         by_node = {r["node_id"]: r for r in upstream}

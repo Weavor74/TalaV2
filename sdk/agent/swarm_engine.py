@@ -333,7 +333,7 @@ class SwarmEngine:
                 remaining = await cls._add_in_flight(parent_id, -1)
                 if remaining <= 0:
                     # Degenerate case: nothing dispatched at all.
-                    await cls._finalise_run(parent_id, topology)
+                    await cls._finalise_run(parent_id)
 
         return parent_id
 
@@ -436,26 +436,55 @@ class SwarmEngine:
         """
         from sdk.agent.persistence import TaskEventStore
 
-        # Load topology
-        query = "SELECT payload FROM tasks WHERE id = $1"
-        rows = await db.fetch(query, parent_task_id)
-        if not rows:
-            return
-
-        parent_payload = rows[0]["payload"]
-        if isinstance(parent_payload, str):
-            parent_payload = json.loads(parent_payload)
-
-        topology_id = parent_payload.get("topology_id")
-        topology = TopologyRegistry.get(topology_id)
-        if not topology:
-            return
-
+        # Everything below runs inside the try, because the `finally` is the only
+        # place a completing node is retired from the in-flight count.
+        #
+        # The two early returns -- no parent row, and a topology that is no
+        # longer registered -- used to sit ABOVE the try, so hitting either one
+        # skipped the decrement entirely. The node had already been counted at
+        # dispatch, so the counter could never reach zero again: _finalise_run
+        # never fired, no synthesis ran, and the parent sat at in_progress until
+        # the reaper marked it failed half an hour later.
+        #
+        # The topology branch is reachable in normal use. TopologyRegistry.reset()
+        # reloads from disk, and the renderer calls swarm.topology.list with
+        # reload:true every time the Topologies tab is opened. A user-authored
+        # topology has no BUILTIN_TOPOLOGIES fallback, so if its node file is
+        # deleted or fails validation mid-run, every subsequent completion leaks
+        # its count.
         db_live = cls._db_available()
-        outgoing_edges = topology.outgoing_edges(completed_node_id)
         halted = False
+        outgoing_edges: list = []
 
         try:
+            # Load topology
+            query = "SELECT payload FROM tasks WHERE id = $1"
+            rows = await db.fetch(query, parent_task_id)
+            if not rows:
+                log.warning(
+                    "SwarmEngine: no parent row for %s while retiring node '%s'; "
+                    "retiring it anyway so the run can still finalise",
+                    parent_task_id, completed_node_id,
+                )
+                return
+
+            parent_payload = rows[0]["payload"]
+            if isinstance(parent_payload, str):
+                parent_payload = json.loads(parent_payload)
+
+            topology_id = parent_payload.get("topology_id")
+            topology = TopologyRegistry.get(topology_id)
+            if not topology:
+                log.warning(
+                    "SwarmEngine: topology %r is no longer registered while retiring node "
+                    "'%s' of %s; no successors can be dispatched, but the node is still "
+                    "retired so the run finalises instead of stalling",
+                    topology_id, completed_node_id, parent_task_id,
+                )
+                return
+
+            outgoing_edges = topology.outgoing_edges(completed_node_id)
+
             for edge in outgoing_edges:
                 passed, feedback, rule_name = await GatedVerifier.verify(edge.condition, {}, result)
 
@@ -555,14 +584,14 @@ class SwarmEngine:
                     completed_node_id, remaining, parent_task_id,
                 )
                 if remaining <= 0:
-                    await cls._finalise_run(parent_task_id, topology)
+                    await cls._finalise_run(parent_task_id)
             elif not db_live and not outgoing_edges:
                 # No pool (unit-test / degraded path): fall back to the
                 # terminal-leaf heuristic so behaviour is still sensible.
-                await cls._finalise_run(parent_task_id, topology)
+                await cls._finalise_run(parent_task_id)
 
     @classmethod
-    async def _finalise_run(cls, parent_task_id: str, topology: SwarmTopology | None = None) -> None:
+    async def _finalise_run(cls, parent_task_id: str) -> None:
         """
         Aggregate every completed node's output and close the run.
 

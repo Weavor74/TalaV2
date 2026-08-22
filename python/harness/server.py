@@ -9159,6 +9159,12 @@ async def handle_swarm_topology_list(params: dict[str, Any], req_id: Any) -> str
             "known_gate_conditions": sorted(GatedVerifier.KNOWN_RULES),
         })
     except Exception as exc:
+        # Logged like its siblings (topology.create, topology.delete). With
+        # reload=true this calls TopologyRegistry.reset(), which does node-file
+        # I/O, HTML parsing and spec validation -- any of which can raise. The
+        # client used to get a bare str(exc) with no file name and no traceback
+        # anywhere in the log.
+        logger.exception("swarm.topology.list error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 async def handle_swarm_topology_delete(params: dict[str, Any], req_id: Any) -> str:

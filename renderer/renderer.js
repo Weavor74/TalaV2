@@ -12132,8 +12132,8 @@ const AgentBuilder = {
 
       listEl.innerHTML = topologies.map(t => `
         <div class="topology-list-item" data-id="${t.topology_id}" style="padding: var(--space-2); background: rgba(255,255,255,0.05); border-radius: 4px; cursor: pointer; border: 1px solid transparent;">
-          <div style="font-weight: bold; font-size: 0.9rem;">${t.name}</div>
-          <div style="font-size: 0.75rem; color: var(--text-muted);">${t.topology_id}</div>
+          <div style="font-weight: bold; font-size: 0.9rem;">${escapeHtml(t.name)}</div>
+          <div style="font-size: 0.75rem; color: var(--text-muted);">${escapeHtml(t.topology_id)}</div>
           <div style="font-size: 0.65rem; color: ${t.editable ? 'var(--text-muted)' : 'var(--accent-orange)'}; margin-top: 2px;">
             ${t.editable ? 'neural node' : 'built-in · not editable'}
           </div>
@@ -12235,14 +12235,14 @@ const AgentBuilder = {
     // reassign that node to nobody.
     const personaOptions = [`<option value=""${selectedAgent ? '' : ' selected'}>Persona: none</option>`]
       .concat((this.availableAgents || []).map(a =>
-        `<option value="${a.id}"${a.id === selectedAgent ? ' selected' : ''}>${a.name}</option>`));
+        `<option value="${a.id}"${a.id === selectedAgent ? ' selected' : ''}>${escapeHtml(a.name)}</option>`));
     if (selectedAgent && !(this.availableAgents || []).some(a => a.id === selectedAgent)) {
       personaOptions.push(`<option value="${selectedAgent}" selected>${selectedAgent} (missing)</option>`);
     }
     row.innerHTML = `
       <input type="text" class="topo-node-id" placeholder="agent-id" value="${node ? node.id : ''}" style="${field} flex: 0 0 140px;" />
-      <input type="text" class="topo-node-role" placeholder="role" value="${node ? node.role : ''}" style="${field} flex: 0 0 110px;" />
-      <input type="text" class="topo-node-desc" placeholder="what this agent does" value="${node ? (node.description || '') : ''}" style="${field} flex: 1;" />
+      <input type="text" class="topo-node-role" placeholder="role" value="${escapeHtml(node ? node.role : '')}" style="${field} flex: 0 0 110px;" />
+      <input type="text" class="topo-node-desc" placeholder="what this agent does" value="${escapeHtml(node ? (node.description || '') : '')}" style="${field} flex: 1;" />
       <select class="topo-node-agent" style="${field} flex: 0 0 160px;">${personaOptions.join('')}</select>
       <button class="btn btn-secondary topo-row-remove" style="font-size: 0.7rem; padding: 3px 8px;">✕</button>
     `;
@@ -12427,10 +12427,10 @@ const AgentBuilder = {
         nodeEl.id = `topo-node-${node.id}`;
         nodeEl.style.cssText = 'background: rgba(20,20,30,0.8); border: 1px solid var(--glass-border); border-radius: 8px; padding: var(--space-3); width: 180px; text-align: center; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2;';
         nodeEl.innerHTML = `
-          <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${node.role}</div>
-          <div style="font-size: 0.85rem; font-weight: bold;">${node.id}</div>
-          <div style="font-size: 0.7rem; color: var(--text-muted);">${node.description}</div>
-          ${node.agent_id ? `<div style="font-size: 0.65rem; color: var(--accent-blue); margin-top: 2px;">as ${this.personaName(node.agent_id)}</div>` : ''}
+          <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${escapeHtml(node.role)}</div>
+          <div style="font-size: 0.85rem; font-weight: bold;">${escapeHtml(node.id)}</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted);">${escapeHtml(node.description || '')}</div>
+          ${node.agent_id ? `<div style="font-size: 0.65rem; color: var(--accent-blue); margin-top: 2px;">as ${escapeHtml(this.personaName(node.agent_id))}</div>` : ''}
           ${joins > 1 ? `<div style="font-size: 0.65rem; color: var(--accent-orange); margin-top: 2px;">join · waits for ${joins}</div>` : ''}
         `;
         column.appendChild(nodeEl);
@@ -12667,8 +12667,8 @@ const AgentBuilder = {
             nodeEl.dataset.nodeId = node.id;
             nodeEl.style.cssText = 'background: rgba(20,20,30,0.8); border: 1px solid var(--glass-border); border-radius: 8px; padding: var(--space-3); width: 180px; text-align: center; display: flex; flex-direction: column; gap: 4px; box-shadow: 0 4px 6px rgba(0,0,0,0.3); z-index: 2; transition: all 0.3s ease;';
             nodeEl.innerHTML = `
-              <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${node.role}</div>
-              <div style="font-size: 0.85rem; font-weight: bold;">${node.id}</div>
+              <div style="font-size: 0.7rem; color: var(--accent-blue); text-transform: uppercase; font-weight: bold;">${escapeHtml(node.role)}</div>
+              <div style="font-size: 0.85rem; font-weight: bold;">${escapeHtml(node.id)}</div>
               ${joins > 1 ? `<div style="font-size: 0.65rem; color: var(--accent-orange);">join · waits for ${joins}</div>` : ''}
               <div class="node-status" style="font-size: 0.7rem; color: var(--text-muted); margin-top: 4px;">Waiting</div>
             `;
