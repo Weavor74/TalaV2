@@ -196,7 +196,13 @@ def test_creating_a_schedule_does_not_warn():
     renderer = RENDERER.read_text(encoding="utf-8")
     opener = renderer.split("openScheduleEditor(id = null)", 1)[1].split("closeScheduleEditor()", 1)[0]
 
-    assert "job && !job.parse_error" in opener, "the baseline must only be set for a valid existing job"
+    # Asserts what the name says. It previously checked `job && !job.parse_error`,
+    # which was the separate decision to exclude unparseable jobs from the
+    # warning -- since reversed, because that removed the only safety net from
+    # the row the UI tells you to repair.
+    assert "this._scheduleOriginalCron = job ?" in opener, (
+        "the baseline must be absent when creating, which means keying it on `job`"
+    )
 
 
 def test_the_baseline_is_cleared_when_the_editor_closes():

@@ -10502,8 +10502,38 @@ const MissionControl = {
     }
     if (this._cronInput) this._cronInput.value = expr || '';
     this.syncCronBuilder();
+
+    // Fall back to Advanced whenever the builder cannot reproduce what it was
+    // given.
+    //
+    // detectCronMode only looks at the shape of the minute/dom/dow fields, so
+    // it happily returns `minutes` for an hour field the builder has no control
+    // for. syncCronBuilder then overwrites the raw input with whatever the
+    // controls currently say, and because the raw field is hidden in every mode
+    // except Advanced, the original is gone before the user sees it.
+    //
+    // That silently destroyed valid schedules, not just broken ones:
+    //   */15 9,13,17 * * *    -> */15 * * * *   (48 runs/day becomes 96)
+    //   */30 1-3,5-7 * * *    -> */30 * * * *
+    //   */30 22-23,8-6 * * *  -> */30 * * * *
+    // The last is the case the row labels "Will not run - press Edit to fix",
+    // so pressing Edit destroyed the very expression the user came to repair,
+    // and the change warning is deliberately suppressed for those rows.
+    //
+    // Comparing the round trip catches all of them, including anything Tala
+    // writes herself through schedule_goal, without having to enumerate which
+    // shapes the builder happens to support.
+    const original = (expr || '').trim();
+    if (original && this._cronInput && this._cronInput.value.trim() !== original) {
+      if (this._cronMode) this._cronMode.value = 'advanced';
+      this.syncCronBuilder();
+      this._cronInput.value = original;
+    }
+
     // Advanced never rewrites what the user or Tala wrote.
-    if (mode === 'advanced' && this._cronInput) this._cronInput.value = expr || '';
+    if (this._cronMode && this._cronMode.value === 'advanced' && this._cronInput) {
+      this._cronInput.value = expr || '';
+    }
     this.renderCronPreview();
   },
 
@@ -10517,9 +10547,14 @@ const MissionControl = {
     if (this._scheduleError) this._scheduleError.textContent = job && job.parse_error ? job.parse_error : '';
     // Only set for an existing job: there is nothing to have changed when
     // creating one, and a warning on every new schedule would be noise.
-    // An unparseable expression is excluded too -- being told you changed a
-    // schedule that could never fire is not a warning worth reading.
-    this._scheduleOriginalCron = (job && !job.parse_error) ? job.cron_expr : null;
+    //
+    // Unparseable jobs are NOT excluded any more. They were, on the reasoning
+    // that being told you changed a schedule which could never fire is not
+    // worth reading -- but that removed the one safety net on the exact row the
+    // UI invites you to repair, while loadCronIntoBuilder was silently
+    // rewriting it. Those rows now open in Advanced with the raw expression
+    // intact, so a before/after is readable and worth showing.
+    this._scheduleOriginalCron = job ? job.cron_expr : null;
     this.loadCronIntoBuilder(job ? job.cron_expr : '0 2 * * *');
     this._scheduleEditor.hidden = false;
     qs('#mc-schedule-name').focus();

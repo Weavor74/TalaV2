@@ -58,20 +58,31 @@ def _perform_training_sync(job: dict[str, Any]) -> None:
     semantic_memory = job["semantic_memory"]
     
     if not is_peft_available():
-        # The placeholder is written to a .safetensors path, so every later check
-        # -- Path.exists() in the retrieval path, the adapter selector, the UI --
-        # sees a trained adapter that is 51 bytes of ASCII. It is named clearly
-        # so that anything reading the file can tell, but nothing does.
+        # Nothing is written to disk. An earlier version of this branch kept
+        # writing DUMMY_LORA_WEIGHTS_FOR_<node_id> to the real .safetensors
+        # path on the reasoning that downstream existence checks depend on the
+        # path being there. That reasoning was backwards.
+        #
+        # The JIT selector in server.py gates on a plain Path.exists():
+        #
+        #     if Path(out_path).exists():   best_lora_path = out_path
+        #     elif combined:                queue_lora_training(...)
+        #
+        # so the placeholder permanently satisfies the first branch. Training is
+        # never queued for that node again -- not after peft is installed, not
+        # ever -- and every turn hands a 40-byte text file to peft as an adapter.
+        # It also rebuilt exactly the files commit 16e93a5 deleted, on first
+        # activation.
+        #
+        # Writing nothing keeps exists() false, so activation re-queues training
+        # until something can genuinely produce weights.
         logger.warning(
-            "PEFT/TRL not installed: writing a PLACEHOLDER for node %s, not a trained "
-            "adapter. Install peft and trl to train for real.",
+            "PEFT/TRL not installed: no adapter trained for node %s, and nothing written. "
+            "Install the training extra to train for real: uv pip install -e \".[training]\"",
             node_id,
         )
-        Path(output_path).parent.mkdir(parents=True, exist_ok=True)
-        with open(output_path, "w", encoding="utf-8") as f:
-            f.write(f"DUMMY_LORA_WEIGHTS_FOR_{node_id}")
         raise LoraTrainingUnavailable(
-            f"peft/trl not installed; wrote a placeholder for {node_id} instead of training"
+            f"peft/trl not installed; no adapter produced for {node_id}"
         )
 
     logger.info("Starting real JIT LoRA training for %s", node_id)

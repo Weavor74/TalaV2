@@ -40,35 +40,54 @@ def _configured_db_url() -> str:
     """
     The DSN the application would actually use.
 
-    Not just os.environ: TALA_DB_URL is normally unset in the shell and comes
-    from .env, which config.py loads with override=False. Reading only the
-    environment made an earlier version of this isolation a silent no-op --
-    it derived a test DSN from an empty string and returned without doing
-    anything, which is precisely the class of bug it was written to stop.
+    Resolved exactly the way python/harness/config.py resolves it, because any
+    divergence makes this guard a silent no-op and puts the suite back on the
+    production database with nothing to show for it.
+
+    Two divergences were found by review in the hand-rolled parser this
+    replaces. It matched on a literal ``TALA_DB_URL=`` prefix, so the
+    shell-sourceable ``export TALA_DB_URL=...`` form was skipped entirely; and
+    it hardcoded the repo-root .env, while config.py honours TALA_ENV_PATH.
+    Either one produced an empty string, which _isolate_database treats as
+    "nothing configured" and returns without touching os.environ.
+
+    dotenv_values is used rather than load_dotenv: it parses without mutating
+    the environment, so reading here cannot itself pre-empt the redirect below.
     """
     from_env = os.environ.get("TALA_DB_URL")
     if from_env:
         return from_env
 
-    dot_env = Path(__file__).resolve().parent / ".env"
+    dot_env = (
+        Path(os.environ["TALA_ENV_PATH"]).expanduser().resolve()
+        if os.environ.get("TALA_ENV_PATH")
+        else Path(__file__).resolve().parent / ".env"
+    )
     if not dot_env.exists():
         return ""
-    for line in dot_env.read_text(encoding="utf-8", errors="ignore").splitlines():
-        line = line.strip()
-        if line.startswith("TALA_DB_URL="):
-            return line.split("=", 1)[1].strip().strip('"').strip("'")
-    return ""
+    try:
+        from dotenv import dotenv_values
+
+        return (dotenv_values(dot_env) or {}).get("TALA_DB_URL") or ""
+    except Exception:
+        return ""
 
 
 _PRODUCTION_DB_URL = _configured_db_url()
-_USING_PRODUCTION_DB = False
+#: Why the suite is pointed at the application's own database, or None when it
+#: is properly isolated. Read by pytest_terminal_summary -- an earlier version
+#: set this in two branches and never read it anywhere, so the docstring's
+#: promise that the summary "says so loudly" was unimplemented and the
+#: malformed-DSN path was completely silent.
+_PRODUCTION_DB_REASON: str | None = None
 
 
 def _isolate_database() -> None:
-    global _USING_PRODUCTION_DB
+    global _PRODUCTION_DB_REASON
 
     if os.environ.get("TALA_ALLOW_PRODUCTION_DB") == "1":
-        _USING_PRODUCTION_DB = bool(_PRODUCTION_DB_URL)
+        if _PRODUCTION_DB_URL:
+            _PRODUCTION_DB_REASON = "TALA_ALLOW_PRODUCTION_DB=1 was set explicitly"
         return
 
     explicit = os.environ.get("TALA_TEST_DB_URL")
@@ -80,15 +99,23 @@ def _isolate_database() -> None:
         return
 
     # Derive a sibling database rather than inventing a DSN: same host, port,
-    # user and password, different database name.
+    # user, password and connection options, different database name.
     base, sep, database = _PRODUCTION_DB_URL.rpartition("/")
     if not sep or not database:
-        _USING_PRODUCTION_DB = True
+        _PRODUCTION_DB_REASON = (
+            f"could not parse a database name out of the configured DSN, so no "
+            f"sibling could be derived"
+        )
         return
-    database = database.split("?", 1)[0]
+
+    # The query string carries sslmode, connect_timeout and friends. Dropping it
+    # broke every managed Postgres that requires TLS, at import time, with
+    # nothing to say the test framework had rewritten the DSN.
+    database, _, query = database.partition("?")
     if database.endswith("_test"):
         return
-    os.environ["TALA_DB_URL"] = f"{base}/{database}_test"
+    suffix = f"?{query}" if query else ""
+    os.environ["TALA_DB_URL"] = f"{base}/{database}_test{suffix}"
 
 
 _isolate_database()
@@ -111,7 +138,21 @@ def pytest_deselected(items: list[pytest.Item]) -> None:
 def pytest_terminal_summary(
     terminalreporter, exitstatus, config: pytest.Config
 ) -> None:
-    """Say plainly what was not run."""
+    """Say plainly what was not run, and what was written to."""
+    # Reported first and unconditionally: a suite that mutated the running
+    # application's database is the more important thing to know, and it must
+    # not be hidden behind the deselection early-return below.
+    if _PRODUCTION_DB_REASON:
+        terminalreporter.write_sep("=", "PRODUCTION DATABASE", red=True, bold=True)
+        terminalreporter.write_line(
+            f"This run used the application's own database: {_PRODUCTION_DB_REASON}."
+        )
+        terminalreporter.write_line(
+            "  Test fixtures create real rows, which is how the live task queue "
+            "used to repopulate itself."
+        )
+        terminalreporter.write_line("  Set TALA_TEST_DB_URL to point the suite elsewhere.")
+
     deselected = getattr(config, "_llm_deselected", 0)
     if not deselected:
         return
