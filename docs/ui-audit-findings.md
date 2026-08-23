@@ -2743,6 +2743,68 @@ sitting beside `isNetworkIsolated()` (UI-102), which is also never enabled. Two 
 mechanisms exist, neither functional. Worth deciding whether lockdown reuses one, or whether the
 other should be removed rather than left as a safety control that does nothing.
 
+### UI-104 — Crews are an org structure, not a swarm front-end; and the naming already conflicts
+**Severity: high (design) · Status: specified, not built · Source: P2 answers, 2026-08-23**
+
+> **Steven (Q-28):** *"Crews are considered employees... Treat it like a business or a military or a
+> guild. It is an organization piece. Completely separate from swarms. **Swarms are many agents
+> doing the same exact job. Crews are many jobs, many agents.**"*
+
+**This overturns the recommendation in Q-28's original entry.** I suggested crews might be a
+friendlier front-end onto swarm topologies to avoid duplicating a working engine. Steven's
+distinction is cleaner and the two are genuinely different things:
+
+| | Swarm | Crew |
+|---|---|---|
+| shape | many agents, **one** job | many agents, **many** jobs |
+| purpose | parallelism | organisation |
+| structure | flat fan-out | hierarchy: worker -> architect -> manager |
+| grouping | none | teams (~5), then departments |
+
+**Hierarchy is deep and real** (Q-29): *"There could be 200 crew members broken into teams of 5, and
+each team will report to their respective department."* Reporting is both ownership and upward work
+routing. The `agents` table has none of it — no `parent_id`, no team, no department.
+
+**The naming already conflicts, and this needs settling before either is built (Q-64).** By Steven's
+definition, the existing topologies are **crew-shaped, not swarm-shaped**: `Code Repair Swarm` is
+`planner -> coder -> tester -> reviewer -> documenter` — five distinct jobs in sequence, which is
+"many jobs, many agents". Nothing in the codebase currently does homogeneous fan-out under the name
+"swarm". So either the existing topologies get reclassified, or "swarm" means two different things
+in the code and in the model.
+
+### UI-105 — Ghost and Real are two separate chains, split by audience
+**Severity: high (design) · Status: specified, not built · Source: Q-11, Q-12**
+
+> **Steven (Q-11):** *"The Ghost chain is only viewable locally. The Real chain is viewable by all on
+> the chain. They are meant to be separate."*
+>
+> **Steven (Q-12):** *"If the TALA harness never goes online... the Real chain never gets used. If you
+> connect with other users, use other skills, transact with AUTH or online storage, it gets recorded
+> by the Real chain."*
+
+**This overturns the approach suggested in UI-023.** That finding proposed adding a mode field so one
+chain could carry tagged transactions. Steven wants two physically separate chains split by
+**audience**, not one chain with a label.
+
+The rule for what goes where is clean: **Ghost = local activity. Real = external interactions** —
+peer contact, another party's skills, AUTH transactions, online storage. A fully offline install
+never writes to the Real chain at all.
+
+That confirms the existing 2,713 `node-create` transactions are all Ghost by definition: local
+document activity with no external party involved. The chain in `blockchain/data/chain.json` is the
+Ghost chain, correctly populated, and the Real chain simply does not exist yet.
+
+**Primitives that already exist.** The Node chain server (`blockchain/src/app.js`, 1008 lines)
+already serves `/chain/peers`, `/chain/peers/register`, `/chain/peers/heartbeat` and
+**`/chain/reconcile`** — a peer directory and a reconciliation endpoint. So the shared-chain
+machinery is partly present; what is missing is the second chain instance and the routing rule that
+decides which one a transaction lands on.
+
+**Q-14 resolved in the same pass.** `python/ledger/server.py` serves only `/chain/tx` and
+`/chain/import` — a strict subset with no status, blocks, peers or reconcile — and no production
+code imports it. Steven's instinct that "the other works better" is correct; the Python ledger is
+safe to delete.
+
 ---
 
 ## B. Self-navigation infrastructure gaps

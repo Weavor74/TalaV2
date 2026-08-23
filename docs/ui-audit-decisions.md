@@ -294,81 +294,142 @@ authorized, with contacts consulted only for peer-originated work?
 
 ## P2 — Architecture forks: answering late means building the wrong thing
 
-Nine questions. Each is a case where a working subsystem already exists and a second one is
-half-built alongside it. Building before deciding duplicates an engine.
+**All nine answered 2026-08-23.** Two of my recommendations were overturned: crews are *not* a
+front-end onto topologies (Q-28), and Ghost/Real are *not* one chain with tagged transactions
+(Q-11). One follow-up: **Q-64**.
 
-### Q-28 — Are crews a separate orchestration concept, or a front-end onto swarm topologies?
-**Blocks:** UI-049, UI-050, UI-051 · **Who:** Steven · **Cost:** medium
+### The policy object
 
-**The highest-leverage question in P2.** Topologies already do hierarchy, distinct functions and
-execution, and `TopologyNode.agent_id` already binds a node to a persona. Building crew hierarchy
-from scratch duplicates a working engine.
+Q-35 (absorb), Q-36 (pair) and Q-37 (both) combine with Q-22 (per-resource) into one shape:
 
-> **Answer:**
+> **(contact, agent) -> resource -> constraints**
 
-### Q-29 — If crews stay separate: does a boss *route work to* subordinates, or merely *own* them?
-**Blocks:** UI-049 · **Who:** Steven · **Cost:** low · *Only if Q-28 says "separate"*
+*"This person, acting through this agent, may reach this resource, on these ports, within this
+window."* — exactly the example Steven opened the guardrails panel with. Constraints so far:
+**ports** (inbound and outbound, Q-37) and a **time window** (the original example; `leases.py`
+already has TTL machinery).
 
-Routing means reusing the swarm executor. Ownership is just a tree.
+Precedence from Q-32: **lockdown -> contact grant -> profile visibility**.
 
-> **Answer:**
+### Q-64 — Are the existing "swarm" topologies actually crews?
+**Blocks:** UI-049, UI-051 · **Who:** Steven · **Cost:** low · *from Q-28*
 
-### Q-43 — `settings.runtime`: remove in favour of Contacts, make it a view onto it, or keep anonymous?
-**Blocks:** UI-075, UI-076 · **Who:** Steven · **Cost:** low
-
-Contacts + p2p already fetches nodes from a peer, signed and permission-gated. Your own phrasing
-for this panel — *"contact endpoint/username"* — describes Contacts, not this.
-
-> **Answer:**
-
-### Q-14 — `python/ledger/` vs `blockchain/src/app.js`: delete the Python one, or promote it?
-**Blocks:** UI-027 · **Who:** Steven · **Cost:** low
-
-Two complete chain servers on the same port. The Python one is dead but has a passing test, so it
-will not show up as rot. Its default tx type `html_nn_anchor` is closer to a Real-Chain anchoring
-model than the live chain's `node-create`.
+By Q-28's definition a swarm is many agents doing *the same* job. But `Code Repair Swarm` is
+`planner -> coder -> tester -> reviewer -> documenter` — five different jobs, which is crew-shaped.
+Should the existing topologies be reclassified as crews, or does "swarm" in the code keep a broader
+meaning than in the org model?
 
 > **Answer:**
 
-### Q-11 — Ghost vs Real: one chain with tagged transactions, or two chains that reconcile?
-**Blocks:** UI-023, UI-024 · **Who:** Steven · **Cost:** medium
 
-Either way this is a **schema change before a UI change** — neither `token_ledger` nor the chain
-transaction records which mode was active, so there is currently nothing to filter on.
+### ~~Q-28~~ — Crews vs swarms? **ANSWERED — COMPLETELY SEPARATE**
+**Blocks:** UI-049, UI-050, UI-051 · **Status:** closed 2026-08-23 · **Detail:** UI-104
 
-> **Answer:**
+> **Steven:** *"Crews are considered employees. You'll have managers, administrators, coders, CEO,
+> CFO, CTO. Treat it like a business or a military or a guild. It is an organization piece.
+> Completely separate from swarms. Swarms are many agents doing the same exact job. Crews are many
+> jobs, many agents."*
 
-### Q-12 — What actually belongs on the Real Chain?
-**Blocks:** UI-024 · **Who:** Steven · **Cost:** medium
+Clean distinction: **swarm = homogeneous parallelism; crew = heterogeneous organisation.** My
+earlier suggestion that crews be a front-end onto topologies is withdrawn.
 
-100% of current traffic is `node-create`, which by your own definition — "non-value... tracking
-locally" — sounds Ghost-only.
+**One thing to resolve first (Q-64):** the existing topologies are *heterogeneous* —
+`planner -> coder -> tester -> reviewer -> documenter` is many jobs, not one job repeated. By this
+definition they are crew-shaped, so "swarm" in the code does not currently mean "swarm" in the
+model.
 
-> **Answer:**
+### ~~Q-29~~ — Does a boss route work, or merely own subordinates? **ANSWERED — BOTH**
+**Blocks:** UI-049 · **Status:** closed 2026-08-23
 
-### Q-35 — Should guardrails absorb contacts-permissions and firewall into one policy object?
-**Blocks:** UI-061, UI-062 · **Who:** Steven · **Cost:** high
+> **Steven:** *"A code worker crew member will need to report to their boss, who may be the Game
+> Architect, who reports to their boss who may be the manager. There could be 200 crew members
+> broken into teams of 5, and each team will report to their respective department."*
 
-Your framing says absorb. Three systems exist today with separate storage, vocabulary and
-enforcement points; only node resolution combines two of them, and that pairing is the prototype
-worth copying.
+A real org chart, not a single boss/worker tier:
 
-> **Answer:**
+- **arbitrary depth** — worker -> architect -> manager -> ...
+- **teams** as a grouping unit (~5)
+- **departments** above teams
+- reporting is both ownership *and* work routing upward
 
-### Q-36 — What is the subject of a policy: a contact, an agent, or a (contact, agent) pair?
-**Blocks:** UI-062 · **Who:** Steven · **Cost:** medium
+Schema needs `parent_id`, plus team and department grouping. None exist today.
 
-Your example implies the pair, which is the most expressive and the most work.
+### ~~Q-43~~ — `settings.runtime`: remove, view, or keep anonymous? **ANSWERED — VIEW**
+**Blocks:** UI-075, UI-076 · **Status:** closed 2026-08-23
 
-> **Answer:**
+> **Steven:** *"We do not know what is available to you until you have made the contact. Then can we
+> view the resource. This suggests making a view onto."*
 
-### Q-37 — "A certain port": outbound calls Tala makes, or an inbound port a peer may reach?
-**Blocks:** UI-063 · **Who:** Steven · **Cost:** low
+Becomes a **view onto contacts that have granted node access** — resources are discoverable only
+after a contact exists. `runtime_instances` and its anonymous URL + token model go away.
 
-Opposite enforcement points, built in different places. No port concept exists anywhere yet;
-`leases.py` already has the TTL machinery for the "single allocated time" half.
+### ~~Q-14~~ — `python/ledger/` vs `blockchain/src/app.js`? **ANSWERED — DELETE THE PYTHON ONE**
+**Blocks:** UI-027 · **Status:** closed 2026-08-23
 
-> **Answer:**
+> **Steven:** *"Are you sure it's not the second blockchain? It seems like the other works better.
+> So delete."*
+
+**Verified — your read is right.** The Node server is both live and strictly more capable:
+
+| | `blockchain/src/app.js` (1008 lines) | `python/ledger/server.py` |
+|---|---|---|
+| endpoints | `/chain/status`, `/chain/blocks`, `/chain/tx`, `/chain/mint`, `/chain/peers`, `/chain/peers/register`, `/chain/peers/heartbeat`, `/chain/reconcile` | `/chain/tx`, `/chain/import` only |
+| UI talks to it | **yes** — `renderer.js` fetches `/chain/status` and `/chain/blocks` | no |
+| imported by production code | yes | **no** — only a commented-out line |
+
+`python/ledger/` is a strict subset with no status, blocks, peers or reconcile. Safe to delete; its
+only live reference is a passing test.
+
+### ~~Q-11~~ — Ghost vs Real: one chain or two? **ANSWERED — TWO, SEPARATE**
+**Blocks:** UI-023, UI-024 · **Status:** closed 2026-08-23
+
+> **Steven:** *"The Ghost chain is only viewable locally. The Real chain is viewable by all on the
+> chain. They are meant to be separate."*
+
+Two chains, distinguished by **audience**: Ghost is local-only, Real is shared with everyone on it.
+Not one chain with tagged transactions — so the "add a mode column" approach from my earlier note is
+off the table.
+
+**Useful discovery:** the Node chain already exposes **`/chain/reconcile`**, plus a full peer
+directory (`/chain/peers`, `/register`, `/heartbeat`). The primitives for a shared chain with peers
+exist; what is missing is the *second* chain and the split between them.
+
+### ~~Q-12~~ — What belongs on the Real Chain? **ANSWERED**
+**Blocks:** UI-024 · **Status:** closed 2026-08-23
+
+> **Steven:** *"If the TALA harness never goes online, and never connects to any other service, then
+> the Real chain never gets used. If you connect with other users, use other skills, transact with
+> AUTH or online storage, it gets recorded by the Real chain."*
+
+**Rule: the Real chain records external interactions only.** Peer contact, using another party's
+skills, AUTH transactions, online storage. A fully offline install never writes to it.
+
+Confirms the current 2,713 `node-create` transactions are all Ghost by definition — local document
+activity, no external party involved.
+
+### ~~Q-35~~ — Should guardrails absorb contacts-permissions and firewall? **ANSWERED — YES**
+**Blocks:** UI-061, UI-062 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Yes absorb"*
+
+One policy object replaces three unconnected systems. Combined with Q-36 and Q-37 this fully
+specifies its shape — see **The policy object** above.
+
+### ~~Q-36~~ — What is a policy's subject? **ANSWERED — PAIR**
+**Blocks:** UI-062 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Pair"*
+
+Subject is **(contact, agent)** — this person, acting through this agent. Combined with Q-22's
+per-resource grants, a policy is *(contact, agent) -> resource -> constraints*.
+
+### ~~Q-37~~ — Ports: outbound or inbound? **ANSWERED — BOTH**
+**Blocks:** UI-063 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Both"*
+
+Policies constrain both outbound calls Tala makes and inbound ports a peer may reach. Neither exists
+today — no port concept appears anywhere in the codebase.
 
 ---
 
