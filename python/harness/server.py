@@ -7017,6 +7017,60 @@ async def handle_workflow_generate_from_tot(params: dict[str, Any], req_id: Any)
 
 
 
+async def handle_trajectory_export(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``trajectory.export`` — Assemble past runs into analysable records.
+
+    Scoped by default and never a table dump: conversation turns contain
+    everything the user has said, so `include_content` defaults to false and a
+    caller states a window, a session or a task.
+
+    Optionally writes JSONL to `out_path`, which is the format training
+    pipelines read and which stays parseable up to the last complete line if a
+    write is interrupted.
+    """
+    try:
+        from sdk.agent.trajectory import (
+            export_conversation_trajectories,
+            export_task_trajectories,
+            summarise,
+            write_jsonl,
+        )
+
+        kind = str(params.get("kind", "conversation")).strip().lower()
+        if kind not in {"conversation", "task"}:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, "'kind' must be 'conversation' or 'task'")
+
+        limit = int(params.get("limit", 50))
+        since = params.get("since_hours")
+        since = int(since) if since is not None else None
+
+        if kind == "task":
+            result = await export_task_trajectories(
+                task_id=params.get("task_id"), since_hours=since, limit=limit
+            )
+        else:
+            result = await export_conversation_trajectories(
+                session_id=params.get("session_id"),
+                since_hours=since,
+                limit=limit,
+                include_content=bool(params.get("include_content", False)),
+                tool_calls_only=bool(params.get("tool_calls_only", False)),
+            )
+
+        if not result.get("success"):
+            return _err(req_id, JsonRpcError.INTERNAL_ERROR, result.get("error", "export failed"))
+
+        result["summary"] = summarise(result["trajectories"])
+        out_path = params.get("out_path")
+        if out_path:
+            result["written"] = write_jsonl(result["trajectories"], out_path)
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("trajectory.export error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_mcp_discover(params: dict[str, Any], req_id: Any) -> str:
     """
     ``mcp.discover`` — Report MCP servers configured by other clients on this machine.
@@ -11157,6 +11211,7 @@ _HANDLERS: dict[str, Any] = {
     "mcp.list_tools":     handle_mcp_list_tools,
     "mcp.call_tool":      handle_mcp_call_tool,
     "mcp.discover":       handle_mcp_discover,
+    "trajectory.export":  handle_trajectory_export,
     "mcp.refresh_tools":  handle_mcp_refresh_tools,
     "guardrails.get":     handle_guardrails_get,
     "guardrails.save":    handle_guardrails_save,

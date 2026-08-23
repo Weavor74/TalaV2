@@ -405,3 +405,65 @@ async def control_swarm(parent_task_id: str, action: str) -> dict[str, Any]:
     if "error" in payload:
         return {"success": False, "error": payload["error"].get("message", "unknown")}
     return {"success": True, "action": action, "parent_task_id": parent_task_id, **(payload.get("result") or {})}
+
+
+@register_tool(
+    name="export_trajectories",
+    description=(
+        "Export what actually happened in past runs - conversation turns with their tool calls, "
+        "or autonomous task runs with their events - as analysable records."
+    ),
+)
+async def export_trajectories(
+    kind: str = "conversation",
+    since_hours: int = 24,
+    limit: int = 50,
+    include_content: bool = False,
+    tool_calls_only: bool = True,
+) -> dict[str, Any]:
+    """
+    NAME
+           export_trajectories - assemble past runs into analysable records
+
+    SYNOPSIS
+           export_trajectories(kind, since_hours, limit, include_content,
+                               tool_calls_only) -> dict[str, Any]
+
+    DESCRIPTION
+           kind is "conversation" or "task". They are separate streams and are
+           not joined: a chat session and an autonomous task share no key in the
+           schema, and stitching them on a guess would invent history.
+
+           include_content defaults to FALSE. Conversation turns contain
+           everything Weavor has ever said, so the default is structure plus
+           tool calls without the prose -- enough to study which tools were
+           reached for and how often a call came back an error. Pass True only
+           when the prose is genuinely what is being studied.
+
+           Returns a summary alongside the records: the tool histogram is
+           usually the point.
+    """
+    from sdk.agent.trajectory import (
+        export_conversation_trajectories,
+        export_task_trajectories,
+        summarise,
+    )
+
+    kind = (kind or "conversation").strip().lower()
+    if kind not in {"conversation", "task"}:
+        return {"success": False, "error": "'kind' must be 'conversation' or 'task'"}
+
+    if kind == "task":
+        result = await export_task_trajectories(since_hours=since_hours, limit=limit)
+    else:
+        result = await export_conversation_trajectories(
+            since_hours=since_hours,
+            limit=limit,
+            include_content=bool(include_content),
+            tool_calls_only=bool(tool_calls_only),
+        )
+
+    if not result.get("success"):
+        return result
+    result["summary"] = summarise(result["trajectories"])
+    return result
