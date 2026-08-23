@@ -280,27 +280,51 @@ available", so lockdown can never leave the system with no model — even if Oll
 Under lockdown they are unreachable by design but would still render green. The badge should
 reflect lockdown state, or the fix for UI-046 should account for it.
 
-### Q-67 — What does "edit files and documents ... txt, images or whatever" actually cover?
-**Blocks:** UI-114 · **Who:** Steven · **Cost:** medium · *new, raised by Steven 2026-08-23*
+### ~~Q-67~~ — What does "edit files and documents" cover? **ANSWERED — ALL**
+**Blocks:** UI-114 · **Status:** closed 2026-08-23
 
-Stated as Tala's original usage intent, and the audit had almost nothing on it — `view-editor` was
-never mapped because it has no sidebar entry (UI-012).
+> **Steven:** *"They should cover all, image and text."*
 
-What exists is a `<textarea>` plus a preview pane gated to `.md` and `.html`. Code opens as plain
-text with no highlighting; images cannot open at all.
+Both image and text, no format carve-outs. Against what exists — a `<textarea>` with preview gated
+to `.md` and `.html` — that is a substantial build, not an adjustment:
 
-To scope it: which formats matter first — code with syntax awareness, images, PDFs, something else?
-And is Tala meant to *edit* these herself, or is the editor for you with Tala assisting?
+| Need | Today |
+|---|---|
+| text | works |
+| Markdown / HTML with preview | works |
+| **code with language awareness** | plain text only |
+| **images** | **impossible** — a `<textarea>` cannot hold one |
 
-> **Answer:**
+Images in particular need a different editing surface entirely, not an extension of the current one.
 
-### Q-63 — Which principal does `AuthorizationGate` resolve against?
-**Blocks:** UI-081, UI-103 · **Who:** Steven · **Cost:** low · *from Q-61*
+### Q-63 — Which principal does `AuthorizationGate` resolve against? **RESTATED**
+**Blocks:** UI-081, UI-103 · **Who:** Steven · **Cost:** low
 
-Contacts and firewall describe what a **peer** may read from you; the gate governs what **Tala**
-may execute. A peer-triggered action should resolve against that peer's grant — but an action you
-start yourself has no contact to check. Does the gate treat the local owner as implicitly
-authorized, with contacts consulted only for peer-originated work?
+Restating it, since the original was terse.
+
+`AuthorizationGate` decides whether **Tala may perform an action** — write a file, run a shell
+command, call a tool. You answered (Q-61) that it should check contacts and firewall/guardrail
+settings.
+
+The wrinkle: **contacts and firewall describe what a *peer* may read from you.** They answer "may
+Alice see this node?" They do not answer "may Tala run this command?" — different subject entirely.
+
+So the gate needs to know **who caused the action**:
+
+| Who started it | What should authorize it |
+|---|---|
+| **You**, locally — you typed a request in chat | ? contacts do not apply; there is no contact to check |
+| **A peer**, remotely — Alice's request triggered work on your machine | that peer's grant, plus firewall clearance |
+
+The question is what happens in the first row. Two plausible answers:
+
+- **Owner is implicitly trusted** — anything you initiate is authorized; contacts and firewall are
+  consulted only for peer-originated work. Guardrails still apply to content.
+- **Even you are checked** — the gate applies risk tiers to your own requests too, so a `critical`
+  action needs explicit approval regardless of who asked.
+
+Relevant: the gate already has a risk model (`low` auto-allows, `high`/`critical` demand proof) and
+a `register_pre_approval()` path, so the second option is not much more work than the first.
 
 > **Answer:**
 
@@ -325,15 +349,19 @@ already has TTL machinery).
 
 Precedence from Q-32: **lockdown -> contact grant -> profile visibility**.
 
-### Q-64 — Are the existing "swarm" topologies actually crews?
-**Blocks:** UI-049, UI-051 · **Who:** Steven · **Cost:** low · *from Q-28*
+### ~~Q-64~~ — Are the existing "swarm" topologies actually crews? **ANSWERED**
+**Blocks:** UI-049, UI-051 · **Status:** closed 2026-08-23
 
-By Q-28's definition a swarm is many agents doing *the same* job. But `Code Repair Swarm` is
-`planner -> coder -> tester -> reviewer -> documenter` — five different jobs, which is crew-shaped.
-Should the existing topologies be reclassified as crews, or does "swarm" in the code keep a broader
-meaning than in the org model?
+> **Steven:** *"They can be a member of the crew but not the crew in completeness."*
 
-> **Answer:**
+Resolves the naming conflict cleanly: **a swarm is a unit that can sit inside a crew, not a crew
+itself.**
+
+So a crew's members are not all individual agents — a member can be a single agent *or* a swarm
+acting as one working unit. `Code Repair Swarm` is a legitimate crew member; it is not a crew.
+
+That keeps both concepts intact and gives the org model a composition rule: crew contains members;
+a member is an agent or a swarm.
 
 
 ### ~~Q-28~~ — Crews vs swarms? **ANSWERED — COMPLETELY SEPARATE**
@@ -453,15 +481,35 @@ today — no port concept appears anywhere in the codebase.
 close it — Q-33 (the tool registry is not HTML-NN backed) and Q-40 (no storage client exists for any
 backend).
 
-### Q-65 — Vault search vs the network-isolation guard
-**Blocks:** UI-038 · **Who:** Steven · **Cost:** low · *from Q-20*
+### ~~Q-65~~ — Vault search vs the isolation guard **ANSWERED — NO NEW SEARCH NEEDED**
+**Blocks:** UI-038 · **Status:** closed 2026-08-23
 
-`vault:read` is refused unless network isolation is active (UI-102), but Unified Search's `web`
-scope needs the network. A search covering both the vault and the web is therefore contradictory
-under the current guard. Does vault search drop the web scope, does the guard relax for search, or
-do the two scopes become mutually exclusive in the UI?
+> **Steven:** *"Should we build our own local search?"*
 
-> **Answer:**
+**Recommendation: no — you already have two local search engines, and the pattern that solves this
+is already in the codebase.**
+
+| Engine | What it does | Where |
+|---|---|---|
+| PostgreSQL full-text | `tsvector` over `memory_index` | `local_provider.py` |
+| ChromaDB | semantic / vector | `retrieval.py` |
+
+The conflict is not a missing search engine. It is that `vault:read` refuses unless network
+isolation is on, while Unified Search's `web` scope needs the network — so one query cannot use both.
+
+**The fix already exists as a proven pattern: PII.** Profile PII is indexed into `memory_index`
+tagged `trust_label='private'`, and the search SQL filters it out unless explicitly asked for:
+
+```sql
+AND (trust_label != 'private' OR $4::boolean = TRUE)
+```
+
+Vault content can ride exactly that path — indexed at write time, searchable through the existing
+engines, with the file itself still read through the guarded `vault:read`. Search returns *that a
+match exists*; opening the document still respects isolation.
+
+Four independent guards already protect PII this way (D11). Reusing them beats building a third
+search engine.
 
 
 ### ~~Q-56~~ — Per-OS path table for MCP discovery? **ANSWERED — YES**
