@@ -1,4 +1,0 @@
-astrology
-cli
-harness
-inference
