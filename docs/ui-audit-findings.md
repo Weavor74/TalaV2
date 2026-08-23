@@ -2569,6 +2569,65 @@ is the node still flat? Either `profiles.save` has not completed successfully si
 change, or its node-write path is not being reached. Worth confirming before fixing, since a
 migration alone would not help if the writer is broken.
 
+### UI-100 — Q-57 answered: the node write fails silently and the loader never falls back to the DB
+**Severity: critical · Status: diagnosed · Data is NOT lost**
+
+Ran with the app live. The complete mechanism:
+
+**1. The database has the full profile.** `profiles.config` for `master-user` contains every
+section, populated:
+
+| Section | Entries |
+|---|---|
+| `identity` | 12 |
+| `roles` | 10 |
+| `privacy` | 6 |
+| `about` | 5 |
+| `skills` | 5 |
+| `projects` | 4 |
+| `connections` | 1 |
+
+So `profiles.save` works, and **Steven's profile data is intact and recoverable.**
+
+**2. The node write is wrapped in a swallowing try/except.**
+[server.py:6511](../python/harness/server.py#L6511):
+
+```python
+node_file = nodes_dir / "concept-user-profile.html"
+node_file.write_text(html, encoding="utf-8")
+logger.info("Synced user profile node: %s", node_file)
+except Exception as sync_exc:
+    logger.warning("Failed to sync profiles save to HTML Neural Node: %s", sync_exc)
+```
+
+A failure here logs a warning and `profiles.save` still returns success. The UI reports the profile
+saved, because as far as the DB is concerned it was.
+
+**3. The loader reads only the node, never the DB.** `identity.get_user_profile` branches on
+`sd.get("config")`; the live node has no `config` key, so every load takes the
+"best-effort, always-incomplete" reconstruction path (UI-099).
+
+**Timeline evidence:**
+
+| Fact | Value |
+|---|---|
+| `profiles.updated_at` (last successful save) | 2026-08-07 19:33 |
+| node last committed, in flat format | 2026-08-12 18:51 (`cfb57de`) |
+| node vs `HEAD` | **identical** — nothing has rewritten it since |
+| `agent_log` rows mentioning profile / Neural Node | **0** |
+| harness log files on disk | **none** |
+
+So the node has not been successfully written since before it was committed, and **the failure left
+no trace on any surface** — not the UI, not `agent_log`, not a log file. That is why it presents as
+"it just goes away".
+
+**Net:** three independent defects compose into the reported bug — a swallowed write (this
+finding), a loader with no DB fallback (UI-099), and a logging path that never records warnings
+(UI-085). Fixing any one of them alone would leave the bug partly present.
+
+**Recovery:** the DB copy is complete. Regenerating the node from `profiles.config` restores
+everything without data entry.
+
 ---
 
 ## B. Self-navigation infrastructure gaps

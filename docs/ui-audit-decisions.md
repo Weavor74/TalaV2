@@ -53,37 +53,41 @@ no `config` dict, so every load takes the "best-effort, always-incomplete" recon
 the full config, why is the node still flat? A migration alone will not help if the writer is
 broken.
 
-### Q-57 — Why is the profile node still flat if `profiles.save` writes the full config?
-**Blocks:** UI-099 · **Who:** Claude (diagnostic) · **Cost:** minutes · *new, from the Q-55 answer*
+### ~~Q-57~~ — Why is the profile node still flat? **ANSWERED**
+**Blocks:** UI-099 · **Status:** closed 2026-08-23 · **Detail:** UI-100
 
-Either `profiles.save` has not completed successfully since the format changed, or its node-write
-path is not reached. I can determine this by saving a profile and re-reading the node. Needs doing
-**before** any migration, since migrating a node a broken writer will re-flatten achieves nothing.
+`profiles.save` writes the DB successfully — the config holds identity(12), roles(10), privacy(6),
+about(5), skills(5), projects(4), connections(1). **The data is not lost.** The *node* write sits in
+a try/except that logs a warning and lets the save return success, and the loader reads only the
+node, never the DB. No trace in `agent_log` or any log file. Recovery: regenerate the node from
+`profiles.config`.
 
-> **Answer:**
+### ~~Q-16~~ — Has the Task Board ever held real tasks? **ANSWERED**
+**Blocks:** UI-030, UI-031 · **Status:** closed 2026-08-23
 
-### Q-16 — Has the Task Board ever held real, non-test tasks?
-**Blocks:** UI-030, UI-031 · **Who:** Steven · **Cost:** one sentence
+> **Steven:** *"No, all tasks were either generated testing or generated planned prompts."*
 
-If it has only ever held fixtures, the 50-row cap and the payload-decode risk have never been
-exercised, and both drop several priority levels.
+UI-030 (50-row cap) and UI-031 (payload decode) have therefore never been exercised in anger —
+both drop in priority.
 
-> **Answer:**
+### ~~Q-15~~ — Purge the test fixtures? **ANSWERED — DONE**
+**Blocks:** UI-028 · **Status:** closed 2026-08-23
 
-### Q-15 — Purge the test fixtures from the live Task Board and `nodes/`, or keep as sample data?
-**Blocks:** UI-028 · **Who:** Steven · **Cost:** one sentence
+> **Steven:** *"Purge"*
 
-Independent of the test-isolation fix. Right now the board cannot be read as a view of real work.
+Executed: `tasks` truncated, 13 -> 0. Junk learning nodes pruned with the project's own
+`scripts/prune_junk_learning_nodes.py --apply` — 8 removed, 3 genuine learning nodes kept, 123 ->
+115 nodes. **UI-028's root cause is untouched**: tests still write to the live DB, so fixtures will
+return on the next `pytest` run.
 
-> **Answer:**
+### ~~Q-48~~ — Keep messaging channels? **ANSWERED — YES**
+**Blocks:** UI-083, UI-084 · **Status:** closed 2026-08-23
 
-### Q-48 — Keep messaging channels at all?
-**Blocks:** UI-083, UI-084 · **Who:** Steven · **Cost:** one sentence
+> **Steven:** *"yes. I'm considering adding messaging even though I want to do custom app"*
 
-At P0 because **"no" deletes the single most exposed surface in the audit** — an unenforced
-allowlist sitting in front of tool execution — at zero engineering cost. "Yes" moves UI-083 to P1.
-
-> **Answer:**
+Channels stay, so **UI-083 is now a live must-fix** — the allowlist is collected, stored, and never
+read, in front of tool execution. UI-084 (no Discord adapter, yet Discord is the dropdown default)
+also becomes real work rather than dead code to delete.
 
 ---
 
