@@ -1980,6 +1980,39 @@ territory as several findings here.
 **Before acting on any finding, re-check it against the current tree.** Findings touching MCP,
 persona/swarm authoring, and the research tools are the most likely to have moved.
 
+### UI-094 verification pass — results
+**Completed 2026-08-23, against `origin/main` @ `6c0210f`**
+
+Re-checked the findings most exposed to the eight missed commits, plus a representative sample of
+the rest.
+
+| Finding | Verdict |
+|---|---|
+| UI-079 (rollback reverted UI) | **retracted** — checkout was behind origin |
+| UI-085 (RPC failures not logged) | **evidence corrected, conclusion stands** — 15 `log_to_db` sites, 0 at ERROR, 0 on RPC failure paths |
+| UI-014 (`browser.get_dom` stub) | still valid — the "requires IPC callback setup" string is unchanged |
+| UI-015 (`browser.execute_js` no listener) | still valid — 0 listeners in `renderer/` |
+| UI-018 / UI-019 (search non-200 fallthrough, `/search` substring) | still valid — both patterns unchanged in `search_manager.py` |
+| UI-029 (task description unescaped) | still valid |
+| UI-028 (tests write the live DB) | still valid |
+| UI-045 (`APPLY CHANGES` dead) | still valid — 0 references in `renderer.js` |
+| UI-046 (remote provider = key present) | still valid |
+| UI-049 / UI-050 (no crew hierarchy) | still valid — the only `parent_id` in `db.py` is `tasks.parent_id` |
+| UI-051 (crew fields write-only) | still valid, with a new writer: `agent_authoring.py:133` also INSERTs `crew_type`. Still no behavioural consumer |
+| UI-060 (no workflow-execute tool) | still valid — 0 such tools; registry still 66 |
+| UI-077 (MCP edit missing) | still valid — `mcp.save_servers` called 0 times from `renderer/` |
+| UI-080 (auth stored plaintext) | still valid — 0 encryption calls in the auth save path |
+| UI-083 / UI-084 (channels allowlist, no Discord adapter) | still valid — 0 allowlist references, 0 Discord classes |
+| UI-091 (hardcoded health literals) | still valid |
+
+**Net effect of the pass:** one finding retracted (UI-079), one finding's evidence corrected with
+its conclusion intact (UI-085). Everything sampled above is unchanged by the eight commits. The
+`Scan for servers` button is now present in the working tree.
+
+Findings not individually re-checked are lower-severity or in areas the eight commits did not
+touch; the caveat above stands for those.
+
+
 ---
 
 ## A25. Confirmed defects — `settings.auth`
@@ -2152,22 +2185,27 @@ metrics are misleading.
 **Severity: high · Status: open · Steven's ask #1**
 
 `agent_log` is written by exactly one helper, `db.log_to_db()`
-([db.py:995](../python/harness/db.py#L995)). Its call sites:
+([db.py:995](../python/harness/db.py#L995)).
 
-| File | `log_to_db` calls | `logger.error/exception/warning` calls |
-|---|---|---|
-| `python/harness/heartbeat_scheduler.py` | 2 | — |
-| `python/harness/server.py` | **0** | **253** |
-| `sdk/agent/tools.py` | **0** | — |
+> **Correction (verification pass, 2026-08-23).** This finding first stated that `server.py` had
+> **0** `log_to_db` call sites. That was my error — I searched for a helper named `log_event`, which
+> does not exist. The real count is **15**. The conclusion survives, but the evidence below is the
+> corrected version.
 
-Every RPC handler in `server.py` ends with `logger.exception("<method> error")`. **None of those
-253 error and warning paths reach `agent_log`** — they go to the Python logger only, which this
-panel does not read.
+| Level written from `server.py` | Count |
+|---|---|
+| `INFO` | 11 |
+| `WARNING` | 4 |
+| **`ERROR`** | **0** |
 
-This explains the metrics on screen. `TOTAL EVENTS 44442` with `ERRORS / WARNS 1 / 16681` is not a
-healthy system with one error; it is a log fed almost entirely by the heartbeat scheduler. The
-16,681 warnings are heartbeat noise, and the single error is the only one that happened to be
-written through the one helper that reaches the table.
+So `agent_log` *is* written from the harness — but **never at ERROR level**, and never from an RPC
+failure path. `server.py` contains **257** `logger.error/exception/warning` calls, and **none** is
+followed by a `log_to_db` write: every RPC handler ends with `logger.exception("<method> error")`
+going to the Python logger only, which this panel does not read.
+
+This explains the metrics on screen more precisely than the original version did. `ERRORS / WARNS
+1 / 16681` is what you get when the harness writes only INFO and WARNING to this table — the lone
+ERROR did not come from `server.py` at all.
 
 So "from commands sent to RPC failed" is the exact gap: **RPC failures are the thing least likely
 to appear here.**
