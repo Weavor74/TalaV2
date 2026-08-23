@@ -2515,6 +2515,60 @@ USB-boot target."*
 Harmless at runtime, but both comments assert the exact Windows-specific behaviour the design
 rejects, and would mislead the next person checking whether the app is portable.
 
+### UI-099 — The live profile node is in the legacy flat format, so most fields cannot load
+**Severity: critical · Status: open · Answers Q-55 · Corrects UI-056**
+
+Tracing Steven's answer to Q-55 ("sync should write everything") found the actual mechanism, and it
+is **not** the DB sync.
+
+**Two different save endpoints exist, and I attributed the bug to the wrong one:**
+
+| Endpoint | Fields accepted | Node format written |
+|---|---|---|
+| `identity.save_user_profile` ([server.py:4027](../python/harness/server.py#L4027)) | **13 flat params only** — name, birthdate, tone, biography, 4 RP, 5 PII | flat legacy keys |
+| **`profiles.save`** ([server.py:6250](../python/harness/server.py#L6250)) | **full nested config** | `state_data.config` = full config |
+
+> **Correction to UI-056.** That finding blamed the DB sync inside
+> `handle_identity_save_user_profile` for dropping fields. The USER PROFILE panel does not call that
+> handler — `saveActiveProfile()` calls **`profiles.save`** and sends the complete nested config
+> including `roles`, `skills`, `projects`, `connections` and `privacy`. The renderer is correct and
+> the narrow endpoint is not in its path.
+
+**The real defect is the state of the live node.** `identity.get_user_profile`
+([server.py:3885](../python/harness/server.py#L3885)) loads the profile like this:
+
+```python
+config = sd.get("config")
+if not isinstance(config, dict):
+    # flat legacy keys, not a "config" object. Reconstruct a
+    # best-effort config from them so old nodes still render
+```
+
+Reading the live file confirms which branch runs:
+
+```
+nodes/concept-user-profile.html  ->  state_data keys:
+['name','birthdate','tone','biography','rp_name','rp_class','rp_faction',
+ 'rp_backstory','pii_legal_name','pii_dob','pii_email','pii_phone','pii_registries']
+has config dict: False
+```
+
+**The node is in the flat legacy format.** So every load takes the "best-effort, always-incomplete"
+branch, and roughly 22 fields have nothing to load from — Roles & Work entirely, Skills, Projects,
+Connections, the privacy block, and most of Core Identity and About.
+
+That is exactly the reported symptom: fill in Roles & Work, and it is gone after a reload. Not
+because the sync dropped it, but because the node on disk has no slot for it.
+
+Nothing in the current codebase calls `identity.save_user_profile` — the grep hits are its own
+definition, docstring, log label and one doc reference. So the flat node predates the switch to
+`profiles.save` and has simply never been replaced.
+
+**Open sub-question:** if the panel calls `profiles.save`, and that writes `state_data.config`, why
+is the node still flat? Either `profiles.save` has not completed successfully since the format
+change, or its node-write path is not being reached. Worth confirming before fixing, since a
+migration alone would not help if the writer is broken.
+
 ---
 
 ## B. Self-navigation infrastructure gaps

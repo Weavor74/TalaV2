@@ -36,14 +36,29 @@ suspect for *"after a few restarts it goes away"* is the **incomplete DB sync**,
 Roles & Work, Skills, Projects, Connections, privacy, or most of Core Identity and About. One
 follow-up added: **Q-55**.
 
-### Q-55 — Should the profile DB sync write the full config, or should the node stay the sole store?
-**Blocks:** UI-056 · **Who:** Steven · **Cost:** low · *new, from the Q-44 answer*
+### ~~Q-55~~ — Should the profile DB sync write the full config? **ANSWERED**
+**Blocks:** UI-056 · **Status:** closed 2026-08-23 · **Detail:** UI-099
 
-With the data root ruled out, this is the likely cause of the disappearing profile fields. The DB
-sync writes only name, birthdate, tone, bio, the four RP fields and the five PII fields — it never
-writes Roles & Work, Skills, Projects, Connections, the privacy block, or most of Core Identity and
-About. So the HTML-NN node is the only complete copy. Either the sync should write everything, or
-the node needs a backup path.
+> **Steven:** *"sync should write everything"*
+
+Agreed, and tracing it found the real mechanism — **the DB sync is not the bottleneck**. The panel
+calls `profiles.save`, which already sends and stores the full nested config; the narrow 13-field
+endpoint I blamed in UI-056 is not in the panel's path at all.
+
+The actual defect: **the live `concept-user-profile.html` is still in the flat legacy format** with
+no `config` dict, so every load takes the "best-effort, always-incomplete" reconstruction branch and
+~22 fields have nothing to load from. Corrected in UI-099.
+
+**One thing to confirm before fixing (Q-57):** if the panel calls `profiles.save` and that writes
+the full config, why is the node still flat? A migration alone will not help if the writer is
+broken.
+
+### Q-57 — Why is the profile node still flat if `profiles.save` writes the full config?
+**Blocks:** UI-099 · **Who:** Claude (diagnostic) · **Cost:** minutes · *new, from the Q-55 answer*
+
+Either `profiles.save` has not completed successfully since the format changed, or its node-write
+path is not reached. I can determine this by saving a profile and re-reading the node. Needs doing
+**before** any migration, since migrating a node a broken writer will re-flatten achieves nothing.
 
 > **Answer:**
 
