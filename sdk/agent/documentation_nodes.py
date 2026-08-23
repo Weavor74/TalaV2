@@ -25,6 +25,21 @@ log = logging.getLogger(__name__)
 
 
 ALLOWED_NODE_TYPES = {"documentation", "program-doc", "function-doc"}
+
+#: Recall authority written into every generated documentation node.
+#
+# A named constant because the value has to agree in four places -- the HTML
+# template, create_documentation_node's post-write check, verify_documentation_
+# nodes, and the LLM-facing create_documentation_node_tool -- and when it was
+# raised from 0.00 to 0.60 only the template and one validator moved. The other
+# two kept demanding 0.00, so every node the generator wrote was immediately
+# reported invalid by the generator itself, and the tool the model calls could
+# not produce a recallable node at all.
+#
+# Documentation must be recallable (a zero here is a hard gate on activation)
+# but must stay below live settings and doctrine at 1.00, so a strongly-matching
+# document beats a weakly-matching setting without drowning out configuration.
+DOC_NODE_MEMORY_AUTHORITY = 0.60
 DEFAULT_REFERENCE_NODES = (
     "system-neural-node-v2-schema",
     "system-html-nn-authoring-guide",
@@ -654,8 +669,14 @@ def create_documentation_node(
         errors.append(f"schema_version mismatch: {parsed.schema_version}")
     if parsed.execution_authority != 0.0:
         errors.append(f"execution_authority mismatch: {parsed.execution_authority}")
-    if parsed.memory_authority != 0.0:
-        errors.append(f"memory_authority mismatch: {parsed.memory_authority}")
+    # Compared against the same constant the template writes, so this cannot
+    # reject the file it just produced -- which it did for every node once the
+    # value was raised to 0.60 and this check was left at 0.00.
+    if parsed.memory_authority != DOC_NODE_MEMORY_AUTHORITY:
+        errors.append(
+            f"memory_authority mismatch: expected {DOC_NODE_MEMORY_AUTHORITY}, "
+            f"got {parsed.memory_authority}"
+        )
 
     return DocumentationNodeResult(
         created=created,

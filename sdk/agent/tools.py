@@ -1463,22 +1463,35 @@ async def create_documentation_node_tool(
     node_type: str = "documentation",
     schema_version: str = "neural-node/v2",
     execution_authority: float = 0.0,
-    memory_authority: float = 0.0,
+    memory_authority: float | None = None,
     source_files: list | None = None,
     relationships: list | None = None,
     references: list | None = None,
     requirements: list | None = None,
     **kwargs: Any,
 ) -> dict[str, Any]:
-    from sdk.agent.documentation_nodes import create_documentation_node
+    from sdk.agent.documentation_nodes import (
+        DOC_NODE_MEMORY_AUTHORITY,
+        create_documentation_node,
+    )
 
     try:
         if schema_version != "neural-node/v2":
             raise ValueError("schema_version must be neural-node/v2")
         if float(execution_authority) != 0.0:
             raise ValueError("documentation nodes require execution_authority 0.00")
-        if float(memory_authority) != 0.0:
-            raise ValueError("documentation nodes require memory_authority 0.00")
+        # Defaults to, and requires, the value the generator template writes.
+        # This used to default to 0.00 and hard-refuse anything else, so the
+        # tool the model calls to document itself could only ever produce a node
+        # that could never be recalled -- the exact mute-node defect, still
+        # reachable through the agent's own tool after the generators were fixed.
+        if memory_authority is None:
+            memory_authority = DOC_NODE_MEMORY_AUTHORITY
+        if float(memory_authority) != DOC_NODE_MEMORY_AUTHORITY:
+            raise ValueError(
+                f"documentation nodes require memory_authority "
+                f"{DOC_NODE_MEMORY_AUTHORITY:.2f} so they can be recalled"
+            )
         return create_documentation_node(
             node_id=node_id,
             title=title,

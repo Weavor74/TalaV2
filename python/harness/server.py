@@ -2151,7 +2151,27 @@ async def handle_inference_generate(
                 try:
                     from python.harness.tool_selection import ToolIndex  # noqa: PLC0415
 
-                    tool_index = ToolIndex(dyn_tools)
+                    # Indexed alongside the registry tools, not just dyn_tools.
+                    #
+                    # _BUILTIN_RESEARCH_TOOL_SPECS exists precisely so swapping
+                    # to the native protocol cannot lose web search -- but the
+                    # index was built from dyn_tools alone, so index.score()
+                    # could never return research.search or
+                    # research.crawl_and_summarize, and neither is in the core
+                    # set. On any budget-limited provider they were therefore
+                    # withheld on every single turn, and the XML documentation
+                    # that would have described them is stripped in the same
+                    # request. crawl_and_summarize is the only path that
+                    # persists a crawl as an HTML-NN, so it became uninvokable
+                    # while the log quietly listed it as withheld.
+                    tool_index = ToolIndex(dyn_tools + [
+                        {
+                            "name": spec["function"]["name"],
+                            "description": spec["function"].get("description", ""),
+                            "schema": spec["function"].get("parameters", {}),
+                        }
+                        for spec in _BUILTIN_RESEARCH_TOOL_SPECS
+                    ])
                 except Exception as sel_exc:
                     # Selection is an optimisation; losing it must not cost tools.
                     logger.warning("Could not build the tool selection index: %s", sel_exc)
@@ -2929,7 +2949,37 @@ async def handle_inference_generate(
                                             except Exception:
                                                 continue
                                             _msg = _obj.get("message") or {}
+
+                                            # Reasoning arrives structurally in
+                                            # message.thinking on this endpoint,
+                                            # and preserving it is the stated
+                                            # reason the native path exists --
+                                            # but only the non-streaming branch
+                                            # and the OpenAI-compat SSE branch
+                                            # wrapped it. Here it was read into
+                                            # _msg and dropped, so a streaming
+                                            # caller silently lost the reasoning
+                                            # the renderer shows as a collapsed
+                                            # section.
+                                            _think = _msg.get("thinking") or ""
+                                            if _think:
+                                                if not in_reasoning:
+                                                    in_reasoning = True
+                                                    _think = "<thinking>\n" + _think
+                                                chunks.append(_think)
+                                                await ws.send(json.dumps({
+                                                    "jsonrpc": JSONRPC_VERSION,
+                                                    "method": "inference.generate.chunk",
+                                                    "params": {"chunk": _think, "session_id": session_id},
+                                                }))
+
                                             _chunk = _msg.get("content") or ""
+                                            if _chunk and in_reasoning:
+                                                # Close the block before the first
+                                                # visible token, so reasoning can
+                                                # never leak into the reply.
+                                                in_reasoning = False
+                                                _chunk = "\n</thinking>\n\n" + _chunk
                                             if _chunk:
                                                 chunks.append(_chunk)
                                                 await ws.send(json.dumps({
