@@ -1910,51 +1910,75 @@ recorded as unverified.
 
 ---
 
-## A24. **Critical** — the running app is not this checkout
+## A24. — RETRACTED: the checkout was simply behind origin
 
-### UI-079 — The live UI matches a rollback snapshot, not the working tree
-**Severity: critical · Status: open · Likely root cause of UI-056**
+### UI-079 — ~~The live UI matches a rollback snapshot, not the working tree~~ **retracted**
+**Status: closed — cause identified, no defect**
 
-The reference screenshot shows two buttons above the MCP form: **`Scan for servers`** and
-`Refresh`. Searching for that string:
+> **Retraction (2026-08-23, same session).** This finding originally read *"the running app's UI
+> matches a rollback snapshot"* and inferred that a rollback may have silently reverted working-tree
+> UI work. **That inference was wrong.** The cause is mundane: the local checkout was **8 commits
+> behind `origin/main`**.
 
-| Location | Has "Scan for servers"? | Modified | Size |
-|---|---|---|---|
-| `renderer/index.html` (working tree) | **no** | 2026-08-23 08:44 | 278,354 |
-| `dist/win-unpacked/.../renderer/index.html` | **no** | 2026-06-08 09:46 | 241,912 |
-| **`.tala_snapshots/checkpoint/renderer/index.html`** | **yes** | 2026-08-22 22:23 | 279,515 |
+The evidence that prompted it: the reference screenshot showed a `Scan for servers` button present
+in `.tala_snapshots/checkpoint/renderer/index.html` and absent from `renderer/index.html`.
 
-The only copy in the repository containing that button is the one inside
-**`.tala_snapshots/checkpoint/`** — the auto-rollback checkpoint directory.
+The actual explanation is an upstream commit the checkout had not pulled:
 
-Two facts follow, both verified:
+```
+6e78a02 feat: swarm control for both parties, and a scan button for MCP discovery
+```
 
-1. **The running app's UI corresponds to the checkpoint, not to the working tree.** The working
-   tree is *newer* (08-23) yet *smaller* and lacks a feature the checkpoint has — consistent with
-   the working tree having lost that markup, not with the checkpoint being stale.
-2. **There are two complete `nodes/` directories.** `.tala_snapshots/checkpoint/nodes/` holds 128
-   nodes, including its own `concept-user-profile.html` dated **2026-08-12**. The repo `nodes/`
-   holds 128 as well.
+The checkpoint was taken while the tree was at or after that commit; the working tree was behind it.
+So the checkpoint was **ahead** of the working tree, not the tree having lost work. After
+`git pull --rebase`, `renderer/index.html` contains the button and the discrepancy is gone.
 
-This is the concrete divergence UI-056 predicted. `resolve_user_data_dir()` returns
-`_application_root()`, so an app launched from the checkpoint tree reads and writes
-`.tala_snapshots/checkpoint/nodes/` — a directory owned by the rollback system, which is designed
-to be overwritten.
+Nothing was reverted, and no rollback occurred. Q-45 ("has a rollback already reverted working-tree
+UI?") is answered: **no**.
 
-**Stated as inference, not fact:** which root the live process actually uses was not confirmed —
-that requires inspecting the running process, not the filesystem. What is confirmed is that the UI
-on screen matches the checkpoint copy, that a second complete node store exists under it, and that
-the working tree has lost markup the checkpoint retains.
+**What this does not retract.** UI-056 stands on its own mechanism — `resolve_user_data_dir()`
+returns `_application_root()`, two complete `nodes/` directories exist, and which root the running
+process uses was never confirmed. Q-44 remains the highest-value open question; it is simply no
+longer supported by the checkpoint evidence cited here.
 
-If the app is indeed running from the checkpoint, profile data written there would disappear
-whenever the checkpoint is refreshed or restored — which matches Steven's report exactly:
-*"I can fill in the information ... but after a few restarts it goes away."*
+---
 
-This also has a second implication worth flagging on its own: **the working tree may already have
-silently lost UI work to a rollback.** `Scan for servers` exists in the checkpoint and not in
-`renderer/index.html`. Given this project's documented history of an auto-rollback destroying
-tracked files, a diff of `.tala_snapshots/checkpoint/` against the working tree is worth running
-before any further development.
+## A24b. **Audit-wide caveat** — performed against a stale checkout
+
+### UI-094 — Findings were gathered 8 commits behind `origin/main`
+**Severity: high (methodological) · Status: open**
+
+The entire audit above was performed against a working tree that was 8 commits behind the remote.
+Those commits have since been pulled. They touched code this audit examined:
+
+| Commit | Relevance to findings |
+|---|---|
+| `2c58af1` feat(mcp): make MCP actually usable, and discover servers already on the machine | `settings.plugins` (UI-077) |
+| `6e78a02` feat: swarm control for both parties, and a scan button for MCP discovery | `settings.plugins`, Agent Builder |
+| `c7d8447` feat(agents): let Tala author personas and swarms, not just execute them | `settings.agent` (UI-049–051), Agent Builder |
+| `2aa1832` fix: research tools withheld, doc validators rejecting their own output | Research Library (UI-018–021) |
+| `a4a7da0` fix: three silent-rewrite paths found by the second cloud review | possibly UI-014/015, UI-056 |
+| `f510678` fix(swarm): a stalled run and a silent overwrite | Agent Builder swarm findings |
+| `e408eae` feat(trajectory): export what actually happened | new `sdk/agent/trajectory.py` |
+| `6c0210f` chore: stop tracking setuptools build metadata | — |
+
+Diff scope: `renderer/index.html` +15, `renderer/renderer.js` +167, `sdk/agent/tools.py` +26, plus
+three new modules (`agent_authoring.py` 469, `mcp_bridge.py` 292, `trajectory.py` 286).
+
+**Re-verified so far:**
+
+| Finding | Status after pull |
+|---|---|
+| UI-079 | **retracted** — see above |
+| UI-077 (MCP edit missing) | **still valid** — `mcp.save_servers` is still called 0 times from `renderer/` |
+
+Everything else in this document is **unverified against the current tree**. The renderer changes
+are modest (182 lines across both files), so most UI findings likely stand — but the four `fix:`
+commits above specifically target silent-rewrite and validator behaviour, which is the same
+territory as several findings here.
+
+**Before acting on any finding, re-check it against the current tree.** Findings touching MCP,
+persona/swarm authoring, and the research tools are the most likely to have moved.
 
 ---
 
@@ -2422,7 +2446,6 @@ repeat back to a user.
 | Q-46 | Should nodes carry a `clearance` value in their `node-state` block? Without it the firewall slider is decorative. Which nodes would be above 0 — PII, vault, identity? | UI-082 |
 | Q-47 | `gates.py` uses credential **name + priority=1** as an authorization allowlist. Is that intended? Renaming or reordering a credential in the AUTH panel silently changes what the agent may do. | UI-081 |
 | Q-44 | **Which directory is the running app launched from?** `.tala_snapshots/checkpoint/`, the working tree, or `dist/`? This is now the single highest-value question in the audit — it likely resolves UI-056 and UI-079 together. | UI-079, UI-056 |
-| Q-45 | Has a rollback already reverted working-tree UI? `Scan for servers` exists only in the checkpoint. A full checkpoint-vs-worktree diff would show what else diverged. | UI-079 |
 | Q-43 | Should `settings.runtime` be **removed in favour of Contacts**, become a *view* onto contacts that have granted `nodes` permission, or stay as an anonymous-endpoint option alongside identity-based peers? | UI-075, UI-076 |
 | Q-42 | Is multi-database routing / read-replica failover actually wanted, or is `settings.DB_URL` the intended single source and this panel should reflect it read-only? | UI-071, UI-072 |
 | Q-40 | Which storage backends are actually needed first? Nine types are offered and none are implemented; S3-compatible alone would cover AWS, MinIO, Backblaze, Spaces and iDrive e2 in one client. | UI-068 |
@@ -2459,6 +2482,7 @@ repeat back to a user.
 | Q-8 | Grounded Q&A over selected sources — in scope for the research view, or does chat cover it? | **Chat covers it.** But there is no way to flag a research result *into* chat — logged as UI-022. |
 | Q-9 | Should a failed search provider fall back to the crawler silently? | **No. A failed provider must be visible.** Fixes UI-018 and UI-020 in the same direction. |
 | Q-10 | Is the narrower Agent Chat panel a layout bug? | **No** — deliberate resize by Steven. Not a defect; closed. |
+| Q-45 | Has a rollback already reverted working-tree UI? | **No.** The checkout was 8 commits behind `origin/main`; `Scan for servers` came from `6e78a02`. UI-079 retracted. |
 | Q-4 | `Connect VPS` — connects to what, and what changes vs `Local Only`? | **Answered by code, not by Steven.** It drives `chain.connect_vps`, switching the chain connection off local. Per README, `Stay Local` means all interactions use ghost tokens and never touch the blockchain. Still worth Steven confirming the intended user-facing wording. |
 
 ---
