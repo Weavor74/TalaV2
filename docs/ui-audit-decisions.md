@@ -17,14 +17,33 @@ nodes for self-navigation.
 ## P0 — Answer first: cheap, and they change what the other 45 mean
 
 Four questions. None needs design thought, and each collapses a chunk of the list.
+**One is now answered.** Three remain, plus one new follow-up (Q-55).
 
-### Q-44 + Q-30 — Which directory is the running app launched from, and is `TALA_USER_DATA` set?
-**Blocks:** UI-056 · **Who:** Claude (diagnostic) · **Cost:** minutes
+### ~~Q-44 + Q-30~~ — Which directory is the running app launched from? **ANSWERED**
+**Blocks:** UI-056 · **Status:** closed 2026-08-23 · **Detail:** UI-095
 
-Logged separately but they are one question. The profile's canonical store is a file whose
-directory is resolved at runtime; if the app resolves a different root between launches, data
-disappears. This is the root-cause question for your most serious reported bug — *"I can fill in
-the information, but after a few restarts it goes away."*
+> **Steven:** *"This directory should be the directory TALA is installed to. The intent is for TALA
+> to be self sustaining and work from her own directory, this way she could be installed on a USB
+> stick and moved."*
+
+**That is what it does today.** `TALA_USER_DATA` is unset at every scope, so all three resolvers
+fall through to the install directory, and `firstRunEnv()` injects the resolved root into the
+Python child so they cannot drift. The install-dir `nodes/` holds the newest writes (today 10:39);
+the `%APPDATA%` copy is 16 days stale and the packaged copy 2.5 months stale.
+
+**Knock-on:** UI-056's divergence hypothesis is weakened — only one root is live. The remaining
+suspect for *"after a few restarts it goes away"* is the **incomplete DB sync**, which never writes
+Roles & Work, Skills, Projects, Connections, privacy, or most of Core Identity and About. One
+follow-up added: **Q-55**.
+
+### Q-55 — Should the profile DB sync write the full config, or should the node stay the sole store?
+**Blocks:** UI-056 · **Who:** Steven · **Cost:** low · *new, from the Q-44 answer*
+
+With the data root ruled out, this is the likely cause of the disappearing profile fields. The DB
+sync writes only name, birthdate, tone, bio, the four RP fields and the five PII fields — it never
+writes Roles & Work, Skills, Projects, Connections, the privacy block, or most of Core Identity and
+About. So the HTML-NN node is the only complete copy. Either the sync should write everything, or
+the node needs a backup path.
 
 > **Answer:**
 

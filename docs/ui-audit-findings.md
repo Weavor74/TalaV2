@@ -2400,6 +2400,72 @@ Since capabilities is the one section that grows, its accuracy is the thing to k
 | MCP Server Ecosystem | **true** — add/remove work, edit missing (UI-077) |
 | Guard Builder + Custom Validator Builder | **true** — guardrails are genuinely enforced (D12) |
 
+### UI-095 — Q-44/Q-30 diagnostic: the portable data root works; one leak remains
+**Severity: low · Status: mostly resolved**
+
+**Steven's stated intent:** *"This directory should be the directory TALA is installed to. The
+intent is for TALA to be self sustaining and work from her own directory, this way she could be
+installed on a USB stick and moved."*
+
+**That intent is implemented and currently working.** `TALA_USER_DATA` is unset at process, user and
+machine scope, so every resolver falls through to the install directory:
+
+| Resolver | Expression |
+|---|---|
+| `main.js` `resolveDataRoot()` ([:101](../electron/main.js#L101)) | `TALA_USER_DATA \|\| appPath` |
+| `ipc-handlers.js` `userData` ([:180](../electron/ipc-handlers.js#L180)) | `TALA_USER_DATA \|\| appPath` |
+| Python `resolve_user_data_dir()` ([:109](../sdk/agent/documentation_nodes.py#L109)) | `TALA_USER_DATA \|\| _application_root()` |
+
+They cannot drift apart by accident: `firstRunEnv()`
+([main.js:106](../electron/main.js#L106)) injects `TALA_USER_DATA: dataRoot` into the spawned Python
+process, so the harness is told explicitly which root to use rather than deriving its own.
+
+**Filesystem evidence — the live root is the checkout:**
+
+| Directory | HTML nodes | Newest write |
+|---|---|---|
+| **`nodes/` (install dir)** | **123** | **2026-08-23 10:39** — live |
+| `.tala_snapshots/checkpoint/nodes/` | 122 | 2026-08-23 08:39 — this morning's snapshot |
+| `%APPDATA%/tala-engine/nodes/` | 55 | 2026-08-07 — 16 days stale, pre-portability legacy |
+| `dist/win-unpacked/.../nodes/` | 7 | 2026-06-08 — stale packaged build |
+
+Only one root is live, and it is the right one.
+
+**Consequence for UI-056.** The data-root divergence hypothesis is substantially weakened — there is
+no second active root to lose writes to. UI-056's *mechanism* remains real (the canonical store is a
+file at a runtime-resolved path), but on this machine, as configured today, it is not diverging.
+Whatever caused *"after a few restarts it goes away"* is more likely the incomplete DB sync
+(the profile fields the sync never writes) than a moving directory. See UI-056's field list.
+
+### UI-096 — `electron-store` still writes outside the portable root
+**Severity: low · Status: open**
+
+One component ignores the resolver and hardcodes Electron's own userData path
+([main.js:207](../electron/main.js#L207)):
+
+```js
+store = new Store({
+  // Always store data in userData to keep it isolated from project source
+  cwd: app.getPath('userData'),
+  name: 'tala-config',
+```
+
+That resolves to `%APPDATA%/tala-engine/tala-config.json` and currently holds:
+
+```json
+{ "windowBounds": { "x": 0, "y": 0, "width": 2048, "height": 1032 },
+  "lastView": "neural-node" }
+```
+
+Low impact — window geometry and last-open view, no user data. But it is a genuine portability
+leak against the stated intent, and the comment above it (*"Always store data in userData to keep
+it isolated from project source"*) states the **opposite** policy to the one the rest of the app
+now follows. Two installs on one machine would also share this file.
+
+`ipc-handlers.js` even warns about exactly this class of mismatch: *"Must match main.js's
+resolveDataRoot() exactly, or the app, the harness, and this sandbox end up looking at different
+directories."*
+
 ---
 
 ## B. Self-navigation infrastructure gaps
@@ -2483,7 +2549,6 @@ repeat back to a user.
 | Q-48 | **Keep messaging channels at all?** Steven is undecided on a proprietary comms path. Keeping it means enforcing the allowlist (UI-083) and either building a Discord adapter or removing Discord from the dropdown (UI-084). Dropping it means deleting `channels.py`, the `chat_channels` table, and this panel. Nothing else in the audit depends on the answer. | UI-083, UI-084 |
 | Q-46 | Should nodes carry a `clearance` value in their `node-state` block? Without it the firewall slider is decorative. Which nodes would be above 0 — PII, vault, identity? | UI-082 |
 | Q-47 | `gates.py` uses credential **name + priority=1** as an authorization allowlist. Is that intended? Renaming or reordering a credential in the AUTH panel silently changes what the agent may do. | UI-081 |
-| Q-44 | **Which directory is the running app launched from?** `.tala_snapshots/checkpoint/`, the working tree, or `dist/`? This is now the single highest-value question in the audit — it likely resolves UI-056 and UI-079 together. | UI-079, UI-056 |
 | Q-43 | Should `settings.runtime` be **removed in favour of Contacts**, become a *view* onto contacts that have granted `nodes` permission, or stay as an anonymous-endpoint option alongside identity-based peers? | UI-075, UI-076 |
 | Q-42 | Is multi-database routing / read-replica failover actually wanted, or is `settings.DB_URL` the intended single source and this panel should reflect it read-only? | UI-071, UI-072 |
 | Q-40 | Which storage backends are actually needed first? Nine types are offered and none are implemented; S3-compatible alone would cover AWS, MinIO, Backblaze, Spaces and iDrive e2 in one client. | UI-068 |
@@ -2495,7 +2560,6 @@ repeat back to a user.
 | Q-37 | "A certain port" — is that restricting an outbound call Tala makes, or an inbound port a peer may reach? They are opposite enforcement points. | UI-063 |
 | Q-33 | Should the palette be generated from the **tool registry** (66 tools), from **HTML-NN nodes**, or both? Steven's framing says HTML-NN; tools are what actually execute. | UI-059 |
 | Q-34 | To let the agent run workflows: register a `workflow.execute` **tool** wrapping the RPC, or give it a generic RPC-invoke tool? The latter is far broader and worth deciding deliberately. | UI-060 |
-| Q-30 | Is the running app the dev checkout or the packaged build in `dist/win-unpacked/`? And is `TALA_USER_DATA` set in your shell? These decide which divergence is causing UI-056. | UI-056 |
 | Q-31 | Should the profile be injected into every chat system prompt, or retrieved on demand? Always-inject costs tokens each turn; retrieval means it is sometimes absent. | UI-057 |
 | Q-32 | Privacy visibility vs Contacts permissions are two access-control surfaces with different keys. Should the six dropdowns drive the per-contact permissions, or be removed in favour of Contacts? | UI-058, UI-040 |
 | Q-28 | **Are crews a separate orchestration concept, or a friendlier front-end onto swarm topologies?** Topologies already do hierarchy, distinct functions, and execution, and `TopologyNode.agent_id` already binds a node to a persona. Building crew hierarchy separately duplicates a working engine. This decides UI-049 and UI-050. | UI-049, UI-050, UI-051 |
@@ -2521,6 +2585,7 @@ repeat back to a user.
 | Q-9 | Should a failed search provider fall back to the crawler silently? | **No. A failed provider must be visible.** Fixes UI-018 and UI-020 in the same direction. |
 | Q-10 | Is the narrower Agent Chat panel a layout bug? | **No** — deliberate resize by Steven. Not a defect; closed. |
 | Q-45 | Has a rollback already reverted working-tree UI? | **No.** The checkout was 8 commits behind `origin/main`; `Scan for servers` came from `6e78a02`. UI-079 retracted. |
+| Q-44 + Q-30 | Which directory does the running app use, and is `TALA_USER_DATA` set? | **The install directory, as intended. `TALA_USER_DATA` is unset.** Steven's intent — Tala self-sustaining from her own directory, USB-portable — is implemented and working. Diagnostic in UI-095. |
 | Q-4 | `Connect VPS` — connects to what, and what changes vs `Local Only`? | **Answered by code, not by Steven.** It drives `chain.connect_vps`, switching the chain connection off local. Per README, `Stay Local` means all interactions use ghost tokens and never touch the blockchain. Still worth Steven confirming the intended user-facing wording. |
 
 ---
