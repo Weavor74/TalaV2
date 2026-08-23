@@ -17,7 +17,8 @@ nodes for self-navigation.
 ## P0 — Answer first: cheap, and they change what the other 45 mean
 
 Four questions. None needs design thought, and each collapses a chunk of the list.
-**One is now answered.** Three remain, plus one new follow-up (Q-55).
+**Two are now answered** (Q-44/Q-30 and Q-55), and between them they located the profile data-loss
+bug — see UI-099. Three of Steven's remain, plus one diagnostic I can run (Q-57).
 
 ### ~~Q-44 + Q-30~~ — Which directory is the running app launched from? **ANSWERED**
 **Blocks:** UI-056 · **Status:** closed 2026-08-23 · **Detail:** UI-095
@@ -31,10 +32,9 @@ fall through to the install directory, and `firstRunEnv()` injects the resolved 
 Python child so they cannot drift. The install-dir `nodes/` holds the newest writes (today 10:39);
 the `%APPDATA%` copy is 16 days stale and the packaged copy 2.5 months stale.
 
-**Knock-on:** UI-056's divergence hypothesis is weakened — only one root is live. The remaining
-suspect for *"after a few restarts it goes away"* is the **incomplete DB sync**, which never writes
-Roles & Work, Skills, Projects, Connections, privacy, or most of Core Identity and About. One
-follow-up added: **Q-55**.
+**Knock-on:** UI-056's divergence hypothesis is weakened — only one root is live. That pointed the
+search at the profile save path, and Q-55 below found the real cause: the node on disk is in the
+legacy flat format (UI-099).
 
 ### ~~Q-55~~ — Should the profile DB sync write the full config? **ANSWERED**
 **Blocks:** UI-056 · **Status:** closed 2026-08-23 · **Detail:** UI-099
