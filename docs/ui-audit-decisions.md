@@ -280,6 +280,20 @@ available", so lockdown can never leave the system with no model — even if Oll
 Under lockdown they are unreachable by design but would still render green. The badge should
 reflect lockdown state, or the fix for UI-046 should account for it.
 
+### Q-67 — What does "edit files and documents ... txt, images or whatever" actually cover?
+**Blocks:** UI-114 · **Who:** Steven · **Cost:** medium · *new, raised by Steven 2026-08-23*
+
+Stated as Tala's original usage intent, and the audit had almost nothing on it — `view-editor` was
+never mapped because it has no sidebar entry (UI-012).
+
+What exists is a `<textarea>` plus a preview pane gated to `.md` and `.html`. Code opens as plain
+text with no highlighting; images cannot open at all.
+
+To scope it: which formats matter first — code with syntax awareness, images, PDFs, something else?
+And is Tala meant to *edit* these herself, or is the editor for you with Tala assisting?
+
+> **Answer:**
+
 ### Q-63 — Which principal does `AuthorizationGate` resolve against?
 **Blocks:** UI-081, UI-103 · **Who:** Steven · **Cost:** low · *from Q-61*
 

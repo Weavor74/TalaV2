@@ -2981,29 +2981,71 @@ So lockdown composes three existing mechanisms rather than needing a new one:
 
 All three are live code. Lockdown is a coordinator over them, not new enforcement.
 
-### UI-113 — Git is for user projects, not for Tala's updates
-**Severity: medium · Status: specified · Source: Q-39 + Q-66**
+### UI-113 — Tala does not use git at all; the panel is the user's version control
+**Severity: medium · Status: specified · Source: Q-39, Q-66, corrected**
 
-> **Steven (Q-39):** *"Technically she should get her updates from the website and not pull the
-> repo."*
->
-> **Steven (Q-66):** *"Tala info should come from the website but it doesn't mean that other content
-> and code projects don't come from git. Git provides a good local repo for various things."*
+> **Steven:** *"The GIT panel should stay. But Tala does not use GIT for herself."*
 
-Two distinct uses, and only one is settled against git:
+> **Correction (same session).** This entry previously concluded that because user code projects
+> come from git, *"clone plausibly is needed after all"* for Tala to work with user repos. That was
+> my inference, not Steven's answer, and it is wrong. **Tala does not use git for herself in any
+> capacity** — not for updates, and not to fetch repos to work on.
 
-| Use | Mechanism |
+Accurate reading:
+
+| Concern | Mechanism |
 |---|---|
-| Tala's own updates | **the website** — not git |
-| user code and content projects | **git**, via the configured providers |
+| Tala's own updates | **the website** |
+| the user's code and content projects | **git** — the user's own version control, configured here |
+| Tala's involvement with git | **none** |
 
-**This qualifies the earlier reading of Q-39.** UI-067 recorded that clone and push do not exist;
-Q-39 alone suggested they were not needed. Q-66 reopens that — working with user repos plausibly
-requires clone, so the `.GIT` panel keeps its purpose and its providers.
+The `.GIT` panel stays because it serves the user, not because Tala drives it. `system.trigger_update`
+running a bare `git pull` to update Tala herself
+([server.py:9993](../python/harness/server.py#L9993)) remains the wrong mechanism.
 
-What *is* confirmed wrong is `system.trigger_update`
-([server.py:9993](../python/harness/server.py#L9993)) running a bare `git pull` to update Tala
-herself. That is the wrong mechanism for the wrong job, independent of whether clone gets built.
+### UI-114 — Tala's original purpose — editing documents of any type — is barely represented
+**Severity: high · Status: open · Raised by Steven, 2026-08-23**
+
+> **Steven:** *"We technically forgot some things. Her original usage intent was a method to edit
+> files and documents. Be them txt, images or whatever. This included code."*
+
+This is a scope gap in the audit itself, not just in the code. Across 113 prior findings, **document
+and file editing is almost absent** — because the surface that would hold it was never mapped.
+
+**`view-editor` is one of the two views recorded in UI-012 as having no traced entry point**, and it
+is where this purpose lives. Its entire markup is:
+
+| Element | Purpose |
+|---|---|
+| `editor-textarea` | the editor |
+| `editor-preview-pane` | rendered preview |
+
+Wired at [renderer.js:182](../renderer/renderer.js#L182) — `btn-save-file`, `btn-editor-edit-mode`,
+`btn-editor-preview-mode`.
+
+**It is text-only.** The editor is a `<textarea>`, and preview is gated on file extension
+([renderer.js:268](../renderer/renderer.js#L268)):
+
+```js
+const isPreviewable = tab.filePath && (tab.filePath.endsWith('.md') || tab.filePath.endsWith('.html'));
+```
+
+So against the stated intent — *"txt, images or whatever... this included code"*:
+
+| Type | Supported |
+|---|---|
+| plain text | yes |
+| Markdown, HTML | yes, with preview |
+| **code** | as text only — no syntax highlighting, no language awareness |
+| **images** | **no** — a `<textarea>` cannot hold one |
+| anything else | no |
+
+**Two things follow.** First, `view-editor` needs mapping properly — it was skipped because it has
+no sidebar entry, and it turns out to be central rather than peripheral. Second, the gap between a
+text-area and "edit files and documents, be them txt, images or whatever" is a feature question, not
+a bug: it needs scoping before it can be planned.
+
+Raised as **Q-67**.
 
 ---
 
