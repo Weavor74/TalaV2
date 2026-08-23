@@ -435,101 +435,149 @@ today — no port concept appears anywhere in the codebase.
 
 ## P3 — Capability gaps: this tier is what "so the functionality is there" means
 
-Twelve questions. Each is a place where Tala currently *cannot do* something the UI implies she
-can. This is the real precondition for self-navigation.
+**All twelve answered 2026-08-23.** One follow-up: **Q-65**. Two answers widen scope rather than
+close it — Q-33 (the tool registry is not HTML-NN backed) and Q-40 (no storage client exists for any
+backend).
 
-### Q-56 — Which platforms must MCP discovery support, and is a per-OS path table wanted?
-**Blocks:** UI-097 · **Who:** Steven · **Cost:** low · *new, raised by Steven 2026-08-23*
+### Q-65 — Vault search vs the network-isolation guard
+**Blocks:** UI-038 · **Who:** Steven · **Cost:** low · *from Q-20*
 
-7 of 8 discovery locations can never match on Linux or macOS — `%VAR%` syntax is not expanded by
-POSIX `expandvars`, and backslashes are literal filename characters there. The failure is silent:
-zero servers found looks identical to zero servers installed. Fixing it needs real per-OS paths
-(Claude Desktop lives in `~/Library/Application Support/` on macOS, `~/.config/` on Linux), not
-just syntax repair.
-
-> **Answer:**
-
-### Q-34 — `workflow.execute` as a tool, or a generic RPC-invoke tool?
-**Blocks:** UI-060 · **Who:** Steven · **Cost:** low
-
-The compiled workflow node *tells* Tala to call `workflow.execute`, and she has no mechanism to.
-A generic RPC-invoke tool would expose every method in the harness — decide deliberately.
+`vault:read` is refused unless network isolation is active (UI-102), but Unified Search's `web`
+scope needs the network. A search covering both the vault and the web is therefore contradictory
+under the current guard. Does vault search drop the web scope, does the guard relax for search, or
+do the two scopes become mutually exclusive in the UI?
 
 > **Answer:**
 
-### Q-50 — Which log surface does Tala get: read-only, or also archive/clear?
-**Blocks:** UI-086 · **Who:** Steven · **Cost:** low
 
-Self-diagnosis needs `get_events` + `get_health`. The other two let her erase her own audit trail.
+### ~~Q-56~~ — Per-OS path table for MCP discovery? **ANSWERED — YES**
+**Blocks:** UI-097 · **Status:** closed 2026-08-23
 
-> **Answer:**
+> **Steven:** *"per-OS path table is wanted."*
 
-### Q-49 — Bridge `logger.*` into `agent_log`, or convert call sites individually?
-**Blocks:** UI-085 · **Who:** Steven · **Cost:** low
+Replaces the `%VAR%` strings with a real per-platform table. Claude Desktop lives at
+`~/Library/Application Support/Claude/` on macOS and `~/.config/Claude/` on Linux; the two
+backslash-separated project paths need POSIX separators too.
 
-A logging handler catches all 257 sites and every future one. Today `agent_log` is written at INFO
-and WARNING only — never ERROR, and never from an RPC failure path.
+### ~~Q-34~~ — `workflow.execute` tool, or generic RPC-invoke? **ANSWERED**
+**Blocks:** UI-060 · **Status:** closed 2026-08-23 · **Detail:** UI-106
 
-> **Answer:**
+> **Steven:** *"A workflow is a series of tool calls, that pass one bit of info from one tool to the
+> next until desired outcome. Tala has the ability to call an html-nn and act upon that. Or at least
+> she should."*
 
-### Q-7 — Is watching Tala browse a requirement, or is headless fine if she reports back?
-**Blocks:** UI-013 · **Who:** Steven · **Cost:** low · *Answer before Q-6*
+Neither option as posed — the mechanism is **acting on an HTML-NN**, since workflows compile to one.
+No generic RPC-invoke tool needed.
 
-Decides whether UI-013 is a defect or a design choice.
+**Half of it already exists.** She has `read_neural_node`, `list_neural_nodes` and
+`update_neural_node`, so she can *call* a node. What is missing is *acting on* it: there is no
+execute path, so reading a compiled workflow node tells her what to do and gives her no way to do
+it. That is the precise gap.
 
-> **Answer:**
+### ~~Q-50~~ — Which log surface does Tala get? **ANSWERED — READ-ONLY**
+**Blocks:** UI-086 · **Status:** closed 2026-08-23
 
-### Q-6 — Re-point Tala's browser tools at the visible webview, or have the webview mirror Playwright?
-**Blocks:** UI-013, UI-016 · **Who:** Steven · **Cost:** medium
+> **Steven:** *"She cannot clear her logs but I should be able too."*
 
-> **Answer:**
+Tala gets `logging.get_events` and `logging.get_health` as tools. `archive_events` and
+`clear_events` stay UI-only, operator-invoked. She can diagnose herself but cannot erase her own
+audit trail.
 
-### Q-19 — "Local LLM could reference" the vault: does that mean Ollama-only?
-**Blocks:** UI-038 · **Who:** Steven · **Cost:** low
+### ~~Q-49~~ — Bridge `logger.*` into `agent_log`, or convert call sites? **ANSWERED — BRIDGE**
+**Blocks:** UI-085 · **Status:** closed 2026-08-23
 
-The isolation guard refuses vault reads whenever network is active, so a remote provider could
-never read it by design.
+> **Steven:** *"Bridge"*
 
-> **Answer:**
+A logging handler writing through `log_to_db` catches all 257 existing call sites and every future
+one, rather than converting them individually and missing new ones.
 
-### Q-18 — Vault scope: plain files, or HTML-NN documents like everything else?
-**Blocks:** UI-036, UI-037 · **Who:** Steven · **Cost:** medium
+### ~~Q-7~~ — Must Tala's browsing be visible? **ANSWERED — PREFERRED, NOT REQUIRED**
+**Blocks:** UI-013 · **Status:** closed 2026-08-23
 
-Decides the whole build. Your universal-data mandate points one way; "editable private documents"
-sounds like arbitrary files.
+> **Steven:** *"I like to watch her navigate but if its to complex"*
 
-> **Answer:**
+Visibility is a preference with an explicit escape hatch, not a hard requirement. That makes UI-013
+a **UX gap rather than a defect** — and it points directly at the recommendation under Q-6.
 
-### Q-20 — Should the vault be a source in Unified Search?
-**Blocks:** UI-038 · **Who:** Steven · **Cost:** low
+### ~~Q-6~~ — Re-point browser tools, or mirror? **ANSWERED — MY CALL: MIRROR**
+**Blocks:** UI-013, UI-016 · **Status:** closed 2026-08-23
 
-Alongside Web / Chat Sessions / Neural Nodes / Tasks.
+> **Steven:** *"Which ever would be more profitable."*
 
-> **Answer:**
+Delegated, so here is the recommendation and the reasoning: **keep Playwright as the driver and
+mirror its navigation into the visible webview.**
 
-### Q-31 — Profile into every system prompt, or retrieved on demand?
-**Blocks:** UI-057 · **Who:** Steven · **Cost:** low
+| | Re-point tools at the webview | Mirror Playwright into the webview |
+|---|---|---|
+| capability | Electron `<webview>` lacks Playwright's wait primitives, network interception and robust selectors | keeps all six working tools unchanged |
+| coupling | agent work would require the UI open and on that tab | agent work stays headless and independent |
+| build cost | rewrite all six tools against a weaker API | **mostly already built** — `browser.navigate` push works today, listener at [renderer.js:7147](../renderer/renderer.js#L7147) |
+| satisfies Q-7 | yes | yes |
 
-Always-inject costs tokens every turn; retrieval means it is sometimes absent. Today it is never
-present — the profile is wired to be shared with peers and not to be used by your own agent.
+Mirroring gives the watchability Steven wants at a fraction of the cost, and does not trade away
+Playwright's reliability. Re-pointing would be the more expensive option *and* the weaker one.
 
-> **Answer:**
+### ~~Q-19~~ — Does "local LLM" mean Ollama-only? **ANSWERED — ANY LOCAL ENGINE**
+**Blocks:** UI-038 · **Status:** closed 2026-08-23
 
-### Q-33 — Workflow palette from the tool registry, from HTML-NN nodes, or both?
-**Blocks:** UI-059 · **Who:** Steven · **Cost:** medium
+> **Steven:** *"Ollama, vllm, llama.cpp, any one the end user decides to install."*
 
-Your framing says HTML-NN; tools are what actually execute. Five hardcoded types today, with 66
-tools and 123 nodes unreachable.
+The vault gate keys on **provider type**, not vendor — `local` and `embedded` qualify, `remote` does
+not. Matches the Engine Manager, which already offers HuggingFace, vLLM and llama.cpp alongside
+Ollama.
 
-> **Answer:**
+### ~~Q-18~~ — Vault scope: files or HTML-NN? **ANSWERED — ANYTHING**
+**Blocks:** UI-036, UI-037 · **Status:** closed 2026-08-23
 
-### Q-40 — Which storage backends are needed first?
-**Blocks:** UI-068 · **Who:** Steven · **Cost:** low
+> **Steven:** *"This could be anything as it is being privately added and we want source of truth."*
 
-S3-compatible alone covers AWS, MinIO, Backblaze, Spaces **and iDrive e2** — five of your named
-targets for one dependency.
+Arbitrary files. **This is a deliberate exception to the HTML-NN universal-data mandate** — worth
+recording as such, since that mandate otherwise governs everything the harness creates or consumes.
+The reasoning is source-of-truth: a privately added document should be stored as it is, not
+transformed.
 
-> **Answer:**
+### ~~Q-20~~ — Vault as a Unified Search source? **ANSWERED — YES**
+**Blocks:** UI-038 · **Status:** closed 2026-08-23
+
+> **Steven:** *"If its in the vault yes"*
+
+**One conflict to resolve (Q-65).** `vault:read` is refused unless network isolation is active, but
+Unified Search's `web` scope requires network. So a single search cannot cover both the vault and
+the web under the current guard.
+
+### ~~Q-31~~ — Profile in every prompt, or on demand? **ANSWERED — ON DEMAND**
+**Blocks:** UI-057 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Tala needs to reference it only when she determines its necessary."*
+
+Agent-initiated retrieval, not prompt injection — so this is a **tool**, not a system-prompt change.
+Costs no tokens on turns that do not need it.
+
+### ~~Q-33~~ — Workflow palette from tools or HTML-NN? **ANSWERED**
+**Blocks:** UI-059 · **Status:** closed 2026-08-23 · **Detail:** UI-107
+
+> **Steven:** *"The tool registry should be a collection of html-nn. If they are not we need to
+> address that."*
+
+**They are not.** Checked: 66 tools are registered as Python functions via `@register_tool`, and the
+56 `sdk_agent_*.html` nodes document **modules** (`sdk_agent_planner`, `sdk_agent_shell`, ...), not
+individual tools. There is no node per tool and no correspondence between the two counts.
+
+So the palette question resolves into a larger one: making the registry itself HTML-NN-backed, per
+the universal-data mandate. Recorded as UI-107.
+
+### ~~Q-40~~ — Which storage backends first? **ANSWERED — ANY**
+**Blocks:** UI-068 · **Status:** closed 2026-08-23
+
+> **Steven:** *"We don't add these, user adds these. So it can be any storage backend."*
+
+The user configures the backend, so the panel stays generic — its nine types plus `custom` already
+allow that.
+
+**Worth being explicit:** the user supplying an endpoint and credentials does not remove the need
+for a **client library** in the app. None of `boto3`, `paramiko`, `googleapiclient`, `msal` or
+`azure-storage-blob` is present or declared, so no configured backend can currently be reached
+regardless of who configures it. UI-068 stands.
 
 ---
 

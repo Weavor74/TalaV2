@@ -2805,6 +2805,68 @@ decides which one a transaction lands on.
 code imports it. Steven's instinct that "the other works better" is correct; the Python ledger is
 safe to delete.
 
+### UI-106 — Tala can read an HTML-NN but cannot act on one
+**Severity: high · Status: specified · Source: Q-34**
+
+> **Steven:** *"A workflow is a series of tool calls, that pass one bit of info from one tool to the
+> next until desired outcome. Tala has the ability to call an html-nn and act upon that. Or at least
+> she should."*
+
+The mechanism is **acting on a node**, not a dedicated `workflow.execute` tool and not a generic
+RPC-invoke tool. That resolves UI-060's question without widening the agent's reach to every RPC in
+the harness.
+
+**Half of it is already built.** The registry has three node tools:
+
+| Tool | Verb |
+|---|---|
+| `read_neural_node` | read |
+| `list_neural_nodes` | enumerate |
+| `update_neural_node` | write |
+
+So she can **call** a node. What is absent is a verb for **acting on** one — there is no
+`execute_node`, no `run_node`, nothing that takes a compiled workflow node and runs its steps.
+
+That is the exact shape of UI-060: the compiled workflow node *documents* how to run itself
+("invoke `workflow.execute` with Flow ID ..."), Tala can read that instruction, and she has no
+mechanism to follow it. The gap is one verb wide.
+
+### UI-107 — The tool registry is not HTML-NN backed
+**Severity: high (mandate) · Status: open · Source: Q-33**
+
+> **Steven:** *"The tool registry should be a collection of html-nn. If they are not we need to
+> address that."*
+
+**They are not.** Verified:
+
+| | Count | What it is |
+|---|---|---|
+| `@register_tool` in `sdk/agent/tools.py` | **66** | Python functions — the actual registry |
+| `nodes/sdk_agent_*.html` | **56** | **module** docs (`sdk_agent_planner`, `sdk_agent_shell`, ...) |
+
+The counts do not correspond because the nodes document **modules, not tools**. There is no node per
+tool, and no path from a node back to a callable.
+
+This is a direct conflict with the HTML-NN universal-data mandate, and it is upstream of the
+workflow palette (UI-059): a palette generated from HTML-NN cannot list tools until tools *are*
+HTML-NN. Both questions collapse into this one.
+
+### UI-108 — The vault is a deliberate exception to the HTML-NN mandate
+**Severity: informational · Status: decided · Source: Q-18**
+
+> **Steven:** *"This could be anything as it is being privately added and we want source of truth."*
+
+Vault contents are **arbitrary files**, not HTML-NN. Recorded explicitly because the universal-data
+mandate otherwise governs everything the harness creates or consumes, and a future reader would
+reasonably assume it applies here too.
+
+The reasoning is source-of-truth preservation: a privately added document is stored as it is rather
+than transformed into a node. This is the one place the mandate is deliberately not applied.
+
+**Interacts with Q-20/Q-65.** Steven also wants vault contents searchable from Unified Search. But
+`vault:read` is refused unless network isolation is active (UI-102), while Unified Search's `web`
+scope requires the network — so one search cannot currently span both.
+
 ---
 
 ## B. Self-navigation infrastructure gaps
