@@ -354,3 +354,54 @@ async def refresh_mcp_tools_tool() -> dict[str, Any]:
     from sdk.agent.mcp_bridge import register_mcp_tools
 
     return await register_mcp_tools()
+
+
+@register_tool(
+    name="control_swarm",
+    description=(
+        "Pause, resume or cancel a running swarm by its parent task id. Cascades to every "
+        "node the swarm dispatched."
+    ),
+)
+async def control_swarm(parent_task_id: str, action: str) -> dict[str, Any]:
+    """
+    NAME
+           control_swarm - stop or hold a running swarm
+
+    SYNOPSIS
+           control_swarm(parent_task_id: str, action: str) -> dict[str, Any]
+
+    DESCRIPTION
+           action is one of pause, resume, abort.
+
+           start_swarm could launch work that nothing could then stop: the
+           swarm.pause / resume / cancel methods existed and had no caller
+           anywhere. Being able to start something without being able to stop it
+           is worse for the agent than for a person, because she cannot see the
+           task queue.
+
+           Cascades. task.control acts on the parent and every child, so a swarm
+           parent takes all of its dispatched nodes with it.
+    """
+    from python.harness.server import handle_task_control
+
+    valid = {"pause", "resume", "abort"}
+    action = (action or "").strip().lower()
+    if action not in valid:
+        return {"success": False, "error": f"'action' must be one of {sorted(valid)}"}
+    if not (parent_task_id or "").strip():
+        return {"success": False, "error": "'parent_task_id' is required"}
+
+    import json as _json
+
+    raw = await handle_task_control(
+        {"task_id": parent_task_id.strip(), "action": action}, req_id=None
+    )
+    try:
+        payload = _json.loads(raw)
+    except Exception:
+        return {"success": False, "error": "Unreadable response from task.control"}
+
+    if "error" in payload:
+        return {"success": False, "error": payload["error"].get("message", "unknown")}
+    return {"success": True, "action": action, "parent_task_id": parent_task_id, **(payload.get("result") or {})}

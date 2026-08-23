@@ -10179,7 +10179,12 @@ const MissionControl = {
         const action = btn.getAttribute('data-task-action');
         if (action === 'edit') this.openTaskEditor(id);
         else if (action === 'delete') this.deleteTask(id);
-        else if (action === 'abort') this.abortTask(id);
+        // pause / resume / abort all go through task.control, which acts on the
+        // task AND its children -- so pausing a swarm parent pauses every node
+        // it dispatched. That is what makes swarm control reachable at all:
+        // swarm.pause/resume/cancel are thin wrappers over this same handler,
+        // and nothing had ever called any of them.
+        else if (['abort', 'pause', 'resume'].includes(action)) this.controlTask(id, action);
       });
     }
   },
@@ -10223,12 +10228,19 @@ const MissionControl = {
     }
   },
 
-  async abortTask(id) {
+  async controlTask(id, action) {
+    // Aborting is not reversible and cascades to children, so it confirms;
+    // pause and resume do not, because their whole value is being quick.
+    if (action === 'abort') {
+      const task = (this._taskCache || []).find(t => t.id === id);
+      const label = task ? `"${task.description}"` : id;
+      if (!confirm(`Abort ${label}? This also stops any sub-tasks it started, and cannot be undone.`)) return;
+    }
     try {
-      await invoke('python:rpc', { method: 'task.control', params: { task_id: id, action: 'abort' } });
+      await invoke('python:rpc', { method: 'task.control', params: { task_id: id, action } });
       await this.loadTasks();
     } catch (err) {
-      IPCLog.append('error', `Could not abort task: ${err.message || err}`);
+      IPCLog.append('error', `Could not ${action} task: ${err.message || err}`);
     }
   },
 
@@ -10688,7 +10700,11 @@ const MissionControl = {
                     ${t.status}
                   </span>
                   ${MissionControl.TASK_LIVE_STATUSES.includes(t.status)
-                    ? `<button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Abort</button>`
+                    ? `<button class="btn btn-ghost" data-task-action="pause" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Pause</button>
+                       <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Abort</button>`
+                    : t.status === 'paused'
+                    ? `<button class="btn btn-ghost" data-task-action="resume" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Resume</button>
+                       <button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`
                     : `<button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`}
                   <button class="btn btn-ghost" data-task-action="delete" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;">Delete</button>
                 </div>
@@ -13063,6 +13079,20 @@ const MCPServerRegistryManager = {
     this._list = document.querySelector('#mcp-server-list');
     this._transport = document.querySelector('#mcp-server-transport');
     this._btnRefresh = document.querySelector('#btn-mcp-refresh');
+    this._btnDiscover = document.querySelector('#btn-mcp-discover');
+    this._discovered = document.querySelector('#mcp-discovered');
+    this._discoveredList = document.querySelector('#mcp-discovered-list');
+
+    if (this._btnDiscover) this._btnDiscover.addEventListener('click', () => this.discoverServers());
+    const btnClose = document.querySelector('#btn-mcp-discover-close');
+    if (btnClose) btnClose.addEventListener('click', () => { if (this._discovered) this._discovered.hidden = true; });
+    // Delegated: the list is re-rendered on every scan.
+    if (this._discoveredList) {
+      this._discoveredList.addEventListener('click', (e) => {
+        const btn = e.target.closest('[data-adopt]');
+        if (btn) this.adoptDiscovered(btn.getAttribute('data-adopt'));
+      });
+    }
 
     if (this._transport) {
       this._transport.addEventListener('change', () => this.updateTransportFields());
@@ -13116,6 +13146,68 @@ const MCPServerRegistryManager = {
     const config = { transport, command, args };
     if (cwd) config.cwd = cwd;
     return config;
+  },
+
+  /* Scanning for MCP servers other clients on this machine already define,
+     so a command and its arguments need not be retyped here. Read-only: the
+     scan connects to nothing, because adopting a server runs a subprocess with
+     the operator's privileges and that is their decision, not a scan's. */
+
+  _discoveredCache: [],
+
+  async discoverServers() {
+    if (!this._discoveredList) return;
+    try {
+      const res = await window.tala.request('mcp.discover', {});
+      const found = (res && res.discovered) || [];
+      this._discoveredCache = found;
+      this._discovered.hidden = false;
+
+      if (found.length === 0) {
+        this._discoveredList.innerHTML = `<div style="font-size: 0.8rem; color: var(--text-muted);">No MCP servers found in the config files of other clients on this machine.</div>`;
+        return;
+      }
+
+      this._discoveredList.innerHTML = found.map((d, i) => `
+        <div style="display: flex; align-items: center; gap: var(--space-2); font-size: 0.8rem;">
+          <div style="flex: 1; min-width: 0;">
+            <strong>${escapeHtml(d.name)}</strong>
+            <span style="color: var(--text-muted);"> · ${escapeHtml(d.transport)} · from ${escapeHtml(d.source)}</span>
+            ${d.has_env_secrets ? '<span style="color: var(--accent-orange);"> · has secrets</span>' : ''}
+            <div style="color: var(--text-muted); font-family: var(--font-mono); font-size: 0.7rem; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;">${escapeHtml(d.url || [d.command].concat(d.args || []).join(' '))}</div>
+          </div>
+          ${d.already_registered
+            ? '<span style="font-size: 0.7rem; color: var(--text-muted);">already added</span>'
+            : `<button class="btn btn-secondary" data-adopt="${i}" style="font-size: 0.7rem; padding: 3px 10px;">Adopt</button>`}
+        </div>`).join('');
+    } catch (err) {
+      this._discoveredList.innerHTML = `<div style="font-size: 0.8rem; color: #ff6b6b;">Scan failed: ${escapeHtml(err.message || String(err))}</div>`;
+      this._discovered.hidden = false;
+    }
+  },
+
+  async adoptDiscovered(index) {
+    const d = this._discoveredCache[Number(index)];
+    if (!d) return;
+    // The scan never carries an env block, so a server that needs secrets is
+    // adopted without them and will fail until they are filled in here. Said
+    // plainly rather than discovered at the first tool call.
+    const warning = d.has_env_secrets
+      ? ' This server defines environment secrets, which are NOT copied — you will need to add them here before it works.'
+      : '';
+    if (!confirm(`Adopt "${d.name}"? This registers it and starts its process when tools are listed.${warning}`)) return;
+
+    const config = d.transport === 'sse'
+      ? { transport: 'sse', url: d.url }
+      : { transport: 'stdio', command: d.command, args: d.args || [] };
+    try {
+      const res = await window.tala.request('mcp.connect_server', { name: d.name, config, persist: true });
+      IPCLog.append('ok', `Adopted MCP server "${d.name}" (${(res && res.tools_registered) || 0} tools registered).`);
+      await this.discoverServers();
+      await this.loadServers();
+    } catch (err) {
+      IPCLog.append('error', `Could not adopt "${d.name}": ${err.message || err}`);
+    }
   },
 
   async connectServer() {
