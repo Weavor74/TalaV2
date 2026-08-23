@@ -2466,6 +2466,55 @@ now follows. Two installs on one machine would also share this file.
 resolveDataRoot() exactly, or the app, the harness, and this sandbox end up looking at different
 directories."*
 
+### UI-097 — MCP server discovery is Windows-only and fails silently elsewhere
+**Severity: high · Status: open · Raised by Steven, 2026-08-23**
+
+Steven's concern — *"%APPDATA% is specific to windows and may not work on linux or mac"* — is
+correct, and the place it actually bites is the **newly-shipped MCP discovery** feature
+(`2c58af1`, one of the eight commits this audit originally missed).
+
+`_DISCOVERY_LOCATIONS` ([mcp_bridge.py:193](../sdk/agent/mcp_bridge.py#L193)) uses Windows `cmd`
+variable syntax and backslash separators throughout — five entries keyed on `%APPDATA%` or
+`%USERPROFILE%`, plus two project paths written with backslashes.
+
+Expansion is `os.path.expandvars(raw_path)` ([:253](../sdk/agent/mcp_bridge.py#L253)). **On POSIX,
+`expandvars` expands `$VAR` and `${VAR}` only — it does not understand `%VAR%`.** The string passes
+through unchanged, `Path()` treats it as a relative path whose first component is the literal text
+`%APPDATA%`, and the file is never found.
+
+Effect per platform:
+
+| Location | Windows | Linux / macOS |
+|---|---|---|
+| 5 `%APPDATA%` / `%USERPROFILE%` entries | resolve | **literal, never match** |
+| the two backslash-separated project paths | resolve | **backslash is a filename character on POSIX** — never match |
+| `.mcp.json` | resolves | resolves |
+
+So on Linux and macOS **7 of 8 discovery locations can never match**, and the failure is invisible:
+finding zero servers looks exactly like having zero servers installed. The `Scan for servers` button
+would appear to work and always come back empty.
+
+The correct paths also differ per OS — Claude Desktop is
+`~/Library/Application Support/Claude/` on macOS and `~/.config/Claude/` on Linux — so this needs a
+per-platform table, not just syntax repair.
+
+### UI-098 — Two comments describe an APPDATA fallback that was deliberately removed
+**Severity: low · Status: open**
+
+The portable resolver is correct (UI-095), but two comments in `server.py` describe the *old*
+behaviour as if it were current:
+
+- [server.py:517](../python/harness/server.py#L517) — *"the single canonical resolver ... (TALA_USER_DATA override -> **APPDATA if set** -> a directory relative to the application's own install location)"*
+- [server.py:9075](../python/harness/server.py#L9075) — *"falls back to the standard **TALA_USER_DATA/APPDATA/app-relative** resolver"*
+
+`resolve_user_data_dir()` has **no APPDATA step**. Its own docstring records why it was taken out:
+*"APPDATA is set on essentially every real Windows machine, so auto-preferring it silently defeated
+portability by default there — exactly the case that matters most, since Windows is the common
+USB-boot target."*
+
+Harmless at runtime, but both comments assert the exact Windows-specific behaviour the design
+rejects, and would mislead the next person checking whether the app is portable.
+
 ---
 
 ## B. Self-navigation infrastructure gaps

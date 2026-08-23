@@ -208,8 +208,19 @@ Opposite enforcement points, built in different places. No port concept exists a
 
 ## P3 — Capability gaps: this tier is what "so the functionality is there" means
 
-Eleven questions. Each is a place where Tala currently *cannot do* something the UI implies she
+Twelve questions. Each is a place where Tala currently *cannot do* something the UI implies she
 can. This is the real precondition for self-navigation.
+
+### Q-56 — Which platforms must MCP discovery support, and is a per-OS path table wanted?
+**Blocks:** UI-097 · **Who:** Steven · **Cost:** low · *new, raised by Steven 2026-08-23*
+
+7 of 8 discovery locations can never match on Linux or macOS — `%VAR%` syntax is not expanded by
+POSIX `expandvars`, and backslashes are literal filename characters there. The failure is silent:
+zero servers found looks identical to zero servers installed. Fixing it needs real per-OS paths
+(Claude Desktop lives in `~/Library/Application Support/` on macOS, `~/.config/` on Linux), not
+just syntax repair.
+
+> **Answer:**
 
 ### Q-34 — `workflow.execute` as a tool, or a generic RPC-invoke tool?
 **Blocks:** UI-060 · **Who:** Steven · **Cost:** low
