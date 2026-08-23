@@ -590,14 +590,22 @@ Three answers changed the shape of a finding rather than just closing it: **Q-25
 are real presets), **Q-42** (multi-DB is content partitioning, not failover) and **Q-41** (storage is
 for HTML-NN distribution, not backup). One follow-up: **Q-66**.
 
-### Q-66 — What are the Git providers for, if updates come from a website?
-**Blocks:** UI-067 · **Who:** Steven · **Cost:** one line · *from Q-39*
+### ~~Q-66~~ — What are the Git providers for? **ANSWERED**
+**Blocks:** UI-067 · **Status:** closed 2026-08-23
 
-Q-39 removes updates as the reason for git. The `.GIT` panel still collects providers, credentials
-and priority — so either they serve some other purpose (Tala committing her own work? cloning a user
-repo to operate on?), or the panel comes out with clone/push.
+> **Steven:** *"Tala info should come from the website but it doesn't mean that other content and
+> code projects don't come from git. Git provides a good local repo for various things."*
 
-> **Answer:**
+Two separate uses, and Q-39 only settled one of them:
+
+| Use | Mechanism |
+|---|---|
+| **Tala's own updates** | the website — **not** git |
+| **User code and content projects** | git, via the configured providers |
+
+**This qualifies Q-39.** Clone is not needed for self-update, but it plausibly *is* needed for
+working with user repos — so UI-067's missing clone/push is not simply off the table. What is
+confirmed wrong is `system.trigger_update` running a bare `git pull` to update Tala herself.
 
 
 ### ~~Q-2~~ — The green dot beside **AGENT CHAT**? **ANSWERED**
@@ -607,17 +615,13 @@ repo to operate on?), or the panel comes out with clone/push.
 
 Indicates an agent is active. Steven's wording for the map: **"Active agent"**.
 
-### Q-5 — What do the two small pills on each Neural Node card mean to you? **RE-ASKED**
-**Blocks:** landing node · **Who:** Steven · **Cost:** one line
+### ~~Q-5~~ — What do the two pills on each Neural Node card mean? **ANSWERED**
+**Blocks:** landing node · **Status:** closed 2026-08-23
 
-My earlier wording ("card chips") was unclear — sorry. I mean the two little labelled pills on every
-card in the **Neural Nodes** grid, reading `Exec: 0.50` and `Mem: 1.00`.
+> **Steven:** *"Authority weights"*
 
-They render the node's `data-execution-authority` and `data-memory-authority` attributes. What I need
-is **your** phrasing for what they mean day to day — because the map records what you would say to
-someone asking, not the attribute names.
-
-> **Answer:**
+Steven's term for the map: **authority weights**. `Exec:` is execution authority, `Mem:` is memory
+authority — but "authority weights" is what the node should say when asked.
 
 ### ~~Q-1~~ — Status-bar token field? **ANSWERED — WALLET BALANCE**
 **Blocks:** UI-001, UI-002, UI-003 · **Status:** closed 2026-08-23
@@ -690,20 +694,14 @@ Remove the selector. Unlike the env presets beside it, this one has no intended 
 They leave the inference priority list entirely, so the displayed order finally matches the
 effective fallback chain.
 
-### Q-38 — Should a search provider's green `ACTIVE` badge be real? **RE-ASKED**
-**Blocks:** UI-064 · **Who:** Steven · **Cost:** one line
+### ~~Q-38~~ — Should the search provider `ACTIVE` badge be real? **ANSWERED — MAKE IT REAL**
+**Blocks:** UI-064 · **Status:** closed 2026-08-23
 
-Clearer version of the question. On the SEARCH panel each provider row shows a green dot and the
-word `ACTIVE`. That text is hardcoded — it is not checking anything, so a provider with a dead or
-expired API key still shows green.
+> **Steven:** *"Make it real."*
 
-Two options: **(a)** make it real by sending a cheap test request so a dead provider turns red, or
-**(b)** remove the badge, since a badge that always says the same thing is worse than none.
-
-Relevant: nothing anywhere else in the app would reveal a dead search provider — a failing one
-silently falls back to DuckDuckGo scraping (UI-018).
-
-> **Answer:**
+A cheap authenticated request per provider, so a dead or expired key shows red. Matters because
+nothing else in the app would reveal a failed provider — UI-018 has it falling back silently to
+DuckDuckGo scraping.
 
 ### ~~Q-53~~ — Nine hardcoded subsystem statuses? **ANSWERED — WIRE THEM ALL**
 **Blocks:** UI-091 · **Status:** closed 2026-08-23
@@ -754,9 +752,13 @@ and `system.trigger_update`'s bare `git pull` is itself the wrong mechanism.
 > **Steven:** *"We are meant to be able to store html-nn anywhere, so we can share or remotely
 > access."*
 
-Storage backends are for **HTML-NN distribution**, not just backup — sharing and remote access are
-the point. That raises UI-068's priority: no client library exists for any backend, so no node can
-be stored anywhere but locally today.
+**Corrected 2026-08-23.** Steven: *"Not required. As well as not only. TALA can store text, image,
+audio or anything in the remote storage. A common use may be remote html-nn."*
+
+So remote storage is **optional, and general-purpose** — any content type, with HTML-NN as one
+common use rather than the purpose. My earlier framing here ("for HTML-NN distribution, not
+backup") over-narrowed it *and* over-elevated it. UI-068 stands as a real gap, but as a
+**capability that is unavailable**, not a blocked requirement.
 
 ### ~~Q-42~~ — Multi-database routing? **ANSWERED — PARTITION BY DOMAIN, NOT FAILOVER**
 **Blocks:** UI-071, UI-072 · **Status:** closed 2026-08-23
@@ -765,6 +767,9 @@ be stored anywhere but locally today.
 > and all my info on conversation on this DB."*
 
 **Not replication or failover — content routing.** Each database holds a subject domain.
+
+**Steven, confirming 2026-08-23:** *"Yes they technically are not failovers as you can't replicate
+data across multiple types of DB. They are additional DB."* — additional databases, not replicas.
 
 That means the panel's stated rules are describing the wrong feature entirely: *"Automatic Failover
 — if the primary replica goes offline, reroute to the next healthy standby"* has nothing to do with

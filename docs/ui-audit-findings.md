@@ -2930,23 +2930,82 @@ but UI-072's remedy is not "implement failover" — it is **replace the panel's 
 Priority ordering and the failover rule should come out, and a per-database content scope should go
 in.
 
-### UI-111 — Storage backends are for HTML-NN distribution, not backup
-**Severity: high · Status: specified · Source: Q-41**
+### UI-111 — Remote storage is optional and general-purpose
+**Severity: medium · Status: specified · Source: Q-41, corrected**
 
-> **Steven:** *"We are meant to be able to store html-nn anywhere, so we can share or remotely
-> access."*
+> **Steven:** *"Not required. As well as not only. TALA can store text, image, audio or anything in
+> the remote storage. A common use may be remote html-nn."*
 
-This raises **UI-068**'s priority rather than confirming it as a backup nicety. Storage is a
-**distribution channel for nodes** — sharing them and reaching them remotely is the purpose.
+> **Correction (same session).** This entry first read *"storage backends are for HTML-NN
+> distribution, not backup"* and raised UI-068's priority on that basis. Both halves were wrong:
+> remote storage is **not required**, and it is **not only** for HTML-NN.
 
-Since no client library exists for any of the nine offered backends — no `boto3`, `paramiko`,
-`googleapiclient`, `msal` or `azure-storage-blob`, none declared in `pyproject.toml` — **no node can
-currently be stored anywhere but locally**, which blocks the stated purpose entirely rather than
-merely leaving backups unavailable.
+Accurate statement: remote storage is an **optional, general-purpose** capability — text, images,
+audio, anything — with remote HTML-NN as one common use among others.
 
-Q-40 confirmed the panel stays generic because the user supplies the backend. Worth restating that
-this does not remove the need for the client: the user configuring an S3 endpoint still requires the
-app to be able to speak S3.
+UI-068 still stands as a real gap, but as a **capability that is unavailable** rather than a blocked
+requirement: no client library exists for any of the nine offered backends, so nothing can be stored
+remotely at all today. Q-40 confirmed the panel stays generic because the user supplies the backend;
+that does not remove the need for the app to speak the protocol.
+
+### UI-112 — Lockdown and the LOCAL preset are separate, and lockdown also tightens guardrails
+**Severity: high (design) · Status: specified · Source: Q-25 follow-up**
+
+> **Steven:** *"This should be a separate thing. Lockdown is a security override. This should
+> probably include the strictest guardrail settings possible. Local is just the operational
+> environment and these are the best settings for it."*
+
+They stay orthogonal, and they are different *kinds* of thing:
+
+| | LOCAL preset | Lockdown |
+|---|---|---|
+| kind | operational environment | **security override** |
+| chosen because | running without cloud is the sensible default here | something is wrong, or the user wants maximum safety |
+| data root | local, non-USB | unchanged |
+| inference | local engines | forced local (Q-62) |
+| network | normal | **cut** (Q-59) |
+| guardrails | normal | **strictest available** — new |
+
+**The guardrail tightening is new information.** Lockdown was previously scoped as a network cut
+(Q-59) plus forced-local inference (Q-62). It also forces the guardrails category to its strictest
+setting, which means it touches `guardrails_config` — a third subsystem beyond the network flag and
+the provider chain.
+
+So lockdown composes three existing mechanisms rather than needing a new one:
+
+| Mechanism | State today |
+|---|---|
+| `isNetworkIsolated()` | exists, gates `vault:read`, **never set true** (UI-102) |
+| provider chain filter by `type` | exists and works |
+| `guardrails_config` category | exists and is genuinely enforced (D12) |
+
+All three are live code. Lockdown is a coordinator over them, not new enforcement.
+
+### UI-113 — Git is for user projects, not for Tala's updates
+**Severity: medium · Status: specified · Source: Q-39 + Q-66**
+
+> **Steven (Q-39):** *"Technically she should get her updates from the website and not pull the
+> repo."*
+>
+> **Steven (Q-66):** *"Tala info should come from the website but it doesn't mean that other content
+> and code projects don't come from git. Git provides a good local repo for various things."*
+
+Two distinct uses, and only one is settled against git:
+
+| Use | Mechanism |
+|---|---|
+| Tala's own updates | **the website** — not git |
+| user code and content projects | **git**, via the configured providers |
+
+**This qualifies the earlier reading of Q-39.** UI-067 recorded that clone and push do not exist;
+Q-39 alone suggested they were not needed. Q-66 reopens that — working with user repos plausibly
+requires clone, so the `.GIT` panel keeps its purpose and its providers.
+
+What *is* confirmed wrong is `system.trigger_update`
+([server.py:9993](../python/harness/server.py#L9993)) running a bare `git pull` to update Tala
+herself. That is the wrong mechanism for the wrong job, independent of whether clone gets built.
+
+---
 
 ---
 
