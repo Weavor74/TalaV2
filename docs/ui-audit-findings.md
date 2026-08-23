@@ -26,12 +26,13 @@ the map can eventually be authored as HTML-NN nodes and Tala can self-navigate.
 | Mission Control | `view-mission-control` | yes (2026-08-23) | no |
 | Vault Directory | `view-vault` | yes (2026-08-23) | no |
 | Contacts Directory | `view-contacts` | yes (2026-08-23) | no |
-| System Settings | `view-settings` | no | no |
-| Editor | `view-editor` | no | no |
-| Logs | `view-logs` | no | no |
+| System Settings | `view-settings` | yes (2026-08-23) — all 18 panels | no |
+| Editor | `view-editor` | yes (2026-08-23) | no |
+| Logs | `view-logs` | yes (2026-08-23) | no |
 
-`view-editor` and `view-logs` have no sidebar entry — reached some other way, mechanism
-not yet traced. See UI-012.
+`view-editor` and `view-logs` have no sidebar entry, and UI-012 explains why for each: the editor
+is the centre pane (UI-116), and the logs view is vestigial (UI-117). **All 11 views and all 18
+settings panels are now mapped.**
 
 
 ### Settings sub-panel coverage
@@ -3118,6 +3119,42 @@ editing documents of any type — has almost no working surface today.
 
 `view-logs` remains untraced; UI-012 stays open for that half.
 
+### UI-117 — `view-logs` is a vestigial stub with no trigger
+**Severity: low · Status: open · Closes the other half of UI-012**
+
+The last unmapped view. Its entire markup:
+
+```html
+<section class="view" id="view-logs" aria-label="System Logs" hidden>
+  <div class="view-header"><h1 class="view-title">System Logs</h1></div>
+  <div class="empty-state">
+    <p>System logs are directed to the bottom panel tabs.</p>
+  </div>
+</section>
+```
+
+A header and one sentence that points somewhere else.
+
+It **is** registered as a TabManager destination — `'logs': 'view-logs'`
+([renderer.js:127](../renderer/renderer.js#L127)) and `'logs': 'System Logs'`
+([renderer.js:142](../renderer/renderer.js#L142)) — but **nothing ever opens it**. A search for
+`openTab('logs')` across `renderer/` returns nothing. It is reachable only by calling TabManager
+directly from the console.
+
+Unlike `view-editor`, which is hidden from the sidebar *by design* because it is the centre pane
+(UI-116), this one is simply left over. Logs already have two real homes:
+
+| Surface | What it shows |
+|---|---|
+| bottom panel tabs | `TERMINAL 1`, `Blockchain Node`, `Python Harness` — live streams |
+| `settings.logging` | the full event table, health matrix, filters and export |
+
+So a third view adds nothing. Either delete it and its two map entries, or give it a purpose —
+but as written it is a placeholder whose own text tells the reader to look elsewhere.
+
+**UI-012 is now fully closed.** Both views that lacked a sidebar entry are explained: `view-editor`
+by design, `view-logs` by neglect.
+
 ---
 
 ## B. Self-navigation infrastructure gaps
@@ -3166,7 +3203,11 @@ Nothing asserts that documented element ids still exist in `index.html`. The map
 silently as the UI changes. Needs a test, or a source fingerprint on each `ui-view-*` node.
 
 ### UI-012 — `view-editor` and `view-logs` have no traced entry point
-**Severity: low · Status: open**
+**Severity: low · Status: CLOSED 2026-08-23**
+
+> **Resolved.** Both explained, for different reasons. `view-editor` has no sidebar entry **by
+> design** — it is the centre pane the Explorer opens files into (UI-116). `view-logs` is
+> **vestigial** — registered as a TabManager destination but never opened by anything (UI-117).
 
 11 views exist but only 9 appear in the sidebar rail. How the editor and logs views are
 reached has not been established. Must be resolved before the map claims to be complete.
