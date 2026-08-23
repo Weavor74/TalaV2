@@ -2628,6 +2628,39 @@ finding), a loader with no DB fallback (UI-099), and a logging path that never r
 **Recovery:** the DB copy is complete. Regenerating the node from `profiles.config` restores
 everything without data entry.
 
+### UI-101 — The access-control model Steven specified, vs what the schema can express
+**Severity: high (design) · Status: specified, not built · Source: P1 answers, 2026-08-23**
+
+The six P1 answers define one coherent model. Recorded here because several findings
+(UI-040, UI-041, UI-058, UI-081, UI-082) are all partial views of the same missing thing.
+
+| Principle | Source | Current code |
+|---|---|---|
+| Identity and access are separate — being a contact grants nothing | Q-22 | **not expressible** — `contacts.permissions` is 9 booleans on the *contact*, with no resource dimension |
+| Access is granted per resource, by invitation | Q-22 | not implemented |
+| A shared item carries its own scope: `global` or `contact-only` | Q-23 | not implemented — one global `skills` flag |
+| Callers are identified before being permitted | Q-21 | `p2p.marketplace_search` takes no caller identity |
+| Node sensitivity comes from a classification group | Q-46 | enforcement reads node tags already; taxonomy absent |
+| Lockdown overrides every grant | Q-32 | concept absent entirely |
+| Credential priority is authentication fallback only | Q-47 | `gates.py` uses it as authorization |
+
+**Precedence** (Q-32), highest first: **lockdown** → **contact grant** → **profile visibility**.
+
+**Schema implication.** `contacts.permissions` cannot carry this. A grant needs at minimum a
+*(grantee, resource, scope)* triple, where resource is a file / node / skill and scope is
+`global` or `contact-only`. The nine-boolean column is a contact-scoped role model, which Q-22
+explicitly rejects.
+
+**One piece already fits.** `_peer_can_resolve_node_reference`
+([server.py:5084](../python/harness/server.py#L5084)) already reads a node's own tags and
+categories to decide access. Classification (Q-46) can ride that existing path rather than needing
+a new field — the enforcement is built, only the taxonomy is missing.
+
+**Two P2 questions are now largely pre-answered.** Q-35 asks whether guardrails should absorb
+contacts-permissions and firewall into one policy object — the model above *is* that object. Q-36
+asks what a policy's subject is — Q-22 answers it: a **(grantee, resource)** pair, not a contact
+and not an agent. Both should be revisited rather than reopened.
+
 ---
 
 ## B. Self-navigation infrastructure gaps

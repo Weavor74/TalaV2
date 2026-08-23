@@ -93,55 +93,126 @@ also becomes real work rather than dead code to delete.
 
 ---
 
-## P1 — Security exposure, live right now  ← **start here**
+## P1 — Security exposure, live right now
 
-Six questions. Each corresponds to a gap a peer could use today.
+**All six answered 2026-08-23.** Read together they define a single access-control model that does
+not exist yet — see **The access model** below. Three follow-ups fall out: **Q-58, Q-59, Q-60**.
 
-### Q-22 — Should an enrolling peer's `requested_permissions` await local approval?
-**Blocks:** UI-041 · **Who:** Steven · **Cost:** low
+### ~~Q-22~~ — Should an enrolling peer's `requested_permissions` await approval? **ANSWERED**
+**Blocks:** UI-041 · **Status:** closed 2026-08-23
 
-Today a peer holding the enrollment secret writes its own permissions verbatim, and
-`ON CONFLICT DO UPDATE` lets it overwrite permissions you previously restricted. This one change
-makes your checkboxes authoritative.
+> **Steven:** *"yes, permissions are by invite only. Example: in order for my wife to gain access, I
+> have to invite her to access. This does not mean I have to invite her to be a contact. Just to
+> access a file."*
+
+**Grants are per-resource and independent of contact status.** Being a contact establishes identity
+and transport; it confers no access. Access is a separate, explicit invitation to a specific thing.
+
+This is a capability model, not a role model, and the current schema cannot express it —
+`contacts.permissions` is nine booleans scoped to the *contact*, with no resource dimension.
+
+### ~~Q-21~~ — Should `p2p.marketplace_search` require an identified, permitted caller? **ANSWERED**
+**Blocks:** UI-040 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Yes"*
+
+The handler currently takes no caller identity at all and returns the full body of every file in
+`skills/`. It needs both an identified caller and a permission check, per Q-23's per-skill scope.
+
+### ~~Q-23~~ — Per-skill sharing rather than one global toggle? **ANSWERED**
+**Blocks:** UI-040 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Yes per skill sharing. I should be able to choose, global or contact only. Global
+> allows everyone to access, contact only allows one."*
+
+Each skill carries its own visibility: **`global`** (any peer) or **`contact-only`** (named
+grantees). Replaces the single `share-skills` contact flag, which cannot express either.
+
+### ~~Q-47~~ — Is credential *name + priority=1* as authorization intended? **ANSWERED — NO**
+**Blocks:** UI-081 · **Status:** closed 2026-08-23
+
+> **Steven:** *"No. Priority should only be a fallback method for authentication. Reason is we may
+> have an API, or an OAuth. Those are = priorities."*
+
+Priority orders **authentication fallback** only — try this credential, then that one. It carries no
+authorization meaning, and alternative credential types for the same service are peers, not a
+ranking. `gates.py` treating `priority = 1` as an allowlist is a bug, not a design.
+
+**Leaves open (Q-58):** what *should* authorize an action, once priority no longer does.
+
+### ~~Q-32~~ — Privacy visibility vs Contacts permissions? **ANSWERED**
+**Blocks:** UI-058, UI-040 · **Status:** closed 2026-08-23
+
+> **Steven:** *"If you give a contact permissions it supersedes other settings, unless a lockdown is
+> initiated, then no access anywhere."*
+
+Precedence, highest first:
+
+1. **Lockdown** — global kill switch, denies everything regardless of any grant
+2. **Contact grant** — an explicit grant supersedes the profile visibility setting
+3. **Profile visibility** — the default when no grant exists
+
+**Lockdown is a new concept** with no implementation anywhere. Scoping it is Q-59.
+
+### ~~Q-46~~ — Should nodes carry a `clearance` value? **ANSWERED**
+**Blocks:** UI-082 · **Status:** closed 2026-08-23
+
+> **Steven:** *"The clearance value should be determined by group settings of the node. This may be
+> something we think of now such as Classified, PII, or Public."*
+
+Not a hand-typed number per node — a **classification the node belongs to**, which maps to a
+clearance level. Named examples: `Public`, `PII`, `Classified`.
+
+This fits the existing enforcement well: `_peer_can_resolve_node_reference` already reads the node's
+own tags/categories, so classification can ride the same path rather than needing a new field.
+The taxonomy itself is Q-60.
+
+
+### The access model these six answers define
+
+Steven's six P1 answers are not six independent decisions. They describe one coherent design:
+
+| Principle | From | Status in code |
+|---|---|---|
+| Identity and access are **separate** — being a contact grants nothing | Q-22 | **not expressible**; `contacts.permissions` has no resource dimension |
+| Access is granted **per resource, by invitation** | Q-22 | not implemented |
+| A shared item carries its own scope: `global` or `contact-only` | Q-23 | not implemented; one global `skills` flag exists |
+| Callers must be **identified before** being permitted | Q-21 | `p2p.marketplace_search` takes no identity at all |
+| Node sensitivity comes from a **classification group**, not a per-node number | Q-46 | enforcement path exists and already reads tags — the taxonomy does not |
+| **Lockdown** overrides every grant | Q-32 | concept does not exist anywhere |
+| Credential priority is **authentication fallback only**, never authorization | Q-47 | `gates.py` currently uses it as authorization |
+
+**This substantially pre-answers Q-35 and Q-36 in P2.** Q-35 asks whether guardrails should absorb
+contacts-permissions and firewall into one policy object; the model above *is* that object. Q-36
+asks what a policy's subject is; Q-22 answers it — the subject is a **(grantee, resource)** pair,
+not a contact and not an agent.
+
+Worth revisiting both when P2 is reached, rather than treating them as open from scratch.
+
+### Q-58 — What authorizes an action, now that credential priority does not?
+**Blocks:** UI-081 · **Who:** Steven · **Cost:** medium · *new, from Q-47*
+
+`gates.py` currently authorizes by finding a credential named after the action signature at
+priority 1. Q-47 removes that meaning without putting anything in its place, so `AuthorizationGate`
+needs a real basis — an explicit action allowlist, a capability grant, or something else.
 
 > **Answer:**
 
-### Q-21 — Should `p2p.marketplace_search` require an identified, permitted caller?
-**Blocks:** UI-040 · **Who:** Steven · **Cost:** low
+### Q-59 — What is lockdown: scope, trigger, and release?
+**Blocks:** UI-058 · **Who:** Steven · **Cost:** medium · *new, from Q-32*
 
-It is the one p2p path with no caller identity at all, and it returns the **full body** of every
-file in `skills/`. The `share-skills` checkbox does not gate it.
-
-> **Answer:**
-
-### Q-23 — Per-skill sharing rather than one global `skills` toggle?
-**Blocks:** UI-040 · **Who:** Steven · **Cost:** low
-
-E.g. a `shared: true` flag in each `skills/*.yaml`. Shapes the fix for Q-21.
+Sits above every grant, so it needs defining before the precedence chain can be built. Does it block
+only peer access, or local agent access too? Who or what can trigger it — a button, a rule, Tala
+herself? How is it cleared, and is that logged?
 
 > **Answer:**
 
-### Q-47 — Is `gates.py` using credential *name + priority=1* as an authorization allowlist intended?
-**Blocks:** UI-081 · **Who:** Steven · **Cost:** low
+### Q-60 — What is the classification taxonomy, and is it fixed or user-defined?
+**Blocks:** UI-082 · **Who:** Steven · **Cost:** low · *new, from Q-46*
 
-Renaming a credential, or reordering the AUTH priority chain, silently changes what actions Tala is
-permitted to take. Nothing in the UI hints at that.
-
-> **Answer:**
-
-### Q-32 — Privacy visibility vs Contacts permissions: which surface wins?
-**Blocks:** UI-058, UI-040 · **Who:** Steven · **Cost:** medium
-
-Two access-control surfaces with different keys. The six Preferences dropdowns are read by nothing,
-so setting them to Private gives no protection under a heading that says "access control".
-
-> **Answer:**
-
-### Q-46 — Should nodes carry a `clearance` value in their `node-state` block?
-**Blocks:** UI-082 · **Who:** Steven · **Cost:** medium
-
-0 of 123 nodes declare one, so the firewall clearance slider cannot deny anything. Which nodes
-should sit above 0 — PII, vault, identity?
+`Public`, `PII`, `Classified` were named as examples. Is that the full set, is it extensible, and
+what clearance level does each map to on the existing `[0-10]` scale? Also: what classifies an
+**existing** node — 115 nodes currently carry none.
 
 > **Answer:**
 
