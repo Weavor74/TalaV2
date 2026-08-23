@@ -3049,6 +3049,75 @@ Raised as **Q-67**.
 
 ---
 
+### UI-115 — The file Explorer walks `.venv`, `.git` and `node_modules`, and never reaches user files
+**Severity: critical · Status: open · Raised by Steven, 2026-08-23**
+
+The Explorer drawer shows nothing usable. Cause traced end to end.
+
+`FileExplorer.load()` ([renderer.js:549](../renderer/renderer.js#L549)) requests the **entire tree**:
+
+```js
+const result = await invoke('file:list', { dir: '.', recursive: true });
+```
+
+`listDir()` ([ipc-handlers.js](../electron/ipc-handlers.js)) has **no ignore list** — no
+`node_modules`, no `.git`, no `.venv`, no dot-directory skip. It recurses to depth 20, capped at
+`MAX_LIST_ENTRIES = 10_000`, and calls `fs.stat()` **per file** to record a size.
+
+What that means at this repo root, in `readdir` order:
+
+| Position | Entry | Files beneath |
+|---|---|---|
+| 5th | `.git` | 4,418 |
+| 9th | `.tala_snapshots` | 2,197 |
+| 10th | **`.venv`** | **37,718** |
+| — | `node_modules` | 11,504 |
+| — | `dist` | 896 |
+
+`.git` and `.tala_snapshots` alone consume ~6,600 of the 10,000 budget. `.venv` exhausts the
+remainder several times over.
+
+**Every directory the user cares about sorts after those.** `docs/`, `electron/`, `nodes/`,
+`python/`, `renderer/`, `sdk/` are all alphabetically later than `.venv` — so the budget is spent
+before a single one is reached. Compounding it, ~10,000 individual `fs.stat()` calls make the walk
+slow enough that the panel can sit on its loading state for a long time.
+
+`this.expandedPaths.add('nodes')` at [renderer.js:515](../renderer/renderer.js#L515) shows the
+intent — `nodes/` should be expanded on open. It can never be, because `nodes/` is never in the
+result set.
+
+**Fix shape:** an ignore list (`node_modules`, `.git`, `.venv`, `dist`, `.tala_snapshots`,
+`__pycache__`), lazy per-directory expansion instead of `recursive: true` up front, and dropping the
+per-file `stat` unless the size is actually displayed.
+
+**Note the silent-failure pattern again.** `file:list` returns `{ ok: true, entries: [] }` when a
+directory is missing — a success response for a non-result, so a caller cannot distinguish "empty"
+from "not found". Same shape as UI-014 and UI-018.
+
+### UI-116 — The editor is the centre pane, which resolves UI-012
+**Severity: informational · Status: resolved · Source: Steven, 2026-08-23**
+
+> **Steven:** *"The editing section was meant to be the center pane."*
+
+This answers half of UI-012, which recorded `view-editor` and `view-logs` as views with no sidebar
+entry and no traced entry point.
+
+`view-editor` **has no sidebar entry by design**. It is not a destination — it is the centre pane
+that the Explorer opens a file into. The intended flow is:
+
+> `btn-toggle-drawer` opens the Explorer → click a file → it opens in the centre pane as a tab →
+> `btn-editor-edit-mode` / `btn-editor-preview-mode` / `btn-save-file` operate on it
+
+Which explains why those three buttons live in the **workspace tab strip** rather than in any view,
+and why they are `display: none` until a file tab is active.
+
+**The flow is broken at its first step**, not its last: UI-115 means the Explorer never lists a file
+to click, so the editor is unreachable through its only intended route. That, combined with UI-114
+(the editor is a `<textarea>` with `.md`/`.html` preview only), is why Tala's original purpose —
+editing documents of any type — has almost no working surface today.
+
+`view-logs` remains untraced; UI-012 stays open for that half.
+
 ---
 
 ## B. Self-navigation infrastructure gaps
