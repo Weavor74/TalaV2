@@ -98,8 +98,8 @@ also becomes real work rather than dead code to delete.
 **All six answered 2026-08-23**, plus follow-ups Q-58 and Q-59. Read together they define a single
 access-control model that does not exist yet — see **The access model** below.
 
-**Still open in P1:** Q-61 (what `AuthorizationGate` should check), Q-62 (lockdown vs a cloud
-provider). **Deferred:** Q-60, at Steven's request.
+**Still open in P1:** **Q-61** only — what `AuthorizationGate` should check once credential priority
+no longer confers authority. **Deferred:** Q-60 (classification taxonomy), at Steven's request.
 
 ### ~~Q-22~~ — Should an enrolling peer's `requested_permissions` await approval? **ANSWERED**
 **Blocks:** UI-041 · **Status:** closed 2026-08-23
