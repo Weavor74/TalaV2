@@ -583,129 +583,201 @@ regardless of who configures it. UI-068 stands.
 
 ## P4 — Truth-in-labelling and scope: cheap, and two are needed for the map itself
 
-Nineteen questions. Mostly one-liners, but **Q-2 and Q-5 gate node authoring directly** — the map
-records your wording, and I do not have it yet.
+**Sixteen of eighteen answered 2026-08-23.** Two are **re-asked below** — Q-5 and Q-38 — because my
+original wording was unclear, not because Steven declined them.
 
-### Q-2 — The green dot beside **AGENT CHAT**: what does it indicate?
-**Blocks:** landing node · **Who:** Steven · **Cost:** one line · **Needed for the map**
+Three answers changed the shape of a finding rather than just closing it: **Q-25** (the env buttons
+are real presets), **Q-42** (multi-DB is content partitioning, not failover) and **Q-41** (storage is
+for HTML-NN distribution, not backup). One follow-up: **Q-66**.
 
-> **Answer:**
+### Q-66 — What are the Git providers for, if updates come from a website?
+**Blocks:** UI-067 · **Who:** Steven · **Cost:** one line · *from Q-39*
 
-### Q-5 — `Exec:` / `Mem:` card chips: your day-to-day meaning, not the attribute names?
-**Blocks:** landing node · **Who:** Steven · **Cost:** one line · **Needed for the map**
-
-> **Answer:**
-
-### Q-1 — Status-bar token field: wallet balance, or usage meter?
-**Blocks:** UI-001, UI-002, UI-003 · **Who:** Steven · **Cost:** one line
-
-You said blockchain tokens; the code sums `token_ledger` consumption. Recommendation on file:
-re-point at `get_balance()`, which also makes the dead `Ghost Tokens` infinity branch reachable.
+Q-39 removes updates as the reason for git. The `.GIT` panel still collects providers, credentials
+and priority — so either they serve some other purpose (Tala committing her own work? cloning a user
+repo to operate on?), or the panel comes out with clone/push.
 
 > **Answer:**
 
-### Q-3 — `MOOD` / `MD` / `JSON`: wire them up, or delete them?
-**Blocks:** UI-004, UI-005, UI-006 · **Who:** Steven · **Cost:** one line
+
+### ~~Q-2~~ — The green dot beside **AGENT CHAT**? **ANSWERED**
+**Blocks:** landing node · **Status:** closed 2026-08-23
+
+> **Steven:** *"Active agent"*
+
+Indicates an agent is active. Steven's wording for the map: **"Active agent"**.
+
+### Q-5 — What do the two small pills on each Neural Node card mean to you? **RE-ASKED**
+**Blocks:** landing node · **Who:** Steven · **Cost:** one line
+
+My earlier wording ("card chips") was unclear — sorry. I mean the two little labelled pills on every
+card in the **Neural Nodes** grid, reading `Exec: 0.50` and `Mem: 1.00`.
+
+They render the node's `data-execution-authority` and `data-memory-authority` attributes. What I need
+is **your** phrasing for what they mean day to day — because the map records what you would say to
+someone asking, not the attribute names.
 
 > **Answer:**
 
-### Q-17 — Retention for finished tasks: auto-hide after N days, a toggle, or archive-on-done?
-**Blocks:** UI-034 · **Who:** Steven · **Cost:** low
+### ~~Q-1~~ — Status-bar token field? **ANSWERED — WALLET BALANCE**
+**Blocks:** UI-001, UI-002, UI-003 · **Status:** closed 2026-08-23
 
-Interacts with the 50-row cap: once 50 stale tasks accumulate, new ones stop appearing at all.
+> **Steven:** *"Wallet Balance"*
 
-> **Answer:**
+Confirms UI-001 option (a): re-point `harness.health` at `get_balance()` instead of summing
+`token_ledger`. Also makes the dead `Ghost Tokens` infinity branch reachable (UI-002) and requires
+the sidebar bar's hardcoded 1,000,000 max to be reconsidered (UI-003).
 
-### Q-24 — `APPLY CHANGES`: make settings staged-then-applied, or remove the button?
-**Blocks:** UI-045 · **Who:** Steven · **Cost:** low
+### ~~Q-3~~ — `MOOD` / `MD` / `JSON`? **ANSWERED — DELETE**
+**Blocks:** UI-004, UI-005, UI-006 · **Status:** closed 2026-08-23
 
-Panels already save on change, so the button currently teaches the wrong mental model.
+> **Steven:** *"Delete"*
 
-> **Answer:**
+All three come out. Worth also fixing the delegated handler at
+[renderer.js:4894](../renderer/renderer.js#L4894) that gave them their toggle-and-log stub, so a
+future `.chat-action-btn` does not silently inherit the same no-op.
 
-### Q-25 — `USB (ISOLATED)` / `LOCAL` / `REMOTE`: what should each actually do?
-**Blocks:** UI-044, UI-039 · **Who:** Steven · **Cost:** medium
+### ~~Q-17~~ — Retention for finished tasks? **ANSWERED — ARCHIVE ON DONE + MANUAL**
+**Blocks:** UI-034 · **Status:** closed 2026-08-23
 
-It reads as a security control and does nothing. Should it drive `isNetworkIsolated()`?
+> **Steven:** *"Archive when done. But needs to also be manual."*
 
-> **Answer:**
+Automatic archive on completion, plus a manual archive control. Also relieves UI-030 — the 50-row
+cap stops being a practical ceiling once completed tasks leave the active list.
 
-### Q-26 — Is `GLOBAL` vs `WORKSPACE` scope real, or leftover chrome to delete?
-**Blocks:** UI-044 · **Who:** Steven · **Cost:** one line
+### ~~Q-24~~ — `APPLY CHANGES`? **ANSWERED — STAGED-THEN-APPLY**
+**Blocks:** UI-045 · **Status:** closed 2026-08-23
 
-> **Answer:**
+> **Steven:** *"Staged-then-apply"*
 
-### Q-27 — Embedding-only providers: hide, grey out, or move to their own section?
-**Blocks:** UI-048 · **Who:** Steven · **Cost:** one line
+The button becomes real: panels stage edits, `APPLY CHANGES` commits them. That is the larger of the
+two options — every panel currently saves on change, so each needs a staging buffer.
 
-They occupy priority slots 6 and 7 but are filtered out of the chat chain, so the displayed order
-is not the effective order.
+### ~~Q-25~~ — `USB` / `LOCAL` / `REMOTE`: what should each do? **ANSWERED**
+**Blocks:** UI-044, UI-039 · **Status:** closed 2026-08-23 · **Detail:** UI-109
 
-> **Answer:**
+> **Steven:** *"The way it was supposed to work is if you select the USB button you are running from
+> a USB and all data stored is on USB. The embedded engine is all we have access to. Think of it as a
+> troubleshooting mode. If you selected local then you are using local non-usb storage, inference
+> engine such as ollama or lmstudio. And cloud means everything may be remote... It's also okay to
+> think of it as presets."*
 
-### Q-38 — Search providers: real health probe, or remove the badge?
+**Presets**, each setting data root + permitted inference + permitted storage together:
+
+| Preset | Data root | Inference | Storage |
+|---|---|---|---|
+| **USB (ISOLATED)** | the USB itself | **embedded engine only** | USB only |
+| **LOCAL (SYSTEM)** | local non-USB | local engines — Ollama, LM Studio, llama.cpp | local |
+| **REMOTE (CLOUD)** | may be remote | any, including cloud APIs | any, including cloud |
+
+USB doubles as a **troubleshooting mode** — the narrowest possible configuration.
+
+Note the tiers are stricter than lockdown: lockdown (Q-62) permits any *local* engine, USB permits
+only the *embedded* one.
+
+### ~~Q-26~~ — `GLOBAL` vs `WORKSPACE` scope? **ANSWERED — DELETE**
+**Blocks:** UI-044 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Leftover chrome"*
+
+Remove the selector. Unlike the env presets beside it, this one has no intended meaning.
+
+### ~~Q-27~~ — Embedding-only providers? **ANSWERED — OWN SECTION**
+**Blocks:** UI-048 · **Status:** closed 2026-08-23
+
+> **Steven:** *"Move to own section"*
+
+They leave the inference priority list entirely, so the displayed order finally matches the
+effective fallback chain.
+
+### Q-38 — Should a search provider's green `ACTIVE` badge be real? **RE-ASKED**
 **Blocks:** UI-064 · **Who:** Steven · **Cost:** one line
 
-`ACTIVE` is hardcoded with no variable behind it. Nothing anywhere would reveal a dead provider.
+Clearer version of the question. On the SEARCH panel each provider row shows a green dot and the
+word `ACTIVE`. That text is hardcoded — it is not checking anything, so a provider with a dead or
+expired API key still shows green.
+
+Two options: **(a)** make it real by sending a cheap test request so a dead provider turns red, or
+**(b)** remove the badge, since a badge that always says the same thing is worse than none.
+
+Relevant: nothing anywhere else in the app would reveal a dead search provider — a failing one
+silently falls back to DuckDuckGo scraping (UI-018).
 
 > **Answer:**
 
-### Q-53 — Nine hardcoded subsystem statuses: wire to real probes, or show only the three that are real?
-**Blocks:** UI-091 · **Who:** Steven · **Cost:** low
+### ~~Q-53~~ — Nine hardcoded subsystem statuses? **ANSWERED — WIRE THEM ALL**
+**Blocks:** UI-091 · **Status:** closed 2026-08-23
 
-A permanently-`DEGRADED` banner trains you to ignore it.
+> **Steven:** *"Wire it all"*
 
-> **Answer:**
+All twelve indicators get real probes. Three already do (`DB_HEALTH_SERVICE`, `INFERENCE_SERVICE`,
+`POLICY_GATE`); the other nine are string literals today, including both that read `DEGRADED`.
 
-### Q-54 — Is `mem0` a real dependency, or should "Dual Memory" drop the mem0 half?
-**Blocks:** UI-093 · **Who:** Steven · **Cost:** one line
+### ~~Q-54~~ — Is `mem0` a real dependency? **ANSWERED — REMOVE**
+**Blocks:** UI-093 · **Status:** closed 2026-08-23
 
-It is an optional extra and is not installed in the venv.
+> **Steven:** *"If it's not installed remove"*
 
-> **Answer:**
+It is not installed — an optional extra in `pyproject.toml`, and `import mem0` fails in the active
+venv. "Dual Memory: mem0 + RAG" drops to the RAG half, which is real via ChromaDB.
 
-### Q-51 — Is the architecture diagram aspirational or descriptive?
-**Blocks:** UI-088 · **Who:** Steven · **Cost:** one line
+### ~~Q-51~~ — Architecture diagram: aspirational or descriptive? **ANSWERED — REALITY**
+**Blocks:** UI-088 · **Status:** closed 2026-08-23
 
-Four of nine boxes are only true aspirationally. A proposal can be either — not silently both.
+> **Steven:** *"I want it to reflect reality"*
 
-> **Answer:**
+So the four inaccurate boxes need correcting: `PostgreSQL Vector DB` is not a vector DB, and
+Workflow Executor, Blockchain Firewall and P2P Mesh Router each describe capability that is only
+partly real.
 
-### Q-52 — Should the diagram gain a Filesystem / HTML-NN Node Store box?
-**Blocks:** UI-089 · **Who:** Steven · **Cost:** one line
+### ~~Q-52~~ — Add a Filesystem / HTML-NN Node Store box? **ANSWERED — YES**
+**Blocks:** UI-089 · **Status:** closed 2026-08-23
 
-It is the project's defining component and is currently absent, with its role misattributed to
-PostgreSQL.
+> **Steven:** *"Yes"*
 
-> **Answer:**
+The project's defining component gets its own box, and PostgreSQL stops being credited with holding
+the nodes.
 
-### Q-39 — Do clone/push need building, or is Tala only meant to `pull` its own repo?
-**Blocks:** UI-067 · **Who:** Steven · **Cost:** one line
+### ~~Q-39~~ — Do clone/push need building? **ANSWERED — NO**
+**Blocks:** UI-067 · **Status:** closed 2026-08-23
 
-Decides whether UI-067 is a large build or a documentation correction.
+> **Steven:** *"Technically she should get her updates from the website and not pull the repo."*
 
-> **Answer:**
+Updates come from a website, not git. So UI-067's missing clone/push are **not** work to schedule —
+and `system.trigger_update`'s bare `git pull` is itself the wrong mechanism.
 
-### Q-41 — Is off-machine backup of `nodes/` a real requirement?
-**Blocks:** UI-069, UI-056 · **Who:** Steven · **Cost:** one line
+**Leaves open (Q-66):** if updates do not use git, what are the configured Git providers *for*?
 
-The storage panel currently *implies* a safety net that does not exist — relevant given UI-056.
+### ~~Q-41~~ — Is off-machine backup of `nodes/` required? **ANSWERED — BIGGER THAN BACKUP**
+**Blocks:** UI-069, UI-056 · **Status:** closed 2026-08-23
 
-> **Answer:**
+> **Steven:** *"We are meant to be able to store html-nn anywhere, so we can share or remotely
+> access."*
 
-### Q-42 — Multi-database routing / read-replica failover: wanted, or is `settings.DB_URL` the single source?
-**Blocks:** UI-071, UI-072 · **Who:** Steven · **Cost:** one line
+Storage backends are for **HTML-NN distribution**, not just backup — sharing and remote access are
+the point. That raises UI-068's priority: no client library exists for any backend, so no node can
+be stored anywhere but locally today.
 
-Failover is architecturally impossible as built — one pool, one DSN, no standby.
+### ~~Q-42~~ — Multi-database routing? **ANSWERED — PARTITION BY DOMAIN, NOT FAILOVER**
+**Blocks:** UI-071, UI-072 · **Status:** closed 2026-08-23
 
-> **Answer:**
+> **Steven:** *"The multi database is used for things like, I store all my info on coding on this DB
+> and all my info on conversation on this DB."*
 
-### Q-13 — Is `https://talacore.app` the intended Real Chain host?
-**Blocks:** UI-025 · **Who:** Steven · **Cost:** one line
+**Not replication or failover — content routing.** Each database holds a subject domain.
 
-Already allow-listed in the Electron CSP.
+That means the panel's stated rules are describing the wrong feature entirely: *"Automatic Failover
+— if the primary replica goes offline, reroute to the next healthy standby"* has nothing to do with
+partitioning by subject. UI-072's finding stands but its framing needs replacing rather than
+implementing.
 
-> **Answer:**
+### ~~Q-13~~ — Is `talacore.app` the Real Chain host? **ANSWERED — YES, NOT YET CONFIGURED**
+**Blocks:** UI-025 · **Status:** closed 2026-08-23
+
+> **Steven:** *"It is, but has not been fully configured yet."*
+
+Confirms the CSP allow-list entry was deliberate. The renderer's hardcoded `127.0.0.1:8332` will
+need to become configurable before it can reach it.
 
 ---
 

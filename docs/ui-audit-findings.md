@@ -2867,6 +2867,87 @@ than transformed into a node. This is the one place the mandate is deliberately 
 `vault:read` is refused unless network isolation is active (UI-102), while Unified Search's `web`
 scope requires the network — so one search cannot currently span both.
 
+### UI-109 — The environment buttons are presets, and each sets three things at once
+**Severity: high (design) · Status: specified, not built · Source: Q-25**
+
+> **Steven:** *"If you select the USB button you are running from a USB and all data stored is on
+> USB. The embedded engine is all we have access to. Think of it as a troubleshooting mode. If you
+> selected local then you are using local non-usb storage, inference engine such as ollama or
+> lmstudio. And cloud means everything may be remote... It's also okay to think of it as presets."*
+
+This substantially revises **UI-044**, which recorded the buttons as cosmetic chrome. They are
+cosmetic *today* — but they were designed as presets, each setting **data root, permitted inference,
+and permitted storage** together:
+
+| Preset | Data root | Inference | Storage |
+|---|---|---|---|
+| **USB (ISOLATED)** | the USB itself | **embedded engine only** | USB only |
+| **LOCAL (SYSTEM)** | local, non-USB | local engines — Ollama, LM Studio, llama.cpp | local |
+| **REMOTE (CLOUD)** | may be remote | any, including cloud APIs | any, including cloud |
+
+USB doubles as a **troubleshooting mode**: the narrowest configuration the system can run in.
+
+**Three existing mechanisms already line up with this**, which makes it far less work than it looks:
+
+- **Data root** — `resolve_user_data_dir()` already returns `TALA_USER_DATA || _application_root()`
+  (UI-095). USB mode is that resolver pointed at the stick, which is the portable design already
+  working today.
+- **Inference restriction** — provider selection already filters by `type`, and lockdown (Q-62)
+  already introduces a tier that forces local-only. USB is the same mechanism one notch tighter:
+  `type == embedded` rather than `type in (local, embedded)`.
+- **Isolation flag** — `isNetworkIsolated()` exists and gates `vault:read`, but is never set true
+  (UI-102). USB mode is the obvious thing that should set it.
+
+**Note the tier ordering**, since three separate concepts now restrict inference:
+
+| Mode | Permitted inference |
+|---|---|
+| USB preset | embedded only |
+| Lockdown (Q-62) | local + embedded |
+| LOCAL preset | local + embedded |
+| REMOTE preset | any |
+
+Lockdown and the LOCAL preset land on the same restriction by different routes — worth deciding
+whether lockdown simply *is* a forced LOCAL preset, or stays a separate orthogonal switch.
+
+### UI-110 — Multi-database is content partitioning, not failover
+**Severity: medium · Status: specified · Source: Q-42**
+
+> **Steven:** *"The multi database is used for things like, I store all my info on coding on this DB
+> and all my info on conversation on this DB."*
+
+**The DATABASE panel describes the wrong feature.** Its stated rules are replication semantics —
+*"Priority Order: DB connections are queried in the sequence defined"* and *"Automatic Failover: if
+the primary replica database goes offline, operations automatically reroute to the next healthy
+standby provider"*.
+
+What Steven wants is **routing by subject domain**: coding data in one database, conversation data
+in another. That is a different feature with a different data model — each provider needs a *content
+scope*, not a priority rank, and there is no "standby" concept in it at all.
+
+So UI-071 (providers never consumed) and UI-072 (failover architecturally impossible) both stand,
+but UI-072's remedy is not "implement failover" — it is **replace the panel's stated contract**.
+Priority ordering and the failover rule should come out, and a per-database content scope should go
+in.
+
+### UI-111 — Storage backends are for HTML-NN distribution, not backup
+**Severity: high · Status: specified · Source: Q-41**
+
+> **Steven:** *"We are meant to be able to store html-nn anywhere, so we can share or remotely
+> access."*
+
+This raises **UI-068**'s priority rather than confirming it as a backup nicety. Storage is a
+**distribution channel for nodes** — sharing them and reaching them remotely is the purpose.
+
+Since no client library exists for any of the nine offered backends — no `boto3`, `paramiko`,
+`googleapiclient`, `msal` or `azure-storage-blob`, none declared in `pyproject.toml` — **no node can
+currently be stored anywhere but locally**, which blocks the stated purpose entirely rather than
+merely leaving backups unavailable.
+
+Q-40 confirmed the panel stays generic because the user supplies the backend. Worth restating that
+this does not remove the need for the client: the user configuring an S3 endpoint still requires the
+app to be able to speak S3.
+
 ---
 
 ## B. Self-navigation infrastructure gaps
