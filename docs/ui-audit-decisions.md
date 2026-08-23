@@ -16,9 +16,11 @@ nodes for self-navigation.
 
 ## P0 — Answer first: cheap, and they change what the other 45 mean
 
-Four questions. None needs design thought, and each collapses a chunk of the list.
-**Two are now answered** (Q-44/Q-30 and Q-55), and between them they located the profile data-loss
-bug — see UI-099. Three of Steven's remain, plus one diagnostic I can run (Q-57).
+**P0 is complete — all six closed 2026-08-23.** Between them they located the profile data-loss bug
+(UI-099, UI-100), confirmed the portable data root works (UI-095), and cleared the test fixtures.
+
+**Data status: nothing was lost.** The full profile is intact in `profiles.config`; only the node
+mirror is stale.
 
 ### ~~Q-44 + Q-30~~ — Which directory is the running app launched from? **ANSWERED**
 **Blocks:** UI-056 · **Status:** closed 2026-08-23 · **Detail:** UI-095
@@ -91,7 +93,7 @@ also becomes real work rather than dead code to delete.
 
 ---
 
-## P1 — Security exposure, live right now
+## P1 — Security exposure, live right now  ← **start here**
 
 Six questions. Each corresponds to a gap a peer could use today.
 
