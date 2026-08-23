@@ -7017,6 +7017,48 @@ async def handle_workflow_generate_from_tot(params: dict[str, Any], req_id: Any)
 
 
 
+async def handle_mcp_discover(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``mcp.discover`` — Report MCP servers configured by other clients on this machine.
+
+    Read-only. Connects to nothing: adopting a server runs a subprocess with the
+    invoking user's privileges, which is a decision for a person rather than
+    something a scan performs on its own.
+    """
+    try:
+        from sdk.agent.mcp_bridge import discover_mcp_servers
+
+        extra = params.get("paths")
+        return _ok(req_id, discover_mcp_servers(extra if isinstance(extra, list) else None))
+    except Exception as exc:
+        logger.exception("mcp.discover error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_mcp_refresh_tools(params: dict[str, Any], req_id: Any) -> str:
+    """``mcp.refresh_tools`` — Re-register every connected server's tools."""
+    result = await _refresh_mcp_tools("mcp.refresh_tools")
+    return _ok(req_id, result)
+
+
+async def _refresh_mcp_tools(caller: str) -> dict[str, Any]:
+    """
+    Re-register the tools of every connected MCP server.
+
+    Called whenever the server set changes, and once at startup. Failure is
+    logged and swallowed: MCP being unavailable must not stop a connect from
+    succeeding or the harness from booting, and the return value carries the
+    count so the caller can report what actually happened rather than assuming.
+    """
+    try:
+        from sdk.agent.mcp_bridge import register_mcp_tools
+
+        return await register_mcp_tools()
+    except Exception as exc:
+        logger.warning("Could not refresh MCP tools after %s: %s", caller, exc)
+        return {"success": False, "count": 0, "error": str(exc)}
+
+
 async def handle_mcp_connect_server(params: dict[str, Any], req_id: Any) -> str:
     """
     ``mcp.connect_server`` — Register an MCP server configuration.
@@ -7031,7 +7073,16 @@ async def handle_mcp_connect_server(params: dict[str, Any], req_id: Any) -> str:
     try:
         from python.harness.mcp_manager import mcp_manager
         await mcp_manager.connect_server(name, config if config else url, persist=bool(params.get("persist", True)))
-        return _ok(req_id, {"success": True, "server_name": name, "persisted": bool(params.get("persist", True))})
+        # Registering the new server's tools is what makes connecting mean
+        # anything. Before this, a server could be connected, its tools listed
+        # in the UI, and not one of them ever offered to the model.
+        bridge = await _refresh_mcp_tools("mcp.connect_server")
+        return _ok(req_id, {
+            "success": True, "server_name": name,
+            "persisted": bool(params.get("persist", True)),
+            "tools_registered": bridge.get("count", 0),
+            "unreachable": bridge.get("unreachable", {}),
+        })
     except Exception as exc:
         logger.exception("mcp.connect_server error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
@@ -7060,7 +7111,13 @@ async def handle_mcp_remove_server(params: dict[str, Any], req_id: Any) -> str:
     try:
         from python.harness.mcp_manager import mcp_manager
         removed = await mcp_manager.remove_server(name)
-        return _ok(req_id, {"success": True, "removed": removed, "server_name": name})
+        # Re-register so the departed server's tools stop being offered. Without
+        # this the model keeps seeing names whose every call now fails.
+        bridge = await _refresh_mcp_tools("mcp.remove_server")
+        return _ok(req_id, {
+            "success": True, "removed": removed, "server_name": name,
+            "tools_registered": bridge.get("count", 0),
+        })
     except Exception as exc:
         logger.exception("mcp.remove_server error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
@@ -7077,7 +7134,8 @@ async def handle_mcp_save_servers(params: dict[str, Any], req_id: Any) -> str:
     try:
         from python.harness.mcp_manager import mcp_manager
         await mcp_manager.save_servers(servers)
-        return _ok(req_id, {"success": True})
+        bridge = await _refresh_mcp_tools("mcp.save_servers")
+        return _ok(req_id, {"success": True, "tools_registered": bridge.get("count", 0)})
     except Exception as exc:
         logger.exception("mcp.save_servers error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
@@ -11098,6 +11156,8 @@ _HANDLERS: dict[str, Any] = {
     "mcp.save_servers":   handle_mcp_save_servers,
     "mcp.list_tools":     handle_mcp_list_tools,
     "mcp.call_tool":      handle_mcp_call_tool,
+    "mcp.discover":       handle_mcp_discover,
+    "mcp.refresh_tools":  handle_mcp_refresh_tools,
     "guardrails.get":     handle_guardrails_get,
     "guardrails.save":    handle_guardrails_save,
     "search.get_providers": handle_search_get_providers,
@@ -11805,6 +11865,11 @@ async def _startup_background() -> None:
 
     # ── 7b. Start Messaging Gateway channels (Discord / Telegram) ──
     try:
+        # MCP tools must reach the registry before the first turn, or a
+        # connected server stays invisible to the model until something happens
+        # to change the server set.
+        await _refresh_mcp_tools("startup")
+
         from python.harness.channels import ChannelManager
         ChannelManager.get().register_broadcast(broadcast_notification)
         await ChannelManager.get().start()

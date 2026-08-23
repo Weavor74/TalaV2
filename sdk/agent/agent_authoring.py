@@ -289,3 +289,68 @@ async def start_swarm(goal: str, topology_id: str) -> dict[str, Any]:
         "topology_id": topology_id,
         "dispatched_nodes": len(topology.nodes),
     }
+
+
+# ---------------------------------------------------------------------------
+# MCP
+# ---------------------------------------------------------------------------
+#
+# MCPManager was complete and unusable: a server could be connected and its
+# tools listed, but nothing ever called mcp.call_tool and no MCP tool reached
+# the registry, so the model never saw one. These two make the subsystem
+# reachable -- discover what is configured on the machine, and refresh the
+# registry after adopting something.
+
+
+@register_tool(
+    name="discover_mcp_servers",
+    description=(
+        "Scan this machine's other MCP clients for servers already configured there. "
+        "Read-only: reports what it finds and connects nothing."
+    ),
+)
+async def discover_mcp_servers_tool() -> dict[str, Any]:
+    """
+    NAME
+           discover_mcp_servers - find MCP servers configured elsewhere on this machine
+
+    SYNOPSIS
+           discover_mcp_servers() -> dict[str, Any]
+
+    DESCRIPTION
+           Reads the config files kept by Claude Desktop, Claude Code, Cursor,
+           Windsurf and VS Code, plus project-local .mcp.json, and reports the
+           servers defined in them. Each result says whether Tala already has
+           that server registered.
+
+           Connects to nothing. Adopting a server runs a subprocess with the
+           invoking user's privileges, which is a decision for Weavor rather
+           than something a scan should do on its own. Environment blocks are
+           reported only as a has_env_secrets flag, never echoed.
+    """
+    from sdk.agent.mcp_bridge import discover_mcp_servers
+
+    return discover_mcp_servers()
+
+
+@register_tool(
+    name="refresh_mcp_tools",
+    description="Re-register the tools of every connected MCP server so they can be called.",
+)
+async def refresh_mcp_tools_tool() -> dict[str, Any]:
+    """
+    NAME
+           refresh_mcp_tools - re-register connected MCP servers' tools
+
+    SYNOPSIS
+           refresh_mcp_tools() -> dict[str, Any]
+
+    DESCRIPTION
+           Registers every connected server's tools under {server}__{tool}, and
+           drops the tools of any server that has gone away. Runs at startup and
+           whenever the server set changes, so this is mostly for recovering
+           after a server that was down comes back.
+    """
+    from sdk.agent.mcp_bridge import register_mcp_tools
+
+    return await register_mcp_tools()
