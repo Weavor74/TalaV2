@@ -189,30 +189,64 @@ not a contact and not an agent.
 
 Worth revisiting both when P2 is reached, rather than treating them as open from scratch.
 
-### Q-58 — What authorizes an action, now that credential priority does not?
-**Blocks:** UI-081 · **Who:** Steven · **Cost:** medium · *new, from Q-47*
+### ~~Q-58~~ — What authorizes an action now that priority does not? **ANSWERED (intent)**
+**Blocks:** UI-081 · **Status:** intent settled 2026-08-23 · replacement still open
 
-`gates.py` currently authorizes by finding a credential named after the action signature at
-priority 1. Q-47 removes that meaning without putting anything in its place, so `AuthorizationGate`
-needs a real basis — an explicit action allowlist, a capability grant, or something else.
+> **Steven:** *"This was only meant for order of operations not execution authority."*
+
+Confirms priority was **never** meant to confer authority — `gates.py` reading `priority = 1` as an
+allowlist is a straight misuse, not a design being replaced.
+
+**Still undefined:** `AuthorizationGate` currently *denies* unless it finds that credential, so
+removing the check leaves the gate with no basis at all. Narrowed to **Q-61** rather than left
+inside this question.
+
+### ~~Q-59~~ — Lockdown scope, trigger, release? **ANSWERED**
+**Blocks:** UI-058 · **Status:** closed 2026-08-23 · **Detail:** UI-102
+
+> **Steven:** *"It does not block local agent. It hardlines a network disconnect so no traffic can
+> act. Only conversation between Harness and LLM."*
+
+Lockdown is a **network-layer cut, not a permission-layer deny** — which is a different mechanism
+from the precedence chain in Q-32. Local agent work continues; only harness↔LLM traffic survives.
+
+**This is already half-built and currently broken shut** — see UI-102. `isNetworkIsolated()` exists
+and gates `vault:read`, but nothing in the codebase ever sets it `true`.
+
+**One tension to resolve (Q-62):** if the active provider is a *cloud* API (Gemini, Kimi3), then
+harness↔LLM traffic **is** network traffic. Either lockdown forces local inference, or it must
+carve out an exception for the provider endpoint.
+
+### Q-60 — Classification taxonomy and clearance mapping **DEFERRED**
+**Blocks:** UI-082 · **Who:** Steven · **Status:** deferred by Steven 2026-08-23
+
+> **Steven:** *"We need to come back to this for deeper conversation."*
+
+Parked deliberately, not unanswered. Blocks UI-082 (the firewall clearance slider stays inert until
+a taxonomy exists) but blocks nothing else, so it does not hold up P2.
+
+Open when resumed: is `Public / PII / Classified` the full set or extensible; what each maps to on
+the existing `[0-10]` scale; and what classifies the **115 existing nodes**, none of which carry a
+classification today.
 
 > **Answer:**
 
-### Q-59 — What is lockdown: scope, trigger, and release?
-**Blocks:** UI-058 · **Who:** Steven · **Cost:** medium · *new, from Q-32*
+### Q-61 — What should `AuthorizationGate` actually check?
+**Blocks:** UI-081 · **Who:** Steven · **Cost:** medium · *narrowed from Q-58*
 
-Sits above every grant, so it needs defining before the precedence chain can be built. Does it block
-only peer access, or local agent access too? Who or what can trigger it — a button, a rule, Tala
-herself? How is it cleared, and is that logged?
+Priority is confirmed as ordering only, so the credential lookup comes out. But the gate currently
+**denies by default** unless it finds that credential — remove it and the gate either blocks
+everything or nothing. Needs a real basis: an explicit action allowlist, a capability grant under
+the Q-22 model, or a risk-tier rule.
 
 > **Answer:**
 
-### Q-60 — What is the classification taxonomy, and is it fixed or user-defined?
-**Blocks:** UI-082 · **Who:** Steven · **Cost:** low · *new, from Q-46*
+### Q-62 — Under lockdown, what happens if the active provider is a cloud API?
+**Blocks:** UI-102 · **Who:** Steven · **Cost:** low · *from Q-59*
 
-`Public`, `PII`, `Classified` were named as examples. Is that the full set, is it extensible, and
-what clearance level does each map to on the existing `[0-10]` scale? Also: what classifies an
-**existing** node — 115 nodes currently carry none.
+Lockdown permits only harness↔LLM conversation. With Ollama that is localhost and trivially fine.
+With Gemini or Kimi3 selected, that conversation **is** outbound network traffic. Does lockdown
+force a switch to local inference, or carve out the provider endpoint?
 
 > **Answer:**
 

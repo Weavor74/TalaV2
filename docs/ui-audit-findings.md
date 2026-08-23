@@ -2661,6 +2661,45 @@ contacts-permissions and firewall into one policy object — the model above *is
 asks what a policy's subject is — Q-22 answers it: a **(grantee, resource)** pair, not a contact
 and not an agent. Both should be revisited rather than reopened.
 
+### UI-102 — Network isolation is never enabled, so `vault:read` can never succeed
+**Severity: high · Status: open · Found while answering Q-59**
+
+Steven's lockdown definition — *"it hardlines a network disconnect so no traffic can act, only
+conversation between Harness and LLM"* — describes a mechanism that is **already half-implemented
+and currently stuck closed**.
+
+The flag exists and is read:
+
+| Line | Code |
+|---|---|
+| [main.js:193](../electron/main.js#L193) | `let networkIsolated = false;` |
+| [main.js:458](../electron/main.js#L458) | `networkIsolated = false;` — on WebSocket connect |
+| [main.js:1079](../electron/main.js#L1079) | `isNetworkIsolated: () => networkIsolated` |
+
+**Nothing anywhere sets it to `true`.** It is initialised false and reset to false; there is no
+third assignment.
+
+The consequence lands on the vault. `vault:read`
+([ipc-handlers.js:386](../electron/ipc-handlers.js#L386)) refuses unless isolation is active:
+
+```js
+if (typeof isNetworkIsolated === 'function' && !isNetworkIsolated()) {
+  throw new Error('vault:read blocked: network connections are active. ...');
+}
+```
+
+Since the flag can never be true, **`vault:read` always throws**. This sharpens UI-036/UI-037: the
+vault is not merely missing its UI — its one working backend capability is permanently unreachable.
+And it sharpens UI-039: the `Network Isolated` badge is not just hardcoded, it asserts a state the
+system has no way to enter.
+
+**Good news for the build.** Lockdown does not start from nothing. The flag, the guard, and the
+enforcement point all exist — what is missing is a setter and a trigger. That is a much smaller job
+than the Q-59 answer implies.
+
+**Unresolved (Q-62):** lockdown permits harness↔LLM traffic. With a local Ollama that is localhost.
+With Gemini or Kimi3 selected it is outbound internet, which contradicts "no traffic can act".
+
 ---
 
 ## B. Self-navigation infrastructure gaps
