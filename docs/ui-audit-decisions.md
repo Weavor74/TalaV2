@@ -98,8 +98,8 @@ also becomes real work rather than dead code to delete.
 **All six answered 2026-08-23**, plus follow-ups Q-58 and Q-59. Read together they define a single
 access-control model that does not exist yet — see **The access model** below.
 
-**Still open in P1:** **Q-61** only — what `AuthorizationGate` should check once credential priority
-no longer confers authority. **Deferred:** Q-60 (classification taxonomy), at Steven's request.
+**P1 is complete.** One follow-up remains open — **Q-63** (which principal the gate resolves
+against). **Deferred:** Q-60 (classification taxonomy), at Steven's request.
 
 ### ~~Q-22~~ — Should an enrolling peer's `requested_permissions` await approval? **ANSWERED**
 **Blocks:** UI-041 · **Status:** closed 2026-08-23
@@ -236,15 +236,27 @@ classification today.
 
 > **Answer:**
 
-### Q-61 — What should `AuthorizationGate` actually check?
-**Blocks:** UI-081 · **Who:** Steven · **Cost:** medium · *narrowed from Q-58*
+### ~~Q-61~~ — What should `AuthorizationGate` check? **ANSWERED**
+**Blocks:** UI-081 · **Status:** closed 2026-08-23 · **Detail:** UI-103
 
-Priority is confirmed as ordering only, so the credential lookup comes out. But the gate currently
-**denies by default** unless it finds that credential — remove it and the gate either blocks
-everything or nothing. Needs a real basis: an explicit action allowlist, a capability grant under
-the Q-22 model, or a risk-tier rule.
+> **Steven:** *"This should check the user contacts, and firewall/guardrail settings."*
 
-> **Answer:**
+Makes `AuthorizationGate` the **consumer of the unified policy object** from UI-101 rather than
+holding its own logic — which is consistent with Q-35's direction and closes the loop on UI-062.
+
+**Two things to know before building it** (UI-103):
+
+1. **The gate is never invoked.** `request_authorization()` has no callers outside its own
+   definition, so the `priority = 1` bug is latent rather than active. The work is *wiring it in*
+   as much as giving it a basis.
+2. **Its signature already fits.** `request_authorization(action_type, resource, risk_class)` is
+   already resource-scoped, matching the *(grantee, resource)* subject from Q-22. Risk tiers already
+   short-circuit: `low` auto-allows, `high`/`critical` demand proof, `medium` defaults open.
+
+**One axis to resolve:** contacts and firewall govern what a **peer** may read from you.
+`AuthorizationGate` governs what **Tala** may execute locally. Those are different principals, so
+the gate needs to know *who is asking* — a peer-triggered action should resolve against that peer's
+grant, while an action you initiate locally should not consult contacts at all. Raised as **Q-63**.
 
 ### ~~Q-62~~ — Under lockdown, what happens with a cloud provider? **ANSWERED**
 **Blocks:** UI-102 · **Status:** closed 2026-08-23
@@ -267,6 +279,16 @@ available", so lockdown can never leave the system with no model — even if Oll
 **Knock-on for UI-046:** remote providers report `ONLINE` purely because an API key string exists.
 Under lockdown they are unreachable by design but would still render green. The badge should
 reflect lockdown state, or the fix for UI-046 should account for it.
+
+### Q-63 — Which principal does `AuthorizationGate` resolve against?
+**Blocks:** UI-081, UI-103 · **Who:** Steven · **Cost:** low · *from Q-61*
+
+Contacts and firewall describe what a **peer** may read from you; the gate governs what **Tala**
+may execute. A peer-triggered action should resolve against that peer's grant — but an action you
+start yourself has no contact to check. Does the gate treat the local owner as implicitly
+authorized, with contacts consulted only for peer-originated work?
+
+> **Answer:**
 
 ---
 

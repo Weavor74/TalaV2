@@ -2711,6 +2711,38 @@ Two notes for whoever builds it:
 - **Interacts with UI-046.** Remote providers show `ONLINE` purely because an API key string is
   present. Under lockdown they are unreachable by design yet would still render green.
 
+### UI-103 — `AuthorizationGate` is never invoked, and the emergency halt is never checked
+**Severity: high · Status: open · Found while answering Q-61**
+
+Two adjacent safety primitives in `sdk/agent/gates.py` are both built and both inert.
+
+**`AuthorizationGate.request_authorization()` has no callers.** A search across `python/` and
+`sdk/` returns only its own definition. So the `priority = 1` authorization bug (UI-081) is
+**latent, not active** — nothing is being wrongly authorized today, because nothing asks.
+
+Its existing shape is a good fit for the model Steven specified, which is worth noting before
+anyone redesigns it:
+
+```python
+async def request_authorization(self, action_type: str, resource: str, risk_class: str) -> bool
+```
+
+- already **resource-scoped**, matching the *(grantee, resource)* subject from Q-22
+- risk tiers already branch: `low` auto-allows, `high`/`critical` demand proof, `medium` defaults
+  open
+- a `register_pre_approval()` path already exists for granting a specific `action:resource`
+
+**`RevocationHalt` is triggerable but never consulted.** `trigger_emergency_halt()` *is* called —
+from `task.control` when the action is `abort`
+([server.py:9591](../python/harness/server.py#L9591)). But `is_halted()` has **no callers
+anywhere**, so tripping the halt sets a flag nothing reads. Aborting a task raises an emergency halt
+that stops nothing.
+
+**Relevance to lockdown (Q-59).** `RevocationHalt` is a second half-built kill-switch primitive
+sitting beside `isNetworkIsolated()` (UI-102), which is also never enabled. Two independent halt
+mechanisms exist, neither functional. Worth deciding whether lockdown reuses one, or whether the
+other should be removed rather than left as a safety control that does nothing.
+
 ---
 
 ## B. Self-navigation infrastructure gaps
