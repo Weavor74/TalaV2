@@ -246,14 +246,27 @@ the Q-22 model, or a risk-tier rule.
 
 > **Answer:**
 
-### Q-62 — Under lockdown, what happens if the active provider is a cloud API?
-**Blocks:** UI-102 · **Who:** Steven · **Cost:** low · *from Q-59*
+### ~~Q-62~~ — Under lockdown, what happens with a cloud provider? **ANSWERED**
+**Blocks:** UI-102 · **Status:** closed 2026-08-23
 
-Lockdown permits only harness↔LLM conversation. With Ollama that is localhost and trivially fine.
-With Gemini or Kimi3 selected, that conversation **is** outbound network traffic. Does lockdown
-force a switch to local inference, or carve out the provider endpoint?
+> **Steven:** *"The lockdown overrides forced model and drops to local only models."*
 
-> **Answer:**
+Lockdown outranks the `FORCE` flag and restricts selection to local providers. Clean, and it
+resolves the contradiction — lockdown never permits outbound inference, so "no traffic can act"
+holds literally.
+
+**Implementation surface is narrow.** Provider selection already reads
+`config.is_forced` ([server.py:2433](../python/harness/server.py#L2433)) over a chain ordered by
+priority, with a documented precedence: force beats priority, except the embedded engine is always
+the last resort. Lockdown adds one tier above force, filtering the chain to `type in (local,
+embedded)`.
+
+**There is already a guaranteed floor.** `embedded-builtin` is `locked`, CPU-only, and "always
+available", so lockdown can never leave the system with no model — even if Ollama is down.
+
+**Knock-on for UI-046:** remote providers report `ONLINE` purely because an API key string exists.
+Under lockdown they are unreachable by design but would still render green. The badge should
+reflect lockdown state, or the fix for UI-046 should account for it.
 
 ---
 

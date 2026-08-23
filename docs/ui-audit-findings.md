@@ -2697,8 +2697,19 @@ system has no way to enter.
 enforcement point all exist — what is missing is a setter and a trigger. That is a much smaller job
 than the Q-59 answer implies.
 
-**Unresolved (Q-62):** lockdown permits harness↔LLM traffic. With a local Ollama that is localhost.
-With Gemini or Kimi3 selected it is outbound internet, which contradicts "no traffic can act".
+**Resolved (Q-62).** Steven: *"the lockdown overrides forced model and drops to local only
+models."* Lockdown sits one tier above the `FORCE` flag and filters the provider chain to
+`type in (local, embedded)`, so outbound inference is never permitted and "no traffic can act" holds
+literally. `embedded-builtin` is `locked` and always available, so this can never leave the system
+without a model.
+
+Two notes for whoever builds it:
+
+- The hook point is narrow — provider selection already honours `config.is_forced`
+  ([server.py:2433](../python/harness/server.py#L2433)) over a priority-ordered chain, with the
+  embedded engine as documented last resort. Lockdown is one more tier above that.
+- **Interacts with UI-046.** Remote providers show `ONLINE` purely because an API key string is
+  present. Under lockdown they are unreachable by design yet would still render green.
 
 ---
 
