@@ -95,8 +95,11 @@ also becomes real work rather than dead code to delete.
 
 ## P1 — Security exposure, live right now
 
-**All six answered 2026-08-23.** Read together they define a single access-control model that does
-not exist yet — see **The access model** below. Three follow-ups fall out: **Q-58, Q-59, Q-60**.
+**All six answered 2026-08-23**, plus follow-ups Q-58 and Q-59. Read together they define a single
+access-control model that does not exist yet — see **The access model** below.
+
+**Still open in P1:** Q-61 (what `AuthorizationGate` should check), Q-62 (lockdown vs a cloud
+provider). **Deferred:** Q-60, at Steven's request.
 
 ### ~~Q-22~~ — Should an enrolling peer's `requested_permissions` await approval? **ANSWERED**
 **Blocks:** UI-041 · **Status:** closed 2026-08-23
@@ -148,11 +151,13 @@ ranking. `gates.py` treating `priority = 1` as an allowlist is a bug, not a desi
 
 Precedence, highest first:
 
-1. **Lockdown** — global kill switch, denies everything regardless of any grant
+1. **Lockdown** — see Q-59: a **network cut**, not a permission deny. It stops peer traffic
+   outright, so no grant can be exercised remotely; local agent work is unaffected
 2. **Contact grant** — an explicit grant supersedes the profile visibility setting
 3. **Profile visibility** — the default when no grant exists
 
-**Lockdown is a new concept** with no implementation anywhere. Scoping it is Q-59.
+Q-59 scoped lockdown: it is a network-layer cut. The flag and guard already exist but nothing ever
+enables them — UI-102.
 
 ### ~~Q-46~~ — Should nodes carry a `clearance` value? **ANSWERED**
 **Blocks:** UI-082 · **Status:** closed 2026-08-23
