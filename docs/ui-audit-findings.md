@@ -1385,7 +1385,14 @@ projects/connections/preferences/privacy at all". That race was fixed by making 
 authoritative. The remaining exposure is the node's *location*, not the load order.
 
 ### UI-057 — The user profile is never injected into the chat system prompt
-**Severity: high · Status: open · Steven's "the agent will not use it"**
+**Severity: high · Status: FIXED 2026-08-23 · Steven's "the agent will not use it"**
+
+
+> **Fixed, to Steven's design rather than the obvious one.** He rejected wholesale
+> injection: *"You cant inject the profile cluster in its entirety... all other stuff
+> should be looked up. The DOB is only for astrology comparison."* So the system prompt
+> carries the user's name and a pointer to the `user_profile_lookup` tool; date of birth
+> stays on the astrology path, which reads the database directly and is untouched.
 
 The system-prompt assembly ([server.py:1300-1400](../python/harness/server.py#L1300)) builds from
 the **active agent** record only — the persona's `system_prompt`, plus its background HTML-NN
@@ -1407,7 +1414,15 @@ Worth noting the asymmetry: **the profile is wired to be shared with peers, and 
 used by your own agent.**
 
 ### UI-058 — The Privacy & Visibility dropdowns are not enforced
-**Severity: high (privacy) · Status: open**
+**Severity: high (privacy) · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `config.privacy` is read for the first time. Each lookup is gated by that
+> section's visibility: `public` is readable by the local agent, `connections` is not
+> (Tala is not a connection — Steven's invite-only model), and a section with no setting
+> is withheld, so adding a profile section cannot silently publish it. Doing this as a
+> per-section lookup rather than retrieval is what gave the setting somewhere to be
+> enforced at all.
 
 Preferences & Privacy offers six visibility selectors — Core Identity, About Biography, Work &
 Roles, Skills, Projects, Connections Graph — under the heading *"Configure access control
@@ -2893,7 +2908,15 @@ That is the exact shape of UI-060: the compiled workflow node *documents* how to
 mechanism to follow it. The gap is one verb wide.
 
 ### UI-107 — The tool registry is not HTML-NN backed
-**Severity: high (mandate) · Status: open · Source: Q-33**
+**Severity: high (mandate) · Status: FIXED 2026-08-23 · Source: Q-33**
+
+
+> **Fixed.** `scripts/generate_tool_nodes.py` writes one `tool-*.html` per registered
+> tool — 88 of them — carrying the prose retrieval matches on plus the real argument
+> schema in node state. The Python registry remains what executes. Tool modules are
+> discovered by scanning rather than a hardcoded list, which immediately turned up
+> `sdk/agent/skills/`: those tools had no node and, registration being an import side
+> effect, were invisible to the planner's catalogue too.
 
 > **Steven:** *"The tool registry should be a collection of html-nn. If they are not we need to
 > address that."*
