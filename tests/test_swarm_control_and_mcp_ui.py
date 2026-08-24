@@ -61,10 +61,22 @@ def test_the_task_ui_offers_every_action_the_harness_supports(action):
 
 
 def test_the_ui_routes_all_three_through_task_control():
+    """
+    Every task action must reach task.control.
+
+    Originally pinned to the exact array literal, which meant adding the
+    Mission Control approve/reject actions broke a test whose real subject --
+    that these three are routed -- was still satisfied. Asserts membership now,
+    so the guard can grow without a false failure.
+    """
     renderer = RENDERER.read_text(encoding="utf-8")
 
-    assert "['abort', 'pause', 'resume'].includes(action)" in renderer
     assert "async controlTask(id, action)" in renderer
+    match = re.search(r"\[([^\]]*)\]\.includes\(action\)", renderer)
+    assert match, "no dispatch guard of the form [...].includes(action) was found"
+    routed = {a.strip().strip("'\"") for a in match.group(1).split(",")}
+    for action in ("abort", "pause", "resume"):
+        assert action in routed, f"{action} is not routed through controlTask"
 
 
 def test_only_the_irreversible_action_confirms():

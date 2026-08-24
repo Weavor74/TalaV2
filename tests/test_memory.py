@@ -22,6 +22,7 @@ from python.harness.memory import (
 )
 from sdk.agent.memory.manager import get_manager
 from sdk.agent.memory.local_provider import LocalMemoryProvider
+from python.harness.search_manager import SearchOutcome
 
 @pytest.fixture(autouse=True)
 def setup_memory_providers():
@@ -108,13 +109,17 @@ async def test_memory_scan_context():
 @pytest.mark.asyncio
 async def test_research_unified_search():
     with patch("python.harness.memory.handle_memory_search", new_callable=AsyncMock) as mock_mem_search, \
-         patch("python.harness.memory.SearchManager.query", new_callable=AsyncMock) as mock_search_query:
+         patch("python.harness.memory.SearchManager.query_detailed", new_callable=AsyncMock) as mock_search_query:
         mock_mem_search.return_value = {"results": [
             {"id": "mem-1", "score": 0.9, "source_type": "session"}
         ]}
-        mock_search_query.return_value = [
-            {"title": "Web Title", "snippet": "Web Snippet", "url": "http://example.com"}
-        ]
+        # query_detailed reports how the answer was obtained, not just the rows,
+        # so the caller can tell a provider result from a crawler fallback.
+        mock_search_query.return_value = SearchOutcome(
+            results=[{"title": "Web Title", "snippet": "Web Snippet", "url": "http://example.com"}],
+            source="provider",
+            provider_name="Test Provider",
+        )
         
         params = {"query": "test query", "sources": ["memory", "web"]}
         result = await handle_research_unified_search(params)

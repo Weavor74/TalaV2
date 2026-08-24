@@ -578,17 +578,32 @@ async def handle_research_unified_search(params: dict[str, Any]) -> dict[str, An
     if include_web:
         try:
             search_provider_id = params.get("search_provider_id")
-            web_raw_results = await SearchManager.query(query, provider_id=search_provider_id)
-            for res in web_raw_results:
+            # query_detailed rather than query: the renderer already draws a red
+            # banner for every entry in `errors`, and the only reason a failing
+            # search provider never lit it was that nothing populated the dict
+            # unless the whole call threw (UI-020). Non-200s never threw.
+            outcome = await SearchManager.query_detailed(
+                query, provider_id=search_provider_id
+            )
+            if outcome.errors:
+                errors["web"] = outcome.error_summary()
+
+            # Crawler output is scraped HTML, not a provider's ranked answer, so
+            # it is scored below provider results and labelled as such rather
+            # than being passed off as the search the user paid for.
+            from_crawler = outcome.source == "crawler"
+            for res in outcome.results:
                 results.append({
                     "id": f"web-{uuid.uuid4().hex[:8]}",
                     "source_type": "web",
                     "title": res.get("title", f"Web Result for: {query}"),
                     "snippet": res.get("snippet", ""),
-                    "score": 0.75, # base web score
+                    "score": 0.60 if from_crawler else 0.75,
                     "created_at": "",
                     "ref": {"url": res.get("url", "")},
-                    "trust": "external"
+                    "trust": "external",
+                    "provider": outcome.provider_name or "",
+                    "degraded": outcome.degraded,
                 })
         except Exception as e:
             logger.warning(f"Unified search web error: {e}")

@@ -7811,8 +7811,18 @@ async def handle_search_query(params: dict[str, Any], req_id: Any) -> str:
 
     try:
         from python.harness.search_manager import SearchManager
-        results = await SearchManager.query(query)
-        return _ok(req_id, {"results": results})
+        outcome = await SearchManager.query_detailed(query)
+        return _ok(req_id, {
+            "results": outcome.results,
+            # Who actually answered. Without this the caller cannot tell a paid
+            # API's results from a DuckDuckGo scrape that ran because the key
+            # was rejected (UI-018).
+            "provider": outcome.provider_name,
+            "source": outcome.source,
+            "degraded": outcome.degraded,
+            "errors": outcome.errors,
+            "error": outcome.error_summary() or None,
+        })
     except Exception as exc:
         logger.exception("search.query error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
@@ -8931,8 +8941,20 @@ async def handle_research_search(params: dict[str, Any], req_id: Any) -> str:
 
         from python.harness.search_manager import SearchManager
         provider_id = params.get("search_provider_id")
-        results = await SearchManager.query(query, provider_id=provider_id)
-        return _ok(req_id, {"results": results})
+        outcome = await SearchManager.query_detailed(query, provider_id=provider_id)
+        if outcome.degraded:
+            logger.warning(
+                "research.search: serving crawler results for %r after %d provider "
+                "failure(s); the panel is told.", query, len(outcome.errors),
+            )
+        return _ok(req_id, {
+            "results": outcome.results,
+            "provider": outcome.provider_name,
+            "source": outcome.source,
+            "degraded": outcome.degraded,
+            "errors": outcome.errors,
+            "error": outcome.error_summary() or None,
+        })
     except Exception as exc:
         logger.exception("research.search error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
@@ -11127,25 +11149,93 @@ async def handle_channels_status(params: dict, req_id: any) -> str:
     except Exception as exc:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
-async def handle_browser_get_dom(params: dict, req_id: any) -> str:
-    from python.harness.server import _ok, _err, JsonRpcError
+async def _browser_bridge(channel: str, payload: dict, req_id: any, what: str) -> str:
+    """
+    Shared plumbing for the two webview handlers that need an answer back.
+
+    Both used to broadcast into the void and return ``{"status":
+    "broadcast_sent"}``, which any caller checking for success read as success
+    (UI-014, UI-015). Now every outcome is distinguishable: no window open, no
+    handler listening, the JS threw, or a real result.
+    """
+    import asyncio
     from python.harness.config import settings
+    from python.harness import ui_bridge
+
     if settings.IS_HEADLESS:
-        return _ok(req_id, {"error": "Tala is running in embedded/headless mode and cannot access Browser UI."})
-    return _ok(req_id, {"status": "broadcast_sent", "note": "DOM retrieval requires IPC callback setup."})
+        # _err, not _ok: headless genuinely cannot do this, and returning ok
+        # with an "error" key inside it is the same lie in a smaller font.
+        return _err(
+            req_id, JsonRpcError.INTERNAL_ERROR,
+            "Tala is running in embedded/headless mode and has no Browser UI. "
+            "Use the headless browser tools (browser_read, browser_navigate) instead.",
+        )
+
+    try:
+        result = await ui_bridge.request(channel, payload)
+        return _ok(req_id, {"success": True, "result": result})
+    except ui_bridge.NoListener as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    except asyncio.TimeoutError:
+        return _err(
+            req_id, JsonRpcError.INTERNAL_ERROR,
+            f"The UI did not respond to {what} within the timeout.",
+        )
+    except ui_bridge.BridgeError as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"{what} failed in the page: {exc}")
+    except Exception as exc:
+        logger.exception("%s error", channel)
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_ui_bridge_result(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``ui.bridge_result`` — the renderer delivering an answer to a ui_bridge request.
+
+    This is the return half of the request/response pair; without it the
+    webview handlers could only ever broadcast and hope (UI-014, UI-015).
+    """
+    from python.harness import ui_bridge
+
+    request_id = str(params.get("request_id") or "").strip()
+    if not request_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'request_id' is required")
+
+    delivered = ui_bridge.resolve(
+        request_id,
+        result=params.get("result"),
+        error=params.get("error") or None,
+    )
+    if not delivered:
+        # Almost always a response that arrived after its request timed out.
+        logger.debug("ui.bridge_result: nothing was awaiting %s", request_id)
+    return _ok(req_id, {"delivered": delivered})
+
+
+async def handle_browser_get_dom(params: dict, req_id: any) -> str:
+    """``browser.get_dom`` — read the live webview's DOM."""
+    selector = str(params.get("selector") or "").strip()
+    max_chars = params.get("max_chars")
+    try:
+        max_chars = int(max_chars) if max_chars is not None else 200_000
+    except (TypeError, ValueError):
+        max_chars = 200_000
+    return await _browser_bridge(
+        "browser.get_dom",
+        {"selector": selector, "max_chars": max_chars},
+        req_id,
+        "the DOM request",
+    )
+
 
 async def handle_browser_execute_js(params: dict, req_id: any) -> str:
-    from python.harness.server import _ok, _err, JsonRpcError
-    from python.harness.config import settings
-    from python.harness.heartbeat_scheduler import broadcast_notification
-    if settings.IS_HEADLESS:
-        return _ok(req_id, {"error": "Tala is running in embedded/headless mode and cannot access Browser UI."})
-    try:
-        code = params.get("code", "")
-        await broadcast_notification("browser.execute_js", {"code": code})
-        return _ok(req_id, {"status": "broadcast_sent"})
-    except Exception as exc:
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    """``browser.execute_js`` — evaluate JS in the webview and return its value."""
+    code = params.get("code", "")
+    if not isinstance(code, str) or not code.strip():
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'code' is required and must be a non-empty string")
+    return await _browser_bridge(
+        "browser.execute_js", {"code": code}, req_id, "the script"
+    )
 
 async def handle_p2p_webrtc_offer(params: dict[str, Any], req_id: Any) -> str:
     from python.harness.webrtc_manager import webrtc_manager
@@ -11456,6 +11546,7 @@ _HANDLERS: dict[str, Any] = {
     "channels.save": handle_channels_save,
     "channels.delete": handle_channels_delete,
     "channels.status": handle_channels_status,
+    "ui.bridge_result": handle_ui_bridge_result,
     "browser.get_dom": handle_browser_get_dom,
     "browser.execute_js": handle_browser_execute_js,
     "chain.connection_get":   handle_chain_connection_get,

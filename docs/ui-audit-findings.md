@@ -206,7 +206,13 @@ Note `webviewTag: true` is set at [main.js:247](../electron/main.js#L247), and a
 fully drivable — it simply isn't driven.
 
 ### UI-014 — `browser.get_dom` is a stub that reports success
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+> **Fixed.** The handler now reads the live webview's DOM through a real request/response
+> bridge (`python/harness/ui_bridge.py`) and a renderer listener that answers. Every
+> outcome is distinguishable: no window open, no handler listening, no element matching
+> the selector, or a result. Headless returns `_err` rather than `_ok` with an `error`
+> key inside it, which was the same lie in a smaller font.
 
 The RPC handler retrieves no DOM and broadcasts nothing. Its entire non-headless body is:
 
@@ -218,7 +224,13 @@ It returns `_ok`, so any caller checking for success sees success. This is the
 `status: failed read as success` pattern again — a silent no-op wearing a success response.
 
 ### UI-015 — `browser.execute_js` broadcasts to a channel with no listener
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+> **Fixed.** The listener exists now, and the missing result path with it. `ui_bridge`
+> attaches a `request_id`, the renderer evaluates the script and calls the new
+> `ui.bridge_result` RPC, and the pending future resolves. A thrown script arrives as a
+> failure; a renderer that never answers times out rather than hanging the harness; and
+> zero connected clients fails immediately rather than waiting out the timeout to lie.
 
 `handle_browser_execute_js` calls `broadcast_notification("browser.execute_js", {"code": code})`
 and returns `{"status": "broadcast_sent"}`. But the renderer listens only for
@@ -271,7 +283,13 @@ The defects below are all in the **provider execution path** — the part that d
 user's own API key is actually what answers the query.
 
 ### UI-018 — A failing search provider silently degrades to a DuckDuckGo scrape
-**Severity: high · Status: open · Direction set by Q-9 — failure must be visible**
+**Severity: high · Status: FIXED 2026-08-23 · Direction set by Q-9 — failure must be visible**
+
+> **Fixed.** A non-200 is now recorded as a provider failure with a readable reason
+> ("HTTP 401 (the API key was rejected)"), and so are timeouts, non-JSON bodies, and 200s
+> carrying no usable rows. `SearchManager.query_detailed` returns a `SearchOutcome` saying
+> which provider answered, whether the result came from the crawler, and what failed on
+> the way. `query()` still returns a bare list, so no existing caller broke.
 
 In `SearchManager.query`, every provider branch is shaped as:
 
@@ -299,7 +317,14 @@ This is the single most damaging finding for the stated feature: the failure mod
 API isn't working" is *indistinguishable from success*.
 
 ### UI-019 — The `/search` substring misroutes most commercial search APIs
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+> **Fixed.** Dispatch is by host, not by substring: `_provider_kind` recognises Tavily,
+> SerpAPI, Brave, Google CSE, Bing and SearXNG, and falls back to generic. Each gets the
+> auth it actually wants — Brave its `X-Subscription-Token`, SerpAPI its `api_key`
+> parameter, Bing its `Ocp-Apim-Subscription-Key` — and each is read from the right key
+> (`organic_results`, `web.results`, `items`, `webPages.value`). SearXNG is now matched by
+> name or an explicit `format=json`, never by a bare `/search` path.
 
 Provider dispatch is by substring match on the endpoint
 ([search_manager.py:175](../python/harness/search_manager.py#L175)):
@@ -325,7 +350,13 @@ non-200 or an empty list, which then degrades silently to the crawler. **Togethe
 user can add Brave or SerpAPI, see results appear, and never learn their provider is unused.**
 
 ### UI-020 — Provider failures never reach the UI, which already has a banner for them
-**Severity: medium · Status: open · Direction set by Q-9 — failure must be visible**
+**Severity: medium · Status: FIXED 2026-08-23 · Direction set by Q-9 — failure must be visible**
+
+> **Fixed, and it needed no renderer change** — the banner always worked, nothing fed it.
+> `unified_search` now populates `errors["web"]` from the outcome. Two additions beyond
+> the finding: crawler rows score below provider rows so they cannot outrank the real
+> thing, and each web result carries the engine that produced it, so the badge reads
+> `BRAVE` or an amber `CRAWLER` instead of a uniform `WEB`.
 
 `unified_search` returns an `errors` dict and the renderer renders each entry as a red banner
 ([renderer.js:3838](../renderer/renderer.js#L3838)). The mechanism works. But `SearchManager`
@@ -550,7 +581,12 @@ This also makes the whole screen hard to audit: there is no way to tell, from th
 are genuine.
 
 ### UI-029 — Task descriptions are injected into `innerHTML` unescaped
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+> **Fixed.** Description, worker id, task id and branch name all pass through
+> `escapeHtml`. The null guard went in at the same time: `t.description.length` on a null
+> threw inside `forEach`, the outer catch swallowed it, and the whole board rendered empty
+> with only a console error to show for it.
 
 The kanban card is built by string interpolation with no escaping
 ([renderer.js:12588](../renderer/renderer.js#L12588)):

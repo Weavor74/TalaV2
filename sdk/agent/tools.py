@@ -457,7 +457,17 @@ async def web_search(query: str, search_provider_id: str | None = None) -> list[
     
     """
     from python.harness.search_manager import SearchManager
-    return await SearchManager.query(query, provider_id=search_provider_id)
+    outcome = await SearchManager.query_detailed(query, provider_id=search_provider_id)
+    if outcome.degraded:
+        # Tell the model, not just the log. Otherwise it presents scraped
+        # DuckDuckGo output as though it came from the configured provider
+        # and has no way to caveat its own answer (UI-018).
+        return {
+            "results": outcome.results,
+            "warning": outcome.error_summary(),
+            "source": "crawler",
+        }
+    return outcome.results
 
 
 @register_tool(

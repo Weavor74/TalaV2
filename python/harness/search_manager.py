@@ -9,9 +9,11 @@ Milestone 19 — Task 19.1.2
 
 from __future__ import annotations
 
+import json
 import logging
 import urllib.parse
 import re
+from dataclasses import dataclass, field
 from typing import Any
 import httpx
 from lxml import html
@@ -38,7 +40,7 @@ async def get_search_providers() -> list[dict[str, Any]]:
                 # Credential secrets are encrypted at rest (UI-080); decrypt so a
                 # referenced credential still yields a usable key.
                 from python.harness.credential_crypto import decrypt_config
-                cred_cfg = decrypt_config(dict(r["cred_config"]) if r["cred_config"] else {})
+                cred_cfg = decrypt_config(r["cred_config"]) or {}
                 api_key = cred_cfg.get("api_key", api_key)
 
             providers.append({
@@ -117,137 +119,357 @@ async def crawl_web(query: str, max_results: int = 5) -> list[dict[str, str]]:
         return []
 
 
+@dataclass
+class SearchOutcome:
+    """
+    The result of a search *and* what happened on the way to it.
+
+    ``SearchManager.query`` returns a bare list, which gave callers no way to
+    tell a real provider answer from a DuckDuckGo scrape that ran because a
+    paid API returned 401 (UI-018). The list return is kept for the existing
+    callers; anything that wants to be honest with the user calls
+    :meth:`SearchManager.query_detailed` and reads these fields.
+    """
+
+    results: list[dict[str, str]] = field(default_factory=list)
+    #: 'provider' | 'crawler' | 'none'
+    source: str = "none"
+    #: The provider that actually answered, if any.
+    provider_name: str | None = None
+    #: One entry per provider that was tried and did not answer.
+    errors: list[dict[str, str]] = field(default_factory=list)
+
+    @property
+    def degraded(self) -> bool:
+        """True when results came from the crawler after a provider failed."""
+        return self.source == "crawler" and bool(self.errors)
+
+    def error_summary(self) -> str:
+        """A single line fit for the renderer's existing red banner."""
+        if not self.errors:
+            return ""
+        head = "; ".join(f"{e['provider']}: {e['reason']}" for e in self.errors)
+        if self.source == "crawler":
+            return (
+                f"Search provider unavailable ({head}). "
+                "Showing DuckDuckGo crawler results instead."
+            )
+        return f"Search provider unavailable ({head})."
+
+
+def _provider_kind(endpoint: str, name: str = "") -> str:
+    """
+    Classify a provider by host, not by substring-matching the whole URL.
+
+    The previous dispatch routed anything containing ``/search`` into the
+    SearXNG branch (UI-019). Almost every commercial search API's path ends in
+    ``/search``, so Brave got a Bearer token instead of its subscription header
+    and SerpAPI got read for ``results`` when it returns ``organic_results`` --
+    and both failures then degraded silently to the crawler.
+    """
+    host = urllib.parse.urlparse(endpoint).netloc.lower()
+    label = f"{host} {name}".lower()
+
+    if "tavily.com" in host:
+        return "tavily"
+    if "serpapi.com" in host:
+        return "serpapi"
+    if "search.brave.com" in host or "brave" in label:
+        return "brave"
+    if "googleapis.com" in host and "customsearch" in endpoint.lower():
+        return "google_cse"
+    if "bing.microsoft.com" in host or "api.bing.com" in host:
+        return "bing"
+    # SearXNG identifies itself by name or by asking for JSON explicitly --
+    # never by a bare /search path.
+    if "searx" in label or "format=json" in endpoint.lower():
+        return "searxng"
+    return "generic"
+
+
+def _first(mapping: dict[str, Any], *keys: str) -> str:
+    for k in keys:
+        v = mapping.get(k)
+        if isinstance(v, str) and v:
+            return v
+    return ""
+
+
+def _normalise(raw: Any, limit: int = 5) -> list[dict[str, str]]:
+    """Map any provider's result rows onto title/url/snippet."""
+    if not isinstance(raw, list):
+        return []
+    out: list[dict[str, str]] = []
+    for r in raw:
+        if not isinstance(r, dict):
+            continue
+        out.append({
+            "title": _first(r, "title", "name"),
+            "url": _first(r, "url", "link", "href"),
+            "snippet": _first(r, "content", "snippet", "description", "body"),
+        })
+        if len(out) >= limit:
+            break
+    return out
+
+
+#: Where each provider puts its result rows.
+_RESULT_PATHS: dict[str, tuple[str, ...]] = {
+    "tavily": ("results",),
+    "serpapi": ("organic_results",),
+    "brave": ("web.results",),
+    "google_cse": ("items",),
+    "bing": ("webPages.value",),
+    "searxng": ("results",),
+    "generic": ("results", "items", "data"),
+}
+
+
+def _dig(data: Any, path: str) -> Any:
+    cur = data
+    for part in path.split("."):
+        if not isinstance(cur, dict):
+            return None
+        cur = cur.get(part)
+    return cur
+
+
+def _extract(kind: str, data: Any) -> list[dict[str, str]]:
+    if isinstance(data, list):
+        return _normalise(data)
+    for path in _RESULT_PATHS.get(kind, ("results",)):
+        found = _dig(data, path)
+        if isinstance(found, list):
+            return _normalise(found)
+    return []
+
+
+def _with_params(endpoint: str, params: dict[str, str]) -> str:
+    """Merge query parameters into an endpoint, preserving what is already there."""
+    parsed = urllib.parse.urlparse(endpoint)
+    existing = urllib.parse.parse_qs(parsed.query)
+    for k, v in params.items():
+        existing[k] = [v]
+    return urllib.parse.urlunparse(
+        parsed._replace(query=urllib.parse.urlencode(existing, doseq=True))
+    )
+
+
+def _http_reason(status: int) -> str:
+    return {
+        400: "bad request",
+        401: "the API key was rejected",
+        403: "forbidden -- check the key's permissions",
+        404: "the endpoint was not found",
+        429: "rate limited or out of quota",
+        500: "the provider had a server error",
+        502: "bad gateway",
+        503: "the provider is unavailable",
+    }.get(status, "unexpected status")
+
+
 class SearchManager:
     """Manages search queries via prioritized API providers or raw crawler failovers."""
 
     @classmethod
     async def query(cls, query: str, provider_id: str | None = None) -> list[dict[str, str]]:
+        """Backwards-compatible list return. Prefer :meth:`query_detailed`."""
+        outcome = await cls.query_detailed(query, provider_id=provider_id)
+        return outcome.results
+
+    @classmethod
+    async def query_detailed(
+        cls, query: str, provider_id: str | None = None
+    ) -> SearchOutcome:
         """
-        Execute search query.
-        Tries providers in priority order, falling back to DDG HTML crawl on failure/none.
+        Execute a search, reporting *how* the answer was obtained.
+
+        Every provider that fails is recorded on the outcome, including the
+        non-200 responses that used to fall off the end of their branch without
+        raising -- so a 401 from a paid API is no longer indistinguishable from
+        success (UI-018, and Q-9: "a failed provider must be visible").
         """
+        outcome = SearchOutcome()
         providers = await get_search_providers()
-        
+
         # Check if we forced a specific provider via arguments (from Research Library selection)
         selected_providers = []
         if provider_id:
             if provider_id == "crawler":
                 logger.info("SearchManager: Direct crawling fallback selected.")
-                return await crawl_web(query)
-            
+                outcome.results = await crawl_web(query)
+                # Explicitly chosen, so this is not a degradation.
+                outcome.source = "crawler"
+                outcome.provider_name = "DuckDuckGo crawler"
+                return outcome
+
             selected_providers = [p for p in providers if p["id"] == provider_id]
             if selected_providers:
                 logger.info("SearchManager: Specific provider '%s' requested.", provider_id)
                 providers = selected_providers
             else:
-                logger.warning("SearchManager: Requested provider ID '%s' not found. Falling back to default routing.", provider_id)
+                logger.warning(
+                    "SearchManager: Requested provider ID '%s' not found. "
+                    "Falling back to default routing.", provider_id
+                )
+                outcome.errors.append({
+                    "provider": str(provider_id),
+                    "reason": "the selected provider is no longer configured",
+                })
 
         # Check if there is a forced (locked) search provider
         if not provider_id or not selected_providers:
             locked_providers = [p for p in providers if p.get("locked")]
             if locked_providers:
-                logger.info("SearchManager: Locked search providers active. Filtering search backends.")
+                logger.info(
+                    "SearchManager: Locked search providers active. Filtering search backends."
+                )
                 providers = locked_providers
-        
+
         for p in providers:
             name = p["name"]
             endpoint = p["endpoint"]
             api_key = p["api_key"]
+            kind = _provider_kind(endpoint, name)
 
-            logger.info("Attempting web search with provider '%s' (%s)", name, endpoint)
-            
+            logger.info(
+                "Attempting web search with provider '%s' (%s) as kind=%s",
+                name, endpoint, kind,
+            )
+
             try:
-                # 1. Tavily API handler
-                if "tavily.com" in endpoint.lower():
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        payload = {"api_key": api_key, "query": query}
-                        response = await client.post(endpoint, json=payload)
-                        if response.status_code == 200:
-                            data = response.json()
-                            raw_results = data.get("results", [])
-                            return [
-                                {
-                                    "title": r.get("title", ""),
-                                    "url": r.get("url", ""),
-                                    "snippet": r.get("content", ""),
-                                }
-                                for r in raw_results
-                            ][:5]
-                            
-                # 2. Searxng API handler
-                elif "format=json" in endpoint.lower() or "/search" in endpoint.lower():
-                    # Parse Searxng URL parameters, appending format=json if missing
-                    parsed_url = urllib.parse.urlparse(endpoint)
-                    query_params = urllib.parse.parse_qs(parsed_url.query)
-                    query_params["q"] = [query]
-                    query_params["format"] = ["json"]
-                    
-                    # Reconstruct URL with parameters
-                    clean_query = urllib.parse.urlencode(query_params, doseq=True)
-                    target_url = urllib.parse.urlunparse(
-                        parsed_url._replace(query=clean_query)
+                response = await cls._call(kind, endpoint, api_key, query)
+
+                if response.status_code != 200:
+                    # This is the UI-018 hole: a non-200 is not an exception, so
+                    # the old code left the branch without returning and without
+                    # logging, and the loop quietly ran out into the crawler.
+                    reason = _http_reason(response.status_code)
+                    logger.warning(
+                        "Search provider '%s' returned HTTP %d (%s). Trying next...",
+                        name, response.status_code, reason,
                     )
-                    
-                    headers = {}
-                    if api_key:
-                        headers["Authorization"] = f"Bearer {api_key}"
+                    outcome.errors.append({
+                        "provider": name,
+                        "reason": f"HTTP {response.status_code} ({reason})",
+                    })
+                    continue
 
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        response = await client.get(target_url, headers=headers)
-                        if response.status_code == 200:
-                            data = response.json()
-                            raw_results = data.get("results", [])
-                            return [
-                                {
-                                    "title": r.get("title", ""),
-                                    "url": r.get("url", ""),
-                                    "snippet": r.get("content", r.get("snippet", "")),
-                                }
-                                for r in raw_results
-                            ][:5]
+                try:
+                    data = response.json()
+                except (ValueError, json.JSONDecodeError):
+                    logger.warning(
+                        "Search provider '%s' returned HTTP 200 but not JSON. Trying next...",
+                        name,
+                    )
+                    outcome.errors.append({
+                        "provider": name,
+                        "reason": "responded with 200 but the body was not JSON",
+                    })
+                    continue
 
-                # 3. Generic JSON handler (standard GET search)
-                else:
-                    target_url = endpoint
-                    if "?" in endpoint:
-                        target_url += f"&q={urllib.parse.quote(query)}"
-                    else:
-                        target_url += f"?q={urllib.parse.quote(query)}"
-                        
-                    headers = {
-                        "Accept": "application/json"
-                    }
-                    if api_key:
-                        headers["Authorization"] = f"Bearer {api_key}"
-                        headers["X-API-Key"] = api_key
+                results = _extract(kind, data)
+                if not results:
+                    # 200 with nothing usable means either a genuinely empty
+                    # result set or a shape we misread -- either way the user
+                    # should not be handed crawler output as if it were theirs.
+                    logger.warning(
+                        "Search provider '%s' returned no usable results for %r.",
+                        name, query,
+                    )
+                    outcome.errors.append({
+                        "provider": name,
+                        "reason": "returned no usable results",
+                    })
+                    continue
 
-                    async with httpx.AsyncClient(timeout=8.0) as client:
-                        response = await client.get(target_url, headers=headers)
-                        if response.status_code == 200:
-                            data = response.json()
-                            # Standard formats might return a list of items or under a 'results' key
-                            results_list = []
-                            if isinstance(data, list):
-                                results_list = data
-                            elif isinstance(data, dict):
-                                results_list = data.get("results", data.get("items", []))
-                                
-                            if isinstance(results_list, list):
-                                return [
-                                    {
-                                        "title": r.get("title", r.get("name", "")),
-                                        "url": r.get("url", r.get("link", "")),
-                                        "snippet": r.get("snippet", r.get("content", r.get("description", ""))),
-                                    }
-                                    for r in results_list if isinstance(r, dict)
-                                ][:5]
+                outcome.results = results
+                outcome.source = "provider"
+                outcome.provider_name = name
+                return outcome
 
+            except httpx.TimeoutException:
+                logger.warning("Search provider '%s' timed out. Trying next...", name)
+                outcome.errors.append({"provider": name, "reason": "timed out"})
+                continue
             except Exception as exc:
                 logger.warning(
                     "Search provider '%s' query failed: %s. Trying next...", name, exc
                 )
+                outcome.errors.append({
+                    "provider": name,
+                    "reason": f"{type(exc).__name__}: {exc}",
+                })
                 continue
 
-        # If all providers fail or list is empty, crawl the web directly
-        logger.info("No active search providers succeeded. Falling back to direct web crawler.")
-        return await crawl_web(query)
+        # If all providers fail or the list is empty, crawl the web directly.
+        if outcome.errors:
+            logger.warning(
+                "All %d search provider(s) failed; falling back to the direct web "
+                "crawler. The caller is told this happened.", len(outcome.errors),
+            )
+        else:
+            logger.info("No search providers configured. Using the direct web crawler.")
+        outcome.results = await crawl_web(query)
+        outcome.source = "crawler"
+        outcome.provider_name = "DuckDuckGo crawler"
+        return outcome
+
+    # -- per-provider request shapes -----------------------------------------
+
+    @classmethod
+    async def _call(
+        cls, kind: str, endpoint: str, api_key: str | None, query: str
+    ) -> httpx.Response:
+        """Issue the request each provider actually expects."""
+        async with httpx.AsyncClient(timeout=8.0) as client:
+            if kind == "tavily":
+                return await client.post(
+                    endpoint, json={"api_key": api_key, "query": query}
+                )
+
+            if kind == "brave":
+                # Brave rejects Authorization: Bearer -- it wants its own header.
+                headers = {"Accept": "application/json"}
+                if api_key:
+                    headers["X-Subscription-Token"] = api_key
+                return await client.get(
+                    _with_params(endpoint, {"q": query}), headers=headers
+                )
+
+            if kind == "serpapi":
+                # SerpAPI takes the key as a query parameter, not a header.
+                params = {"q": query}
+                if api_key:
+                    params["api_key"] = api_key
+                return await client.get(_with_params(endpoint, params))
+
+            if kind == "google_cse":
+                params = {"q": query}
+                if api_key:
+                    params["key"] = api_key
+                return await client.get(_with_params(endpoint, params))
+
+            if kind == "bing":
+                headers = {"Accept": "application/json"}
+                if api_key:
+                    headers["Ocp-Apim-Subscription-Key"] = api_key
+                return await client.get(
+                    _with_params(endpoint, {"q": query}), headers=headers
+                )
+
+            if kind == "searxng":
+                headers = {}
+                if api_key:
+                    headers["Authorization"] = f"Bearer {api_key}"
+                return await client.get(
+                    _with_params(endpoint, {"q": query, "format": "json"}),
+                    headers=headers,
+                )
+
+            # generic: send both common auth headers and hope one fits
+            headers = {"Accept": "application/json"}
+            if api_key:
+                headers["Authorization"] = f"Bearer {api_key}"
+                headers["X-API-Key"] = api_key
+            return await client.get(_with_params(endpoint, {"q": query}), headers=headers)

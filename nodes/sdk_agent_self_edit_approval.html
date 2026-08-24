@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Self Edit Approval</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_self_edit_approval"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.self_edit_approval"
+  data-source-files="sdk/agent/self_edit_approval.py"
+  data-source-fingerprint="sha256:923D82B5AFB83B7F3E342AF0279ABF1F2C8213CD6BAA2D2CFE1ADE4A1B2C442E"
+  data-generated-at="2026-08-24T01:32:15Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Self Edit Approval</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>self_edit_approval.py — Tala proposes changes to her own source; Steven approves.</p>
+    <p>It lives at sdk/agent/self_edit_approval.py within the agent SDK.</p>
+    <p>Functions it exposes: is_self_source() — True if *rel_path* is part of Tala&#x27;s own machinery.; digest(); propose() — Queue a change to Tala&#x27;s own source as a task awaiting review.; approved_task_for() — Return the id of an approved proposal matching this exact write, if any.; consume() — Mark an approval used, so it cannot authorise a second write.; decide() — Operator decision..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/self_edit_approval.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_self_edit_approval"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.self_edit_approval"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Self Edit Approval",
+  "description": "Program documentation for sdk.agent.self_edit_approval.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "self_edit_approval"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:32:15Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.self_edit_approval",
+    "source_fingerprint": "sha256:923D82B5AFB83B7F3E342AF0279ABF1F2C8213CD6BAA2D2CFE1ADE4A1B2C442E"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

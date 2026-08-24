@@ -3965,6 +3965,19 @@ const ResearchManager = {
       const color = sourceColors[res.source_type] || 'var(--text-muted)';
       const isChecked = this._checkedResults.has(res);
 
+      // Name the engine on web results, and mark the ones that came from the
+      // crawler after a provider failed. The banner says a provider is down;
+      // this says which of the rows in front of you are the consolation prize
+      // (UI-018 / Q-9 -- "a failed provider must be visible").
+      let sourceLabel = (res.source_type || 'unknown').toUpperCase();
+      let labelTitle = '';
+      if (res.source_type === 'web' && res.provider) {
+        sourceLabel = res.degraded ? 'CRAWLER' : escapeHtml(res.provider).toUpperCase();
+        labelTitle = res.degraded
+          ? 'Scraped by the built-in crawler because a configured search provider failed.'
+          : `Answered by ${res.provider}.`;
+      }
+
       item.innerHTML = `
         <div style="margin-right: 12px; margin-top: 4px;" class="checkbox-wrapper">
           <input type="checkbox" class="source-checkbox" ${isChecked ? 'checked' : ''} style="cursor: pointer;" />
@@ -3972,7 +3985,7 @@ const ResearchManager = {
         <div style="flex: 1; min-width: 0; display: flex; flex-direction: column;">
           <div style="display: flex; justify-content: space-between; align-items: flex-start;">
             <span class="research-source-title" style="flex: 1;">${escapeHtml(res.title || 'Untitled')}</span>
-            <span class="badge" style="background: ${color}; color: #fff; font-size: 0.6rem; margin-left: 8px;">${(res.source_type || 'unknown').toUpperCase()}</span>
+            <span class="badge" title="${escapeHtml(labelTitle)}" style="background: ${res.degraded ? 'var(--status-warning, #d29922)' : color}; color: #fff; font-size: 0.6rem; margin-left: 8px;">${sourceLabel}</span>
           </div>
           <span class="research-source-url" style="color: var(--text-muted); font-size: 0.75rem; margin-top: 4px;">${escapeHtml(res.snippet || '')}</span>
           <div style="font-size: 0.65rem; color: var(--text-muted); margin-top: 6px;">ID: ${escapeHtml(res.id || '')}</div>
@@ -7219,12 +7232,101 @@ const WebBrowser = {
     // Register WebSocket Push Notification Listener for browser navigations from Python
     try {
       this._wsListenerCleanup = window.tala.on('python:notification', (msg) => {
-        if (msg && msg.method === 'browser.navigate' && msg.params && msg.params.url) {
+        if (!msg || !msg.method) return;
+
+        if (msg.method === 'browser.navigate' && msg.params && msg.params.url) {
           this.navigate(msg.params.url, true);
+          return;
+        }
+
+        // browser.get_dom and browser.execute_js used to be broadcast at a
+        // renderer that had no handler for them, and the Python side reported
+        // success anyway (UI-014, UI-015). These are the missing listeners,
+        // and each one answers -- including when it fails.
+        if (msg.method === 'browser.get_dom') {
+          this.handleAgentGetDom(msg.params || {});
+          return;
+        }
+        if (msg.method === 'browser.execute_js') {
+          this.handleAgentExecuteJs(msg.params || {});
         }
       });
     } catch (err) {
       console.warn('[WebBrowser] Failed to register websocket notification listener:', err);
+    }
+  },
+
+  /** Send a ui_bridge answer back to Python. */
+  async _answerBridge(requestId, result, error) {
+    if (!requestId) return;
+    try {
+      await invoke('python:rpc', {
+        method: 'ui.bridge_result',
+        params: { request_id: requestId, result: result ?? null, error: error ?? null }
+      });
+    } catch (err) {
+      // The request will time out on the Python side, which is the correct
+      // outcome -- better a timeout than a success we cannot substantiate.
+      console.warn('[WebBrowser] Failed to answer bridge request:', err);
+    }
+  },
+
+  /** Read the live webview's DOM on the agent's behalf. */
+  async handleAgentGetDom(params) {
+    const { request_id: requestId, selector, max_chars: maxChars } = params;
+    if (!this._iframe) {
+      return this._answerBridge(requestId, null, 'The browser view is not mounted.');
+    }
+    const limit = Number(maxChars) > 0 ? Number(maxChars) : 200000;
+    const sel = String(selector || '').trim();
+    // JSON.stringify so a selector containing quotes cannot break out of the
+    // expression it is interpolated into.
+    const target = sel ? `document.querySelector(${JSON.stringify(sel)})` : 'document.documentElement';
+    const script = `(function () {
+      const el = ${target};
+      if (!el) return { found: false };
+      return {
+        found: true,
+        url: document.location.href,
+        title: document.title,
+        html: (el.outerHTML || '').slice(0, ${limit})
+      };
+    })()`;
+
+    try {
+      const out = await this._iframe.executeJavaScript(script, false);
+      if (out && out.found === false) {
+        return this._answerBridge(requestId, null, `No element matched the selector ${sel}.`);
+      }
+      IPCLog.append('info', `Agent read the DOM of ${out?.url || 'the current page'}.`);
+      this._answerBridge(requestId, out, null);
+    } catch (err) {
+      this._answerBridge(requestId, null, String(err?.message || err));
+    }
+  },
+
+  /** Evaluate the agent's JS in the webview and return its value. */
+  async handleAgentExecuteJs(params) {
+    const { request_id: requestId, code } = params;
+    if (!this._iframe) {
+      return this._answerBridge(requestId, null, 'The browser view is not mounted.');
+    }
+    if (!code || typeof code !== 'string') {
+      return this._answerBridge(requestId, null, 'No code was supplied.');
+    }
+    try {
+      IPCLog.append('info', `Agent executing script in the browser view (${code.length} chars).`);
+      const value = await this._iframe.executeJavaScript(code, false);
+      // executeJavaScript resolves to undefined for non-serialisable values;
+      // say so rather than returning null and letting it read as "no result".
+      this._answerBridge(
+        requestId,
+        value === undefined ? { note: 'The script returned no serialisable value.' } : value,
+        null
+      );
+    } catch (err) {
+      // A thrown script is a failure, and must arrive as one.
+      this._answerBridge(requestId, null, String(err?.message || err));
     }
   },
 
@@ -12717,14 +12819,21 @@ const AgentBuilder = {
         card.className = 'kanban-card';
         card.style.cssText = 'background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; padding: var(--space-2); cursor: pointer; display: flex; flex-direction: column; gap: 8px;';
         
-        const shortDesc = t.description.length > 60 ? t.description.substring(0, 60) + '...' : t.description;
-        const workerName = t.assigned_agent_id ? t.assigned_agent_id : 'Unassigned';
+        // Descriptions are written by the goal engine and by model output, and a
+        // goal can be seeded from web research -- so this is untrusted text going
+        // into innerHTML and must be escaped (UI-029). The null guard matters as
+        // much: t.description.length on a null threw inside forEach, the outer
+        // catch swallowed it, and the whole board rendered empty with only a
+        // console error to show for it.
+        const rawDesc = typeof t.description === 'string' ? t.description : '';
+        const shortDesc = escapeHtml(rawDesc.length > 60 ? rawDesc.substring(0, 60) + '...' : rawDesc);
+        const workerName = escapeHtml(t.assigned_agent_id ? String(t.assigned_agent_id) : 'Unassigned');
         
         card.innerHTML = `
-          <div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">${t.id.split('-').pop()}</div>
+          <div style="font-size: 0.7rem; color: var(--text-muted); font-family: var(--font-mono);">${escapeHtml(String(t.id || '').split('-').pop())}</div>
           <div style="font-size: 0.85rem; line-height: 1.3;">${shortDesc}</div>
           <div style="font-size: 0.7rem; color: var(--accent-blue);">Worker: ${workerName}</div>
-          ${t.worktree_path ? `<div style="font-size: 0.65rem; color: var(--status-success);">🗂️ ${t.branch_name}</div>` : ''}
+          ${t.worktree_path ? `<div style="font-size: 0.65rem; color: var(--status-success);">🗂️ ${escapeHtml(String(t.branch_name || ''))}</div>` : ''}
           <div class="card-actions" style="display: flex; gap: 4px; margin-top: 4px;">
             <button class="btn-assign" style="font-size: 0.65rem; padding: 2px 6px; background: rgba(255,255,255,0.1); border: none; border-radius: 2px; color: white; cursor: pointer;">Assign</button>
             ${!t.worktree_path ? `<button class="btn-worktree" style="font-size: 0.65rem; padding: 2px 6px; background: rgba(255,255,255,0.1); border: none; border-radius: 2px; color: white; cursor: pointer;">+ Worktree</button>` : ''}
