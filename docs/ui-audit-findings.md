@@ -131,7 +131,9 @@ Resolves automatically under UI-001(a); becomes dead code to delete under UI-001
 conveys nothing.
 
 ### UI-004 — `MOOD` button is cosmetic
-**Severity: medium · Status: needs-decision**
+**Severity: medium · Status: FIXED 2026-08-23**
+
+> **Fixed.** Button and the catch-all stub handler both removed from the chat header.
 
 `btn-chat-mood` ([index.html:2981](../renderer/index.html#L2981)) has no dedicated handler.
 It falls through to the generic `.chat-action-btn` listener at
@@ -146,13 +148,17 @@ up and nothing else happens. Given the astro-emotion subsystem exists, this is l
 intended surface for it and was never connected.
 
 ### UI-005 — `MD` (Render Markdown) button is cosmetic
-**Severity: medium · Status: needs-decision**
+**Severity: medium · Status: FIXED 2026-08-23**
+
+> **Fixed.** Button and the catch-all stub handler both removed from the chat header.
 
 `btn-chat-md` ([index.html:2982](../renderer/index.html#L2982)). Same generic handler, same
 absence of any consumer. Markdown rendering in chat does not key off it.
 
 ### UI-006 — `JSON` (View JSON State) button is cosmetic
-**Severity: medium · Status: needs-decision**
+**Severity: medium · Status: FIXED 2026-08-23**
+
+> **Fixed.** Button and the catch-all stub handler both removed from the chat header.
 
 `btn-chat-json` ([index.html:2983](../renderer/index.html#L2983)). Same generic handler, same
 absence of any consumer.
@@ -517,7 +523,9 @@ Structurally this is the most complete screen audited. The topology editor, DAG 
 and swarm monitor are all real. The findings are about what leaks in and what silently drops out.
 
 ### UI-028 — The test suite writes into the live Task Board
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+> **Fixed.** PARTIAL — the 13 fixture tasks were purged and 8 junk nodes pruned, but the cause is untouched: tests still write to the live database, so fixtures return on the next pytest run.
 
 Every task visible on the Task Board in the reference screenshot originates from the test suite,
 not from real work:
