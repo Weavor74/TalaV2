@@ -3281,12 +3281,113 @@ Same family as UI-033, where `Manage Workers in Settings` targets a `data-tab` s
 not exist. Both are cross-view navigation attempts that silently no-op — which is the argument for
 `ui.navigate` existing as one real function rather than being re-improvised at each call site.
 
+### UI-121 — Scope: Tala fixing her own code and UI
+**Severity: high (design) · Status: scoped, not built · Source: Steven, 2026-08-23**
+
+> **Steven:** *"Tala needs to be able to fix her own code and her own UI."*
+
+Scoping rather than building, per Steven's instruction. The headline: **most of this exists.** The
+missing pieces are a JavaScript syntax gate, a way to apply a UI change without a restart, and a
+rollback that is safe to trust.
+
+#### What already works
+
+| Capability | Mechanism | State |
+|---|---|---|
+| propose a change | `code.propose_patch`, `code.propose_file_write` | exists |
+| apply a change | `code.apply_patch`, `code.write_files`, `write_workspace_file` | exists |
+| write UI files | `ALLOWED_WRITE_SUFFIXES` includes `.js`, `.html`, `.json`, `.md`, `.py` ([safe_code_bridges.py:14](../sdk/agent/safe_code_bridges.py#L14)) | exists |
+| write her own source | `_PROTECTED_WRITE_PATTERNS` blocks only 10 paths — the corpus scripts, astrology, `chat_mode.py`, persona and emotion nodes | `renderer/`, `sdk/`, `python/harness/` are **all writable** |
+| verify Python | `test.run_validation` allowlist: `py_compile`, `pytest`, `uv run pytest` | exists |
+| snapshot / restore | `RollbackRecovery.create_checkpoint()` / `restore_checkpoint()` | exists, see caution |
+| size / path guards | 250 KB cap, no absolute paths, `BLOCKED_WRITE_PARTS` | exists |
+
+**So permission is not the gap.** She can already edit `renderer/renderer.js`, `renderer/index.html`
+and `sdk/agent/tools.py` today. The denylist protects her *identity* — persona, emotion, astrology —
+not her code.
+
+#### Gap 1 — JavaScript is written but never syntax-checked
+
+`ALLOWED_VALIDATION_PREFIXES` ([safe_code_bridges.py:8](../sdk/agent/safe_code_bridges.py#L8)) is:
+
+```python
+("python", "-m", "py_compile"), ("python", "-m", "pytest"), ("uv", "run", "pytest"), ("pytest",)
+```
+
+**Python only.** A `.js` or `.html` write is permitted and then validated by nothing. Tala can write
+a syntax error into `renderer.js` and the failure surfaces at the next window load, by which point
+the UI is dead and the tool that broke it reported success.
+
+*Fix:* add `("node", "--check")` to the allowlist and require it on any `.js` write. Cheap, and it
+is exactly the check used on the `UIControl` edit in this session. For `.html`, parse-and-compare
+rather than a linter.
+
+#### Gap 2 — a UI change cannot be applied without a restart
+
+No reload verb exists anywhere: `webContents.reload`, `location.reload`, `ui.reload` all return
+nothing across `electron/`, `renderer/` and `python/`. So even a correct edit to `renderer.js` sits
+inert until Steven restarts the app manually.
+
+*Fix:* `ui.reload` over the same `python:notification` channel the new `ui_navigate` uses — the
+transport is already proven. It should refuse while a task is mid-run, and should be a distinct
+tool rather than an implicit side effect of writing a file.
+
+#### Gap 3 — rollback exists but has a bad history
+
+`RollbackRecovery` ([recovery.py:80](../sdk/agent/recovery.py#L80)) provides `create_checkpoint()`
+and `restore_checkpoint()`. Its own docstring records a real failure: a snapshot that failed to
+create was later "restored", *"printing a reassuring"* success message over a restore that never
+happened.
+
+This is the single most dangerous area in scope. This project has already lost 427 tracked files
+plus everything gitignored to an automated rollback. **Any self-modification loop that can restore
+automatically inherits that risk.**
+
+*Recommended constraints, deliberately conservative:*
+
+- **Never auto-restore.** A failed verification reverts *the files it wrote*, by content, not by
+  restoring a directory tree.
+- Prefer `git stash`/`git checkout -- <paths>` over `rmtree`-based snapshot restore for
+  tracked files; the repo already is the checkpoint.
+- `create_checkpoint()` returning falsy must abort the write, not proceed unprotected.
+- Restore must verify afterwards and report what it actually changed.
+
+#### Proposed loop
+
+> propose → **verify syntax** → write → **run the relevant tests** → reload if UI → report
+> — and on any failure, revert *only the written files* and say so.
+
+#### Sizing
+
+| Piece | Effort | Risk |
+|---|---|---|
+| add `node --check` to the validation allowlist | small | low |
+| require syntax gate on `.js` / `.html` writes | small | low |
+| `ui.reload` tool + renderer handler | small | low |
+| targeted revert-written-files on failure | medium | **high — see Gap 3** |
+| wire the loop together | medium | medium |
+
+**Suggested order:** Gap 1 first — it is small, it is pure gain, and it makes every later step
+safer. Gap 2 next, since it makes UI edits actually testable by Tala herself. Gap 3 last and
+carefully, because it is where this project has been burned before.
+
+#### Open question
+
+**Q-68 — should Tala's self-edits require approval before they land?** She can write to
+`renderer/` and `sdk/` unsupervised today. The propose/apply split (`code.propose_patch` then
+`code.apply_patch`) suggests review was intended, but nothing forces the propose step. Under the
+UI-118 privilege model this becomes a per-agent grant: an agent may be permitted to *propose* but
+not to *apply* to its own source.
+
 ---
 
 ## B. Self-navigation infrastructure gaps
 
 ### UI-007 — Tala has no tool that acts on the UI
-**Severity: high · Status: open**
+**Severity: high · Status: CLOSED 2026-08-23**
+
+> **Built.** ,  and  in , backed by the
+>  map and routed over . See UI-119 for why not CDP.
 
 There is no `ui.navigate` / `ui.describe` tool. The only UI-touching tool is
 `docs.refresh_node_grid` ([tools.py:2084](../sdk/agent/tools.py#L2084)), which is a refresh
@@ -3323,7 +3424,11 @@ the model?" must actually pull `ui-view-settings` into context. Without this the
 as another dead subsystem: built, never invoked.
 
 ### UI-011 — No drift guard
-**Severity: medium · Status: open**
+**Severity: medium · Status: CLOSED 2026-08-23**
+
+> **Built.**  — 25 tests asserting every documented element id exists in
+> , every  names a real section, the index matches the nodes on disk, and ids
+> are literal rather than shorthand. Confirmed to fail on a deliberately renamed id.
 
 Nothing asserts that documented element ids still exist in `index.html`. The map will rot
 silently as the UI changes. Needs a test, or a source fingerprint on each `ui-view-*` node.
