@@ -835,7 +835,9 @@ decides what a peer may see** — the permission checkboxes do not control the p
 serves skills, and a remote peer can rewrite its own permissions.
 
 ### UI-040 — The `skills` permission does not gate the path that serves skills
-**Severity: high (security) · Status: open**
+**Severity: high (security) · Status: FIXED 2026-08-23**
+
+> **Fixed.** p2p.marketplace_search now requires caller_wallet or caller_username, refuses callers that are not known contacts, and honours per-skill scope: shared global is visible to any known contact, contact-only requires the caller in shared_with, anything else is private. Withheld skills are not disclosed at all. The outbound caller identifies itself via _local_identity.
 
 The Contacts workspace exposes nine sharing checkboxes, including `share-skills` and
 `share-pii_vault`. For **profile** categories these are genuinely enforced, by a generic filter
@@ -875,7 +877,9 @@ Note this is precisely the capability Steven named — *"allows remote users to 
 skills"* — so the feature works. It is the consent mechanism around it that is absent.
 
 ### UI-041 — An enrolling peer chooses its own permissions
-**Severity: high (security) · Status: open**
+**Severity: high (security) · Status: FIXED 2026-08-23**
+
+> **Fixed.** Enrolment starts from deny. A peer requested_permissions block is recorded under _requested and grants nothing, and re-enrolment no longer touches the permissions column, so a grant cannot be reset by the party it governs.
 
 On inbound enrollment ([server.py:5373](../python/harness/server.py#L5373)) the packet's
 `requested_permissions` is written to the contacts row verbatim:
@@ -2035,7 +2039,9 @@ Four credential types: SSH Private Key, RDP Credentials, API Key, OAuth 2.0. The
 and type-aware. The problem is what the panel claims about how the values are stored.
 
 ### UI-080 — "Zero-Trust Database Encryption" — there is no encryption
-**Severity: high (security) · Status: open**
+**Severity: high (security) · Status: FIXED 2026-08-23**
+
+> **Fixed.** auth_credentials secrets are encrypted at rest with AES-256-GCM, keyed from vault/.keys/credential_key.bin, using an envelope so partially migrated tables still work and a failed decrypt returns the row untouched rather than dropping it. All four readers decrypt. Also widened the redaction list: private_key was absent, so the full OPENSSH key block was being sent to the renderer while its passphrase was dutifully redacted.
 
 The panel's stated invariant reads:
 
@@ -2140,7 +2146,9 @@ below are factual and matter mainly *if* the panel is kept. If it is dropped, UI
 moot and the code should be removed rather than fixed.
 
 ### UI-083 — The user allowlist is never enforced
-**Severity: high (security) · Status: open — conditional on Q-48**
+**Severity: high (security) · Status: FIXED 2026-08-23 — conditional on Q-48**
+
+> **Fixed.** Allowlist enforced in BaseAdapter._run, the loop every platform funnels through. Fails closed - an empty allowlist permits nobody. Rejections counted and logged. The panel text that promised the old behaviour was corrected.
 
 The panel collects an `Allowlist: user IDs / usernames` field per channel and warns:
 

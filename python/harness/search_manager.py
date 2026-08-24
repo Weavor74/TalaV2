@@ -35,7 +35,10 @@ async def get_search_providers() -> list[dict[str, Any]]:
         for r in rows:
             api_key = r["api_key"]
             if r["credential_id"] and r["cred_config"]:
-                cred_cfg = dict(r["cred_config"]) if r["cred_config"] else {}
+                # Credential secrets are encrypted at rest (UI-080); decrypt so a
+                # referenced credential still yields a usable key.
+                from python.harness.credential_crypto import decrypt_config
+                cred_cfg = decrypt_config(dict(r["cred_config"]) if r["cred_config"] else {})
                 api_key = cred_cfg.get("api_key", api_key)
 
             providers.append({

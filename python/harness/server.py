@@ -5356,6 +5356,18 @@ def _format_peer_node_context(peer_username: str, reference: str, node_payload: 
     )
 
 
+def _encrypt_credential(config):
+    """Encrypt the secret fields of a credential config before storing it."""
+    from python.harness.credential_crypto import encrypt_config
+    return encrypt_config(config)
+
+
+def _decrypt_credential(config):
+    """Decrypt a credential config read from the database."""
+    from python.harness.credential_crypto import decrypt_config
+    return decrypt_config(config)
+
+
 async def _local_identity() -> dict[str, str]:
     """
     Who this machine says it is when calling a peer.
@@ -7677,7 +7689,8 @@ async def handle_git_get_providers(params: dict[str, Any], req_id: Any) -> str:
         for r in rows:
             api_key = r["api_key"]
             if r["credential_id"] and r["cred_config"]:
-                cred_cfg = dict(r["cred_config"]) if r["cred_config"] else {}
+                # Encrypted at rest (UI-080).
+                cred_cfg = _decrypt_credential(r["cred_config"] or {}) or {}
                 api_key = cred_cfg.get("api_key", api_key)
 
             providers.append({
@@ -8000,6 +8013,16 @@ _SECRET_CONFIG_KEYS = {
     "refresh_token",
     "access_token",
     "token",
+    # The SSH private key block itself was absent, so auth.get_credentials sent
+    # the whole "-----BEGIN OPENSSH PRIVATE KEY-----" body to the renderer while
+    # dutifully redacting its passphrase (UI-080). camelCase spellings are here
+    # because the panel posts some fields that way.
+    "private_key",
+    "privateKey",
+    "apiKey",
+    "clientSecret",
+    "refreshToken",
+    "secret",
 }
 
 
@@ -8116,7 +8139,10 @@ async def handle_auth_get_credentials(params: dict[str, Any], req_id: Any) -> st
         )
         credentials = []
         for r in rows:
-            cfg = dict(r["config"]) if r["config"] else {}
+            # Secret fields are stored encrypted at rest (UI-080). Decrypt here so
+            # redaction and has_secret still see real values; the panel receives
+            # the same redacted shape it always did.
+            cfg = _decrypt_credential(r["config"] or {}) or {}
             safe_cfg = _redact_auth_config(cfg)
             credentials.append({
                 "id":        r["id"],
@@ -8144,8 +8170,10 @@ async def handle_auth_save_credentials(params: dict[str, Any], req_id: Any) -> s
 
     try:
         existing_rows = await db.fetch("SELECT id, config FROM auth_credentials")
+        # Decrypted, because these are merged back over redacted values the panel
+        # sends: comparing a redaction against ciphertext would lose the secret.
         existing_configs = {
-            r["id"]: (dict(r["config"]) if r["config"] else {})
+            r["id"]: _decrypt_credential(r["config"] or {})
             for r in existing_rows
         }
         pool = db.get_pool()
@@ -8169,7 +8197,7 @@ async def handle_auth_save_credentials(params: dict[str, Any], req_id: Any) -> s
                         cred_id,
                         name,
                         auth_type,
-                        _json.dumps(cfg),
+                        _json.dumps(_encrypt_credential(cfg)),
                         idx + 1,
                         locked,
                     )
