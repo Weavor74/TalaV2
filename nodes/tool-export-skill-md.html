@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: export_skill_md</title>
+</head>
+<body>
+<article
+  data-node-id="tool-export-skill-md"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="export_skill_md"
+  data-source-files=""
+  data-source-fingerprint="sha256:6850C0BC83CC757E9956437AEADE856129ED6FF49468A825546C8C2FF0EDA16E"
+  data-generated-at="2026-08-24T01:59:32Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: export_skill_md</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;export_skill_md&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Export an HTML-NN node&#x27;s knowledge as an agentskills.io-format SKILL.md file for sharing with other agent ecosystems.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;export_skill_md(node_id*, dest_path)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;dest_path&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME export_skill_md - export a node as an open-standard SKILL.md SYNOPSIS export_skill_md(node_id: str, dest_path: str | None = None) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-export-skill-md"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "export_skill_md"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: export_skill_md",
+  "description": "Program documentation for export_skill_md.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "export_skill_md"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:32Z",
+    "schema": "neural-node/v2",
+    "doc_target": "export_skill_md",
+    "source_fingerprint": "sha256:6850C0BC83CC757E9956437AEADE856129ED6FF49468A825546C8C2FF0EDA16E"
+  },
+  "tool": {
+    "name": "export_skill_md",
+    "signature": "export_skill_md(node_id*, dest_path)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "dest_path": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "node_id"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

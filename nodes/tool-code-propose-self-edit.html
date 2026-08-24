@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: code.propose_self_edit</title>
+</head>
+<body>
+<article
+  data-node-id="tool-code-propose-self-edit"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="code.propose_self_edit"
+  data-source-files=""
+  data-source-fingerprint="sha256:490701E2FE8BD4555BA63E5BBDE5DEAF861CB15AA5EB3A3C439B69AA970A6A9D"
+  data-generated-at="2026-08-24T02:02:19Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: code.propose_self_edit</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;code.propose_self_edit&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Queue a change to Tala&#x27;s own source (renderer/, sdk/, python/, electron/, scripts/) for the operator to approve. Required for those paths: a direct write is refused. Her Neural Nodes, docs and scratch work do not need this. Give the full intended file content and a short reason.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.propose_self_edit(file_path*, content*, reason*, agent_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;content&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;reason&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;agent_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME code.propose_self_edit - ask to change Tala&#x27;s own source SYNOPSIS code.propose_self_edit(file_path, content, reason, agent_id=&quot;&quot;)&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-code-propose-self-edit"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "code.propose_self_edit"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: code.propose_self_edit",
+  "description": "Program documentation for code.propose_self_edit.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "code.propose_self_edit"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:02:19Z",
+    "schema": "neural-node/v2",
+    "doc_target": "code.propose_self_edit",
+    "source_fingerprint": "sha256:490701E2FE8BD4555BA63E5BBDE5DEAF861CB15AA5EB3A3C439B69AA970A6A9D"
+  },
+  "tool": {
+    "name": "code.propose_self_edit",
+    "signature": "code.propose_self_edit(file_path*, content*, reason*, agent_id)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "file_path": {
+          "type": "string"
+        },
+        "content": {
+          "type": "string"
+        },
+        "reason": {
+          "type": "string"
+        },
+        "agent_id": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_path",
+        "content",
+        "reason"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "file_path",
+      "content",
+      "reason"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

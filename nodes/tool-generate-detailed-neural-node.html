@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: generate_detailed_neural_node</title>
+</head>
+<body>
+<article
+  data-node-id="tool-generate-detailed-neural-node"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="generate_detailed_neural_node"
+  data-source-files=""
+  data-source-fingerprint="sha256:E2D4D3900810380775BE769962CA30A4F437F04379BE01A4C0D76DC30BFDB225"
+  data-generated-at="2026-08-24T01:59:34Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: generate_detailed_neural_node</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;generate_detailed_neural_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Generate a highly detailed HTML Neural Node from a structured markdown document. Use this for deep documentation. CRITICAL: When generating Function Documentation, you MUST format your detailed_markdown EXACTLY using this layout: # Function Doc: `[Function Name]` ## 1. Purpose `[Function Name]` does this: [Short description] Use it when: [When this function should be used] Do not use it when: [When this function should not be used] ## 2. Basic Info | Field | Value | |---|---| | Function | `[Function Name]` | | Type | `[Utility / Data / API / UI / Validation / Other]` | | Input | `[Main input type]` | | Output | `[Main output type]` | | Changes State? | `[Yes / No]` | | Can Fail? | `[Yes / No]` | ## 3. Inputs | Name | Required | Type | Meaning | |---|---|---|---| | `[inputName]` | Yes | `[type]` | `[what it means]` | ## 4. Output The function returns: [Describe the output] Example output: [example output] ## 5. Behavior 1. Receive input. 2. Check that input is valid. 3. Do the main task. 4. Return the result. 5. Handle errors safely. ## 6. Errors | Problem | What Should Happen | |---|---| | Missing input | [return error / return null / throw error] | ## 7. Side Effects [Does not change anything outside itself] OR [Writes file / updates state / etc] ## 8. Safe Use Rules - Validate input before use. - Do not log secrets. - Do not expose private data. - Sanitize file paths, commands, queries, and HTML. - Confirm permission before write, delete, send, or execute actions. ## 9. Example Input: [example] Steps: [what it does] Output: [example] ## 10. Test Checklist - [ ] Works with valid input. - [ ] Handles missing input. - [ ] Handles bad input. - [ ] Returns expected output. - [ ] Handles errors safely. - [ ] Does not create unwanted side effects. ## 11. Invocation &amp; Integration [How to call or trigger this component] [For functions: provide the exact import path and syntax] [For UI/Panels: explain how to visually trigger or render it] ## 12. Notes [Any limits or assumptions]&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;generate_detailed_neural_node(node_id*, title*, node_type*, detailed_markdown*, execution_authority)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_type&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;detailed_markdown&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;execution_authority&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Generate a detailed HTML Neural Node from a markdown document.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-generate-detailed-neural-node"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "generate_detailed_neural_node"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: generate_detailed_neural_node",
+  "description": "Program documentation for generate_detailed_neural_node.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "generate_detailed_neural_node"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:34Z",
+    "schema": "neural-node/v2",
+    "doc_target": "generate_detailed_neural_node",
+    "source_fingerprint": "sha256:E2D4D3900810380775BE769962CA30A4F437F04379BE01A4C0D76DC30BFDB225"
+  },
+  "tool": {
+    "name": "generate_detailed_neural_node",
+    "signature": "generate_detailed_neural_node(node_id*, title*, node_type*, detailed_markdown*, execution_authority)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "node_type": {
+          "type": "string"
+        },
+        "detailed_markdown": {
+          "type": "string"
+        },
+        "execution_authority": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "title",
+        "node_type",
+        "detailed_markdown"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "node_id",
+      "title",
+      "node_type",
+      "detailed_markdown"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

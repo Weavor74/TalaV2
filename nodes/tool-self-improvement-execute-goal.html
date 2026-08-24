@@ -1,0 +1,143 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: self_improvement.execute_goal</title>
+</head>
+<body>
+<article
+  data-node-id="tool-self-improvement-execute-goal"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="self_improvement.execute_goal"
+  data-source-files=""
+  data-source-fingerprint="sha256:607D181D3B33D9536F0251000D8BDE34E01451DE894FC94EA81E3B6F9C451F7B"
+  data-generated-at="2026-08-24T02:02:36Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: self_improvement.execute_goal</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;self_improvement.execute_goal&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Execute a self-improvement goal by selecting an approved bridge. Documentation goals route to docs.generate_and_verify_program_nodes. For code/config changes, pass concrete replacements or file_writes: without them this is a no-op (result.no_op will be true) even when dry_run is false.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;self_improvement.execute_goal(goal*, dry_run, targets, target_files, replacements, file_writes, validation_commands)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;goal&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;dry_run&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;targets&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;target_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;replacements&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;file_writes&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;validation_commands&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-self-improvement-execute-goal"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "self_improvement.execute_goal"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: self_improvement.execute_goal",
+  "description": "Program documentation for self_improvement.execute_goal.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "self_improvement.execute_goal"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:02:36Z",
+    "schema": "neural-node/v2",
+    "doc_target": "self_improvement.execute_goal",
+    "source_fingerprint": "sha256:607D181D3B33D9536F0251000D8BDE34E01451DE894FC94EA81E3B6F9C451F7B"
+  },
+  "tool": {
+    "name": "self_improvement.execute_goal",
+    "signature": "self_improvement.execute_goal(goal*, dry_run, targets, target_files, replacements, file_writes, validation_commands)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "goal": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "string"
+        },
+        "targets": {
+          "type": "string"
+        },
+        "target_files": {
+          "type": "string"
+        },
+        "replacements": {
+          "type": "string"
+        },
+        "file_writes": {
+          "type": "string"
+        },
+        "validation_commands": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "goal"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "goal"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

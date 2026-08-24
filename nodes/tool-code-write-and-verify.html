@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: code.write_and_verify</title>
+</head>
+<body>
+<article
+  data-node-id="tool-code-write-and-verify"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="code.write_and_verify"
+  data-source-files=""
+  data-source-fingerprint="sha256:7B2438608FA949540D348A0EFFEB823F4B42FCABFF2972B0A68D60C9020E4483"
+  data-generated-at="2026-08-24T02:02:23Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: code.write_and_verify</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;code.write_and_verify&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Write files, run validation commands, and automatically restore the previous contents of those files if validation fails. Reverts only the files it wrote, never a directory tree. Use this instead of code.write_files when changing code that must keep working, such as anything under renderer/ or sdk/.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.write_and_verify(file_writes*, validation_commands, expected_files, timeout)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_writes&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;validation_commands&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;expected_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME code.write_and_verify - write, verify, and revert on failure SYNOPSIS code.write_and_verify(file_writes, validation_commands=None, expected_files=None, timeout=120.0)&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-code-write-and-verify"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "code.write_and_verify"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: code.write_and_verify",
+  "description": "Program documentation for code.write_and_verify.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "code.write_and_verify"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:02:23Z",
+    "schema": "neural-node/v2",
+    "doc_target": "code.write_and_verify",
+    "source_fingerprint": "sha256:7B2438608FA949540D348A0EFFEB823F4B42FCABFF2972B0A68D60C9020E4483"
+  },
+  "tool": {
+    "name": "code.write_and_verify",
+    "signature": "code.write_and_verify(file_writes*, validation_commands, expected_files, timeout)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "file_writes": {
+          "type": "string"
+        },
+        "validation_commands": {
+          "type": "string"
+        },
+        "expected_files": {
+          "type": "string"
+        },
+        "timeout": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_writes"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "file_writes"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

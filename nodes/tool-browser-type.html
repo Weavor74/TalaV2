@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: browser_type</title>
+</head>
+<body>
+<article
+  data-node-id="tool-browser-type"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="browser_type"
+  data-source-files=""
+  data-source-fingerprint="sha256:8C44F68F0EC89D4CFC43C72390B452D12CE14EEB53AE10197949336526A3B0EC"
+  data-generated-at="2026-08-24T01:59:06Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: browser_type</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;browser_type&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Type text into an input in the automation browser, addressed by the index from browser_read (or a CSS selector). Optionally press Enter afterwards.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;browser_type(text*, index, selector, press_enter)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;text&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;index&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;selector&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;press_enter&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME browser_type - fill an input by browser_read index or CSS selector SYNOPSIS browser_type(text: str, index: int | None = None, selector: str | None = None, press_enter: bool = False) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.web_browser&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-browser-type"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "browser_type"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: browser_type",
+  "description": "Program documentation for browser_type.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "browser_type"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:06Z",
+    "schema": "neural-node/v2",
+    "doc_target": "browser_type",
+    "source_fingerprint": "sha256:8C44F68F0EC89D4CFC43C72390B452D12CE14EEB53AE10197949336526A3B0EC"
+  },
+  "tool": {
+    "name": "browser_type",
+    "signature": "browser_type(text*, index, selector, press_enter)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "text": {
+          "type": "string"
+        },
+        "index": {
+          "type": "string"
+        },
+        "selector": {
+          "type": "string"
+        },
+        "press_enter": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "text"
+      ]
+    },
+    "module": "sdk.agent.web_browser",
+    "required": [
+      "text"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: export_trajectories</title>
+</head>
+<body>
+<article
+  data-node-id="tool-export-trajectories"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="export_trajectories"
+  data-source-files=""
+  data-source-fingerprint="sha256:608D1DD125B014796EC7415431269D71B9F868026D2AC06560BA888E7F725A7F"
+  data-generated-at="2026-08-24T01:59:33Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: export_trajectories</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;export_trajectories&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Export what actually happened in past runs - conversation turns with their tool calls, or autonomous task runs with their events - as analysable records.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;export_trajectories(kind, since_hours, limit, include_content, tool_calls_only)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;kind&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;since_hours&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;include_content&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tool_calls_only&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;kind is &quot;conversation&quot; or &quot;task&quot;. They are separate streams and are not joined: a chat session and an autonomous task share no key in the schema, and stitching them on a guess would invent history. include_content defaults to FALSE. Conversation turns contain everything Weavor has ever said, so the default is structure plus tool calls without the prose -- enough to study which tools were reached for and how often a call came back an error. Pass True only when the prose is genuinely what is being studied. Returns a summary alongside the records: the tool histogram is usually the point.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-export-trajectories"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "export_trajectories"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: export_trajectories",
+  "description": "Program documentation for export_trajectories.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "export_trajectories"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:33Z",
+    "schema": "neural-node/v2",
+    "doc_target": "export_trajectories",
+    "source_fingerprint": "sha256:608D1DD125B014796EC7415431269D71B9F868026D2AC06560BA888E7F725A7F"
+  },
+  "tool": {
+    "name": "export_trajectories",
+    "signature": "export_trajectories(kind, since_hours, limit, include_content, tool_calls_only)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "kind": {
+          "type": "string"
+        },
+        "since_hours": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "string"
+        },
+        "include_content": {
+          "type": "string"
+        },
+        "tool_calls_only": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.agent_authoring",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

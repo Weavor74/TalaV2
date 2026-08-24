@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: code.apply_patch</title>
+</head>
+<body>
+<article
+  data-node-id="tool-code-apply-patch"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="code.apply_patch"
+  data-source-files=""
+  data-source-fingerprint="sha256:5461FE097430D9EE0EC55DE20C0B96111F4D81859B9C7F623C108D6E7DF650DB"
+  data-generated-at="2026-08-24T02:02:16Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: code.apply_patch</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;code.apply_patch&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Apply a bounded exact-replacement patch inside the workspace. Each old_text must match exactly once. Absolute paths are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.apply_patch(replacements*, expected_files, dry_run)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;replacements&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;expected_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;dry_run&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-code-apply-patch"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "code.apply_patch"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: code.apply_patch",
+  "description": "Program documentation for code.apply_patch.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "code.apply_patch"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:02:16Z",
+    "schema": "neural-node/v2",
+    "doc_target": "code.apply_patch",
+    "source_fingerprint": "sha256:5461FE097430D9EE0EC55DE20C0B96111F4D81859B9C7F623C108D6E7DF650DB"
+  },
+  "tool": {
+    "name": "code.apply_patch",
+    "signature": "code.apply_patch(replacements*, expected_files, dry_run)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "replacements": {
+          "type": "string"
+        },
+        "expected_files": {
+          "type": "string"
+        },
+        "dry_run": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "replacements"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "replacements"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

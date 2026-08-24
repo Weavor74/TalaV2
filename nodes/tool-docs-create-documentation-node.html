@@ -1,0 +1,164 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: docs.create_documentation_node</title>
+</head>
+<body>
+<article
+  data-node-id="tool-docs-create-documentation-node"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="docs.create_documentation_node"
+  data-source-files=""
+  data-source-fingerprint="sha256:7BA427B37E95A501FB2175CF994209145B8EE6356D2F042828C4CCFE4C96001F"
+  data-generated-at="2026-08-24T02:02:25Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: docs.create_documentation_node</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;docs.create_documentation_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Create or update one validated HTML-NN documentation node in Tala&#x27;s active user-data nodes directory. Use this when the user asks for a real documentation node file, not a markdown summary.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;docs.create_documentation_node(node_id*, title*, doc_target*, semantic_memory*, node_type, schema_version, execution_authority, memory_authority, source_files, relationships, references, requirements)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;doc_target&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;semantic_memory&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_type&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;schema_version&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;execution_authority&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;memory_authority&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;source_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;relationships&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;references&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;requirements&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-docs-create-documentation-node"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "docs.create_documentation_node"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: docs.create_documentation_node",
+  "description": "Program documentation for docs.create_documentation_node.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "docs.create_documentation_node"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:02:25Z",
+    "schema": "neural-node/v2",
+    "doc_target": "docs.create_documentation_node",
+    "source_fingerprint": "sha256:7BA427B37E95A501FB2175CF994209145B8EE6356D2F042828C4CCFE4C96001F"
+  },
+  "tool": {
+    "name": "docs.create_documentation_node",
+    "signature": "docs.create_documentation_node(node_id*, title*, doc_target*, semantic_memory*, node_type, schema_version, execution_authority, memory_authority, source_files, relationships, references, requirements)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "doc_target": {
+          "type": "string"
+        },
+        "semantic_memory": {
+          "type": "string"
+        },
+        "node_type": {
+          "type": "string"
+        },
+        "schema_version": {
+          "type": "string"
+        },
+        "execution_authority": {
+          "type": "string"
+        },
+        "memory_authority": {
+          "type": "string"
+        },
+        "source_files": {
+          "type": "string"
+        },
+        "relationships": {
+          "type": "string"
+        },
+        "references": {
+          "type": "string"
+        },
+        "requirements": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "title",
+        "doc_target",
+        "semantic_memory"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "node_id",
+      "title",
+      "doc_target",
+      "semantic_memory"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

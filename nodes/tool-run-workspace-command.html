@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: run_workspace_command</title>
+</head>
+<body>
+<article
+  data-node-id="tool-run-workspace-command"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="run_workspace_command"
+  data-source-files=""
+  data-source-fingerprint="sha256:7BE1F56510D935941496B6087300CDF44850F6283E4DB724EC6B72A89BE81649"
+  data-generated-at="2026-08-24T01:59:53Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: run_workspace_command</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;run_workspace_command&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run a shell command asynchronously in the workspace root. Pass timeout_seconds for anything long-running -- the default is only 30s, which is far too short for generation or test runs.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_workspace_command(command*, env, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;command&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;env&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;`timeout_seconds` defaults to 30, inherited from AsyncShellExecutor. That silently killed any genuinely long job: the training-story generator needs roughly 85 seconds *per story*, so a five-story run was cut off at 30s and reported as a failure with partial stdout, with nothing in the message explaining that a timeout was the cause. Callers running generation, migrations, or test suites must raise it.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-run-workspace-command"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "run_workspace_command"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: run_workspace_command",
+  "description": "Program documentation for run_workspace_command.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "run_workspace_command"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:53Z",
+    "schema": "neural-node/v2",
+    "doc_target": "run_workspace_command",
+    "source_fingerprint": "sha256:7BE1F56510D935941496B6087300CDF44850F6283E4DB724EC6B72A89BE81649"
+  },
+  "tool": {
+    "name": "run_workspace_command",
+    "signature": "run_workspace_command(command*, env, timeout_seconds)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "command": {
+          "type": "string"
+        },
+        "env": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "command"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "command"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

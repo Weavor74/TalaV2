@@ -1,0 +1,140 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: create_swarm_topology</title>
+</head>
+<body>
+<article
+  data-node-id="tool-create-swarm-topology"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="create_swarm_topology"
+  data-source-files=""
+  data-source-fingerprint="sha256:A1D4DBA520DDBD8D07F6F64B93AD3D55E72D58ED0D00FEE2F105F7F2A1994F46"
+  data-generated-at="2026-08-24T01:59:20Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: create_swarm_topology</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;create_swarm_topology&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Author a swarm topology: a DAG of named nodes with roles and gate conditions on the edges. Each node may name an agent_id to run as.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_swarm_topology(topology_id*, name*, nodes*, edges*)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;topology_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;nodes&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;edges&lt;/code&gt; (string, required)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;nodes: [{&quot;id&quot;: &quot;scout&quot;, &quot;role&quot;: &quot;planner&quot;, &quot;description&quot;: &quot;...&quot;, &quot;agent_id&quot;: &quot;agent-xxxx&quot;}] -- agent_id is optional edges: [{&quot;from_node&quot;: &quot;scout&quot;, &quot;to_node&quot;: &quot;survey&quot;, &quot;condition&quot;: &quot;success&quot;}] Validated through the same ``topology_from_spec`` the loader uses, so a topology that would not load back is refused rather than written. Edge conditions are checked against the rules GatedVerifier actually implements. An unknown condition can never pass, and that branch would stall silently on every run.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-create-swarm-topology"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "create_swarm_topology"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: create_swarm_topology",
+  "description": "Program documentation for create_swarm_topology.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "create_swarm_topology"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:20Z",
+    "schema": "neural-node/v2",
+    "doc_target": "create_swarm_topology",
+    "source_fingerprint": "sha256:A1D4DBA520DDBD8D07F6F64B93AD3D55E72D58ED0D00FEE2F105F7F2A1994F46"
+  },
+  "tool": {
+    "name": "create_swarm_topology",
+    "signature": "create_swarm_topology(topology_id*, name*, nodes*, edges*)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "topology_id": {
+          "type": "string"
+        },
+        "name": {
+          "type": "string"
+        },
+        "nodes": {
+          "type": "string"
+        },
+        "edges": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "topology_id",
+        "name",
+        "nodes",
+        "edges"
+      ]
+    },
+    "module": "sdk.agent.agent_authoring",
+    "required": [
+      "topology_id",
+      "name",
+      "nodes",
+      "edges"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

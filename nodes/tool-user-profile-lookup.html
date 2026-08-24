@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: user_profile_lookup</title>
+</head>
+<body>
+<article
+  data-node-id="tool-user-profile-lookup"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="user_profile_lookup"
+  data-source-files=""
+  data-source-fingerprint="sha256:615FEF92863DF69705F783DBD5F3B500F2064C6E403D8619F05C8F98F6C0FDF5"
+  data-generated-at="2026-08-24T02:00:21Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: user_profile_lookup</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;user_profile_lookup&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Look up one section of the user&#x27;s own profile: identity, about, roles, skills, projects, connections, preferences, or rp_persona. Use this instead of asking the user to repeat things they have already recorded. Each section is subject to the visibility the user set; personally identifying material is never returned.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;user_profile_lookup(section*)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;section&lt;/code&gt; (string, required)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Only the user&#x27;s name is injected into the system prompt; everything else about them is fetched on demand through this tool, so that the per-section Privacy &amp; Visibility settings have somewhere to be enforced. Returns {&quot;section&quot;, &quot;allowed&quot;, &quot;data&quot;, &quot;reason&quot;}. A section the user has not shared returns allowed=False with the reason, which is deliberately distinct from an empty section: &quot;they have recorded no skills&quot; and &quot;you may not read their skills&quot; are different facts and must not look alike. pii_vault is never readable. The astrology subsystem reads the date of birth directly from the database and does not go through here.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-user-profile-lookup"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "user_profile_lookup"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: user_profile_lookup",
+  "description": "Program documentation for user_profile_lookup.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "user_profile_lookup"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:00:21Z",
+    "schema": "neural-node/v2",
+    "doc_target": "user_profile_lookup",
+    "source_fingerprint": "sha256:615FEF92863DF69705F783DBD5F3B500F2064C6E403D8619F05C8F98F6C0FDF5"
+  },
+  "tool": {
+    "name": "user_profile_lookup",
+    "signature": "user_profile_lookup(section*)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "section"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "section"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

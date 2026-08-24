@@ -1,0 +1,124 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: update_user_model</title>
+</head>
+<body>
+<article
+  data-node-id="tool-update-user-model"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="update_user_model"
+  data-source-files=""
+  data-source-fingerprint="sha256:6C5A4D80D77083AED59E66691F790AD8A5F37AC3635DB694094030893BEF58B8"
+  data-generated-at="2026-08-24T02:00:19Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: update_user_model</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;update_user_model&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Distill recent conversations into an updated model of the user (preferences, projects, communication style) and persist it as an HTML-NN learning node. Schedule this with schedule_goal for continuous refinement.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;update_user_model(focus, max_turns)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;focus&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;max_turns&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Reads the most recent conversation turns across ALL sessions (in-app chat and messaging channels alike), asks the active LLM to distill durable facts about the user, and stores the result as a &#x27;User Model&#x27; learning node so it becomes recallable RAG context in future conversations.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-update-user-model"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "update_user_model"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: update_user_model",
+  "description": "Program documentation for update_user_model.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "update_user_model"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:00:19Z",
+    "schema": "neural-node/v2",
+    "doc_target": "update_user_model",
+    "source_fingerprint": "sha256:6C5A4D80D77083AED59E66691F790AD8A5F37AC3635DB694094030893BEF58B8"
+  },
+  "tool": {
+    "name": "update_user_model",
+    "signature": "update_user_model(focus, max_turns)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "focus": {
+          "type": "string"
+        },
+        "max_turns": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.tools",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

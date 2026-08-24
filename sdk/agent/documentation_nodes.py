@@ -465,6 +465,7 @@ def create_documentation_node(
     relationships: Any = None,
     references: Any = None,
     tags: Any = None,
+    state_extra: dict[str, Any] | None = None,
     stage: bool = False,
 ) -> dict[str, Any]:
     """
@@ -546,6 +547,16 @@ def create_documentation_node(
             "source_fingerprint": fingerprint,
         },
     }
+
+    # Structured state a generator needs to carry but that has no home in the
+    # fixed fields above -- a tool node's argument schema, for instance, which
+    # `references` cannot hold because it is coerced to a list of strings.
+    # Reserved keys are not overwritable: a caller must not be able to forge
+    # the metadata block or the fingerprint by passing them in here.
+    if state_extra:
+        for key, value in state_extra.items():
+            if key not in ("title", "description", "tags", "metadata"):
+                state_data[key] = value
 
     html = f"""<!DOCTYPE html>
 <html lang="en">

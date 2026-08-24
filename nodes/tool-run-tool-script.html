@@ -1,0 +1,128 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: run_tool_script</title>
+</head>
+<body>
+<article
+  data-node-id="tool-run-tool-script"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="run_tool_script"
+  data-source-files=""
+  data-source-fingerprint="sha256:25DE68DFC8CFB522280A4635262FE6B4BD57E43194390DADE35A57BA2B6FAF1C"
+  data-generated-at="2026-08-24T01:59:51Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: run_tool_script</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;run_tool_script&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Execute a Python script that can call registered tools directly via `await call_tool(name, **kwargs)`. Collapses multi-step tool pipelines into one execution. The script&#x27;s stdout and return value are captured.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_tool_script(code*, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;code&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;The script body runs inside an async function with these names in scope: call_tool(tool_name, **kwargs) — await a registered tool list_tools() — names of every registered tool json — the json module Use `print()` for progress output and `return` for a final value. IMPORTANT: call_tool returns an ENVELOPE, not the tool&#x27;s bare return value. The shape is: {&quot;success&quot;: bool, &quot;output&quot;: &lt;the tool&#x27;s actual result&gt;, &quot;risk_level&quot;: str, &quot;error&quot;: str | None} So read the real payload from [&quot;output&quot;]. Scripts that treat the envelope as the result fail with confusing AttributeErrors. The tool name is positional-only, so tools taking a `name` argument (schedule_goal, delete_scheduled_goal, ...) work normally. Example: env = await call_tool(&quot;schedule_goal&quot;, name=&quot;nightly&quot;, cron_expr=&quot;0 9 * * *&quot;, goal_text=&quot;say hello&quot;) print(env[&quot;success&quot;], env[&quot;output&quot;]) env = await call_tool(&quot;list_scheduled_goals&quot;) jobs = env[&quot;output&quot;].get(&quot;jobs&quot;, []) return len(jobs)&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-run-tool-script"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "run_tool_script"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: run_tool_script",
+  "description": "Program documentation for run_tool_script.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "run_tool_script"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:51Z",
+    "schema": "neural-node/v2",
+    "doc_target": "run_tool_script",
+    "source_fingerprint": "sha256:25DE68DFC8CFB522280A4635262FE6B4BD57E43194390DADE35A57BA2B6FAF1C"
+  },
+  "tool": {
+    "name": "run_tool_script",
+    "signature": "run_tool_script(code*, timeout_seconds)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "code"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "code"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

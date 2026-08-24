@@ -1,0 +1,131 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: code.propose_file_write</title>
+</head>
+<body>
+<article
+  data-node-id="tool-code-propose-file-write"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="code.propose_file_write"
+  data-source-files=""
+  data-source-fingerprint="sha256:4BDBA98B77972B44A7C3BE1DCE822E4EC94633364A21FD1814FEA3DE0640A12C"
+  data-generated-at="2026-08-24T02:02:17Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: code.propose_file_write</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;code.propose_file_write&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Propose creating bounded text files inside the workspace. This does not mutate files; use code.write_files for approved creation.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.propose_file_write(file_writes*, rationale, validation_commands)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_writes&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;rationale&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;validation_commands&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-code-propose-file-write"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "code.propose_file_write"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: code.propose_file_write",
+  "description": "Program documentation for code.propose_file_write.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "code.propose_file_write"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:02:17Z",
+    "schema": "neural-node/v2",
+    "doc_target": "code.propose_file_write",
+    "source_fingerprint": "sha256:4BDBA98B77972B44A7C3BE1DCE822E4EC94633364A21FD1814FEA3DE0640A12C"
+  },
+  "tool": {
+    "name": "code.propose_file_write",
+    "signature": "code.propose_file_write(file_writes*, rationale, validation_commands)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "file_writes": {
+          "type": "string"
+        },
+        "rationale": {
+          "type": "string"
+        },
+        "validation_commands": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "file_writes"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "file_writes"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

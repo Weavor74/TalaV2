@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: create_agent</title>
+</head>
+<body>
+<article
+  data-node-id="tool-create-agent"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="create_agent"
+  data-source-files=""
+  data-source-fingerprint="sha256:6BFF4735303ACF2FA03054229C636EDF2FADFAE70447C6D1FBC68C03C67EDCC5"
+  data-generated-at="2026-08-24T01:59:19Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: create_agent</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;create_agent&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Define a new agent persona that swarm nodes can run as. Sets a name, role and system prompt only - it grants no tools, no model and no authority.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_agent(name*, system_prompt*, role, tag)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;system_prompt&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;role&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tag&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Creates a persona a swarm node can be assigned to. It sets voice and framing; it does not widen what the node may do. An existing name is refused rather than overwritten. A persona may be mid-use by a running swarm, and silently replacing its system prompt would change that run&#x27;s behaviour underneath it.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-create-agent"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "create_agent"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: create_agent",
+  "description": "Program documentation for create_agent.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "create_agent"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:19Z",
+    "schema": "neural-node/v2",
+    "doc_target": "create_agent",
+    "source_fingerprint": "sha256:6BFF4735303ACF2FA03054229C636EDF2FADFAE70447C6D1FBC68C03C67EDCC5"
+  },
+  "tool": {
+    "name": "create_agent",
+    "signature": "create_agent(name*, system_prompt*, role, tag)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "system_prompt": {
+          "type": "string"
+        },
+        "role": {
+          "type": "string"
+        },
+        "tag": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "name",
+        "system_prompt"
+      ]
+    },
+    "module": "sdk.agent.agent_authoring",
+    "required": [
+      "name",
+      "system_prompt"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

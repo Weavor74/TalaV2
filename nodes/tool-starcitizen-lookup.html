@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: starcitizen_lookup</title>
+</head>
+<body>
+<article
+  data-node-id="tool-starcitizen-lookup"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="starcitizen_lookup"
+  data-source-files=""
+  data-source-fingerprint="sha256:9039F4074C165BD6B5A457B18BACD1AB651DFD6DF1180D7A6B4C4CE4F4A21578"
+  data-generated-at="2026-08-24T02:00:05Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: starcitizen_lookup</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;starcitizen_lookup&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Look up canonical Star Citizen universe data: ships and their real stats (mass, cargo, crew, IR/EM emission signatures), star systems, celestial objects, manufacturers, commodities, weapons, factions, and the in-universe written record via galactapedia articles and comm-links. Use this for any question about the Star Citizen universe rather than answering from memory. Resources: celestial-objects, comm-links, commodities, factions, galactapedia, ground-vehicles, items, locations, manufacturers, starsystems, vehicle-weapons, vehicles, weapons.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;starcitizen_lookup(resource*, query, identifier, limit, full_text)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;resource&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;identifier&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;full_text&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;`resource` is one of the keys in _SC_RESOURCES. Provide `query` for a partial-name search, or `identifier` to fetch one record directly by slug/id/code. Results are trimmed to the fields that carry meaning -- a raw vehicle record is several KB of nested port and component trees. Set `full_text=True` on a galactapedia identifier fetch to get the whole article body instead of a summary. Public API, no credentials. Search is rate-limited to 60 requests per minute per IP, so callers should batch rather than loop.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-starcitizen-lookup"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "starcitizen_lookup"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: starcitizen_lookup",
+  "description": "Program documentation for starcitizen_lookup.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "starcitizen_lookup"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T02:00:05Z",
+    "schema": "neural-node/v2",
+    "doc_target": "starcitizen_lookup",
+    "source_fingerprint": "sha256:9039F4074C165BD6B5A457B18BACD1AB651DFD6DF1180D7A6B4C4CE4F4A21578"
+  },
+  "tool": {
+    "name": "starcitizen_lookup",
+    "signature": "starcitizen_lookup(resource*, query, identifier, limit, full_text)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "resource": {
+          "type": "string"
+        },
+        "query": {
+          "type": "string"
+        },
+        "identifier": {
+          "type": "string"
+        },
+        "limit": {
+          "type": "string"
+        },
+        "full_text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "resource"
+      ]
+    },
+    "module": "sdk.agent.tools",
+    "required": [
+      "resource"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

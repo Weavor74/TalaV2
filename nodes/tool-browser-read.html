@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: browser_read</title>
+</head>
+<body>
+<article
+  data-node-id="tool-browser-read"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="browser_read"
+  data-source-files=""
+  data-source-fingerprint="sha256:7D55E16130F79362A18DF34BEAC58F714B9E69C1B046B77236128961FD08940C"
+  data-generated-at="2026-08-24T01:59:04Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: browser_read</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;browser_read&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read the current automation-browser page: title, visible text, and an indexed list of interactive elements (links, buttons, inputs). Use the indexes with browser_click / browser_type.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;browser_read(max_chars)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;max_chars&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME browser_read - read page text and enumerate interactive elements SYNOPSIS browser_read(max_chars: int = 4000) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.web_browser&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-browser-read"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "browser_read"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: browser_read",
+  "description": "Program documentation for browser_read.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "browser_read"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-24T01:59:04Z",
+    "schema": "neural-node/v2",
+    "doc_target": "browser_read",
+    "source_fingerprint": "sha256:7D55E16130F79362A18DF34BEAC58F714B9E69C1B046B77236128961FD08940C"
+  },
+  "tool": {
+    "name": "browser_read",
+    "signature": "browser_read(max_chars)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "max_chars": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.web_browser",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>
