@@ -359,7 +359,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
 
   /* ── file:list ──────────────────────────────────────────────────── */
   ipcMain.handle('file:list', async (_event, payload) => {
-    const { dir = '.', recursive = false } = payload ?? {};
+    const { dir = '.', recursive = false, withSizes = false } = payload ?? {};
 
     const resolved = await safePath(userData, dir);
 
@@ -376,7 +376,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
       throw new Error(`"${dir}" is not a directory.`);
     }
 
-    const entries = await listDir(resolved, resolved, recursive, 0, MAX_LIST_ENTRIES);
+    const entries = await listDir(resolved, resolved, recursive, 0, MAX_LIST_ENTRIES, withSizes);
     return { ok: true, entries };
   });
 
@@ -438,7 +438,19 @@ function registerHandlers({ isNetworkIsolated } = {}) {
  * @param {number} limit    — Max entries remaining.
  * @returns {Promise<Array<{name:string, relativePath:string, type:string, size?:number}>>}
  */
-async function listDir(dir, base, recursive, depth, limit) {
+// Directories the Explorer must never walk. Without this, listDir recursed into
+// .venv (37,718 files), .git (4,418) and node_modules (11,504) — and because
+// readdir returns entries in name order, those dot-directories are reached
+// before renderer/, python/, sdk/ or nodes/. The 10,000-entry cap was spent
+// long before any file the user cares about, so the tree came back empty of
+// anything useful (UI-115).
+const LIST_IGNORED_DIRS = new Set([
+  'node_modules', '.git', '.venv', 'venv', '.tala_snapshots', 'dist',
+  '__pycache__', '.pytest_cache', '.mypy_cache', '.ruff_cache',
+  '.idea', '.vscode', 'build', '.next', '.cache', 'chroma',
+]);
+
+async function listDir(dir, base, recursive, depth, limit, withSizes = false) {
   if (depth > 20 || limit <= 0) return [];
 
   const dirents = await fs.readdir(dir, { withFileTypes: true });
@@ -446,6 +458,7 @@ async function listDir(dir, base, recursive, depth, limit) {
 
   for (const dirent of dirents) {
     if (entries.length >= limit) break;
+    if (dirent.isDirectory() && LIST_IGNORED_DIRS.has(dirent.name)) continue;
 
     const abs  = path.join(dir, dirent.name);
     const rel  = path.relative(base, abs);
@@ -461,7 +474,9 @@ async function listDir(dir, base, recursive, depth, limit) {
       fileUrl
     };
 
-    if (dirent.isFile()) {
+    // A stat per file cost ~10,000 syscalls on a full walk and nothing renders
+    // the size, so it is skipped unless the caller asks (UI-115).
+    if (dirent.isFile() && withSizes) {
       try {
         const st  = await fs.stat(abs);
         entry.size = st.size;
@@ -472,7 +487,7 @@ async function listDir(dir, base, recursive, depth, limit) {
 
     if (recursive && dirent.isDirectory()) {
       const children = await listDir(
-        abs, base, true, depth + 1, limit - entries.length
+        abs, base, true, depth + 1, limit - entries.length, withSizes
       );
       entries.push(...children);
     }

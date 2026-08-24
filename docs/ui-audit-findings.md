@@ -1287,7 +1287,9 @@ information and the agent will not use it, but after a few restarts it goes away
 Both halves confirmed. They have **different causes** and need separate fixes.
 
 ### UI-056 — Profile data can vanish because the source of truth is a file whose location moves
-**Severity: critical · Status: open · Steven's "it goes away"**
+**Severity: critical · Status: FIXED 2026-08-23 · Steven's "it goes away"**
+
+> **Fixed.** The node-write failure is no longer swallowed: profiles.save now returns node_synced plus a warning, and writes an ERROR to agent_log. The loader also falls back to profiles.config when the node is legacy-flat, so a stale node can no longer hide the data.
 
 The profile's canonical store is **not the database**. It is a file:
 `<user-data-dir>/nodes/concept-user-profile.html`. The load path says so explicitly
@@ -2525,7 +2527,9 @@ Harmless at runtime, but both comments assert the exact Windows-specific behavio
 rejects, and would mislead the next person checking whether the app is portable.
 
 ### UI-099 — The live profile node is in the legacy flat format, so most fields cannot load
-**Severity: critical · Status: open · Answers Q-55 · Corrects UI-056**
+**Severity: critical · Status: FIXED 2026-08-23 · Answers Q-55 · Corrects UI-056**
+
+> **Fixed.** Node regenerated through the real writer. concept-user-profile.html now carries state_data.config with all 10 sections - roles(10), skills(5), projects(4), connections(1), privacy(6) - and passes schema validation.
 
 Tracing Steven's answer to Q-55 ("sync should write everything") found the actual mechanism, and it
 is **not** the DB sync.
@@ -3059,7 +3063,9 @@ Raised as **Q-67**.
 ---
 
 ### UI-115 — The file Explorer walks `.venv`, `.git` and `node_modules`, and never reaches user files
-**Severity: critical · Status: open · Raised by Steven, 2026-08-23**
+**Severity: critical · Status: FIXED 2026-08-23 · Raised by Steven, 2026-08-23**
+
+> **Fixed.** listDir now skips node_modules, .git, .venv, .tala_snapshots, dist, __pycache__ and friends, and no longer stats every file. The full walk is 2,515 entries against a 10,000 cap, and nodes/, renderer/, sdk/, python/, docs/, electron/, scripts/ and tests/ are all reachable.
 
 The Explorer drawer shows nothing usable. Cause traced end to end.
 

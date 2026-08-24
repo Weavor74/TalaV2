@@ -3970,6 +3970,35 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
 
                 config = sd.get("config")
                 if not isinstance(config, dict):
+                    # The node is in the flat legacy format. The database holds
+                    # the complete config, so prefer it over reconstructing a
+                    # partial one from the flat keys -- that reconstruction
+                    # cannot carry roles, skills, projects, connections or
+                    # privacy at all, which is what made those fields look lost
+                    # (UI-099). Fall through to the legacy path only if the row
+                    # is genuinely unavailable.
+                    try:
+                        _row = await db.fetchrow(
+                            "SELECT config FROM profiles WHERE id = 'master-user'"
+                        )
+                        if _row and _row["config"]:
+                            _cfg = _row["config"]
+                            if isinstance(_cfg, str):
+                                _cfg = json.loads(_cfg)
+                            if isinstance(_cfg, dict) and _cfg:
+                                logger.info(
+                                    "identity.get_user_profile: node is legacy-flat; "
+                                    "served the complete config from the database instead."
+                                )
+                                profile["config"] = _cfg
+                                config = _cfg
+                    except Exception as _db_exc:
+                        logger.warning(
+                            "identity.get_user_profile: could not read the profile row "
+                            "as a fallback: %s", _db_exc
+                        )
+
+                if not isinstance(config, dict):
                     # Backward compat: a node written before this fix (or by
                     # handle_identity_save_user_profile below) only has the
                     # flat legacy keys, not a "config" object. Reconstruct a
@@ -6298,6 +6327,7 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
             logger.warning("Failed to anchor profile %s on blockchain: %s", profile_id, anchor_exc)
 
         # Sync to HTML Neural Node concept-user-profile.html if this is the master-user
+        node_sync_error: str | None = None
         if profile_id == 'master-user':
             try:
                 import os
@@ -6513,9 +6543,36 @@ __PROV_PLACEHOLDER__
                 logger.info("Synced user profile node: %s", node_file)
 
             except Exception as sync_exc:
+                # Previously this logged a warning and let profiles.save return
+                # a clean success. The database write had already landed, so the
+                # data was safe -- but the node is what identity.get_user_profile
+                # reads, so the UI showed a stale profile while the save reported
+                # OK, and the warning reached no surface the operator ever sees
+                # (UI-056, UI-085). The save still succeeds, because the data IS
+                # persisted; the caller is now told the mirror did not update.
                 logger.warning("Failed to sync profiles save to HTML Neural Node: %s", sync_exc)
+                node_sync_error = str(sync_exc)
+                try:
+                    await db.log_to_db(
+                        "ERROR",
+                        f"profiles.save: node mirror not updated for {profile_id}: {sync_exc}",
+                        {"profile_id": profile_id, "node": "concept-user-profile.html"},
+                    )
+                except Exception:
+                    pass
 
-        return _ok(req_id, {"success": True, "id": profile_id})
+        if node_sync_error:
+            return _ok(req_id, {
+                "success": True,
+                "id": profile_id,
+                "node_synced": False,
+                "warning": (
+                    "Saved to the database, but the concept-user-profile node could not be "
+                    f"written: {node_sync_error}. The profile panel reads that node, so it "
+                    "may show stale values until this is resolved."
+                ),
+            })
+        return _ok(req_id, {"success": True, "id": profile_id, "node_synced": True})
     except Exception as exc:
         logger.exception("profiles.save error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
