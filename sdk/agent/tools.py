@@ -1774,6 +1774,93 @@ async def propose_file_write_tool(
 
 
 @register_tool(
+    name="code.write_and_verify",
+    description=(
+        "Write files, run validation commands, and automatically restore the previous "
+        "contents of those files if validation fails. Reverts only the files it wrote, "
+        "never a directory tree. Use this instead of code.write_files when changing code "
+        "that must keep working, such as anything under renderer/ or sdk/."
+    ),
+)
+async def write_and_verify_tool(
+    file_writes: Any,
+    validation_commands: Any = None,
+    expected_files: Any = None,
+    timeout: float = 120.0,
+) -> dict[str, Any]:
+    """
+    NAME
+           code.write_and_verify - write, verify, and revert on failure
+
+    SYNOPSIS
+           code.write_and_verify(file_writes, validation_commands=None,
+                                 expected_files=None, timeout=120.0)
+    """
+    from sdk.agent.safe_code_bridges import write_and_verify, run_validation
+    import asyncio as _asyncio
+
+    # Reimplemented here rather than calling the sync helper, because this runs
+    # inside the harness event loop where run_validation must be awaited.
+    from sdk.agent.safe_code_bridges import (
+        _ensure_writable_workspace_path, _normalize_file_writes,
+        _normalize_string_list, write_files,
+    )
+    from pathlib import Path as _Path
+
+    write_set = _normalize_file_writes(file_writes)
+    commands = _normalize_string_list(validation_commands)
+
+    prior: list[tuple[_Path, str, bytes | None]] = []
+    for w in write_set:
+        try:
+            path = _ensure_writable_workspace_path(w.file_path)
+        except Exception as exc:
+            return {"success": False, "stage": "resolve",
+                    "errors": [f"{w.file_path}: {exc}"], "reverted": []}
+        prior.append((path, w.file_path, path.read_bytes() if path.exists() else None))
+
+    written = write_files(file_writes, expected_files=expected_files)
+    if not written.get("success"):
+        return {"success": False, "stage": "write", "errors": written.get("errors", []),
+                "reverted": [], "detail": "nothing was written, so nothing needed reverting"}
+
+    if not commands:
+        return {"success": True, "stage": "write", "changed": written["changed"],
+                "verified": False,
+                "detail": "no validation_commands given, so the write was not verified"}
+
+    validation = await run_validation(commands=commands, timeout=timeout)
+    if validation.get("success"):
+        return {"success": True, "stage": "verify", "changed": written["changed"],
+                "verified": True, "validation": validation}
+
+    reverted, revert_failures = [], []
+    for path, rel, before in prior:
+        try:
+            if before is None:
+                if path.exists():
+                    path.unlink()
+                reverted.append(f"{rel} (removed; it did not exist before)")
+            else:
+                path.write_bytes(before)
+                if path.read_bytes() != before:
+                    revert_failures.append(f"{rel}: content after revert does not match the original")
+                else:
+                    reverted.append(rel)
+        except Exception as exc:
+            revert_failures.append(f"{rel}: {exc}")
+
+    out = {"success": False, "stage": "verify", "verified": False,
+           "validation": validation, "reverted": reverted,
+           "detail": "validation failed; the written files were restored to their prior contents"}
+    if revert_failures:
+        out["revert_failures"] = revert_failures
+        out["detail"] = ("validation failed AND the revert was incomplete - see revert_failures. "
+                         "These files are left modified and need manual attention.")
+    return out
+
+
+@register_tool(
     name="code.write_files",
     description=(
         "Create bounded text files inside the workspace. Absolute paths, blocked "

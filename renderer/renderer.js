@@ -193,6 +193,7 @@ const UIControl = {
         if (!msg || !msg.params) return;
         if (msg.method === 'ui.navigate') this.navigate(msg.params);
         else if (msg.method === 'ui.click') this.click(msg.params);
+        else if (msg.method === 'ui.reload') this.reload(msg.params);
       });
     } catch (err) {
       console.warn('[UIControl] Failed to register notification listener:', err);
@@ -233,6 +234,19 @@ const UIControl = {
     } catch (err) {
       IPCLog.append('error', `Agent could not click "${elementId}": ${err.message || err}`);
     }
+  },
+
+  // Applies an edit to renderer/ without restarting the app. Announced before
+  // it happens: a window that reloads with no warning reads as a crash.
+  reload({ forced } = {}) {
+    IPCLog.append('info', `Agent is reloading the window${forced ? ' (forced)' : ''}...`);
+    setTimeout(() => {
+      try {
+        window.location.reload();
+      } catch (err) {
+        IPCLog.append('error', `Agent could not reload the window: ${err.message || err}`);
+      }
+    }, 250);
   }
 };
 

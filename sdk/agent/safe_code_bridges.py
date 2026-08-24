@@ -5,9 +5,13 @@ safe_code_bridges.py - Auto-generated documentation base.
 from __future__ import annotations
 
 import asyncio
+import ast
 import json
 import os
+import shutil
 import subprocess
+import sys
+import tempfile
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
@@ -19,6 +23,9 @@ ALLOWED_VALIDATION_PREFIXES = (
     ("python", "-m", "pytest"),
     ("uv", "run", "pytest"),
     ("pytest",),
+    # JavaScript had no syntax check at all, so a broken renderer/*.js write
+    # reported success and only failed at the next window load (UI-121).
+    ("node", "--check"),
 )
 ALLOWED_WRITE_SUFFIXES = {
     ".py",
@@ -236,6 +243,62 @@ def propose_file_write(
     }
 
 
+def _syntax_error(path: Path, content: str) -> str | None:
+    """
+    Return a human-readable syntax error for *content*, or None if it parses.
+
+    Runs **before** anything is written, so a file that would not parse never
+    reaches disk. Previously only Python was validated, and that only after the
+    fact — a broken .js write reported success and surfaced at the next window
+    load, by which point the UI was dead (UI-121).
+
+    An unavailable checker is not a failure: if node is not installed we say so
+    and allow the write, rather than blocking every JavaScript edit on a
+    toolchain that may not be present.
+    """
+    suffix = path.suffix.lower()
+
+    if suffix == ".py":
+        try:
+            ast.parse(content)
+        except SyntaxError as exc:
+            return f"Python syntax error at line {exc.lineno}: {exc.msg}"
+        return None
+
+    if suffix == ".json":
+        try:
+            json.loads(content)
+        except json.JSONDecodeError as exc:
+            return f"JSON syntax error at line {exc.lineno}: {exc.msg}"
+        return None
+
+    if suffix == ".js":
+        if shutil.which("node") is None:
+            return None
+        with tempfile.NamedTemporaryFile("w", suffix=".js", delete=False, encoding="utf-8") as tmp:
+            tmp.write(content)
+            tmp_path = tmp.name
+        try:
+            proc = subprocess.run(
+                ["node", "--check", tmp_path],
+                capture_output=True, text=True, timeout=30,
+            )
+            if proc.returncode != 0:
+                detail = (proc.stderr or proc.stdout or "").strip().splitlines()
+                first = next((ln for ln in detail if "SyntaxError" in ln), detail[0] if detail else "")
+                return f"JavaScript syntax error: {first.strip()}"
+        except (subprocess.TimeoutExpired, OSError) as exc:
+            return f"could not run node --check: {exc}"
+        finally:
+            try:
+                os.unlink(tmp_path)
+            except OSError:
+                pass
+        return None
+
+    return None
+
+
 def write_files(
     file_writes: Any,
     expected_files: Any = None,
@@ -259,6 +322,10 @@ def write_files(
                 continue
             if not path.parent.exists() and not write.create_dirs:
                 errors.append(f"{write.file_path}: parent directory does not exist")
+                continue
+            syntax_problem = _syntax_error(path, write.content)
+            if syntax_problem:
+                errors.append(f"{write.file_path}: {syntax_problem}")
                 continue
             prepared.append((write, path, exists))
         except Exception as exc:
@@ -291,6 +358,97 @@ def write_files(
         "changed": changed,
         "errors": [],
     }
+
+
+
+def write_and_verify(
+    file_writes: Any,
+    validation_commands: Any = None,
+    expected_files: Any = None,
+    timeout: float = 120.0,
+) -> dict[str, Any]:
+    """
+    Write files, run validation, and revert **only what was written** if it fails.
+
+    Deliberately narrow. This project has lost 427 tracked files to an automated
+    rollback that restored a directory tree, and ``RollbackRecovery``'s own
+    docstring records a failed snapshot later being "restored" with a reassuring
+    success message. So this function:
+
+    * never restores a tree, never calls rmtree, never touches a file it did not
+      itself write;
+    * captures the exact prior bytes of every target *before* writing, and puts
+      those bytes back on failure — a file that did not exist is unlinked;
+    * verifies the revert afterwards and reports any file it could **not** put
+      back, rather than reporting a clean rollback it did not achieve.
+
+    Syntax errors are caught earlier still, by ``write_files``, so a file that
+    would not parse never reaches disk in the first place.
+    """
+    write_set = _normalize_file_writes(file_writes)
+    commands = _normalize_string_list(validation_commands)
+
+    # Snapshot prior state, per file, in memory. Bytes, not a tree.
+    prior: list[tuple[Path, str, bytes | None]] = []
+    for write in write_set:
+        try:
+            path = _ensure_writable_workspace_path(write.file_path)
+        except Exception as exc:
+            return {"success": False, "stage": "resolve",
+                    "errors": [f"{write.file_path}: {exc}"], "reverted": []}
+        before = path.read_bytes() if path.exists() else None
+        prior.append((path, write.file_path, before))
+
+    # Pass the caller original payload: write_files normalises again, and a
+    # FileWrite dataclass is not what _normalize_file_writes accepts.
+    written = write_files(file_writes, expected_files=expected_files)
+    if not written.get("success"):
+        return {"success": False, "stage": "write", "errors": written.get("errors", []),
+                "reverted": [], "detail": "nothing was written, so nothing needed reverting"}
+
+    if not commands:
+        return {"success": True, "stage": "write", "changed": written["changed"],
+                "verified": False,
+                "detail": "no validation_commands given, so the write was not verified"}
+
+    validation = run_validation_sync(commands, timeout=timeout)
+    if validation.get("success"):
+        return {"success": True, "stage": "verify", "changed": written["changed"],
+                "verified": True, "validation": validation}
+
+    # Failed verification: put back exactly what we replaced.
+    reverted: list[str] = []
+    revert_failures: list[str] = []
+    for path, rel, before in prior:
+        try:
+            if before is None:
+                if path.exists():
+                    path.unlink()
+                reverted.append(f"{rel} (removed; it did not exist before)")
+            else:
+                path.write_bytes(before)
+                if path.read_bytes() != before:
+                    revert_failures.append(f"{rel}: content after revert does not match the original")
+                else:
+                    reverted.append(rel)
+        except Exception as exc:
+            revert_failures.append(f"{rel}: {exc}")
+
+    result = {
+        "success": False,
+        "stage": "verify",
+        "verified": False,
+        "validation": validation,
+        "reverted": reverted,
+        "detail": "validation failed; the written files were restored to their prior contents",
+    }
+    if revert_failures:
+        result["revert_failures"] = revert_failures
+        result["detail"] = (
+            "validation failed AND the revert was incomplete — see revert_failures. "
+            "These files are left in a modified state and need manual attention."
+        )
+    return result
 
 
 def _read_default_noop_replacement(file_path: str) -> dict[str, str]:
@@ -461,6 +619,25 @@ def _is_allowed_validation(parts: list[str]) -> bool:
     return any(lowered[: len(prefix)] == prefix for prefix in ALLOWED_VALIDATION_PREFIXES)
 
 
+
+def _resolve_interpreter(parts: list[str]) -> list[str]:
+    """
+    Point a bare ``python`` at the interpreter the harness is actually running.
+
+    ``python`` on PATH is not necessarily the project venv. On a machine where
+    it is not, ``python -m pytest`` fails with "No module named pytest" — a
+    failure about the environment that reads exactly like a failure about the
+    code. Anything that reverts on failed verification would then revert every
+    correct write.
+
+    Only the leading ``python`` token is rewritten; the command still has to
+    pass the allowlist first.
+    """
+    if parts and parts[0] == "python":
+        return [sys.executable, *parts[1:]]
+    return parts
+
+
 async def run_validation(commands: Any, timeout: float = 60.0) -> dict[str, Any]:
     if not isinstance(commands, list) or not commands:
         raise ValueError("commands must be a non-empty list")
@@ -474,7 +651,7 @@ async def run_validation(commands: Any, timeout: float = 60.0) -> dict[str, Any]
             errors.append(f"command not allowed: {' '.join(parts)}")
             continue
         proc = await asyncio.create_subprocess_exec(
-            *parts,
+            *_resolve_interpreter(parts),
             cwd=str(WORKSPACE_ROOT),
             stdout=asyncio.subprocess.PIPE,
             stderr=asyncio.subprocess.PIPE,
@@ -682,3 +859,17 @@ async def execute_self_improvement_goal(
 
 def to_json(data: Any) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False)
+
+
+def run_validation_sync(commands: Any, timeout: float = 120.0) -> dict[str, Any]:
+    """Run the async validation helper from sync code."""
+    import asyncio as _asyncio
+    try:
+        _asyncio.get_running_loop()
+    except RuntimeError:
+        return _asyncio.run(run_validation(commands=commands, timeout=timeout))
+    raise RuntimeError(
+        "run_validation_sync cannot be called from inside a running event loop; "
+        "await run_validation() directly instead."
+    )
+

@@ -1,11 +1,12 @@
 """
 ui_control.py — let Tala operate her own interface.
 
-Closes UI-007. Three tools, backed by the ``ui-view-*`` Neural Node map:
+Closes UI-007. Four tools, backed by the ``ui-view-*`` Neural Node map:
 
     ui_describe   read what a screen is and what it offers
     ui_navigate   switch the workspace to a view
     ui_click      press a documented control
+    ui_reload     apply an edit to renderer/ without restarting
 
 Deliberately routed over the existing ``python:notification`` channel rather
 than a Chrome DevTools port (UI-119). CDP has no authentication, so exposing it
@@ -233,3 +234,59 @@ async def ui_click(element_id: str) -> dict[str, Any]:
 
     return {"success": True, "element_id": element_id, "view": info["view"],
             "does": info["does"], "clients_notified": reached}
+
+
+_LIVE_TASK_STATUSES = ("in_progress", "running")
+
+
+@register_tool(
+    name="ui_reload",
+    description=(
+        "Reload Tala's window so an edit to renderer/ takes effect without restarting "
+        "the app. Refuses while a task is mid-run unless force=True, because a reload "
+        "discards in-flight UI state. Use after editing renderer files."
+    ),
+)
+async def ui_reload(force: bool = False) -> dict[str, Any]:
+    """
+    NAME
+           ui_reload - apply a UI change without restarting the app
+
+    SYNOPSIS
+           ui_reload(force: bool = False) -> dict[str, Any]
+    """
+    if not force:
+        try:
+            from python.harness import db
+            rows = await db.fetch(
+                "SELECT id, description, status FROM tasks WHERE status = ANY($1::text[])",
+                list(_LIVE_TASK_STATUSES),
+            )
+            if rows:
+                return {
+                    "success": False,
+                    "error": "tasks_in_flight",
+                    "detail": (
+                        f"{len(rows)} task(s) are still running. Reloading discards "
+                        "in-flight UI state. Wait, or call again with force=True."
+                    ),
+                    "tasks": [
+                        {"id": r["id"], "status": r["status"],
+                         "description": (r["description"] or "")[:80]}
+                        for r in rows[:5]
+                    ],
+                }
+        except Exception as exc:
+            # A database that cannot be reached is not a reason to block a
+            # reload, but the caller should know the check did not happen.
+            log.warning("ui_reload: could not check for live tasks: %s", exc)
+            reached = await _broadcast("ui.reload", {"forced": bool(force)})
+            if reached == 0:
+                return _no_listener("reload the window")
+            return {"success": True, "clients_notified": reached,
+                    "warning": f"could not verify live tasks before reloading: {exc}"}
+
+    reached = await _broadcast("ui.reload", {"forced": bool(force)})
+    if reached == 0:
+        return _no_listener("reload the window")
+    return {"success": True, "forced": bool(force), "clients_notified": reached}
