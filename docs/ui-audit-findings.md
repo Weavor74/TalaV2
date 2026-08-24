@@ -3193,6 +3193,94 @@ from Q-36 when both are present, and to a single row when only the agent is.
 risk_class)` is already resource-scoped and already carries a risk tier — it needs a principal
 argument, not a redesign.
 
+### UI-119 — How Tala could operate the UI: CDP/Playwright vs the existing IPC path
+**Severity: high (design) · Status: decision needed · Source: Steven's question, 2026-08-23**
+
+> **Steven:** *"Electron is a chrome based node. Can we add playwright to it?"*
+
+Technically yes. But there are two routes and they differ on security, not on capability.
+
+**Route A — Playwright over CDP.** Playwright has two Electron modes:
+
+| Mode | Fit |
+|---|---|
+| `_electron.launch()` | launches the app itself — wrong shape here, since Tala runs *inside* the app she would drive |
+| `connectOverCDP()` | attaches to a running app via `--remote-debugging-port` — technically works |
+
+The blocker is what that port is. **Chrome DevTools Protocol has no authentication.** Opening it
+grants arbitrary JavaScript execution and full access to every window, to any process on the
+machine that can reach the port. Electron does not expose one today — verified, no
+`--remote-debugging-port` anywhere in `main.js` or `package.json`.
+
+That sits directly against the model Steven specified across P1 and P2: lockdown as a network cut
+(Q-59), per-agent assigned privileges (Q-63/UI-118), and a policy object gating what an agent may
+reach (Q-35/36/37). A CDP port bypasses all of it — an agent restricted by policy could simply
+drive the UI to do what it was denied.
+
+**Route B — the existing IPC notification path.** Already proven end to end. `browser.navigate` is
+broadcast from Python and handled in the renderer
+([renderer.js:7147](../renderer/renderer.js#L7147)); that exact pattern works today.
+
+And the seam is already clean. View switching is not scattered through the nav handler — it is one
+call:
+
+```js
+TabManager.openTab(id, title, type, filePath = null)   // renderer.js:203
+```
+
+The sidebar buttons do nothing more than call it with a title from a lookup map. So `ui.navigate`
+is a thin wrapper over a function that already exists.
+
+**Comparison:**
+
+| | Route A — CDP/Playwright | Route B — IPC |
+|---|---|---|
+| new dependency | Playwright for Electron | none |
+| new attack surface | **an unauthenticated port with full app control** | none |
+| respects UI-118 privileges | **no — bypasses them** | yes, calls route through the harness |
+| element discovery / waits | strong, free | must be written |
+| effort | moderate | small for navigate, more for click |
+| second automation stack | yes, alongside UI-013's web Playwright | no |
+
+**Recommendation: Route B.** Not because it is easier, but because Route A puts a hole through the
+access-control model that P1 and P2 were spent designing. The capability gained — selector
+discovery — is not worth an unauthenticated control channel into the app.
+
+**Proposed shape**, three tools rather than one:
+
+| Tool | Backing |
+|---|---|
+| `ui.navigate(view)` | broadcast → `TabManager.openTab` |
+| `ui.describe(view)` | **read the `ui-view-*` node** — the map becomes the action vocabulary |
+| `ui.click(element_id)` | broadcast → guarded click against an allowlist of known ids |
+
+`ui.describe` is the part that closes the loop: the twelve nodes just authored already carry every
+control id and its verdict, so Tala can answer "what can I do here" from her own memory rather than
+from a live DOM scrape.
+
+**If element discovery turns out to be genuinely necessary**, a narrower option exists than a global
+CDP port: `webContents.executeJavaScript()` from the main process, reachable only over the existing
+IPC channel and therefore still gateable by policy. That gives DOM reads without opening a port.
+
+### UI-120 — `UI.switchView` is a dead call
+**Severity: low · Status: open**
+
+Found while tracing the navigation seam. [renderer.js:13417](../renderer/renderer.js#L13417):
+
+```js
+if (typeof UI !== 'undefined' && UI.switchView) {
+    UI.switchView('settings');
+}
+```
+
+**No `UI` object exists** — zero declarations of `const/let/var/window.UI` anywhere in
+`renderer.js`. The `typeof` guard means it fails silently rather than throwing, so whatever action
+was meant to jump the user to Settings simply does nothing.
+
+Same family as UI-033, where `Manage Workers in Settings` targets a `data-tab` selector that does
+not exist. Both are cross-view navigation attempts that silently no-op — which is the argument for
+`ui.navigate` existing as one real function rather than being re-improvised at each call site.
+
 ---
 
 ## B. Self-navigation infrastructure gaps
