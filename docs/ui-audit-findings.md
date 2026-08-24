@@ -3386,8 +3386,8 @@ not to *apply* to its own source.
 ### UI-007 — Tala has no tool that acts on the UI
 **Severity: high · Status: CLOSED 2026-08-23**
 
-> **Built.** ,  and  in , backed by the
->  map and routed over . See UI-119 for why not CDP.
+> **Built.** `ui_describe`, `ui_navigate` and `ui_click` in `sdk/agent/ui_control.py`, backed by the
+> `ui-view-*` node map and routed over `python:notification`. See UI-119 for why not CDP.
 
 There is no `ui.navigate` / `ui.describe` tool. The only UI-touching tool is
 `docs.refresh_node_grid` ([tools.py:2084](../sdk/agent/tools.py#L2084)), which is a refresh
@@ -3426,9 +3426,10 @@ as another dead subsystem: built, never invoked.
 ### UI-011 — No drift guard
 **Severity: medium · Status: CLOSED 2026-08-23**
 
-> **Built.**  — 25 tests asserting every documented element id exists in
-> , every  names a real section, the index matches the nodes on disk, and ids
-> are literal rather than shorthand. Confirmed to fail on a deliberately renamed id.
+> **Built.** `tests/test_ui_map_drift.py` — 25 tests asserting every documented element id
+> exists in `renderer/index.html`, every `view_id` names a real section, `ui-map-index` matches
+> the nodes on disk, and ids are literal rather than shorthand. Confirmed to fail on a
+> deliberately renamed id.
 
 Nothing asserts that documented element ids still exist in `index.html`. The map will rot
 silently as the UI changes. Needs a test, or a source fingerprint on each `ui-view-*` node.
