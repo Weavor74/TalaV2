@@ -45,8 +45,36 @@ class BaseAdapter:
         self._running = False
         self.last_error: str | None = None
         self.messages_seen = 0
+        self.messages_rejected = 0
 
     # -- lifecycle ---------------------------------------------------------
+
+    # -- authorisation -----------------------------------------------------
+
+    def allowlist(self) -> set[str]:
+        """Usernames and chat ids permitted to command the agent."""
+        raw = self.config.get("allowlist") or self.config.get("allow_list") or ""
+        if isinstance(raw, (list, tuple, set)):
+            parts = [str(x) for x in raw]
+        else:
+            parts = str(raw).replace(";", ",").split(",")
+        return {p.strip().lstrip("@").lower() for p in parts if str(p).strip()}
+
+    def is_allowed(self, msg: dict[str, Any]) -> bool:
+        """
+        Fail closed. An empty allowlist permits nobody.
+
+        The field was collected, stored, and never read (UI-083) — so an
+        allowlist of any length let the whole world command the agent, in front
+        of tool execution. Empty now denies rather than permits, matching the
+        invite-only model: access is granted explicitly, never by default.
+        """
+        allowed = self.allowlist()
+        if not allowed:
+            return False
+        sender = str(msg.get("sender") or "").strip().lstrip("@").lower()
+        chat_id = str(msg.get("chat_id") or "").strip().lower()
+        return bool((sender and sender in allowed) or (chat_id and chat_id in allowed))
 
     async def start(self, on_message: Callable[[dict[str, Any]], Any]) -> None:
         if self._running:
@@ -71,6 +99,18 @@ class BaseAdapter:
             try:
                 for msg in await self.poll():
                     self.messages_seen += 1
+                    # Enforced here rather than per adapter: every platform's
+                    # messages funnel through this loop, so a future Discord
+                    # adapter inherits the check instead of having to repeat it.
+                    if not self.is_allowed(msg):
+                        self.messages_rejected += 1
+                        log.warning(
+                            "channels: %s/%s rejected a message from sender=%r chat_id=%r "
+                            "(not on the allowlist)",
+                            self.platform, self.name,
+                            msg.get("sender"), msg.get("chat_id"),
+                        )
+                        continue
                     result = on_message(msg)
                     if asyncio.iscoroutine(result):
                         await result

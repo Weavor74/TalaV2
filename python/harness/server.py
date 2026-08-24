@@ -5356,6 +5356,33 @@ def _format_peer_node_context(peer_username: str, reference: str, node_payload: 
     )
 
 
+async def _local_identity() -> dict[str, str]:
+    """
+    Who this machine says it is when calling a peer.
+
+    Peers now require an identified caller before serving skills (UI-040), so
+    outbound requests carry this. Mirrors how the rest of the harness resolves
+    the local wallet: a saved setting, then TALA_WALLET_ADDRESS, then a
+    last-resort literal so a first run still has something to send.
+    """
+    username = ""
+    try:
+        row = await db.fetchrow("SELECT username, config FROM profiles WHERE id = 'master-user'")
+        if row:
+            username = str(row["username"] or "")
+            if not username:
+                cfg = row["config"]
+                if isinstance(cfg, str):
+                    cfg = json.loads(cfg)
+                username = str(((cfg or {}).get("identity") or {}).get("username") or "")
+    except Exception as exc:
+        logger.debug("_local_identity: no profile username available: %s", exc)
+    return {
+        "username": username,
+        "wallet_address": os.environ.get("TALA_WALLET_ADDRESS", "local-tala"),
+    }
+
+
 async def _get_contact(username: str | None = None, wallet_address: str | None = None) -> dict[str, Any] | None:
     if username:
         lookup = username.strip()
@@ -5449,19 +5476,32 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
     username = str(packet["sender_username"]).strip()
     wallet_address = str(packet["sender_wallet"]).strip()
     endpoint_url = _normalize_peer_endpoint(str(packet.get("sender_endpoint", "")).strip())
-    permissions = packet.get("requested_permissions")
-    if not isinstance(permissions, dict):
-        permissions = {
-            "identity": True,
-            "about": True,
-            "rp_persona": True,
-            "roles": False,
-            "skills": False,
-            "projects": False,
-            "preferences": False,
-            "nodes": False,
-            "pii_vault": False,
-        }
+    # A peer used to have its requested_permissions written verbatim, and
+    # ON CONFLICT DO UPDATE meant it could also overwrite permissions the
+    # operator had already narrowed (UI-041). Steven's model is invite-only:
+    # "permissions are by invite only ... I have to invite her to access"
+    # (Q-22). So what the peer asks for is recorded as a *request* and grants
+    # nothing; every enrolment starts from deny.
+    requested = packet.get("requested_permissions")
+    requested = requested if isinstance(requested, dict) else {}
+
+    permissions = {
+        "identity": False,
+        "about": False,
+        "rp_persona": False,
+        "roles": False,
+        "skills": False,
+        "projects": False,
+        "preferences": False,
+        "nodes": False,
+        "pii_vault": False,
+    }
+    if requested:
+        permissions["_requested"] = {k: bool(v) for k, v in requested.items()}
+        logger.info(
+            "p2p enrolment: %s requested %s; recorded as a request, granted nothing.",
+            username, sorted(k for k, v in requested.items() if v),
+        )
 
     await db.execute(
         """
@@ -5471,7 +5511,8 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
             wallet_address = EXCLUDED.wallet_address,
             endpoint_url = EXCLUDED.endpoint_url,
             shared_secret = EXCLUDED.shared_secret,
-            permissions = EXCLUDED.permissions,
+            -- permissions deliberately NOT updated: re-enrolling must never
+            -- reset a grant the operator has already made or withdrawn.
             updated_at = NOW()
         """,
         username,
@@ -11168,7 +11209,15 @@ async def handle_marketplace_search(params: dict[str, Any], req_id: Any) -> str:
     import asyncio
     async def _query_peer(peer):
         try:
-            res = await _call_peer_rpc(peer["endpoint_url"], "p2p.marketplace_search", {"query": query})
+            # The remote end now requires an identified caller (UI-040), so
+            # send who we are. It decides what, if anything, we may see.
+            _me = await _local_identity()
+            res = await _call_peer_rpc(
+                peer["endpoint_url"],
+                "p2p.marketplace_search",
+                {"query": query, "caller_username": _me.get("username", ""),
+                 "caller_wallet": _me.get("wallet_address", "")},
+            )
             if res.get("items"):
                 for item in res["items"]:
                     item["source_peer"] = peer["peer_username"]
@@ -11180,29 +11229,92 @@ async def handle_marketplace_search(params: dict[str, Any], req_id: Any) -> str:
     return _ok(req_id, {"items": results})
 
 async def handle_p2p_marketplace_search(params: dict[str, Any], req_id: Any) -> str:
-    query = params.get("query", "").lower()
-    items = []
-    
+    """
+    ``p2p.marketplace_search`` — what a peer may see of this machine's skills.
+
+    Previously took no caller identity at all and returned the full body of
+    every file in ``skills/`` to anyone who could reach the endpoint, while the
+    Contacts ``skills`` checkbox gated nothing (UI-040).
+
+    Two rules now, from Q-21 and Q-23:
+
+    * the caller must identify itself and be a known contact;
+    * each skill declares its own scope. ``shared: global`` is visible to any
+      known contact, ``shared: contact-only`` needs that contact named in
+      ``shared_with``, and a skill that declares neither is private.
+
+    The body is only returned for a skill the caller may actually have. A
+    permitted search returns name and description plus the payload; nothing
+    else is disclosed, not even the existence of skills the caller cannot see.
+    """
     from pathlib import Path
     import yaml
-    
+
+    query = str(params.get("query", "")).lower()
+    caller = str(params.get("caller_wallet") or params.get("caller_username") or "").strip()
+
+    if not caller:
+        return _err(
+            req_id, JsonRpcError.INVALID_PARAMS,
+            "caller_wallet or caller_username is required: skills are not served anonymously.",
+        )
+
+    contact = await _get_contact(
+        wallet_address=caller if caller.startswith("0x") else None,
+        username=None if caller.startswith("0x") else caller,
+    )
+    if contact is None:
+        logger.warning("p2p.marketplace_search: refused unknown caller %r", caller)
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "caller is not a known contact")
+
+    caller_username = str(contact.get("username") or "").lstrip("@").lower()
+    caller_wallet = str(contact.get("wallet_address") or "").lower()
+
+    def _may_have(meta: dict[str, Any]) -> bool:
+        scope = str(meta.get("shared") or meta.get("visibility") or "").strip().lower()
+        if scope == "global":
+            return True
+        if scope in ("contact-only", "contact_only"):
+            named = meta.get("shared_with") or []
+            if isinstance(named, str):
+                named = [n.strip() for n in named.replace(";", ",").split(",")]
+            named = {str(n).strip().lstrip("@").lower() for n in named if str(n).strip()}
+            return bool(named & {caller_username, caller_wallet})
+        return False
+
+    items: list[dict[str, Any]] = []
+    withheld = 0
     skills_dir = Path("skills")
     if skills_dir.exists():
         for file in skills_dir.glob("*.yaml"):
             try:
-                with open(file, "r", encoding="utf-8") as f:
-                    data = yaml.safe_load(f)
-                    if query in data.get("name", "").lower() or query in data.get("description", "").lower():
-                        items.append({
-                            "name": data.get("name"),
-                            "description": data.get("description"),
-                            "payload": data,
-                            "public_key": "local-node-pubkey-0xTALA"
-                        })
+                with open(file, "r", encoding="utf-8") as fh:
+                    data = yaml.safe_load(fh) or {}
             except Exception:
-                pass
-                
+                continue
+            if not isinstance(data, dict):
+                continue
+            name = str(data.get("name", ""))
+            description = str(data.get("description", ""))
+            if query and query not in name.lower() and query not in description.lower():
+                continue
+            if not _may_have(data):
+                withheld += 1
+                continue
+            items.append({
+                "name": name,
+                "description": description,
+                "payload": data,
+                "public_key": "local-node-pubkey-0xTALA",
+            })
+
+    if withheld:
+        logger.info(
+            "p2p.marketplace_search: served %d skill(s) to %s, withheld %d not shared with them.",
+            len(items), contact.get("username"), withheld,
+        )
     return _ok(req_id, {"items": items})
+
 
 async def handle_marketplace_download(params: dict[str, Any], req_id: Any) -> str:
     item = params.get("item")
