@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Agent Builder</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-agent-builder"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Agent Builder</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Manage worker personas, author swarm topologies, watch the task board, and monitor swarm runs. Reached: Sidebar rail, 6th icon (arrows). Four sub-tabs via data-builder-tab.</p>
+    <p>The operator describes this screen as: “Agent builder.”</p>
+    <p>3 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+  </section>
+
+  <section id="controls">
+    <h2>Controls</h2>
+    <table>
+      <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
+      <tr><td>builder-tab-workers / -topologies / -taskboard / -runs</td><td>Sub-tab switching</td><td>works</td></tr>
+      <tr><td>btn-topology-new / -edit / -delete / -start</td><td>Topology CRUD and Run Swarm</td><td>works</td></tr>
+      <tr><td>kanban-pending .. kanban-done</td><td>Seven-column task board</td><td>works</td></tr>
+    </table>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>Topologies are authored as HTML-NN nodes and labelled neural node in the UI.</li>
+      <li>A swarm can be a member of a crew but is not a crew itself.</li>
+    </ul>
+  </section>
+
+  <section id="known-defects">
+    <h2>Known defects</h2>
+    <ul>
+      <li>UI-029: task descriptions are injected into innerHTML unescaped.</li>
+      <li>UI-030: the board silently shows only the newest 50 tasks.</li>
+      <li>UI-033: Manage Workers in Settings targets a selector that does not exist.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Agent Builder",
+  "description": "Manage worker personas, author swarm topologies, watch the task board, and monitor swarm runs.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "agent-builder"
+  ],
+  "view_id": "view-agent-builder",
+  "reached_by": "Sidebar rail, 6th icon (arrows). Four sub-tabs via data-builder-tab.",
+  "operator_label": "Agent builder.",
+  "controls": [
+    {
+      "id": "builder-tab-workers / -topologies / -taskboard / -runs",
+      "does": "Sub-tab switching",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-topology-new / -edit / -delete / -start",
+      "does": "Topology CRUD and Run Swarm",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-pending .. kanban-done",
+      "does": "Seven-column task board",
+      "verdict": "works"
+    }
+  ],
+  "known_defects": [
+    "UI-029: task descriptions are injected into innerHTML unescaped.",
+    "UI-030: the board silently shows only the newest 50 tasks.",
+    "UI-033: Manage Workers in Settings targets a selector that does not exist."
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

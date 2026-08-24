@@ -1,0 +1,121 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Mission Control</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-mission-control"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Mission Control</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>The active task queue plus codebase diagnostics. Reached: Sidebar rail, 7th icon (circle). Polls every 4 seconds while active.</p>
+    <p>The operator describes this screen as: “These are tasks being worked on.”</p>
+    <p>2 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+  </section>
+
+  <section id="controls">
+    <h2>Controls</h2>
+    <table>
+      <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
+      <tr><td>btn-mc-refresh</td><td>Refresh everything</td><td>works</td></tr>
+      <tr><td>btn-mc-halt</td><td>HALT LOOP</td><td>works</td></tr>
+      <tr><td>btn-mc-task-new / -task-clear</td><td>New Task / Clear Queue</td><td>works</td></tr>
+      <tr><td>btn-mc-scan / -lint / -revert</td><td>Scan Repo / Run Linter / Revert</td><td>works</td></tr>
+    </table>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>Editing an in_progress or running task is refused unless forced, because the goal loop writes its own status back.</li>
+      <li>paused has its own colour so it does not read as pending.</li>
+    </ul>
+  </section>
+
+  <section id="known-defects">
+    <h2>Known defects</h2>
+    <ul>
+      <li>UI-034: nothing ever ages a completed task out.</li>
+      <li>UI-035: cleared tasks reappear because the test suite writes to the live database.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Mission Control",
+  "description": "The active task queue plus codebase diagnostics.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "mission-control"
+  ],
+  "view_id": "view-mission-control",
+  "reached_by": "Sidebar rail, 7th icon (circle). Polls every 4 seconds while active.",
+  "operator_label": "These are tasks being worked on.",
+  "controls": [
+    {
+      "id": "btn-mc-refresh",
+      "does": "Refresh everything",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-mc-halt",
+      "does": "HALT LOOP",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-mc-task-new / -task-clear",
+      "does": "New Task / Clear Queue",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-mc-scan / -lint / -revert",
+      "does": "Scan Repo / Run Linter / Revert",
+      "verdict": "works"
+    }
+  ],
+  "known_defects": [
+    "UI-034: nothing ever ages a completed task out.",
+    "UI-035: cleared tasks reappear because the test suite writes to the live database."
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

@@ -1,0 +1,110 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Neural Nodes</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-neural-node"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Neural Nodes</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Browse every HTML Neural Node as cards or as a graph. Reached: Sidebar rail, 4th icon (neural). Default view on startup.</p>
+    <p>The operator describes this screen as: “This is the landing page when it first starts up.”</p>
+  </section>
+
+  <section id="controls">
+    <h2>Controls</h2>
+    <table>
+      <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
+      <tr><td>btn-view-grid / btn-view-graph</td><td>Grid / Graph toggle</td><td>works</td></tr>
+      <tr><td>node-search-input</td><td>Search nodes</td><td>works</td></tr>
+      <tr><td>btn-refresh-nodes</td><td>Refresh</td><td>works</td></tr>
+      <tr><td>btn-new-node</td><td>+ New Node</td><td>works</td></tr>
+    </table>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>Card badge renders data-node-type.</li>
+      <li>Exec: and Mem: pills render data-execution-authority and data-memory-authority. Steven calls these authority weights.</li>
+      <li>Trust: renders data-trust-tier.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Neural Nodes",
+  "description": "Browse every HTML Neural Node as cards or as a graph.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "neural-node"
+  ],
+  "view_id": "view-neural-node",
+  "reached_by": "Sidebar rail, 4th icon (neural). Default view on startup.",
+  "operator_label": "This is the landing page when it first starts up.",
+  "controls": [
+    {
+      "id": "btn-view-grid / btn-view-graph",
+      "does": "Grid / Graph toggle",
+      "verdict": "works"
+    },
+    {
+      "id": "node-search-input",
+      "does": "Search nodes",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-refresh-nodes",
+      "does": "Refresh",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-new-node",
+      "does": "+ New Node",
+      "verdict": "works"
+    }
+  ],
+  "known_defects": [],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

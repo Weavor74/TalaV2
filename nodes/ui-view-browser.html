@@ -1,0 +1,119 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Web Browser</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-browser"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Web Browser</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>An embedded Electron webview with back / forward / reload and an address bar. Reached: Sidebar rail, 2nd icon (globe).</p>
+    <p>The operator describes this screen as: “Tala is supposed to have full control of this web browser.”</p>
+    <p>4 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+  </section>
+
+  <section id="controls">
+    <h2>Controls</h2>
+    <table>
+      <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
+      <tr><td>btn-browser-back / -forward / -refresh</td><td>Navigation</td><td>works</td></tr>
+      <tr><td>browser-url-input</td><td>Address bar; Enter navigates</td><td>works</td></tr>
+      <tr><td>browser-iframe</td><td>The page itself. Named iframe but is a &lt;webview&gt;</td><td>works</td></tr>
+    </table>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>Address bar self-updates from did-navigate and did-navigate-in-page.</li>
+      <li>Python can push this browser to a URL via the browser.navigate notification.</li>
+    </ul>
+  </section>
+
+  <section id="known-defects">
+    <h2>Known defects</h2>
+    <ul>
+      <li>UI-013: Tala's six browser tools drive a headless Playwright browser, not this one.</li>
+      <li>UI-014: browser.get_dom is a stub that returns success.</li>
+      <li>UI-015: browser.execute_js broadcasts to a channel with no listener.</li>
+      <li>UI-017: the READY badge is static decoration.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Web Browser",
+  "description": "An embedded Electron webview with back / forward / reload and an address bar.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "browser"
+  ],
+  "view_id": "view-browser",
+  "reached_by": "Sidebar rail, 2nd icon (globe).",
+  "operator_label": "Tala is supposed to have full control of this web browser.",
+  "controls": [
+    {
+      "id": "btn-browser-back / -forward / -refresh",
+      "does": "Navigation",
+      "verdict": "works"
+    },
+    {
+      "id": "browser-url-input",
+      "does": "Address bar; Enter navigates",
+      "verdict": "works"
+    },
+    {
+      "id": "browser-iframe",
+      "does": "The page itself. Named iframe but is a <webview>",
+      "verdict": "works"
+    }
+  ],
+  "known_defects": [
+    "UI-013: Tala's six browser tools drive a headless Playwright browser, not this one.",
+    "UI-014: browser.get_dom is a stub that returns success.",
+    "UI-015: browser.execute_js broadcasts to a channel with no listener.",
+    "UI-017: the READY badge is static decoration."
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Research Library</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-research"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Research Library</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Search the web and Tala's own memory together, read a result in full, and distil selected results into a Neural Node. Reached: Sidebar rail, 3rd icon (book). Titled Evidence Browser.</p>
+    <p>The operator describes this screen as: “This is the research view, it is meant to work like NotebookLM. One of the key features is that it will be able to use the search engine that the user adds with a search API in a later tab.”</p>
+    <p>3 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+  </section>
+
+  <section id="controls">
+    <h2>Controls</h2>
+    <table>
+      <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
+      <tr><td>research-subject</td><td>Enter Query</td><td>works</td></tr>
+      <tr><td>research-search-engine</td><td>Search Engine picker, populated from configured providers</td><td>works</td></tr>
+      <tr><td>toggle-source-all / .source-toggle</td><td>All / Web / Chat Sessions / Neural Nodes / Tasks</td><td>works</td></tr>
+      <tr><td>btn-research-search</td><td>Search</td><td>works</td></tr>
+      <tr><td>btn-research-save-node</td><td>Save / Distill selected into a node</td><td>works</td></tr>
+    </table>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>Every snippet is scanned for prompt injection before display.</li>
+      <li>Per-source errors have a red banner render path.</li>
+    </ul>
+  </section>
+
+  <section id="known-defects">
+    <h2>Known defects</h2>
+    <ul>
+      <li>UI-018: a failing search provider silently degrades to DuckDuckGo scraping.</li>
+      <li>UI-019: the /search substring misroutes most commercial search APIs.</li>
+      <li>UI-022: no way to flag a result into chat.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Research Library",
+  "description": "Search the web and Tala's own memory together, read a result in full, and distil selected results into a Neural Node.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "research"
+  ],
+  "view_id": "view-research",
+  "reached_by": "Sidebar rail, 3rd icon (book). Titled Evidence Browser.",
+  "operator_label": "This is the research view, it is meant to work like NotebookLM. One of the key features is that it will be able to use the search engine that the user adds with a search API in a later tab.",
+  "controls": [
+    {
+      "id": "research-subject",
+      "does": "Enter Query",
+      "verdict": "works"
+    },
+    {
+      "id": "research-search-engine",
+      "does": "Search Engine picker, populated from configured providers",
+      "verdict": "works"
+    },
+    {
+      "id": "toggle-source-all / .source-toggle",
+      "does": "All / Web / Chat Sessions / Neural Nodes / Tasks",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-research-search",
+      "does": "Search",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-research-save-node",
+      "does": "Save / Distill selected into a node",
+      "verdict": "works"
+    }
+  ],
+  "known_defects": [
+    "UI-018: a failing search provider silently degrades to DuckDuckGo scraping.",
+    "UI-019: the /search substring misroutes most commercial search APIs.",
+    "UI-022: no way to flag a result into chat."
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

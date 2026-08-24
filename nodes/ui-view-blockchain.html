@@ -1,0 +1,117 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Blockchain Ledger</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-blockchain"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Blockchain Ledger</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Show the local Proof-of-Authority chain as a flow of block cards. Reached: Sidebar rail, 5th icon (chain).</p>
+    <p>The operator describes this screen as: “This is supposed to track the chain for both Ghost chain and Real Chain. Ghost chain essentially is non-value other than tracking transaction locally. But the real chain only happens when connected to the internet.”</p>
+    <p>3 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+  </section>
+
+  <section id="controls">
+    <h2>Controls</h2>
+    <table>
+      <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
+      <tr><td>btn-refresh-blockchain</td><td>Refresh the chain</td><td>works</td></tr>
+      <tr><td>chain-height</td><td>Block height, live</td><td>works</td></tr>
+      <tr><td>chain-validity</td><td>VALID / COMPROMISED / UNREACHABLE, live</td><td>works</td></tr>
+    </table>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>Served by blockchain/src/app.js on port 8332.</li>
+      <li>Offline handling is genuinely good: clear error, height 0 (Offline), validity UNREACHABLE.</li>
+    </ul>
+  </section>
+
+  <section id="known-defects">
+    <h2>Known defects</h2>
+    <ul>
+      <li>UI-023: Ghost/Real is a runtime mode that is never recorded on a transaction.</li>
+      <li>UI-024: no transaction has ever been written in Real mode.</li>
+      <li>UI-025: the renderer hardcodes 127.0.0.1:8332.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Blockchain Ledger",
+  "description": "Show the local Proof-of-Authority chain as a flow of block cards.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "blockchain"
+  ],
+  "view_id": "view-blockchain",
+  "reached_by": "Sidebar rail, 5th icon (chain).",
+  "operator_label": "This is supposed to track the chain for both Ghost chain and Real Chain. Ghost chain essentially is non-value other than tracking transaction locally. But the real chain only happens when connected to the internet.",
+  "controls": [
+    {
+      "id": "btn-refresh-blockchain",
+      "does": "Refresh the chain",
+      "verdict": "works"
+    },
+    {
+      "id": "chain-height",
+      "does": "Block height, live",
+      "verdict": "works"
+    },
+    {
+      "id": "chain-validity",
+      "does": "VALID / COMPROMISED / UNREACHABLE, live",
+      "verdict": "works"
+    }
+  ],
+  "known_defects": [
+    "UI-023: Ghost/Real is a runtime mode that is never recorded on a transaction.",
+    "UI-024: no transaction has ever been written in Real mode.",
+    "UI-025: the renderer hardcodes 127.0.0.1:8332."
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

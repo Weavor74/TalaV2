@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI Map Index</title>
+</head>
+<body>
+<article
+  data-node-id="ui-map-index"
+  data-node-type="concept"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.85"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI Map Index</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Index of Tala's user interface. Eleven views and eighteen settings panels, with how each is reached. Start here to navigate the UI, then open the ui-view-* node for the screen in question.</p>
+    <p>Nine views are reached from the left icon rail. The Editor is the centre pane the file Explorer opens into, and the Logs view is vestigial.</p>
+  </section>
+
+  <section id="sidebar-rail">
+    <h2>Sidebar rail, top to bottom</h2>
+    <table>
+      <tr><th>id or data-view</th><th>Icon</th><th>Tooltip</th><th>Node</th></tr>
+      <tr><td>btn-toggle-drawer</td><td>hamburger</td><td>Toggle File Explorer</td><td>-</td></tr>
+      <tr><td>browser</td><td>globe</td><td>Web Browser</td><td>ui-view-browser</td></tr>
+      <tr><td>research</td><td>book</td><td>Research Library</td><td>ui-view-research</td></tr>
+      <tr><td>neural-node</td><td>neural</td><td>Neural Nodes</td><td>ui-view-neural-node</td></tr>
+      <tr><td>blockchain</td><td>chain</td><td>Blockchain Ledger</td><td>ui-view-blockchain</td></tr>
+      <tr><td>agent-builder</td><td>arrows</td><td>Agent Builder</td><td>ui-view-agent-builder</td></tr>
+      <tr><td>mission-control</td><td>circle</td><td>Mission Control</td><td>ui-view-mission-control</td></tr>
+      <tr><td>vault</td><td>person</td><td>Vault Directory</td><td>ui-view-vault</td></tr>
+      <tr><td>contacts</td><td>people</td><td>Contacts Directory</td><td>ui-view-contacts</td></tr>
+      <tr><td>btn-app-quit</td><td>power</td><td>Shutdown App</td><td>-</td></tr>
+      <tr><td>settings</td><td>gear</td><td>System Settings</td><td>ui-view-settings</td></tr>
+    </table>
+  </section>
+
+  <section id="settings-panels">
+    <h2>Settings panels</h2>
+    <p>Selected by data-panel on #settings-tab-nav: inference, agent, identity, workflows, guardrails, search, system, git, storage, database, runtime, plugins, auth, firewall, channels, logging, architecture, about.</p>
+  </section>
+
+  <section id="chrome">
+    <h2>Persistent chrome</h2>
+    <ul>
+      <li>global-command-bar: Ctrl+P command bar, top centre.</li>
+      <li>workspace-tabs: open tabs, dynamically managed.</li>
+      <li>terminal-panel: bottom dock with TERMINAL 1, Blockchain Node, Python Harness.</li>
+      <li>status-bar: WS status, token balance, active agent, version.</li>
+      <li>Agent Chat: right panel. Green dot means active agent.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-view-neural-node.html" data-target-node-id="ui-view-neural-node" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Neural Nodes</a></li>
+      <li><a href="./ui-view-browser.html" data-target-node-id="ui-view-browser" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Web Browser</a></li>
+      <li><a href="./ui-view-research.html" data-target-node-id="ui-view-research" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Research Library</a></li>
+      <li><a href="./ui-view-blockchain.html" data-target-node-id="ui-view-blockchain" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Blockchain Ledger</a></li>
+      <li><a href="./ui-view-agent-builder.html" data-target-node-id="ui-view-agent-builder" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Agent Builder</a></li>
+      <li><a href="./ui-view-mission-control.html" data-target-node-id="ui-view-mission-control" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Mission Control</a></li>
+      <li><a href="./ui-view-vault.html" data-target-node-id="ui-view-vault" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Vault</a></li>
+      <li><a href="./ui-view-contacts.html" data-target-node-id="ui-view-contacts" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Contacts Directory</a></li>
+      <li><a href="./ui-view-settings.html" data-target-node-id="ui-view-settings" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: System Settings</a></li>
+      <li><a href="./ui-view-editor.html" data-target-node-id="ui-view-editor" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: Editor</a></li>
+      <li><a href="./ui-view-logs.html" data-target-node-id="ui-view-logs" data-relationship-type="contains" data-relationship-weight="0.90" data-navigation-role="child-view" data-authority-required="none">UI View: System Logs</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI Map Index",
+  "description": "Index of every Tala UI view and settings panel, and how each is reached.",
+  "tags": [
+    "ui",
+    "ui-map",
+    "navigation",
+    "index"
+  ],
+  "views": {
+    "view-neural-node": "ui-view-neural-node",
+    "view-browser": "ui-view-browser",
+    "view-research": "ui-view-research",
+    "view-blockchain": "ui-view-blockchain",
+    "view-agent-builder": "ui-view-agent-builder",
+    "view-mission-control": "ui-view-mission-control",
+    "view-vault": "ui-view-vault",
+    "view-contacts": "ui-view-contacts",
+    "view-settings": "ui-view-settings",
+    "view-editor": "ui-view-editor",
+    "view-logs": "ui-view-logs"
+  },
+  "sidebar_rail": [
+    {
+      "target": "btn-toggle-drawer",
+      "icon": "hamburger",
+      "tooltip": "Toggle File Explorer",
+      "node": "-"
+    },
+    {
+      "target": "browser",
+      "icon": "globe",
+      "tooltip": "Web Browser",
+      "node": "ui-view-browser"
+    },
+    {
+      "target": "research",
+      "icon": "book",
+      "tooltip": "Research Library",
+      "node": "ui-view-research"
+    },
+    {
+      "target": "neural-node",
+      "icon": "neural",
+      "tooltip": "Neural Nodes",
+      "node": "ui-view-neural-node"
+    },
+    {
+      "target": "blockchain",
+      "icon": "chain",
+      "tooltip": "Blockchain Ledger",
+      "node": "ui-view-blockchain"
+    },
+    {
+      "target": "agent-builder",
+      "icon": "arrows",
+      "tooltip": "Agent Builder",
+      "node": "ui-view-agent-builder"
+    },
+    {
+      "target": "mission-control",
+      "icon": "circle",
+      "tooltip": "Mission Control",
+      "node": "ui-view-mission-control"
+    },
+    {
+      "target": "vault",
+      "icon": "person",
+      "tooltip": "Vault Directory",
+      "node": "ui-view-vault"
+    },
+    {
+      "target": "contacts",
+      "icon": "people",
+      "tooltip": "Contacts Directory",
+      "node": "ui-view-contacts"
+    },
+    {
+      "target": "btn-app-quit",
+      "icon": "power",
+      "tooltip": "Shutdown App",
+      "node": "-"
+    },
+    {
+      "target": "settings",
+      "icon": "gear",
+      "tooltip": "System Settings",
+      "node": "ui-view-settings"
+    }
+  ],
+  "settings_panels": [
+    "inference",
+    "agent",
+    "identity",
+    "workflows",
+    "guardrails",
+    "search",
+    "system",
+    "git",
+    "storage",
+    "database",
+    "runtime",
+    "plugins",
+    "auth",
+    "firewall",
+    "channels",
+    "logging",
+    "architecture",
+    "about"
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

@@ -1,0 +1,95 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Vault</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-vault"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Vault</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Intended as private document storage the local model can reference and nothing leaves. Reached: Sidebar rail, 8th icon (person).</p>
+    <p>The operator describes this screen as: “Vault section does not work at all. It is meant for storage of editable private documents. Things the local LLM could reference, but nothing gets shared outside.”</p>
+    <p>5 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>vault:read is path-traversal safe, size-capped, and refuses unless network isolation is active.</li>
+      <li>Vault contents are arbitrary files, a deliberate exception to the HTML-NN mandate.</li>
+    </ul>
+  </section>
+
+  <section id="known-defects">
+    <h2>Known defects</h2>
+    <ul>
+      <li>UI-036: the view is a static placeholder with no JavaScript. Drop files here has no drop handler.</li>
+      <li>UI-037: there is no write path, so editable documents is impossible.</li>
+      <li>UI-038: no tool exists, so the local model cannot reference vault documents.</li>
+      <li>UI-039: the Network Isolated badge is hardcoded.</li>
+      <li>UI-102: network isolation is never enabled, so vault:read always throws.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Vault",
+  "description": "Intended as private document storage the local model can reference and nothing leaves.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "vault"
+  ],
+  "view_id": "view-vault",
+  "reached_by": "Sidebar rail, 8th icon (person).",
+  "operator_label": "Vault section does not work at all. It is meant for storage of editable private documents. Things the local LLM could reference, but nothing gets shared outside.",
+  "controls": [],
+  "known_defects": [
+    "UI-036: the view is a static placeholder with no JavaScript. Drop files here has no drop handler.",
+    "UI-037: there is no write path, so editable documents is impossible.",
+    "UI-038: no tool exists, so the local model cannot reference vault documents.",
+    "UI-039: the Network Isolated badge is hardcoded.",
+    "UI-102: network isolation is never enabled, so vault:read always throws."
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

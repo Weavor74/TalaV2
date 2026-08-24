@@ -18,17 +18,17 @@ the map can eventually be authored as HTML-NN nodes and Tala can self-navigate.
 
 | Screen | View id | Mapped | Node authored |
 |---|---|---|---|
-| Landing / Neural Nodes | `view-neural-node` | yes (2026-08-23) | no |
-| Web Browser | `view-browser` | yes (2026-08-23) | no |
-| Research Library | `view-research` | yes (2026-08-23) | no |
-| Blockchain Ledger | `view-blockchain` | yes (2026-08-23) | no |
-| Agent Builder | `view-agent-builder` | yes (2026-08-23) | no |
-| Mission Control | `view-mission-control` | yes (2026-08-23) | no |
-| Vault Directory | `view-vault` | yes (2026-08-23) | no |
-| Contacts Directory | `view-contacts` | yes (2026-08-23) | no |
-| System Settings | `view-settings` | yes (2026-08-23) — all 18 panels | no |
-| Editor | `view-editor` | yes (2026-08-23) | no |
-| Logs | `view-logs` | yes (2026-08-23) | no |
+| Landing / Neural Nodes | `view-neural-node` | yes (2026-08-23) | **ui-view-neural-node** |
+| Web Browser | `view-browser` | yes (2026-08-23) | **ui-view-browser** |
+| Research Library | `view-research` | yes (2026-08-23) | **ui-view-research** |
+| Blockchain Ledger | `view-blockchain` | yes (2026-08-23) | **ui-view-blockchain** |
+| Agent Builder | `view-agent-builder` | yes (2026-08-23) | **ui-view-agent-builder** |
+| Mission Control | `view-mission-control` | yes (2026-08-23) | **ui-view-mission-control** |
+| Vault Directory | `view-vault` | yes (2026-08-23) | **ui-view-vault** |
+| Contacts Directory | `view-contacts` | yes (2026-08-23) | **ui-view-contacts** |
+| System Settings | `view-settings` | yes (2026-08-23) — all 18 panels | **ui-view-settings** |
+| Editor | `view-editor` | yes (2026-08-23) | **ui-view-editor** |
+| Logs | `view-logs` | yes (2026-08-23) | **ui-view-logs** |
 
 `view-editor` and `view-logs` have no sidebar entry, and UI-012 explains why for each: the editor
 is the centre pane (UI-116), and the logs view is vestigial (UI-117). **All 11 views and all 18

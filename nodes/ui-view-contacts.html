@@ -1,0 +1,129 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>UI View: Contacts Directory</title>
+</head>
+<body>
+<article
+  data-node-id="ui-view-contacts"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.70"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="0.95"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.70"
+  data-governance-status="context-only"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity">
+    <h1 id="node-title">UI View: Contacts Directory</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Peer identity and transport: username, wallet address, endpoint, shared secret, and sharing permissions. Reached: Sidebar rail, 9th icon (people).</p>
+    <p>The operator describes this screen as: “When finally online we will be able to add people to this based on their remote wallet ID. This also is part of what allows remote users to access local user skills.”</p>
+    <p>3 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+  </section>
+
+  <section id="controls">
+    <h2>Controls</h2>
+    <table>
+      <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
+      <tr><td>btn-contacts-add</td><td>+ Add Contact</td><td>works</td></tr>
+      <tr><td>contacts-search-input</td><td>Filter the list</td><td>works</td></tr>
+      <tr><td>btn-contacts-save</td><td>Save Permissions</td><td>works</td></tr>
+      <tr><td>btn-contacts-connect</td><td>Connect (p2p handshake)</td><td>works</td></tr>
+      <tr><td>btn-contacts-delete</td><td>Delete Contact</td><td>works</td></tr>
+    </table>
+  </section>
+
+  <section id="behaviour">
+    <h2>Behaviour notes</h2>
+    <ul>
+      <li>Packet signing is real: HMAC-SHA256 over canonical JSON, compared with compare_digest.</li>
+      <li>Being a contact confers no access. Access is granted per resource, by invitation.</li>
+    </ul>
+  </section>
+
+  <section id="known-defects">
+    <h2>Known defects</h2>
+    <ul>
+      <li>UI-040: the skills permission does not gate p2p.marketplace_search.</li>
+      <li>UI-041: an enrolling peer currently chooses its own permissions.</li>
+      <li>UI-043: contacts have no blockchain integration yet.</li>
+    </ul>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./ui-map-index.html" data-target-node-id="ui-map-index" data-relationship-type="part-of" data-relationship-weight="0.90" data-navigation-role="primary-context" data-authority-required="none">UI Map Index</a></li>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="0.90" data-navigation-role="schema-contract" data-authority-required="none">HTML-NN v2 Schema</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "UI View: Contacts Directory",
+  "description": "Peer identity and transport: username, wallet address, endpoint, shared secret, and sharing permissions.",
+  "tags": [
+    "ui",
+    "ui-view",
+    "navigation",
+    "contacts"
+  ],
+  "view_id": "view-contacts",
+  "reached_by": "Sidebar rail, 9th icon (people).",
+  "operator_label": "When finally online we will be able to add people to this based on their remote wallet ID. This also is part of what allows remote users to access local user skills.",
+  "controls": [
+    {
+      "id": "btn-contacts-add",
+      "does": "+ Add Contact",
+      "verdict": "works"
+    },
+    {
+      "id": "contacts-search-input",
+      "does": "Filter the list",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-contacts-save",
+      "does": "Save Permissions",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-contacts-connect",
+      "does": "Connect (p2p handshake)",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-contacts-delete",
+      "does": "Delete Contact",
+      "verdict": "works"
+    }
+  ],
+  "known_defects": [
+    "UI-040: the skills permission does not gate p2p.marketplace_search.",
+    "UI-041: an enrolling peer currently chooses its own permissions.",
+    "UI-043: contacts have no blockchain integration yet."
+  ],
+  "metadata": {
+    "author": "ui-audit",
+    "created_or_updated": "2026-08-24T00:13:12Z",
+    "schema": "neural-node/v2",
+    "source": "docs/ui-audit-findings.md"
+  }
+}
+  </script>
+</article>
+</body>
+</html>
