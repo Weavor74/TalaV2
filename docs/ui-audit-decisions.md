@@ -98,8 +98,9 @@ also becomes real work rather than dead code to delete.
 **All six answered 2026-08-23**, plus follow-ups Q-58 and Q-59. Read together they define a single
 access-control model that does not exist yet — see **The access model** below.
 
-**P1 is complete.** One follow-up remains open — **Q-63** (which principal the gate resolves
-against). **Deferred:** Q-60 (classification taxonomy), at Steven's request.
+**P1 is complete**, including all follow-ups. Q-63 closed the model: agents are principals with
+assigned privileges, just as peers are (UI-118). **Deferred:** Q-60 (classification taxonomy), at
+Steven's request.
 
 ### ~~Q-22~~ — Should an enrolling peer's `requested_permissions` await approval? **ANSWERED**
 **Blocks:** UI-041 · **Status:** closed 2026-08-23
