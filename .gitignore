@@ -70,3 +70,10 @@ data/chroma.corrupted-backup-*/
 # Tracked until 2026-08-23, which made six files show as modified after any
 # pip install and put build output into every diff.
 *.egg-info/
+
+# Generated training corpus. The stories are produced by the corpus generator,
+# not authored, so new batches should not land in diffs. 242 files were already
+# tracked when this rule was added on 2026-08-23 and stay tracked -- .gitignore
+# only affects untracked paths. Run `git rm -r --cached data/training_corpus/`
+# if those should be dropped from version control too.
+data/training_corpus/
