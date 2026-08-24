@@ -1286,6 +1286,24 @@ async def handle_inference_generate(
                     active_system_prompt = f"{time_metadata}\n{active_system_prompt}"
                 else:
                     active_system_prompt = time_metadata
+
+                # Who she is talking to (UI-057). The user's name only -- the
+                # rest of the profile is fetched on demand via
+                # user_profile_lookup, so the per-section Privacy & Visibility
+                # settings have a chokepoint to govern, and so a large profile
+                # does not crowd the context on every single turn. Date of
+                # birth is deliberately absent: it feeds astrology, which reads
+                # it straight from the database, and is not persona colour.
+                try:
+                    from python.harness.user_profile import system_prompt_line
+                    user_line = await system_prompt_line()
+                    if user_line:
+                        active_system_prompt = f"{active_system_prompt}\n{user_line}"
+                except Exception as exc:
+                    # Never let profile trouble cost the user their whole turn.
+                    logger.warning(
+                        "Could not add the user line to the system prompt: %s", exc
+                    )
             
                 background_file = cfg.get("background_file", "")
                 if background_file:

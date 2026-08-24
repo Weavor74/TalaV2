@@ -440,6 +440,47 @@ def _get_workspace_root() -> Path:
 # ---------------------------------------------------------------------------
 
 @register_tool(
+    name="user_profile_lookup",
+    description=(
+        "Look up one section of the user's own profile: identity, about, roles, "
+        "skills, projects, connections, preferences, or rp_persona. Use this "
+        "instead of asking the user to repeat things they have already recorded. "
+        "Each section is subject to the visibility the user set; personally "
+        "identifying material is never returned."
+    ),
+)
+async def user_profile_lookup(section: str) -> dict:
+    """
+    NAME
+           user_profile_lookup - read one section of the user's profile
+
+    SYNOPSIS
+           user_profile_lookup(section: str) -> dict
+
+    DESCRIPTION
+           Only the user's name is injected into the system prompt; everything
+           else about them is fetched on demand through this tool, so that the
+           per-section Privacy & Visibility settings have somewhere to be
+           enforced.
+
+           Returns {"section", "allowed", "data", "reason"}. A section the user
+           has not shared returns allowed=False with the reason, which is
+           deliberately distinct from an empty section: "they have recorded no
+           skills" and "you may not read their skills" are different facts and
+           must not look alike.
+
+           pii_vault is never readable. The astrology subsystem reads the date
+           of birth directly from the database and does not go through here.
+
+    PARAMETERS
+           section - one of: identity, about, roles, skills, projects,
+                     connections, preferences, rp_persona
+    """
+    from python.harness.user_profile import lookup
+    return await lookup(section)
+
+
+@register_tool(
     name="web_search",
     description="Query prioritized web search APIs or direct web search crawler. Returns titles, urls, and snippets.",
 )
