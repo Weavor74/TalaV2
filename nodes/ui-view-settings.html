@@ -39,9 +39,10 @@
     <table>
       <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
       <tr><td>settings-tab-nav</td><td>Panel switcher, 18 entries</td><td>works</td></tr>
-      <tr><td>btn-settings-env</td><td>USB / LOCAL / REMOTE presets</td><td>dead</td></tr>
-      <tr><td>btn-settings-scope</td><td>GLOBAL / WORKSPACE</td><td>dead</td></tr>
-      <tr><td>btn-settings-export / -import / -apply</td><td>EXPORT / IMPORT / APPLY CHANGES</td><td>dead</td></tr>
+      <tr><td>settings-tab-nav</td><td>Panel switcher, 18 entries</td><td>works</td></tr>
+      <tr><td>btn-settings-export</td><td>EXPORT</td><td>dead</td></tr>
+      <tr><td>btn-settings-import</td><td>IMPORT</td><td>dead</td></tr>
+      <tr><td>btn-settings-apply</td><td>APPLY CHANGES</td><td>dead</td></tr>
     </table>
   </section>
 
@@ -90,18 +91,23 @@
       "verdict": "works"
     },
     {
-      "id": "btn-settings-env",
-      "does": "USB / LOCAL / REMOTE presets",
+      "id": "settings-tab-nav",
+      "does": "Panel switcher, 18 entries",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-settings-export",
+      "does": "EXPORT",
       "verdict": "dead"
     },
     {
-      "id": "btn-settings-scope",
-      "does": "GLOBAL / WORKSPACE",
+      "id": "btn-settings-import",
+      "does": "IMPORT",
       "verdict": "dead"
     },
     {
-      "id": "btn-settings-export / -import / -apply",
-      "does": "EXPORT / IMPORT / APPLY CHANGES",
+      "id": "btn-settings-apply",
+      "does": "APPLY CHANGES",
       "verdict": "dead"
     }
   ],
@@ -112,7 +118,7 @@
   ],
   "metadata": {
     "author": "ui-audit",
-    "created_or_updated": "2026-08-24T00:13:12Z",
+    "created_or_updated": "2026-08-24T00:25:58Z",
     "schema": "neural-node/v2",
     "source": "docs/ui-audit-findings.md"
   }

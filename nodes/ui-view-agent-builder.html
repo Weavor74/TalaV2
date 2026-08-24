@@ -38,9 +38,21 @@
     <h2>Controls</h2>
     <table>
       <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
-      <tr><td>builder-tab-workers / -topologies / -taskboard / -runs</td><td>Sub-tab switching</td><td>works</td></tr>
-      <tr><td>btn-topology-new / -edit / -delete / -start</td><td>Topology CRUD and Run Swarm</td><td>works</td></tr>
-      <tr><td>kanban-pending .. kanban-done</td><td>Seven-column task board</td><td>works</td></tr>
+      <tr><td>builder-tab-workers</td><td>Workers sub-tab</td><td>works</td></tr>
+      <tr><td>builder-tab-topologies</td><td>Topologies sub-tab</td><td>works</td></tr>
+      <tr><td>builder-tab-taskboard</td><td>Task Board sub-tab</td><td>works</td></tr>
+      <tr><td>builder-tab-runs</td><td>Runs sub-tab</td><td>works</td></tr>
+      <tr><td>btn-topology-new</td><td>New topology</td><td>works</td></tr>
+      <tr><td>btn-topology-edit</td><td>Edit topology</td><td>works</td></tr>
+      <tr><td>btn-topology-delete</td><td>Delete topology</td><td>works</td></tr>
+      <tr><td>btn-topology-start</td><td>Run Swarm</td><td>works</td></tr>
+      <tr><td>kanban-pending</td><td>Inbox column</td><td>works</td></tr>
+      <tr><td>kanban-planned</td><td>Planned column</td><td>works</td></tr>
+      <tr><td>kanban-ready</td><td>Ready column</td><td>works</td></tr>
+      <tr><td>kanban-running</td><td>Running column</td><td>works</td></tr>
+      <tr><td>kanban-review</td><td>Review column</td><td>works</td></tr>
+      <tr><td>kanban-blocked</td><td>Blocked column</td><td>works</td></tr>
+      <tr><td>kanban-done</td><td>Done column</td><td>works</td></tr>
     </table>
   </section>
 
@@ -84,18 +96,78 @@
   "operator_label": "Agent builder.",
   "controls": [
     {
-      "id": "builder-tab-workers / -topologies / -taskboard / -runs",
-      "does": "Sub-tab switching",
+      "id": "builder-tab-workers",
+      "does": "Workers sub-tab",
       "verdict": "works"
     },
     {
-      "id": "btn-topology-new / -edit / -delete / -start",
-      "does": "Topology CRUD and Run Swarm",
+      "id": "builder-tab-topologies",
+      "does": "Topologies sub-tab",
       "verdict": "works"
     },
     {
-      "id": "kanban-pending .. kanban-done",
-      "does": "Seven-column task board",
+      "id": "builder-tab-taskboard",
+      "does": "Task Board sub-tab",
+      "verdict": "works"
+    },
+    {
+      "id": "builder-tab-runs",
+      "does": "Runs sub-tab",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-topology-new",
+      "does": "New topology",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-topology-edit",
+      "does": "Edit topology",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-topology-delete",
+      "does": "Delete topology",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-topology-start",
+      "does": "Run Swarm",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-pending",
+      "does": "Inbox column",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-planned",
+      "does": "Planned column",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-ready",
+      "does": "Ready column",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-running",
+      "does": "Running column",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-review",
+      "does": "Review column",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-blocked",
+      "does": "Blocked column",
+      "verdict": "works"
+    },
+    {
+      "id": "kanban-done",
+      "does": "Done column",
       "verdict": "works"
     }
   ],
@@ -106,7 +178,7 @@
   ],
   "metadata": {
     "author": "ui-audit",
-    "created_or_updated": "2026-08-24T00:13:12Z",
+    "created_or_updated": "2026-08-24T00:25:58Z",
     "schema": "neural-node/v2",
     "source": "docs/ui-audit-findings.md"
   }

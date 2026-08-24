@@ -37,7 +37,8 @@
     <h2>Controls</h2>
     <table>
       <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
-      <tr><td>btn-view-grid / btn-view-graph</td><td>Grid / Graph toggle</td><td>works</td></tr>
+      <tr><td>btn-view-grid</td><td>Switch the node list to Grid</td><td>works</td></tr>
+      <tr><td>btn-view-graph</td><td>Switch the node list to Graph</td><td>works</td></tr>
       <tr><td>node-search-input</td><td>Search nodes</td><td>works</td></tr>
       <tr><td>btn-refresh-nodes</td><td>Refresh</td><td>works</td></tr>
       <tr><td>btn-new-node</td><td>+ New Node</td><td>works</td></tr>
@@ -76,8 +77,13 @@
   "operator_label": "This is the landing page when it first starts up.",
   "controls": [
     {
-      "id": "btn-view-grid / btn-view-graph",
-      "does": "Grid / Graph toggle",
+      "id": "btn-view-grid",
+      "does": "Switch the node list to Grid",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-view-graph",
+      "does": "Switch the node list to Graph",
       "verdict": "works"
     },
     {
@@ -99,7 +105,7 @@
   "known_defects": [],
   "metadata": {
     "author": "ui-audit",
-    "created_or_updated": "2026-08-24T00:13:12Z",
+    "created_or_updated": "2026-08-24T00:25:58Z",
     "schema": "neural-node/v2",
     "source": "docs/ui-audit-findings.md"
   }

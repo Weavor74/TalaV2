@@ -38,7 +38,9 @@
     <h2>Controls</h2>
     <table>
       <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
-      <tr><td>btn-browser-back / -forward / -refresh</td><td>Navigation</td><td>works</td></tr>
+      <tr><td>btn-browser-back</td><td>Back</td><td>works</td></tr>
+      <tr><td>btn-browser-forward</td><td>Forward</td><td>works</td></tr>
+      <tr><td>btn-browser-refresh</td><td>Reload</td><td>works</td></tr>
       <tr><td>browser-url-input</td><td>Address bar; Enter navigates</td><td>works</td></tr>
       <tr><td>browser-iframe</td><td>The page itself. Named iframe but is a &lt;webview&gt;</td><td>works</td></tr>
     </table>
@@ -85,8 +87,18 @@
   "operator_label": "Tala is supposed to have full control of this web browser.",
   "controls": [
     {
-      "id": "btn-browser-back / -forward / -refresh",
-      "does": "Navigation",
+      "id": "btn-browser-back",
+      "does": "Back",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-browser-forward",
+      "does": "Forward",
+      "verdict": "works"
+    },
+    {
+      "id": "btn-browser-refresh",
+      "does": "Reload",
       "verdict": "works"
     },
     {
@@ -108,7 +120,7 @@
   ],
   "metadata": {
     "author": "ui-audit",
-    "created_or_updated": "2026-08-24T00:13:12Z",
+    "created_or_updated": "2026-08-24T00:25:58Z",
     "schema": "neural-node/v2",
     "source": "docs/ui-audit-findings.md"
   }

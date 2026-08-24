@@ -40,7 +40,8 @@
       <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
       <tr><td>research-subject</td><td>Enter Query</td><td>works</td></tr>
       <tr><td>research-search-engine</td><td>Search Engine picker, populated from configured providers</td><td>works</td></tr>
-      <tr><td>toggle-source-all / .source-toggle</td><td>All / Web / Chat Sessions / Neural Nodes / Tasks</td><td>works</td></tr>
+      <tr><td>toggle-source-all</td><td>Search all sources</td><td>works</td></tr>
+      <tr><td>research-sources-list</td><td>Result list; click a row to load its context</td><td>works</td></tr>
       <tr><td>btn-research-search</td><td>Search</td><td>works</td></tr>
       <tr><td>btn-research-save-node</td><td>Save / Distill selected into a node</td><td>works</td></tr>
     </table>
@@ -96,8 +97,13 @@
       "verdict": "works"
     },
     {
-      "id": "toggle-source-all / .source-toggle",
-      "does": "All / Web / Chat Sessions / Neural Nodes / Tasks",
+      "id": "toggle-source-all",
+      "does": "Search all sources",
+      "verdict": "works"
+    },
+    {
+      "id": "research-sources-list",
+      "does": "Result list; click a row to load its context",
       "verdict": "works"
     },
     {
@@ -118,7 +124,7 @@
   ],
   "metadata": {
     "author": "ui-audit",
-    "created_or_updated": "2026-08-24T00:13:12Z",
+    "created_or_updated": "2026-08-24T00:25:58Z",
     "schema": "neural-node/v2",
     "source": "docs/ui-audit-findings.md"
   }

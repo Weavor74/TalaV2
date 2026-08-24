@@ -115,7 +115,8 @@ VIEWS["neural-node"] = dict(
     reach="Sidebar rail, 4th icon (neural). Default view on startup.",
     purpose="Browse every HTML Neural Node as cards or as a graph.",
     controls=[
-        ("btn-view-grid / btn-view-graph", "Grid / Graph toggle", "works"),
+        ("btn-view-grid", "Switch the node list to Grid", "works"),
+        ("btn-view-graph", "Switch the node list to Graph", "works"),
         ("node-search-input", "Search nodes", "works"),
         ("btn-refresh-nodes", "Refresh", "works"),
         ("btn-new-node", "+ New Node", "works"),
@@ -134,7 +135,9 @@ VIEWS["browser"] = dict(
     reach="Sidebar rail, 2nd icon (globe).",
     purpose="An embedded Electron webview with back / forward / reload and an address bar.",
     controls=[
-        ("btn-browser-back / -forward / -refresh", "Navigation", "works"),
+        ("btn-browser-back", "Back", "works"),
+        ("btn-browser-forward", "Forward", "works"),
+        ("btn-browser-refresh", "Reload", "works"),
         ("browser-url-input", "Address bar; Enter navigates", "works"),
         ("browser-iframe", "The page itself. Named iframe but is a <webview>", "works"),
     ],
@@ -158,7 +161,8 @@ VIEWS["research"] = dict(
     controls=[
         ("research-subject", "Enter Query", "works"),
         ("research-search-engine", "Search Engine picker, populated from configured providers", "works"),
-        ("toggle-source-all / .source-toggle", "All / Web / Chat Sessions / Neural Nodes / Tasks", "works"),
+        ("toggle-source-all", "Search all sources", "works"),
+        ("research-sources-list", "Result list; click a row to load its context", "works"),
         ("btn-research-search", "Search", "works"),
         ("btn-research-save-node", "Save / Distill selected into a node", "works"),
     ],
@@ -200,9 +204,21 @@ VIEWS["agent-builder"] = dict(
     reach="Sidebar rail, 6th icon (arrows). Four sub-tabs via data-builder-tab.",
     purpose="Manage worker personas, author swarm topologies, watch the task board, and monitor swarm runs.",
     controls=[
-        ("builder-tab-workers / -topologies / -taskboard / -runs", "Sub-tab switching", "works"),
-        ("btn-topology-new / -edit / -delete / -start", "Topology CRUD and Run Swarm", "works"),
-        ("kanban-pending .. kanban-done", "Seven-column task board", "works"),
+        ("builder-tab-workers", "Workers sub-tab", "works"),
+        ("builder-tab-topologies", "Topologies sub-tab", "works"),
+        ("builder-tab-taskboard", "Task Board sub-tab", "works"),
+        ("builder-tab-runs", "Runs sub-tab", "works"),
+        ("btn-topology-new", "New topology", "works"),
+        ("btn-topology-edit", "Edit topology", "works"),
+        ("btn-topology-delete", "Delete topology", "works"),
+        ("btn-topology-start", "Run Swarm", "works"),
+        ("kanban-pending", "Inbox column", "works"),
+        ("kanban-planned", "Planned column", "works"),
+        ("kanban-ready", "Ready column", "works"),
+        ("kanban-running", "Running column", "works"),
+        ("kanban-review", "Review column", "works"),
+        ("kanban-blocked", "Blocked column", "works"),
+        ("kanban-done", "Done column", "works"),
     ],
     reads=[
         "Topologies are authored as HTML-NN nodes and labelled neural node in the UI.",
@@ -223,8 +239,11 @@ VIEWS["mission-control"] = dict(
     controls=[
         ("btn-mc-refresh", "Refresh everything", "works"),
         ("btn-mc-halt", "HALT LOOP", "works"),
-        ("btn-mc-task-new / -task-clear", "New Task / Clear Queue", "works"),
-        ("btn-mc-scan / -lint / -revert", "Scan Repo / Run Linter / Revert", "works"),
+        ("btn-mc-task-new", "New Task", "works"),
+        ("btn-mc-task-clear", "Clear Queue", "works"),
+        ("btn-mc-scan", "Scan Repo", "works"),
+        ("btn-mc-lint", "Run Linter", "works"),
+        ("btn-mc-revert", "Revert", "works"),
     ],
     reads=[
         "Editing an in_progress or running task is refused unless forced, because the goal loop writes its own status back.",
@@ -285,9 +304,10 @@ VIEWS["settings"] = dict(
     purpose="All configuration. Eighteen panels under one nav.",
     controls=[
         ("settings-tab-nav", "Panel switcher, 18 entries", "works"),
-        ("btn-settings-env", "USB / LOCAL / REMOTE presets", "dead"),
-        ("btn-settings-scope", "GLOBAL / WORKSPACE", "dead"),
-        ("btn-settings-export / -import / -apply", "EXPORT / IMPORT / APPLY CHANGES", "dead"),
+        ("settings-tab-nav", "Panel switcher, 18 entries", "works"),
+        ("btn-settings-export", "EXPORT", "dead"),
+        ("btn-settings-import", "IMPORT", "dead"),
+        ("btn-settings-apply", "APPLY CHANGES", "dead"),
     ],
     reads=[
         "Panels: inference, agent, identity, workflows, guardrails, search, system, git, storage, database, runtime, plugins, auth, firewall, channels, logging, architecture, about.",
@@ -308,7 +328,8 @@ VIEWS["editor"] = dict(
     controls=[
         ("editor-textarea", "The editor", "partial"),
         ("editor-preview-pane", "Rendered preview", "partial"),
-        ("btn-editor-edit-mode / -preview-mode", "EDIT / PREVIEW, in the tab strip", "works"),
+        ("btn-editor-edit-mode", "EDIT mode, in the tab strip", "works"),
+        ("btn-editor-preview-mode", "PREVIEW mode, in the tab strip", "works"),
         ("btn-save-file", "SAVE, in the tab strip", "works"),
     ],
     reads=[
