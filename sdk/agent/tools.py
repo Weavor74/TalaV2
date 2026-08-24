@@ -4525,6 +4525,7 @@ async def starcitizen_lookup(
 # Registers the Playwright-backed web browsing tools on import (kept in a
 # separate module so the optional playwright dependency stays isolated).
 from sdk.agent import web_browser  # noqa: E402,F401
+from sdk.agent import ui_control  # noqa: E402,F401
 
 # Registers the agent/swarm authoring tools. Imported last and from its own
 # module because it imports register_tool from here -- doing it at the bottom

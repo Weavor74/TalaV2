@@ -41,6 +41,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSafe('TerminalConsole', () => TerminalConsole.init());
   initSafe('MissionControl', () => MissionControl.init());
   initSafe('AgentBuilder', () => AgentBuilder.init());
+  initSafe('UIControl', () => UIControl.init());
   initSafe('TelemetryPoller', () => TelemetryPoller.start());
 });
 
@@ -169,6 +170,70 @@ const Navigation = {
   _titleCase(str) {
     return str.replace(/-/g, ' ').replace(/\b\w/g, c => c.toUpperCase());
   },
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   UIControl — lets the agent operate this window (UI-007)
+
+   Receives ui.navigate and ui.click over the same python:notification
+   channel that browser.navigate already uses. Deliberately not a Chrome
+   DevTools port: CDP has no authentication, so it would let any local
+   process drive the app and would sidestep per-agent privileges entirely.
+
+   ui.click only ever presses an element the ui-view-* node map documents;
+   the allowlist is enforced on the Python side before the notification is
+   sent, and re-checked here so a stray broadcast cannot click arbitrary
+   DOM. Both handlers log what they did, because a UI that moves on its own
+   with no trace is worse than one that does not move.
+   ═══════════════════════════════════════════════════════════════════ */
+const UIControl = {
+  init() {
+    try {
+      window.tala.on('python:notification', (msg) => {
+        if (!msg || !msg.params) return;
+        if (msg.method === 'ui.navigate') this.navigate(msg.params);
+        else if (msg.method === 'ui.click') this.click(msg.params);
+      });
+    } catch (err) {
+      console.warn('[UIControl] Failed to register notification listener:', err);
+    }
+  },
+
+  navigate({ view, title }) {
+    if (!view) return;
+    const section = document.getElementById(`view-${view}`);
+    if (!section) {
+      IPCLog.append('error', `Agent asked for unknown view "${view}".`);
+      return;
+    }
+    try {
+      TabManager.openTab(view, title || view, 'view');
+      IPCLog.append('info', `Agent opened view: ${title || view}`);
+    } catch (err) {
+      IPCLog.append('error', `Agent could not open "${view}": ${err.message || err}`);
+    }
+  },
+
+  click({ element_id: elementId }) {
+    if (!elementId) return;
+    const el = document.getElementById(elementId);
+    if (!el) {
+      // The Python side allowlists against the node map, so reaching here means
+      // the map and the DOM have drifted -- exactly what test_ui_map_drift guards.
+      IPCLog.append('error', `Agent tried to click "${elementId}", which is not in the DOM.`);
+      return;
+    }
+    if (el.disabled) {
+      IPCLog.append('info', `Agent tried to click "${elementId}", which is disabled.`);
+      return;
+    }
+    try {
+      el.click();
+      IPCLog.append('info', `Agent clicked: ${elementId}`);
+    } catch (err) {
+      IPCLog.append('error', `Agent could not click "${elementId}": ${err.message || err}`);
+    }
+  }
 };
 
 const TabManager = {
