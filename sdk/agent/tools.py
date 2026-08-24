@@ -1773,6 +1773,71 @@ async def propose_file_write_tool(
         return {"success": False, "errors": [str(exc)]}
 
 
+async def _self_edit_gate(file_writes: Any) -> tuple[list[str], list[str]]:
+    """
+    Returns (errors, approved_task_ids) for a set of file writes.
+
+    Enforced here rather than inside ``write_files`` because approval lives in
+    the tasks table and that lookup is async, while ``write_files`` is sync.
+    Every agent path reaches these writes through an async tool, so this is the
+    boundary that matters.
+    """
+    from sdk.agent import self_edit_approval as sea
+    from sdk.agent.safe_code_bridges import _normalize_file_writes
+
+    errors: list[str] = []
+    approvals: list[str] = []
+    for w in _normalize_file_writes(file_writes):
+        if not sea.is_self_source(w.file_path):
+            continue
+        task_id = await sea.approved_task_for(w.file_path, w.content)
+        if task_id is None:
+            errors.append(
+                f"{w.file_path}: part of Tala's own source and not approved. "
+                f"Use code.propose_self_edit to queue it; it appears in Mission "
+                f"Control for approval."
+            )
+        else:
+            approvals.append(task_id)
+    return errors, approvals
+
+
+@register_tool(
+    name="code.propose_self_edit",
+    description=(
+        "Queue a change to Tala's own source (renderer/, sdk/, python/, electron/, "
+        "scripts/) for the operator to approve. Required for those paths: a direct "
+        "write is refused. Her Neural Nodes, docs and scratch work do not need this. "
+        "Give the full intended file content and a short reason."
+    ),
+)
+async def propose_self_edit_tool(
+    file_path: str,
+    content: str,
+    reason: str,
+    agent_id: str = "",
+) -> dict[str, Any]:
+    """
+    NAME
+           code.propose_self_edit - ask to change Tala's own source
+
+    SYNOPSIS
+           code.propose_self_edit(file_path, content, reason, agent_id="")
+    """
+    from sdk.agent import self_edit_approval as sea
+
+    if not sea.is_self_source(file_path):
+        return {
+            "success": False,
+            "error": "not_self_source",
+            "detail": (
+                f"{file_path!r} is not part of Tala's own source, so it needs no "
+                "approval. Write it directly with code.write_files."
+            ),
+        }
+    return await sea.propose(file_path, content, reason, agent_id)
+
+
 @register_tool(
     name="code.write_and_verify",
     description=(
@@ -1819,10 +1884,20 @@ async def write_and_verify_tool(
                     "errors": [f"{w.file_path}: {exc}"], "reverted": []}
         prior.append((path, w.file_path, path.read_bytes() if path.exists() else None))
 
+    gate_errors, gate_approvals = await _self_edit_gate(file_writes)
+    if gate_errors:
+        return {"success": False, "stage": "approval", "errors": gate_errors, "reverted": [],
+                "detail": "nothing was written; these paths need approval first"}
+
     written = write_files(file_writes, expected_files=expected_files)
     if not written.get("success"):
         return {"success": False, "stage": "write", "errors": written.get("errors", []),
                 "reverted": [], "detail": "nothing was written, so nothing needed reverting"}
+
+    if gate_approvals:
+        from sdk.agent import self_edit_approval as _sea
+        for _tid in gate_approvals:
+            await _sea.consume(_tid)
 
     if not commands:
         return {"success": True, "stage": "write", "changed": written["changed"],

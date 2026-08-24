@@ -9583,12 +9583,19 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
     ``task.control`` — Pause, resume, or abort task loops.
     """
     task_id = params.get("task_id", "").strip()
-    action = params.get("action", "").strip() # pause, resume, abort
+    action = params.get("action", "").strip() # pause, resume, abort, approve, reject
     if not task_id or not action:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'task_id' and 'action' are required")
         
     try:
         from sdk.agent.gates import trigger_emergency_halt
+        if action in ("approve", "reject"):
+            # Self-edit proposals sit in the task queue as status 'review' so
+            # Mission Control shows them without a separate approval surface.
+            from sdk.agent.self_edit_approval import decide
+            outcome = await decide(task_id, approve=(action == "approve"))
+            return _ok(req_id, outcome) if outcome.get("success") else _err(
+                req_id, JsonRpcError.INVALID_PARAMS, outcome.get("detail", "decision failed"))
         if action == "abort":
             await trigger_emergency_halt()
             await db.execute("UPDATE tasks SET status = 'failed' WHERE id = $1 OR parent_id = $1", task_id)

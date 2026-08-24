@@ -10263,7 +10263,9 @@ const MissionControl = {
         // it dispatched. That is what makes swarm control reachable at all:
         // swarm.pause/resume/cancel are thin wrappers over this same handler,
         // and nothing had ever called any of them.
-        else if (['abort', 'pause', 'resume'].includes(action)) this.controlTask(id, action);
+        // approve / reject decide a self-edit proposal, which sits in this
+        // same queue as status 'review' rather than in a separate surface.
+        else if (['abort', 'pause', 'resume', 'approve', 'reject'].includes(action)) this.controlTask(id, action);
       });
     }
   },
@@ -10739,6 +10741,9 @@ const MissionControl = {
           if (t.status === 'failed') statusColor = '#ff5555';
           if (t.status === 'complete') statusColor = '#8be9fd';
           if (t.status === 'blocked') statusColor = '#ff79c6';
+          // Awaiting the operator. Distinct from pending amber, which means
+          // "queued to run" rather than "waiting on you".
+          if (t.status === 'review') statusColor = '#ffb86c';
           // Distinct from 'blocked': a human stopped this and it will NOT be
           // auto-resumed at startup. Without its own colour it falls through to
           // the pending amber and reads as "waiting to run", which is the
@@ -10778,7 +10783,10 @@ const MissionControl = {
                   <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; text-transform: uppercase;">
                     ${t.status}
                   </span>
-                  ${MissionControl.TASK_LIVE_STATUSES.includes(t.status)
+                  ${t.status === 'review'
+                    ? `<button class="btn btn-primary" data-task-action="approve" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 9px;">Approve</button>
+                       <button class="btn btn-ghost" data-task-action="reject" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;">Reject</button>`
+                    : MissionControl.TASK_LIVE_STATUSES.includes(t.status)
                     ? `<button class="btn btn-ghost" data-task-action="pause" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Pause</button>
                        <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Abort</button>`
                     : t.status === 'paused'
