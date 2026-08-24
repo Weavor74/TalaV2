@@ -3155,6 +3155,44 @@ but as written it is a placeholder whose own text tells the reader to look elsew
 **UI-012 is now fully closed.** Both views that lacked a sidebar entry are explained: `view-editor`
 by design, `view-logs` by neglect.
 
+### UI-118 — Agents are principals with assigned privileges, and the schema has none
+**Severity: high (design) · Status: specified, not built · Source: Q-63**
+
+> **Steven:** *"Ah so in short administrative privileges. For local actions by agent model. An
+> agent, should be assigned just like a peer."*
+
+This completes the access model in UI-101 and removes the special case I had assumed was needed.
+
+**There is no "locally-initiated" exception.** The *agent* is always the actor, whoever asked. So
+`AuthorizationGate` resolves against the acting agent's privileges in every case; when a peer
+triggered the work, the peer's grant is consulted *as well*.
+
+| Principal | Privileges | Assigned by |
+|---|---|---|
+| **Owner** | administrative — implicit, unrestricted | — |
+| **Agent** | assigned, same structure as a peer's | the owner |
+| **Peer** (contact) | assigned per resource, by invitation (Q-22) | the owner |
+
+The owner's administrative standing is **the right to assign**, not a bypass — an action you
+request still runs under the acting agent's privileges.
+
+**Schema gap.** `agents` holds `id, name, type, role, crew_type, is_active, config`
+([db.py:191](../python/harness/db.py#L191)) — **no privileges dimension**. Contacts at least have
+`permissions` (nine booleans, itself insufficient per Q-22). Agents have nothing, so an agent
+currently cannot be restricted at all.
+
+**Both principal tables need the same grant structure**, which argues for one shared grants table
+keyed by principal rather than bolting a second bespoke column onto `agents`:
+
+> `(principal_type, principal_id) -> resource -> constraints`
+
+with `principal_type in (agent, contact)`. That collapses cleanly to the *(contact, agent)* pair
+from Q-36 when both are present, and to a single row when only the agent is.
+
+**Relevant existing shape:** `AuthorizationGate.request_authorization(action_type, resource,
+risk_class)` is already resource-scoped and already carries a risk tier — it needs a principal
+argument, not a redesign.
+
 ---
 
 ## B. Self-navigation infrastructure gaps

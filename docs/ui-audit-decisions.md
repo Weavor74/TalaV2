@@ -297,36 +297,33 @@ to `.md` and `.html` — that is a substantial build, not an adjustment:
 
 Images in particular need a different editing surface entirely, not an extension of the current one.
 
-### Q-63 — Which principal does `AuthorizationGate` resolve against? **RESTATED**
-**Blocks:** UI-081, UI-103 · **Who:** Steven · **Cost:** low
+### ~~Q-63~~ — Which principal does `AuthorizationGate` resolve against? **ANSWERED**
+**Blocks:** UI-081, UI-103 · **Status:** closed 2026-08-23 · **Detail:** UI-118
 
-Restating it, since the original was terse.
+> **Steven:** *"Ah so in short administrative privileges. For local actions by agent model. An
+> agent, should be assigned just like a peer."*
 
-`AuthorizationGate` decides whether **Tala may perform an action** — write a file, run a shell
-command, call a tool. You answered (Q-61) that it should check contacts and firewall/guardrail
-settings.
+**Agents are principals too, assigned privileges the same way peers are.** That is the missing
+piece — the gate does not need a special case for locally-initiated work, because the *agent* is
+always the actor regardless of who asked.
 
-The wrinkle: **contacts and firewall describe what a *peer* may read from you.** They answer "may
-Alice see this node?" They do not answer "may Tala run this command?" — different subject entirely.
+Three principals, one mechanism:
 
-So the gate needs to know **who caused the action**:
-
-| Who started it | What should authorize it |
+| Principal | Privileges |
 |---|---|
-| **You**, locally — you typed a request in chat | ? contacts do not apply; there is no contact to check |
-| **A peer**, remotely — Alice's request triggered work on your machine | that peer's grant, plus firewall clearance |
+| **Owner** (you) | administrative — implicit, unrestricted |
+| **Agent** | assigned, exactly as a peer's are |
+| **Peer** (contact) | assigned per resource, by invitation (Q-22) |
 
-The question is what happens in the first row. Two plausible answers:
+Resolution:
 
-- **Owner is implicitly trusted** — anything you initiate is authorized; contacts and firewall are
-  consulted only for peer-originated work. Guardrails still apply to content.
-- **Even you are checked** — the gate applies risk tiers to your own requests too, so a `critical`
-  action needs explicit approval regardless of who asked.
+- **You ask Tala to do something** → the acting agent's privileges govern it. Your administrative
+  standing does not bypass them; it is what lets you *assign* them.
+- **A peer's request triggers work** → the **(contact, agent) pair** from Q-36, both halves
+  consulted. Neither can exceed its own grant.
 
-Relevant: the gate already has a risk model (`low` auto-allows, `high`/`critical` demand proof) and
-a `register_pre_approval()` path, so the second option is not much more work than the first.
-
-> **Answer:**
+**Schema consequence:** `agents` currently holds `id, name, type, role, crew_type, is_active,
+config` — **no privileges dimension at all**. It needs the same grant structure as contacts.
 
 ---
 
@@ -341,6 +338,11 @@ front-end onto topologies (Q-28), and Ghost/Real are *not* one chain with tagged
 Q-35 (absorb), Q-36 (pair) and Q-37 (both) combine with Q-22 (per-resource) into one shape:
 
 > **(contact, agent) -> resource -> constraints**
+
+**Completed by Q-63.** Both halves of the subject are *principals with assigned privileges* —
+agents are assigned just like peers. The owner sits above both with administrative standing, which
+is what confers the right to assign. A locally-initiated action still resolves against the acting
+agent's privileges; only the peer half drops out.
 
 *"This person, acting through this agent, may reach this resource, on these ports, within this
 window."* — exactly the example Steven opened the guardrails panel with. Constraints so far:
