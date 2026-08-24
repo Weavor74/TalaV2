@@ -4970,17 +4970,13 @@ const AgentChat = {
       });
     }
 
-    const actionBtns = document.querySelectorAll('.chat-action-btn');
-    actionBtns.forEach(btn => {
-      if (['btn-chat-rp', 'btn-chat-hybrid', 'btn-chat-assistant', 'btn-chat-tts'].includes(btn.id)) {
-        return;
-      }
-      btn.addEventListener('click', () => {
-        btn.classList.toggle('active');
-        const state = btn.classList.contains('active') ? 'ENABLED' : 'DISABLED';
-        IPCLog.append('info', `Agent Chat modifier '${btn.textContent}' set to ${state}`);
-      });
-    });
+    // MOOD, MD and JSON used to land here: a catch-all that gave any
+    // .chat-action-btn without its own handler a toggle-and-log stub. They
+    // lit up, wrote a log line, and nothing read the state (UI-004/005/006).
+    // Removing the stub along with the buttons means a new chat-action button
+    // now does nothing visible until it is actually wired, which is the honest
+    // failure -- silently looking alive is what made those three so hard to
+    // spot. RP, Hybrid, Assistant and TTS all have real handlers below.
 
     // Segmented Mode Toggles
     const modeBtns = {

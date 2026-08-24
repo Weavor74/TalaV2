@@ -702,7 +702,8 @@ the sidebar bar's hardcoded 1,000,000 max to be reconsidered (UI-003).
 
 > **Steven:** *"Delete"*
 
-All three come out. Worth also fixing the delegated handler at
+**Done 2026-08-23.** All three buttons removed from index.html, and the catch-all handler removed
+with them so a future chat-action button cannot silently inherit the same toggle-and-log stub. Worth also fixing the delegated handler at
 [renderer.js:4894](../renderer/renderer.js#L4894) that gave them their toggle-and-log stub, so a
 future `.chat-action-btn` does not silently inherit the same no-op.
 
