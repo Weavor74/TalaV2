@@ -7089,12 +7089,35 @@ async def handle_workflow_execute(
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'flow_id' is required")
 
     try:
-        from python.harness.workflows_util import resolve_workflow_file
-        json_path = resolve_workflow_file(flow_id)
-        if not json_path or not json_path.exists():
-            return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Workflow '{flow_id}' does not exist.")
+        # Node first. workflow.save compiles the flow into an HTML-NN *and*
+        # writes a JSON sidecar, and this handler only ever read the sidecar --
+        # so the compiled node was written, indexed, retrieved, and never the
+        # thing that actually ran. Steven's standing requirement is that what
+        # the harness consumes is the HTML-NN, so the node is the source and
+        # the sidecar is the fallback for flows compiled before this change.
+        workflow_data = None
+        source = "json"
+        try:
+            from sdk.agent.node_execution import load_workflow_spec
+            workflow_data = load_workflow_spec(flow_id)
+            if workflow_data:
+                source = "html-nn"
+        except Exception as exc:
+            logger.warning("workflow.execute: could not read the node for %s: %s", flow_id, exc)
 
-        workflow_data = json.loads(json_path.read_text(encoding="utf-8"))
+        if workflow_data is None:
+            from python.harness.workflows_util import resolve_workflow_file
+            json_path = resolve_workflow_file(flow_id)
+            if not json_path or not json_path.exists():
+                return _err(
+                    req_id, JsonRpcError.INVALID_PARAMS,
+                    f"Workflow '{flow_id}' does not exist as a node or a saved file.",
+                )
+            workflow_data = json.loads(json_path.read_text(encoding="utf-8"))
+            logger.info(
+                "workflow.execute: %s has no runnable node; ran from the JSON sidecar.",
+                flow_id,
+            )
 
         # Define step callback to stream updates
         async def step_callback(node_id: str, status: str, message: str, logs: list[str]) -> None:
@@ -7114,6 +7137,7 @@ async def handle_workflow_execute(
         from python.harness.workflow_executor import WorkflowExecutor
         executor = WorkflowExecutor(workflow_data, step_callback)
         result = await executor.execute(inputs)
+        result["executed_from"] = source
 
         return _ok(req_id, result)
     except Exception as exc:

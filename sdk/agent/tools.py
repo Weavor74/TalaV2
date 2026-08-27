@@ -4740,6 +4740,11 @@ async def starcitizen_lookup(
 from sdk.agent import web_browser  # noqa: E402,F401
 from sdk.agent import ui_control  # noqa: E402,F401
 
+# Registers execute_node / list_executable_nodes -- the verb for acting on an
+# HTML-NN rather than only reading one (UI-060, UI-106). Same bottom-of-module
+# placement and for the same reason: it imports register_tool from here.
+from sdk.agent import node_execution  # noqa: E402,F401
+
 # Registers the agent/swarm authoring tools. Imported last and from its own
 # module because it imports register_tool from here -- doing it at the bottom
 # keeps the cycle resolvable.

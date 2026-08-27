@@ -10,13 +10,31 @@ Milestone 17 — Task 17.1.2
 
 from __future__ import annotations
 
+import re
+
 import asyncio
+import json
 import logging
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Awaitable
 
 logger = logging.getLogger(__name__)
+
+class _Missing:
+    """Sentinel: distinguishes "no such reference" from a real None."""
+
+    def __repr__(self) -> str:  # pragma: no cover - debugging aid
+        return "<unresolved>"
+
+
+_MISSING = _Missing()
+
+#: Node types the executor actually implements. Named so the failure message
+#: for an unknown type can say what is available instead of just refusing.
+SUPPORTED_NODE_TYPES = (
+    "trigger", "auth", "email", "custom_script", "tool", "mcp_tool", "bash", "output",
+)
 
 class WorkflowExecutor:
     """
@@ -47,6 +65,71 @@ class WorkflowExecutor:
         self.nodes = {n["id"]: n for n in workflow.get("nodes", [])}
         self.variables: dict[str, Any] = {}
         self.root_dir = Path(root_dir) if root_dir else Path(__file__).resolve().parents[2]
+
+    # -- passing one step's output into the next ----------------------------
+
+    _REF = re.compile(r"\{\{\s*([A-Za-z0-9_.\[\]-]+)\s*\}\}")
+
+    def _lookup(self, path: str) -> Any:
+        """
+        Resolve a dotted reference against the accumulated variables.
+
+        ``{{step_fetch.result.stdout}}`` walks
+        ``variables["step_fetch"]["result"]["stdout"]``. Returns the sentinel
+        ``_MISSING`` rather than None when any hop is absent, so that a typo in
+        a reference is distinguishable from a step that genuinely produced
+        None -- otherwise a misspelled reference silently becomes an empty
+        argument and the tool "succeeds" on nothing.
+        """
+        current: Any = self.variables
+        for part in path.split("."):
+            if isinstance(current, dict) and part in current:
+                current = current[part]
+            elif isinstance(current, (list, tuple)) and part.isdigit() and int(part) < len(current):
+                current = current[int(part)]
+            else:
+                return _MISSING
+        return current
+
+    def _resolve(self, value: Any, unresolved: list[str] | None = None) -> Any:
+        """
+        Substitute ``{{...}}`` references anywhere inside a config value.
+
+        Steven's definition of a workflow is "a series of tool calls, that pass
+        one bit of info from one tool to the next until desired outcome". Node
+        configs were static, so there was no way to pass anything: every step
+        ran on whatever was hardcoded when the flow was saved.
+
+        A reference that is the entire string resolves to the *typed* value, so
+        a dict or list survives being passed on. A reference embedded in a
+        larger string is stringified, which is what interpolation into prose or
+        a command line needs.
+        """
+        if isinstance(value, str):
+            whole = self._REF.fullmatch(value.strip())
+            if whole:
+                found = self._lookup(whole.group(1))
+                if found is _MISSING:
+                    if unresolved is not None:
+                        unresolved.append(whole.group(1))
+                    return value
+                return found
+
+            def _sub(match):
+                found = self._lookup(match.group(1))
+                if found is _MISSING:
+                    if unresolved is not None:
+                        unresolved.append(match.group(1))
+                    return match.group(0)
+                return found if isinstance(found, str) else json.dumps(found, default=str)
+
+            return self._REF.sub(_sub, value)
+
+        if isinstance(value, dict):
+            return {k: self._resolve(v, unresolved) for k, v in value.items()}
+        if isinstance(value, list):
+            return [self._resolve(v, unresolved) for v in value]
+        return value
 
     async def execute(self, initial_inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         """
@@ -91,8 +174,12 @@ class WorkflowExecutor:
             node_id = current_node["id"]
             node_type = current_node.get("type", "unknown")
             node_label = current_node.get("label", f"Node ({node_type})")
-            config = current_node.get("config", {})
+            raw_config = current_node.get("config", {})
             connections = current_node.get("connections", {})
+            # Every node type sees resolved references, not just tool nodes: a
+            # bash command or an email body is just as likely to want a prior
+            # step's output.
+            config = self._resolve(raw_config) if node_type != "tool" else raw_config
 
             execution_path.append(node_id)
             node_logs: list[str] = []
@@ -287,15 +374,76 @@ class WorkflowExecutor:
                         
                     node_logs.append(message)
 
+                elif node_type == "tool":
+                    # The node type Steven's definition of a workflow requires:
+                    # "a series of tool calls, that pass one bit of info from
+                    # one tool to the next". Every registered tool is reachable
+                    # here, so the 88-entry registry is the palette rather than
+                    # the five hardcoded types (UI-059).
+                    #
+                    # Routed through ToolRegistry.run_tool rather than calling
+                    # the function directly, so a workflow step passes the same
+                    # risk classification, confidence gate and plugin
+                    # permission checks as any other invocation. A workflow
+                    # must not be a way around governance.
+                    tool_name = str(config.get("tool") or config.get("tool_name") or "").strip()
+                    if not tool_name:
+                        success = False
+                        message = "Tool node has no 'tool' name configured."
+                        node_logs.append(message)
+                    else:
+                        unresolved: list[str] = []
+                        raw_args = config.get("args") or config.get("tool_params") or {}
+                        tool_args = self._resolve(raw_args, unresolved)
+
+                        if unresolved:
+                            # A reference that does not resolve becomes the
+                            # literal "{{...}}" text. Passing that to a tool
+                            # produces a confident call on garbage, so refuse.
+                            success = False
+                            message = (
+                                f"Tool node references values that do not exist: "
+                                f"{', '.join(sorted(set(unresolved)))}."
+                            )
+                            node_logs.append(message)
+                        else:
+                            node_logs.append(
+                                f"Calling tool '{tool_name}' with {json.dumps(tool_args, default=str)[:300]}"
+                            )
+                            from sdk.agent.tools import ToolRegistry
+
+                            tool_result = await ToolRegistry.run_tool(tool_name, tool_args)
+                            # run_tool reports failure in-band; a dict saying
+                            # success=False is a failed step, not a successful
+                            # one that happens to contain the word.
+                            if isinstance(tool_result, dict) and tool_result.get("success") is False:
+                                success = False
+                                message = str(
+                                    tool_result.get("error")
+                                    or f"Tool '{tool_name}' failed."
+                                )
+                            else:
+                                message = f"Tool '{tool_name}' executed."
+                            result_data = {"tool": tool_name, "result": tool_result}
+                            node_logs.append(message)
+
                 elif node_type == "output":
                     node_logs.append("Output node reached. Consolidating workflow result.")
                     result_data = {"status": "SUCCESS", "final_data": self.variables}
                     message = "Workflow outputs compiled."
-                    
+
                 else:
-                    node_logs.append(f"Custom action node type '{node_type}' logic executed.")
-                    result_data = {"status": "ok"}
-                    message = f"Action step completed successfully."
+                    # This branch used to log "Custom action node type X logic
+                    # executed", set {"status": "ok"} and report SUCCESS -- a
+                    # silent no-op wearing a success response. A flow built
+                    # around a node type the executor does not implement ran
+                    # green while doing nothing at all.
+                    success = False
+                    message = (
+                        f"Unknown workflow node type {node_type!r}. Supported types: "
+                        f"{', '.join(SUPPORTED_NODE_TYPES)}."
+                    )
+                    node_logs.append(message)
 
             except Exception as exc:
                 success = False

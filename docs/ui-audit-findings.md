@@ -1450,7 +1450,14 @@ JSON editor, import/export. The failures are at both ends: what can go *into* a 
 whether anything can *run* one.
 
 ### UI-059 — The palette is five hardcoded types; none of the 66 tools are available
-**Severity: high · Status: open · Steven's point 2**
+**Severity: high · Status: open — executor half done 2026-08-23 · Steven's point 2**
+
+> **Half fixed.** Steven's requirement was *"Every tool created in the html-nn should be
+> available here."* The executor now has a `tool` node type that reaches all 90 registered
+> tools through `ToolRegistry.run_tool`, so a workflow *can* call any of them, and each
+> tool now has a `tool-*.html` node carrying its argument schema (UI-107) — which is what
+> a palette would be built from. The palette markup in `index.html` is still five static
+> `<div data-type>` elements; that part remains open.
 
 `#workflow-palette` is five static `<div data-type="...">` elements in `index.html`:
 
@@ -1474,7 +1481,14 @@ This is the gap Steven describes: workflows are meant to be HTML-NN chained toge
 builder cannot reference a single HTML-NN.
 
 ### UI-060 — The agent cannot run a saved workflow, though the node tells it to
-**Severity: high · Status: open · Steven's point 1**
+**Severity: high · Status: FIXED 2026-08-23 · Steven's point 1**
+
+
+> **Fixed.** `execute_node` is a registered tool, so the instruction the compiled node
+> carries is one Tala can now follow. The node is also what runs: `workflow.execute` read
+> a JSON sidecar, which left the compiled HTML-NN written, indexed and never executed.
+> Both paths now load the spec from the node's own `node-state` block, with the sidecar
+> kept only as a fallback for flows compiled before this change.
 
 The panel's own description states:
 
@@ -2882,7 +2896,24 @@ code imports it. Steven's instinct that "the other works better" is correct; the
 safe to delete.
 
 ### UI-106 — Tala can read an HTML-NN but cannot act on one
-**Severity: high · Status: specified · Source: Q-34**
+**Severity: high · Status: FIXED 2026-08-23 · Source: Q-34**
+
+
+> **Fixed.** The read/enumerate/write set gains the missing verb: `execute_node`, plus
+> `list_executable_nodes` so a plan is not built around a node that will be refused.
+> Two guards: only `workflow`/`flow` node types run, and only above 0.5 execution
+> authority — every documentation and tool-catalogue node declares 0.0, and running one
+> would turn a reference work into a program.
+>
+> The other half of Steven's sentence — *"pass one bit of info from one tool to the
+> next"* — needed two more things. The executor had no `tool` node type at all, so a
+> workflow could not call a registered tool; and node configs were static, so nothing
+> could be passed between steps. Both added: `{{step_x.result.y}}` references resolve
+> against accumulated state, and an unresolved reference **fails the step** rather than
+> silently becoming an empty argument the tool then succeeds on.
+>
+> Verified end to end against real `compile_workflow_to_html` output, not a fixture:
+> a two-tool flow ran from the node and the second tool received the first's output.
 
 > **Steven:** *"A workflow is a series of tool calls, that pass one bit of info from one tool to the
 > next until desired outcome. Tala has the ability to call an html-nn and act upon that. Or at least
@@ -3467,6 +3498,29 @@ not to *apply* to its own source.
 ---
 
 ## B. Self-navigation infrastructure gaps
+
+### UI-122 — `run_workflow_node` mocks script execution and reports completion
+**Severity: high · Status: open · Found 2026-08-23 while fixing UI-060**
+
+`run_workflow_node` is a separate, interactive workflow driver — it walks a flow asking the
+user each `interactive_prompt` question — and it reads its flow from the HTML-NN, which is
+right. But its `custom_script` branch does this:
+
+```python
+elif node_type == "custom_script":
+    # Mock execution or basic handling
+    state["variables"][current_id] = "Executed script"
+```
+
+Nothing runs. The walk then continues to the `output` node and returns
+`*** WORKFLOW COMPLETE ***` with "Executed script" recorded as the step's result. A flow with
+a script step reports success having executed nothing — the same silent-success shape as
+UI-014 and UI-018.
+
+Not fixed here because the two tools serve different purposes and merging them is a design
+decision, not a repair: `run_workflow_node` is a conversational interview driver,
+`execute_node` runs actions. The likely resolution is that `run_workflow_node` delegates
+non-interactive steps to `WorkflowExecutor` rather than imitating them.
 
 ### UI-007 — Tala has no tool that acts on the UI
 **Severity: high · Status: CLOSED 2026-08-23**
