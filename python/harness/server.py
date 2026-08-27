@@ -8576,99 +8576,283 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+#: A status that means "nothing measures this", as distinct from a measurement
+#: that came back bad. Nine of the twelve indicators were hardcoded literals
+#: (UI-091), so OVERALL was not a diagnosis -- it read DEGRADED forever because
+#: two constants said so, while six subsystems read HEALTHY forever for the
+#: same reason.
+UNKNOWN = "UNKNOWN"
+
+
+async def _probe_db_health() -> tuple[str, str]:
+    try:
+        if not db.get_pool():
+            return "CRITICAL", "no connection pool"
+        await db.fetchval("SELECT 1")
+        return "HEALTHY", "SELECT 1 answered"
+    except Exception as exc:
+        return "CRITICAL", f"{type(exc).__name__}: {exc}"
+
+
+async def _probe_inference() -> tuple[str, str]:
+    try:
+        online = await db.fetchval(
+            "SELECT COUNT(*) FROM inference_providers WHERE status = 'online'"
+        )
+        total = await db.fetchval("SELECT COUNT(*) FROM inference_providers")
+        if online:
+            return "HEALTHY", f"{online} of {total} provider(s) online"
+        if total:
+            return "DEGRADED", f"0 of {total} provider(s) online"
+        return "CRITICAL", "no inference providers configured"
+    except Exception as exc:
+        return UNKNOWN, f"could not read providers: {type(exc).__name__}"
+
+
+async def _probe_policy_gate() -> tuple[str, str]:
+    try:
+        row = await db.fetchrow("SELECT category FROM guardrails_config LIMIT 1")
+        category = (row["category"] if row else "none") or "none"
+        if category == "none":
+            return "MAINTENANCE", "guardrail category is 'none'"
+        return "HEALTHY", f"guardrail category '{category}' active"
+    except Exception as exc:
+        return UNKNOWN, f"could not read guardrails: {type(exc).__name__}"
+
+
+def _probe_mcp() -> tuple[str, str]:
+    try:
+        from python.harness.mcp_manager import mcp_manager
+        servers = mcp_manager.list_servers()
+    except Exception as exc:
+        return UNKNOWN, f"mcp manager unavailable: {type(exc).__name__}"
+    if not servers:
+        # Not an error: plenty of installs run no MCP servers at all.
+        return "MAINTENANCE", "no MCP servers configured"
+    enabled = [srv for srv in servers if srv.get("enabled", True)]
+    if not enabled:
+        return "MAINTENANCE", f"{len(servers)} server(s) configured, none enabled"
+    return "HEALTHY", f"{len(enabled)} of {len(servers)} server(s) enabled"
+
+
+async def _probe_search() -> tuple[str, str]:
+    try:
+        total = await db.fetchval("SELECT COUNT(*) FROM search_providers")
+    except Exception as exc:
+        return UNKNOWN, f"could not read search providers: {type(exc).__name__}"
+    if not total:
+        return "MAINTENANCE", "no search providers configured; crawler fallback only"
+    return "HEALTHY", f"{total} provider(s) configured"
+
+
+def _probe_memory() -> tuple[str, str]:
+    """
+    Whether retrieval has any backend registered at all.
+
+    This is the check that would have caught the wiring failure behind
+    "MemoryManager.search called with no registered providers -- returning
+    empty", which is silent from the caller's side: an empty result set looks
+    exactly like a search that found nothing.
+    """
+    try:
+        from sdk.agent.memory.manager import get_manager
+        manager = get_manager()
+        providers = getattr(manager, "_providers", None)
+        if providers is None:
+            return UNKNOWN, "memory manager exposes no provider list"
+        if not providers:
+            return "CRITICAL", "no memory providers registered; retrieval returns empty"
+        return "HEALTHY", f"{len(providers)} provider(s) registered"
+    except Exception as exc:
+        return UNKNOWN, f"could not inspect memory manager: {type(exc).__name__}"
+
+
+def _probe_tools() -> tuple[str, str]:
+    try:
+        from sdk.agent.tools import ToolRegistry
+        count = len(ToolRegistry._tools)
+    except Exception as exc:
+        return UNKNOWN, f"could not read the tool registry: {type(exc).__name__}"
+    if not count:
+        return "CRITICAL", "no tools registered"
+    return "HEALTHY", f"{count} tool(s) registered"
+
+
+async def _probe_queue() -> tuple[str, str]:
+    try:
+        pending = await db.fetchval(
+            "SELECT COUNT(*) FROM tasks WHERE status IN ('pending', 'queued')"
+        ) or 0
+        running = await db.fetchval(
+            "SELECT COUNT(*) FROM tasks WHERE status = 'in-progress'"
+        ) or 0
+    except Exception as exc:
+        return UNKNOWN, f"could not read the task queue: {type(exc).__name__}"
+    if pending > 50:
+        return "CRITICAL", f"{pending} task(s) pending, {running} running"
+    if pending > 10:
+        return "DEGRADED", f"{pending} task(s) pending, {running} running"
+    return "HEALTHY", f"{pending} pending, {running} running"
+
+
+async def _probe_bootstrap() -> tuple[str, str]:
+    """Whether the things startup is supposed to have established are there."""
+    missing = []
+    if not db.get_pool():
+        missing.append("database pool")
+    try:
+        from sdk.agent.tools import ToolRegistry
+        if not ToolRegistry._tools:
+            missing.append("tool registry")
+    except Exception:
+        missing.append("tool registry")
+    if not _active_connections:
+        # Worth saying, but not a fault: the harness runs headless perfectly
+        # well, and a UI client may simply not be open.
+        return "MAINTENANCE", "harness up, no UI client connected"
+    if missing:
+        return "CRITICAL", "not initialised: " + ", ".join(missing)
+    return "HEALTHY", f"pool, tools and {len(_active_connections)} client(s) up"
+
+
+async def _probe_autonomy() -> tuple[str, str]:
+    try:
+        active = await db.fetchval(
+            "SELECT COUNT(*) FROM tasks WHERE status = 'in-progress'"
+        ) or 0
+        # completed_at, not updated_at: the tasks table has no updated_at
+        # column, and the probe reported UNKNOWN with UndefinedColumnError
+        # rather than quietly counting zero -- which is the point of UNKNOWN.
+        recent_failures = await db.fetchval(
+            "SELECT COUNT(*) FROM tasks WHERE status = 'failed' "
+            "AND COALESCE(completed_at, created_at) > NOW() - INTERVAL '1 hour'"
+        ) or 0
+    except Exception as exc:
+        return UNKNOWN, f"could not read task state: {type(exc).__name__}"
+    if recent_failures > 3:
+        return "DEGRADED", f"{recent_failures} task(s) failed in the last hour"
+    if active:
+        return "HEALTHY", f"{active} task(s) in progress"
+    return "HEALTHY", "idle, no failures in the last hour"
+
+
+async def _probe_reflection() -> tuple[str, str]:
+    """
+    Whether errors are reaching the log that reflection reads.
+
+    Reported DEGRADED unconditionally before, which is why OVERALL never moved.
+    Recent errors are a real signal; the absence of a reflection subsystem to
+    act on them is UI-086 and is not something this probe can invent.
+    """
+    try:
+        errors = await db.fetchval(
+            "SELECT COUNT(*) FROM agent_log WHERE level = 'ERROR' "
+            "AND created_at > NOW() - INTERVAL '5 minutes'"
+        ) or 0
+    except Exception as exc:
+        return UNKNOWN, f"could not read agent_log: {type(exc).__name__}"
+    if errors > 10:
+        return "CRITICAL", f"{errors} error(s) logged in the last 5 minutes"
+    if errors:
+        return "DEGRADED", f"{errors} error(s) logged in the last 5 minutes"
+    return "HEALTHY", "no errors logged in the last 5 minutes"
+
+
+async def _probe_telemetry() -> tuple[str, str]:
+    try:
+        total = await db.fetchval("SELECT COUNT(*) FROM heartbeats") or 0
+        enabled = await db.fetchval(
+            "SELECT COUNT(*) FROM heartbeats WHERE enabled = TRUE"
+        ) or 0
+    except Exception as exc:
+        return UNKNOWN, f"could not read heartbeats: {type(exc).__name__}"
+    if not total:
+        return "MAINTENANCE", "no scheduled heartbeats configured"
+    if not enabled:
+        return "MAINTENANCE", f"{total} heartbeat(s) configured, none enabled"
+    return "HEALTHY", f"{enabled} of {total} heartbeat(s) enabled"
+
+
 async def handle_logging_get_health(params: dict[str, Any], req_id: Any) -> str:
     """
-    ``logging.get_system_health`` — Return dynamic health indicators for the 12 subservices.
+    ``logging.get_system_health`` — measured health for the twelve subsystems.
+
+    Every indicator now reports what was actually observed, and says on what
+    basis. Nine of the twelve were hardcoded literals (UI-091): OVERALL read
+    DEGRADED forever because two constants said so, and six subsystems read
+    HEALTHY forever for the same reason -- a panel that cannot change is not a
+    diagnostic, it is decoration that looks like one.
+
+    Where no signal exists the answer is UNKNOWN, not HEALTHY. Reporting a
+    subsystem healthy because nobody measured it is the failure this whole
+    audit keeps finding, and it is worse here than anywhere else, because this
+    is the screen you would look at to find out whether anything is wrong.
     """
-    services = {}
-    
-    # 1. DB_HEALTH_SERVICE
-    try:
-        pool = db.get_pool()
-        if pool:
-            await db.fetchval("SELECT 1")
-            services["DB_HEALTH_SERVICE"] = "HEALTHY"
-        else:
-            services["DB_HEALTH_SERVICE"] = "CRITICAL"
-    except Exception:
-        services["DB_HEALTH_SERVICE"] = "CRITICAL"
+    import asyncio as _asyncio
 
-    # 2. INFERENCE_SERVICE
-    try:
-        online_count = await db.fetchval("SELECT COUNT(*) FROM inference_providers WHERE status = 'online'")
-        if online_count and online_count > 0:
-            services["INFERENCE_SERVICE"] = "HEALTHY"
-        else:
-            any_provider = await db.fetchval("SELECT COUNT(*) FROM inference_providers")
-            services["INFERENCE_SERVICE"] = "HEALTHY" if (any_provider and any_provider > 0) else "DEGRADED"
-    except Exception:
-        services["INFERENCE_SERVICE"] = "DEGRADED"
+    services: dict[str, str] = {}
+    details: dict[str, str] = {}
 
-    # 3. POLICY_GATE
-    try:
-        category = await db.fetchval("SELECT category FROM guardrails_config WHERE id = 1")
-        services["POLICY_GATE"] = "MAINTENANCE" if category == "none" else "HEALTHY"
-    except Exception:
-        services["POLICY_GATE"] = "DEGRADED"
+    async def record(name: str, probe) -> None:
+        """
+        Run one probe, and never let it take the panel down with it.
 
-    # 4. MCP_TOOL_AVAILABILITY
-    services["MCP_TOOL_AVAILABILITY"] = "HEALTHY"
+        The probe is passed as a *callable*, not as an already-evaluated
+        result: calling it at the call site meant a synchronous probe that
+        raised did so before this try block existed, so the exception escaped
+        and the whole health panel returned an error -- the screen you check
+        when things are broken, broken by one thing being broken.
+        """
+        try:
+            outcome = probe()
+            if _asyncio.iscoroutine(outcome):
+                outcome = await outcome
+            status, detail = outcome
+        except Exception as exc:
+            status, detail = UNKNOWN, f"probe raised {type(exc).__name__}: {exc}"
+        services[name] = status
+        details[name] = detail
 
-    # 5. SEARCH_RETRIEVAL_SERVICE
-    services["SEARCH_RETRIEVAL_SERVICE"] = "HEALTHY"
-
-    # 6. MEMORY_AUTHORITY_SERVICE
-    services["MEMORY_AUTHORITY_SERVICE"] = "HEALTHY"
-    
-    # 7. TOOL_EXECUTION_COORDINATOR
-    services["TOOL_EXECUTION_COORDINATOR"] = "HEALTHY"
-
-    # 8. QUEUE_BACKLOG_PRESSURE
-    services["QUEUE_BACKLOG_PRESSURE"] = "HEALTHY"
-
-    # 9. BOOTSTRAP_RUNTIME_SERVICES
-    services["BOOTSTRAP_RUNTIME_SERVICES"] = "HEALTHY"
-
-    # 10. AUTONOMY_ORCHESTRATOR
-    services["AUTONOMY_ORCHESTRATOR"] = "MAINTENANCE"
-
-    # 11. REFLECTION_SERVICE
-    services["REFLECTION_SERVICE"] = "DEGRADED"
-
-    # 12. DASHBOARD_TELEMETRY
-    services["DASHBOARD_TELEMETRY"] = "DEGRADED"
-
-    try:
-        recent_errors = await db.fetchval(
-            "SELECT COUNT(*) FROM agent_log WHERE level = 'ERROR' AND created_at > NOW() - INTERVAL '5 minutes'"
-        )
-        if recent_errors and recent_errors > 0:
-            services["REFLECTION_SERVICE"] = "DEGRADED"
-            services["AUTONOMY_ORCHESTRATOR"] = "DEGRADED"
-    except Exception:
-        pass
+    await record("DB_HEALTH_SERVICE", _probe_db_health)
+    await record("INFERENCE_SERVICE", _probe_inference)
+    await record("POLICY_GATE", _probe_policy_gate)
+    await record("MCP_TOOL_AVAILABILITY", _probe_mcp)
+    await record("SEARCH_RETRIEVAL_SERVICE", _probe_search)
+    await record("MEMORY_AUTHORITY_SERVICE", _probe_memory)
+    await record("TOOL_EXECUTION_COORDINATOR", _probe_tools)
+    await record("QUEUE_BACKLOG_PRESSURE", _probe_queue)
+    await record("BOOTSTRAP_RUNTIME_SERVICES", _probe_bootstrap)
+    await record("AUTONOMY_ORCHESTRATOR", _probe_autonomy)
+    await record("REFLECTION_SERVICE", _probe_reflection)
+    await record("DASHBOARD_TELEMETRY", _probe_telemetry)
 
     criticals = [k for k, v in services.items() if v == "CRITICAL"]
     degradeds = [k for k, v in services.items() if v == "DEGRADED"]
     maintenances = [k for k, v in services.items() if v == "MAINTENANCE"]
+    unknowns = [k for k, v in services.items() if v == UNKNOWN]
 
     if criticals:
-        overall = "CRITICAL"
-        mode = "CRITICAL_FAILURE"
+        overall, mode = "CRITICAL", "CRITICAL_FAILURE"
     elif degradeds:
-        overall = "DEGRADED"
-        mode = "DEGRADED_AUTONOMY"
+        overall, mode = "DEGRADED", "DEGRADED_AUTONOMY"
     elif maintenances:
-        overall = "MAINTENANCE"
-        mode = "MAINTENANCE_REQUIRED"
+        overall, mode = "MAINTENANCE", "MAINTENANCE_REQUIRED"
+    elif unknowns:
+        # Not HEALTHY. Everything that was measured passed, but something went
+        # unmeasured, and saying HEALTHY here would be the old lie in a new place.
+        overall, mode = "PARTIAL", "PARTIALLY_OBSERVED"
     else:
-        overall = "HEALTHY"
-        mode = "FULL_AUTONOMY"
+        overall, mode = "HEALTHY", "FULL_AUTONOMY"
 
     return _ok(req_id, {
         "services": services,
+        # What each status is based on, so the panel can explain itself and
+        # Tala can read her own health rather than a bare colour (UI-086).
+        "details": details,
         "overall": overall,
-        "mode": mode
+        "mode": mode,
+        "measured": len(services) - len(unknowns),
+        "unmeasured": unknowns,
     })
 
 
@@ -11353,6 +11537,98 @@ async def load_inference_providers() -> list[dict[str, Any]]:
     return providers
 
 
+async def handle_search_test_provider(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``search.test_provider`` — actually ask a search provider whether it works.
+
+    The panel rendered a fixed green ACTIVE for every provider with no probe of
+    any kind (UI-064), which compounded UI-018: a Tavily key that starts
+    returning 401 falls through to DuckDuckGo crawling, and this panel reported
+    ACTIVE the whole time. There was no surface anywhere in the app that would
+    reveal the provider was dead.
+
+    Deliberately on demand rather than on every panel load: a probe is a
+    billable request against the user's own quota, and spending it without
+    being asked is its own kind of rudeness.
+    """
+    provider_id = str(params.get("id") or "").strip()
+    if not provider_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+
+    try:
+        from python.harness.search_manager import SearchManager
+
+        outcome = await SearchManager.query_detailed(
+            str(params.get("query") or "tala connectivity check"),
+            provider_id=provider_id,
+        )
+        if outcome.source == "provider" and outcome.provider_name:
+            return _ok(req_id, {
+                "state": "ok",
+                "detail": f"{outcome.provider_name} answered with "
+                          f"{len(outcome.results)} result(s).",
+            })
+        # Falling through to the crawler *is* the failure this panel existed to
+        # hide, so it is reported as one rather than as a result.
+        return _ok(req_id, {
+            "state": "failed",
+            "detail": outcome.error_summary() or
+                      "The provider did not answer; results came from the crawler.",
+        })
+    except Exception as exc:
+        logger.exception("search.test_provider error")
+        return _ok(req_id, {"state": "failed", "detail": f"{type(exc).__name__}: {exc}"})
+
+
+async def handle_database_test_provider(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``database.test_provider`` — open a real connection to a configured database.
+
+    The panel rendered a fixed ONLINE (UI-073) while the SYSTEM panel two tabs
+    away performed a genuine PostgreSQL health check. The signal existed; this
+    panel simply did not use it.
+    """
+    provider_id = str(params.get("id") or "").strip()
+    if not provider_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+
+    try:
+        row = await db.fetchrow(
+            "SELECT id, name, endpoint, username, password, database "
+            "FROM database_providers WHERE id = $1", provider_id,
+        )
+        if not row:
+            return _ok(req_id, {"state": "failed", "detail": "No such provider."})
+
+        from python.harness.credential_crypto import decrypt_value
+        password = decrypt_value(row["password"] or "")
+        endpoint = row["endpoint"] or ""
+        if not endpoint:
+            return _ok(req_id, {"state": "failed", "detail": "No endpoint configured."})
+
+        import asyncpg
+        dsn = endpoint
+        if not dsn.startswith(("postgres://", "postgresql://")):
+            host, _, port = endpoint.partition(":")
+            dsn = (
+                f"postgresql://{row['username'] or ''}:{password}@"
+                f"{host}:{port or 5432}/{row['database'] or ''}"
+            )
+        conn = await asyncpg.connect(dsn=dsn, timeout=8)
+        try:
+            version = await conn.fetchval("SELECT version()")
+        finally:
+            await conn.close()
+        return _ok(req_id, {
+            "state": "ok",
+            "detail": f"Connected. {str(version or '')[:60]}",
+        })
+    except Exception as exc:
+        # The reason matters more than the fact: "password authentication
+        # failed" and "connection refused" need different responses.
+        return _ok(req_id, {"state": "failed", "detail": f"{type(exc).__name__}: {exc}"})
+
+
 async def handle_tools_catalogue(params: dict[str, Any], req_id: Any) -> str:
     """
     ``tools.catalogue`` — every tool, read from its HTML-NN.
@@ -11784,6 +12060,8 @@ _HANDLERS: dict[str, Any] = {
     "channels.save": handle_channels_save,
     "channels.delete": handle_channels_delete,
     "channels.status": handle_channels_status,
+    "search.test_provider": handle_search_test_provider,
+    "database.test_provider": handle_database_test_provider,
     "tools.catalogue": handle_tools_catalogue,
     "ui.bridge_result": handle_ui_bridge_result,
     "browser.get_dom": handle_browser_get_dom,
@@ -12291,11 +12569,63 @@ async def _auto_detect_and_verify_providers() -> None:
                         new_status = "offline"
                         
         elif p_type == "remote":
-            api_key = p_config.get("apiKey", "")
-            if api_key:
-                new_status = "online"
-            else:
+            # Was: a non-empty apiKey string meant ONLINE, with no request made
+            # at all (UI-046). An expired key, a revoked key, a typo, a wrong
+            # endpoint, a suspended account or no network connection all
+            # rendered the same green dot. The local branch two lines up does
+            # this properly -- it asks the endpoint and checks the configured
+            # model is in the answer -- so this now meets the same standard.
+            api_key = p_config.get("apiKey", "") or p_config.get("api_key", "")
+            endpoint = p_config.get("endpoint", "")
+            model = p_config.get("model", "")
+
+            if not api_key:
                 new_status = "offline"
+            elif not endpoint:
+                new_status = "offline"
+                logger.warning(
+                    "Provider %s has a key but no endpoint; cannot verify it.", p["id"]
+                )
+            elif endpoint in cached_openai_models:
+                models = cached_openai_models[endpoint]
+                new_status = (
+                    "online"
+                    if models is not None and (not model or model in models)
+                    else "offline"
+                )
+            else:
+                try:
+                    ep_url = _normalize_endpoint_url(endpoint)
+                    headers = {"Authorization": f"Bearer {api_key}"}
+                    async with httpx.AsyncClient(timeout=10.0) as client:
+                        resp = await client.get(f"{ep_url}/models", headers=headers)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        models = [m.get("id") for m in data.get("data", [])]
+                        cached_openai_models[endpoint] = models
+                        if not model or model in models:
+                            new_status = "online"
+                        else:
+                            new_status = "offline"
+                            logger.warning(
+                                "Provider %s answered but does not list model %r.",
+                                p["id"], model,
+                            )
+                    else:
+                        # 401 is the case this finding exists for: a key that
+                        # is present and rejected.
+                        cached_openai_models[endpoint] = None
+                        new_status = "offline"
+                        logger.warning(
+                            "Provider %s returned HTTP %d when verifying its key.",
+                            p["id"], resp.status_code,
+                        )
+                except Exception as exc:
+                    cached_openai_models[endpoint] = None
+                    new_status = "offline"
+                    logger.warning(
+                        "Provider %s could not be reached: %s", p["id"], exc
+                    )
                 
         if p["status"] != new_status:
             await db.execute(

@@ -1036,7 +1036,13 @@ Substantially real. Local provider health checking is genuinely good; the defect
 providers and in what the priority list claims.
 
 ### UI-046 — A remote provider shows `ONLINE` whenever an API key string is present
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** The remote branch now meets the standard the local branch already set: it asks
+> `{endpoint}/models` with the key presented, checks the configured model is in the answer,
+> caches per endpoint, and fails closed. A 401 -- a key that is present and rejected, which
+> is the case this finding exists for -- is now offline rather than green.
 
 The health loop ([server.py:11588](../python/harness/server.py#L11588)) treats the two provider
 types completely differently:
@@ -1644,7 +1650,14 @@ Library audit (UI-018, UI-019, UI-020). Two findings are new to this panel, and 
 genuinely better-designed than its equivalent elsewhere.
 
 ### UI-064 — The search provider `ACTIVE` badge is entirely hardcoded
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** The badge starts at `CONFIGURED`, which is a statement of fact rather than a
+> health claim, and a `TEST` button runs a real query through `search.test_provider`.
+> Falling through to the crawler is reported as **failed**, because that is precisely the
+> failure this panel was hiding (UI-018). On demand rather than on panel load: a probe
+> spends the user's own API quota, and spending it unasked is its own kind of rudeness.
 
 The provider card renders ([renderer.js:4353](../renderer/renderer.js#L4353)):
 
@@ -1900,7 +1913,17 @@ Same for *"Priority Order — DB connections are queried in the sequence defined
 connection, so there is no sequence.
 
 ### UI-073 — The database provider `ONLINE` badge is hardcoded
-**Severity: medium · Status: open**
+**Severity: medium · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `database.test_provider` opens a real connection and reports what happened --
+> the reason matters more than the fact, since "password authentication failed" and
+> "connection refused" need different responses.
+>
+> The same hardcoded badge turned out to be in **seven** panels, not two: git, storage,
+> runtime, auth and firewall said `ACTIVE` / `MOUNTED` / `CONNECTED` / `TRUSTED` with no
+> probe either. `MOUNTED` and `CONNECTED` were the worst of them, asserting a live
+> connection the app never makes. All seven now render `CONFIGURED` until measured.
 
 [renderer.js:4163](../renderer/renderer.js#L4163) renders a fixed `status-ok` dot and the literal
 string `ONLINE` — no variable, no probe. Identical defect to UI-064 in the search panel.
@@ -2467,7 +2490,19 @@ Scope accepted — a static about page is the right design. Two things are wrong
 and one check here overturned an earlier entry.
 
 ### UI-091 — 9 of 12 subsystem health indicators are hardcoded constants
-**Severity: high · Status: open · Corrects D18**
+**Severity: high · Status: FIXED 2026-08-23 · Corrects D18**
+
+
+> **Fixed.** All twelve indicators are measured, and each returns *why*: "8 of 8 providers
+> online", "88 tools registered", "no errors in the last 5 minutes". Where nothing can be
+> measured the answer is `UNKNOWN`, never `HEALTHY`, and an `UNKNOWN` present makes OVERALL
+> `PARTIAL` rather than rounding up. Two probes returned `UNKNOWN` on first run and both
+> were real bugs it had surfaced rather than hidden: the memory manager singleton is
+> `get_manager()`, not `MemoryManager.get()`, and `tasks` has no `updated_at` column.
+>
+> A probe that raises is caught and reported as `UNKNOWN` — the screen you check when things
+> are broken has to survive things being broken. A test caught that the first version
+> evaluated probes at the call site, so a synchronous one that raised escaped the guard.
 
 Checking the `Reflection System` capability claim led to
 [server.py:8150-8218](../python/harness/server.py#L8150). Of the twelve indicators on the LOGGING

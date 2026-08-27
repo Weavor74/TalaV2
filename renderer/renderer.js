@@ -2229,10 +2229,7 @@ const GitProviderManager = {
         <input type="checkbox" class="provider-force-checkbox" ${isForced ? 'checked' : ''} />
         <span class="provider-force-text">FORCE</span>
       </label>
-      <div class="provider-status-indicator">
-        <span class="status-dot status-ok"></span>
-        <span class="provider-status-text">ACTIVE</span>
-      </div>
+      ${providerStatusBadge(p._probe ? p._probe.state : "configured", p._probe ? p._probe.detail : "")}
       <div class="provider-card-actions">
         <button class="btn-provider-action btn-git-provider-up"     title="Move Up"    ${isFirst ? 'disabled' : ''}>&#8593;</button>
         <button class="btn-provider-action btn-git-provider-down"   title="Move Down"  ${isLast  ? 'disabled' : ''}>&#8595;</button>
@@ -2472,10 +2469,7 @@ const StorageProviderManager = {
         <div class="provider-card-name">${p.name}</div>
         <div class="provider-card-meta">${details}</div>
       </div>
-      <div class="provider-status-indicator">
-        <span class="status-dot status-ok"></span>
-        <span class="provider-status-text">MOUNTED</span>
-      </div>
+      ${providerStatusBadge(p._probe ? p._probe.state : "configured", p._probe ? p._probe.detail : "")}
       <div class="provider-card-actions">
         <button class="btn-provider-action btn-storage-provider-up"     title="Move Up"    ${isFirst ? 'disabled' : ''}>&#8593;</button>
         <button class="btn-provider-action btn-storage-provider-down"   title="Move Down"  ${isLast  ? 'disabled' : ''}>&#8595;</button>
@@ -2777,10 +2771,7 @@ const RuntimeInstanceManager = {
         <div class="provider-card-name">${inst.name}</div>
         <div class="provider-card-meta">${inst.url} · ${inst.has_auth || inst.api_key ? 'token auth enabled' : 'public/no token'}</div>
       </div>
-      <div class="provider-status-indicator">
-        <span class="status-dot status-ok"></span>
-        <span class="provider-status-text">CONNECTED</span>
-      </div>
+      ${providerStatusBadge(inst._probe ? inst._probe.state : "configured", inst._probe ? inst._probe.detail : "")}
       <div class="provider-card-actions">
         <button class="btn-provider-action btn-runtime-instance-up"     title="Move Up"    ${isFirst ? 'disabled' : ''}>&#8593;</button>
         <button class="btn-provider-action btn-runtime-instance-down"   title="Move Down"  ${isLast  ? 'disabled' : ''}>&#8595;</button>
@@ -2988,10 +2979,7 @@ const AuthManager = {
         <div class="provider-card-name">${cred.name}</div>
         <div class="provider-card-meta">${detail}</div>
       </div>
-      <div class="provider-status-indicator">
-        <span class="status-dot status-ok"></span>
-        <span class="provider-status-text">ACTIVE</span>
-      </div>
+      ${providerStatusBadge(cred._probe ? cred._probe.state : "configured", cred._probe ? cred._probe.detail : "")}
       <div class="provider-card-actions">
         <button class="btn-provider-action btn-auth-cred-up"     title="Move Up"    ${isFirst ? 'disabled' : ''}>&#8593;</button>
         <button class="btn-provider-action btn-auth-cred-down"   title="Move Down"  ${isLast  ? 'disabled' : ''}>&#8595;</button>
@@ -3240,10 +3228,7 @@ const FirewallManager = {
           </div>
         </div>
       </div>
-      <div class="provider-status-indicator">
-        <span class="status-dot status-ok"></span>
-        <span class="provider-status-text">TRUSTED</span>
-      </div>
+      ${providerStatusBadge(contact._probe ? contact._probe.state : "configured", contact._probe ? contact._probe.detail : "")}
       <div class="provider-card-actions">
         <button class="btn-provider-action btn-fw-contact-up"     title="Move Up"    ${isFirst ? 'disabled' : ''}>&#8593;</button>
         <button class="btn-provider-action btn-fw-contact-down"   title="Move Down"  ${isLast  ? 'disabled' : ''}>&#8595;</button>
@@ -4253,19 +4238,19 @@ const DatabaseProviderManager = {
         <div class="provider-card-name">${p.name}</div>
         <div class="provider-card-meta">${userMeta}</div>
       </div>
-      <div class="provider-status-indicator">
-        <span class="status-dot status-ok"></span>
-        <span class="provider-status-text">ONLINE</span>
-      </div>
+      ${providerStatusBadge(p._probe ? p._probe.state : "configured", p._probe ? p._probe.detail : "")}
       <div class="provider-card-actions">
         <button class="btn-provider-action btn-database-provider-up"     title="Move Up"    ${isFirst ? 'disabled' : ''}>&#8593;</button>
         <button class="btn-provider-action btn-database-provider-down"   title="Move Down"  ${isLast  ? 'disabled' : ''}>&#8595;</button>
+        <button class="btn-provider-action btn-database-provider-test" title="Open a real connection to this database">TEST</button>
         <button class="btn-provider-action btn-database-provider-delete" title="Remove provider">&#x2715;</button>
       </div>`;
 
     if (!isFirst) card.querySelector('.btn-database-provider-up').addEventListener('click',   () => this.move(p.id, -1));
     if (!isLast)  card.querySelector('.btn-database-provider-down').addEventListener('click', () => this.move(p.id,  1));
     card.querySelector('.btn-database-provider-delete').addEventListener('click', () => this.remove(p.id));
+    card.querySelector('.btn-database-provider-test').addEventListener(
+      'click', () => runProviderProbe(this, p, 'database.test_provider'));
 
     return card;
   },
@@ -4347,6 +4332,67 @@ const DatabaseProviderManager = {
 /* ═══════════════════════════════════════════════════════════════════
    SearchProviderManager — search provider CRUD, priority list, modal
    ═══════════════════════════════════════════════════════════════════ */
+/**
+ * A provider status badge that only claims what has actually been observed.
+ *
+ * Seven panels rendered a fixed green dot with a health word -- ACTIVE,
+ * MOUNTED, CONNECTED, ONLINE, TRUSTED -- with no variable, no probe and no
+ * conditional (UI-064, UI-073). A provider with a blank key, a dead endpoint
+ * or a revoked subscription looked exactly like a working one, and MOUNTED in
+ * particular asserted a live connection the app never makes.
+ *
+ * States:
+ *   configured  the user set it up; nothing has been tested (the honest default)
+ *   ok          a probe succeeded
+ *   failed      a probe ran and failed
+ *   testing     a probe is in flight
+ */
+/**
+ * Run a provider probe and re-render with what it actually found.
+ *
+ * The badge starts at CONFIGURED -- a statement of fact -- and only becomes OK
+ * or FAILED once something has been measured. On demand rather than on every
+ * panel load, because a search probe spends the user's own API quota.
+ */
+async function runProviderProbe(manager, provider, method) {
+  provider._probe = { state: 'testing', detail: 'Testing…' };
+  manager.render();
+  try {
+    const result = await invoke('python:rpc', { method, params: { id: provider.id } });
+    provider._probe = {
+      state: result?.state === 'ok' ? 'ok' : 'failed',
+      detail: result?.detail || '',
+    };
+    IPCLog.append(
+      provider._probe.state === 'ok' ? 'info' : 'error',
+      `${provider.name || provider.id}: ${provider._probe.detail}`
+    );
+  } catch (err) {
+    provider._probe = { state: 'failed', detail: String(err?.message || err) };
+    IPCLog.append('error', `${provider.name || provider.id}: ${provider._probe.detail}`);
+  }
+  manager.render();
+}
+
+function providerStatusBadge(state, detail) {
+  // Reuses the dot classes styles.css already defines. status-unknown is the
+  // right colour for CONFIGURED precisely because it means "not measured".
+  const map = {
+    ok:         ['status-ok',         'OK'],
+    failed:     ['status-error',      'FAILED'],
+    testing:    ['status-connecting', 'TESTING…'],
+    configured: ['status-unknown',    'CONFIGURED'],
+  };
+  const [dot, label] = map[state] || map.configured;
+  const title = detail
+    ? ` title="${escapeHtml(String(detail))}"`
+    : ' title="Configured. Nothing has been tested — use Test to check it."';
+  return `<div class="provider-status-indicator"${title}>
+        <span class="status-dot ${dot}"></span>
+        <span class="provider-status-text">${label}</span>
+      </div>`;
+}
+
 const SearchProviderManager = {
   _initialized: false,
   _providers: [],
@@ -4442,11 +4488,9 @@ const SearchProviderManager = {
         <input type="checkbox" class="provider-force-checkbox" ${isForced ? 'checked' : ''} />
         <span class="provider-force-text">FORCE</span>
       </label>
-      <div class="provider-status-indicator">
-        <span class="status-dot status-ok"></span>
-        <span class="provider-status-text">ACTIVE</span>
-      </div>
+      ${providerStatusBadge(p._probe ? p._probe.state : "configured", p._probe ? p._probe.detail : "")}
       <div class="provider-card-actions">
+        <button class="btn-provider-action btn-search-provider-test" title="Send a real query to this provider">TEST</button>
         <button class="btn-provider-action btn-search-provider-up"   title="Move Up"   ${isFirst ? 'disabled' : ''}>↑</button>
         <button class="btn-provider-action btn-search-provider-down" title="Move Down" ${isLast  ? 'disabled' : ''}>↓</button>
         <button class="btn-provider-action btn-search-provider-delete" title="Remove provider">✕</button>
@@ -4455,6 +4499,8 @@ const SearchProviderManager = {
     if (!isFirst) card.querySelector('.btn-search-provider-up').addEventListener('click', () => this.move(p.id, -1));
     if (!isLast)  card.querySelector('.btn-search-provider-down').addEventListener('click', () => this.move(p.id, 1));
     card.querySelector('.btn-search-provider-delete').addEventListener('click', () => this.remove(p.id));
+    card.querySelector('.btn-search-provider-test').addEventListener(
+      'click', () => runProviderProbe(this, p, 'search.test_provider'));
 
     const forceCheckbox = card.querySelector('.provider-force-checkbox');
     if (forceCheckbox) {
