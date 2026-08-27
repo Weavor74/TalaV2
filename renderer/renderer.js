@@ -251,6 +251,68 @@ const UIControl = {
   }
 };
 
+/**
+ * What kind of file this is, so the editor can stop treating everything as text.
+ *
+ * Steven's original intent for this surface: "a method to edit files and
+ * documents. Be them txt, images or whatever. This included code." It was a
+ * textarea, so an image could not be shown at all -- and worse, opening one
+ * read it as UTF-8, filled the editor with replacement characters, and Save
+ * wrote those back over the file (UI-114). Classification exists mainly to
+ * stop that.
+ */
+const EDITOR_IMAGE_TYPES = {
+  png: 'image/png', jpg: 'image/jpeg', jpeg: 'image/jpeg', gif: 'image/gif',
+  webp: 'image/webp', bmp: 'image/bmp', ico: 'image/x-icon', avif: 'image/avif',
+  svg: 'image/svg+xml',
+};
+
+/** Extensions that are text even though they are not obviously so. */
+const EDITOR_TEXT_TYPES = new Set([
+  'txt', 'md', 'markdown', 'rst', 'log', 'csv', 'tsv',
+  'json', 'jsonl', 'yaml', 'yml', 'toml', 'ini', 'cfg', 'conf', 'env',
+  'html', 'htm', 'xml', 'svg', 'css', 'scss', 'less',
+  'js', 'jsx', 'ts', 'tsx', 'mjs', 'cjs',
+  'py', 'rb', 'go', 'rs', 'java', 'kt', 'c', 'h', 'cpp', 'hpp', 'cs',
+  'sh', 'bash', 'zsh', 'ps1', 'bat', 'sql', 'graphql', 'proto',
+  'gitignore', 'dockerfile', 'makefile', 'lock',
+]);
+
+/** Extension to a human language name, for the badge. */
+const EDITOR_LANGUAGES = {
+  js: 'JavaScript', jsx: 'JavaScript', mjs: 'JavaScript', cjs: 'JavaScript',
+  ts: 'TypeScript', tsx: 'TypeScript', py: 'Python', rb: 'Ruby', go: 'Go',
+  rs: 'Rust', java: 'Java', kt: 'Kotlin', c: 'C', h: 'C', cpp: 'C++',
+  hpp: 'C++', cs: 'C#', sh: 'Shell', bash: 'Shell', zsh: 'Shell',
+  ps1: 'PowerShell', bat: 'Batch', sql: 'SQL', html: 'HTML', htm: 'HTML',
+  css: 'CSS', scss: 'SCSS', json: 'JSON', yaml: 'YAML', yml: 'YAML',
+  toml: 'TOML', xml: 'XML', md: 'Markdown', markdown: 'Markdown',
+};
+
+function editorFileExtension(filePath) {
+  const base = String(filePath || '').replace(/\\/g, '/').split('/').pop() || '';
+  if (!base.includes('.')) return base.toLowerCase();  // Makefile, Dockerfile
+  return base.split('.').pop().toLowerCase();
+}
+
+function editorFileKind(filePath) {
+  const ext = editorFileExtension(filePath);
+  // SVG is both: it is an image and it is text you might want to edit. Text
+  // wins, because editing it is the thing a textarea can actually do.
+  if (ext === 'svg') return 'text';
+  if (EDITOR_IMAGE_TYPES[ext]) return 'image';
+  if (EDITOR_TEXT_TYPES.has(ext)) return 'text';
+  // Unknown is treated as binary rather than as text. Guessing wrong towards
+  // text is what corrupts files; guessing wrong towards binary only means the
+  // user has to tell us it is text.
+  return 'binary';
+}
+
+function editorLanguageLabel(filePath) {
+  const ext = editorFileExtension(filePath);
+  return EDITOR_LANGUAGES[ext] || (ext ? ext.toUpperCase() : 'TEXT');
+}
+
 const TabManager = {
   tabs: [
     { id: 'neural-node', title: 'Neural Nodes', type: 'view' }
@@ -487,9 +549,71 @@ const TabManager = {
     return parsedLines.join('\n');
   },
 
+  /** Show one editor pane and hide the others. */
+  showEditorPane(which) {
+    const panes = {
+      text: this._editorTextarea,
+      preview: this._previewPane,
+      image: qs('#editor-image-pane'),
+      binary: qs('#editor-binary-pane'),
+    };
+    Object.entries(panes).forEach(([name, el]) => {
+      if (el) el.style.display = name === which
+        ? (name === 'text' ? 'block' : 'block')
+        : 'none';
+    });
+  },
+
+  /** The badge that says what this file is and whether it can be saved. */
+  setEditorBadge(kind, filePath, readOnlyReason) {
+    const badge = qs('#editor-file-badge');
+    const kindEl = qs('#editor-file-kind');
+    const roEl = qs('#editor-file-readonly');
+    if (!badge) return;
+
+    if (!filePath) {
+      badge.style.display = 'none';
+      return;
+    }
+    badge.style.display = 'flex';
+    if (kindEl) {
+      kindEl.textContent = kind === 'text'
+        ? editorLanguageLabel(filePath)
+        : kind.toUpperCase();
+    }
+    if (roEl) roEl.textContent = readOnlyReason || '';
+  },
+
   async loadTabFileContent(tab) {
     if (!this._editorTextarea) return;
-    
+
+    const kind = editorFileKind(tab.filePath);
+    tab.fileKind = kind;
+    // Read-only is tracked on the tab, not inferred again at save time, so the
+    // decision that "this cannot safely be written" is made once.
+    tab.readOnly = kind !== 'text';
+
+    if (kind === 'image') {
+      this.setEditorBadge(kind, tab.filePath, 'read-only');
+      this.showEditorPane('image');
+      await this.loadImageIntoEditor(tab);
+      return;
+    }
+
+    if (kind === 'binary') {
+      this.setEditorBadge(kind, tab.filePath, 'read-only');
+      this.showEditorPane('binary');
+      const message = qs('#editor-binary-message');
+      if (message) {
+        message.textContent =
+          `${tab.filePath} is not a text file, so it cannot be shown in the editor.`;
+      }
+      return;
+    }
+
+    this.setEditorBadge(kind, tab.filePath, '');
+    this.showEditorPane(tab.editorMode === 'preview' ? 'preview' : 'text');
+
     if (tab.editorMode === 'preview' && this._previewPane) {
       this._previewPane.innerHTML = '<div style="color: var(--text-secondary); padding: 20px;">Loading preview...</div>';
     }
@@ -507,17 +631,67 @@ const TabManager = {
         }
       } else {
         this._editorTextarea.value = `Failed to read file: ${JSON.stringify(res)}`;
+        // A failed read leaves an error message in the buffer; saving it would
+        // write that message over the file.
+        tab.readOnly = true;
+        this.setEditorBadge(kind, tab.filePath, 'unreadable — save disabled');
       }
     } catch (err) {
       this._editorTextarea.value = `Error loading file: ${err.message ?? err}`;
+      tab.readOnly = true;
+      this.setEditorBadge(kind, tab.filePath, 'unreadable — save disabled');
     } finally {
       this._editorTextarea.disabled = false;
+    }
+  },
+
+  async loadImageIntoEditor(tab) {
+    const img = qs('#editor-image');
+    const meta = qs('#editor-image-meta');
+    if (!img) return;
+
+    img.removeAttribute('src');
+    if (meta) meta.textContent = 'Loading…';
+
+    try {
+      // base64, not utf8: file:read already takes an encoding, so no new IPC
+      // channel is needed to carry bytes safely.
+      const res = await invoke('file:read', {
+        filePath: tab.filePath, encoding: 'base64',
+      });
+      if (!res || !res.ok) {
+        if (meta) meta.textContent = `Could not read the image: ${JSON.stringify(res)}`;
+        return;
+      }
+      const ext = editorFileExtension(tab.filePath);
+      const mime = EDITOR_IMAGE_TYPES[ext] || 'application/octet-stream';
+      img.src = `data:${mime};base64,${res.data}`;
+      img.alt = tab.filePath;
+      if (meta) {
+        const kb = res.size ? `${(res.size / 1024).toFixed(1)} KB` : '';
+        img.onload = () => {
+          meta.textContent =
+            `${ext.toUpperCase()} · ${img.naturalWidth}×${img.naturalHeight}${kb ? ' · ' + kb : ''} · read-only`;
+        };
+      }
+    } catch (err) {
+      if (meta) meta.textContent = `Could not read the image: ${err.message ?? err}`;
     }
   },
 
   async saveActiveFile() {
     const tab = this.tabs.find(t => t.id === this.activeTabId);
     if (!tab || tab.type !== 'file' || !this._editorTextarea) return;
+
+    // The guard that matters. Before this, opening a PNG read it as UTF-8 into
+    // the textarea and saving wrote the mangled text back -- the file was
+    // destroyed by looking at it and pressing Save (UI-114).
+    if (tab.readOnly || tab.fileKind === 'image' || tab.fileKind === 'binary') {
+      IPCLog.append('error',
+        `Refusing to save ${tab.filePath}: it is not a text file, and writing the ` +
+        `editor buffer over it would corrupt it.`);
+      return;
+    }
 
     const data = this._editorTextarea.value;
     IPCLog.append('info', `Saving file: ${tab.filePath}...`);

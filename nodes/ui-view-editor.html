@@ -29,36 +29,42 @@
   </header>
 
   <section id="semantic-memory">
-    <p>Tala's original purpose: editing files and documents of any type. Reached: No sidebar entry by design. It is the centre pane the Explorer opens a file into.</p>
+    <p>Tala's original purpose: opening and editing files of any type, with the editor refusing to write anything it cannot safely write. Reached: No sidebar entry by design. It is the centre pane the Explorer opens a file into.</p>
     <p>The operator describes this screen as: “The editing section was meant to be the center pane. Her original usage intent was a method to edit files and documents. Be them txt, images or whatever. This included code.”</p>
-    <p>2 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+    <p>3 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
   </section>
 
   <section id="controls">
     <h2>Controls</h2>
     <table>
       <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
-      <tr><td>editor-textarea</td><td>The editor</td><td>partial</td></tr>
-      <tr><td>editor-preview-pane</td><td>Rendered preview</td><td>partial</td></tr>
+      <tr><td>editor-textarea</td><td>Text editor, for text and code</td><td>works</td></tr>
+      <tr><td>editor-preview-pane</td><td>Rendered preview for Markdown and HTML</td><td>works</td></tr>
+      <tr><td>editor-image-pane</td><td>Image viewer, read-only</td><td>works</td></tr>
+      <tr><td>editor-binary-pane</td><td>Explains why a non-text file cannot be edited</td><td>works</td></tr>
+      <tr><td>editor-file-badge</td><td>Says what kind of file is open and whether it can be saved</td><td>works</td></tr>
       <tr><td>btn-editor-edit-mode</td><td>EDIT mode, in the tab strip</td><td>works</td></tr>
       <tr><td>btn-editor-preview-mode</td><td>PREVIEW mode, in the tab strip</td><td>works</td></tr>
-      <tr><td>btn-save-file</td><td>SAVE, in the tab strip</td><td>works</td></tr>
+      <tr><td>btn-save-file</td><td>SAVE, in the tab strip. Refuses non-text files</td><td>works</td></tr>
     </table>
   </section>
 
   <section id="behaviour">
     <h2>Behaviour notes</h2>
     <ul>
-      <li>Preview is gated to .md and .html only.</li>
-      <li>Steven wants all formats covered, image and text.</li>
+      <li>Files are classified as text, image or binary from the extension. An unknown extension is treated as binary, because guessing wrong towards text is what corrupts files.</li>
+      <li>Images are read with encoding=base64 and shown as a data URI. file:read already accepted an encoding, so carrying bytes safely needed no new IPC channel.</li>
+      <li>Code is named by language on the badge - Python, Rust, SQL. There is no syntax highlighting.</li>
+      <li>Saving is refused for images, binaries, and any file whose read failed. Before this, opening a PNG read it as UTF-8 into the textarea and Save wrote the mangled text back, destroying the file (UI-114).</li>
     </ul>
   </section>
 
   <section id="known-defects">
     <h2>Known defects</h2>
     <ul>
-      <li>UI-114: the editor is a textarea. Code has no language awareness and images cannot open at all.</li>
-      <li>UI-115: the Explorer never lists a user file, so the editor is unreachable by its only intended route.</li>
+      <li>No syntax highlighting. Code opens as plain monospace text with a language label only.</li>
+      <li>No image editing - images are read-only, and there is no crop, resize or annotate.</li>
+      <li>No file import into the Vault from here; vault documents are created in the Vault view and are text only.</li>
     </ul>
   </section>
 
@@ -73,7 +79,7 @@
   <script type="application/json" id="node-state" data-cognitive-block="state">
 {
   "title": "UI View: Editor",
-  "description": "Tala's original purpose: editing files and documents of any type.",
+  "description": "Tala's original purpose: opening and editing files of any type, with the editor refusing to write anything it cannot safely write.",
   "tags": [
     "ui",
     "ui-view",
@@ -86,13 +92,28 @@
   "controls": [
     {
       "id": "editor-textarea",
-      "does": "The editor",
-      "verdict": "partial"
+      "does": "Text editor, for text and code",
+      "verdict": "works"
     },
     {
       "id": "editor-preview-pane",
-      "does": "Rendered preview",
-      "verdict": "partial"
+      "does": "Rendered preview for Markdown and HTML",
+      "verdict": "works"
+    },
+    {
+      "id": "editor-image-pane",
+      "does": "Image viewer, read-only",
+      "verdict": "works"
+    },
+    {
+      "id": "editor-binary-pane",
+      "does": "Explains why a non-text file cannot be edited",
+      "verdict": "works"
+    },
+    {
+      "id": "editor-file-badge",
+      "does": "Says what kind of file is open and whether it can be saved",
+      "verdict": "works"
     },
     {
       "id": "btn-editor-edit-mode",
@@ -106,17 +127,18 @@
     },
     {
       "id": "btn-save-file",
-      "does": "SAVE, in the tab strip",
+      "does": "SAVE, in the tab strip. Refuses non-text files",
       "verdict": "works"
     }
   ],
   "known_defects": [
-    "UI-114: the editor is a textarea. Code has no language awareness and images cannot open at all.",
-    "UI-115: the Explorer never lists a user file, so the editor is unreachable by its only intended route."
+    "No syntax highlighting. Code opens as plain monospace text with a language label only.",
+    "No image editing - images are read-only, and there is no crop, resize or annotate.",
+    "No file import into the Vault from here; vault documents are created in the Vault view and are text only."
   ],
   "metadata": {
     "author": "ui-audit",
-    "created_or_updated": "2026-08-27T18:16:55Z",
+    "created_or_updated": "2026-08-27T19:28:50Z",
     "schema": "neural-node/v2",
     "source": "docs/ui-audit-findings.md"
   }

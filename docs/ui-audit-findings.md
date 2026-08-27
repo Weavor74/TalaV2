@@ -3300,7 +3300,24 @@ running a bare `git pull` to update Tala herself
 ([server.py:9993](../python/harness/server.py#L9993)) remains the wrong mechanism.
 
 ### UI-114 — Tala's original purpose — editing documents of any type — is barely represented
-**Severity: high · Status: open · Raised by Steven, 2026-08-23**
+**Severity: high · Status: FIXED 2026-08-23 — with the remaining gaps named · Raised by Steven**
+
+> **Fixed, and the most important part was not the feature.** Opening a PNG read it as UTF-8
+> into the textarea and Save wrote the mangled text back: the file was destroyed by looking
+> at it and pressing Save. Saving is now refused for images, binaries, and any file whose
+> read failed -- an error message left in the buffer would otherwise be written over the
+> file too.
+>
+> Files are classified text / image / binary from the extension, and an **unknown extension
+> is treated as binary**: guessing wrong towards text corrupts files, guessing wrong towards
+> binary only means the user has to say it is text. Images render from `encoding: base64`,
+> which `file:read` already accepted, so carrying bytes safely needed no new IPC channel.
+> Code is named by language on the badge.
+>
+> **What is still missing, stated rather than implied:** no syntax highlighting -- code is
+> monospace text with a language label; images are read-only, with no crop, resize or
+> annotate; and there is no file import into the Vault from here. All three are recorded on
+> `ui-view-editor` so Tala's own map does not overstate what she can do.
 
 > **Steven:** *"We technically forgot some things. Her original usage intent was a method to edit
 > files and documents. Be them txt, images or whatever. This included code."*
