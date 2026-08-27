@@ -140,7 +140,13 @@ async def load_config_from_db() -> dict[str, Any]:
         return {}
     if not row:
         return {}
-    return _decode(row["config"])
+    # PII is encrypted at rest (UI-055); decrypt so the lookup gate sees real
+    # values and can make a real decision about them.
+    from python.harness.credential_crypto import decrypt_section
+    config = _decode(row["config"])
+    if isinstance(config.get("pii_vault"), dict):
+        config["pii_vault"] = decrypt_section(config["pii_vault"])
+    return config
 
 
 async def load_config() -> dict[str, Any]:

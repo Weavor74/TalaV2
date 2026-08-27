@@ -1065,7 +1065,15 @@ remote provider marked `ONLINE` is selected, fails, and is transparently skipped
 neither an accurate status badge nor an error. Same silent-degradation shape as UI-018.
 
 ### UI-047 — API keys are stored in plaintext
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `inference_providers.config` is encrypted with the same AES-256-GCM envelope
+> the audit noted was already in-repo. Selective: `model`, `engine` and `endpoint` stay
+> queryable, only the key is wrapped. The six copy-pasted SELECTs became one
+> `load_inference_providers()` so there is a single decrypt point rather than six chances
+> to miss one -- and a missed one does not fail loudly, it hands an AES envelope to an HTTP
+> client as though it were an API key.
 
 `inference_providers.config` is `JSONB NOT NULL DEFAULT '{}'`
 ([db.py:162](../python/harness/db.py#L162)) and holds `apiKey` as a plain string. There is no
@@ -1265,7 +1273,18 @@ Asking a user to enter document paths to their personal records, on the stated p
 agent will use them, is worth correcting promptly whichever way it is resolved.
 
 ### UI-054 — PII is mirrored into a Neural Node that bypasses the private-memory guard
-**Severity: high (privacy) · Status: open — final hop needs confirmation**
+**Severity: high (privacy) · Status: FIXED 2026-08-23 — final hop needs confirmation**
+
+
+> **Fixed, to Steven's design.** He proposed it mid-session: *"Maybe the nodes that
+> containe PII can be tagged vault and anything in vault is encrypted"*. Better than the
+> alternative, which was to strip PII out of the node -- that worked but made Postgres the
+> real store and the node a lossy summary, against the HTML-NN mandate. `node_vault.py`
+> seals the vault fields in the node itself, so the node stays the record. `parse_html`
+> deliberately does **not** auto-unseal, or the encryption would be decoration: every
+> existing reader, retrieval included, would carry the values straight back out. The prose
+> retrieval indexes now carries a summary saying the vault exists without saying what is in
+> it. Both node-writing paths seal -- an earlier pass reached only one, which a test caught.
 
 The `memory_index` path handles PII carefully (see D11 below): the chunk is tagged
 `trust_label='private'` and filtered out of search unless `allow_private=true`.
@@ -1307,7 +1326,14 @@ Note this interacts with UI-040/041 — a peer can already set its own permissio
 `pii_vault` is one of the nine sharing keys.
 
 ### UI-055 — PII is stored in plaintext
-**Severity: medium · Status: open**
+**Severity: medium · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `profiles.config["pii_vault"]` is encrypted section-wide rather than by
+> field name: every value in the vault is sensitive by definition, and matching names would
+> mean a field added later stays in clear because nobody updated a list. All nine profile
+> readers decrypt -- including the two astrology paths, which read `pii_vault.dob` and would
+> otherwise have quietly stopped finding a birthdate.
 
 `profiles.config` is `JSONB NOT NULL DEFAULT '{}'::jsonb`
 ([db.py](../python/harness/db.py)) with no encryption. Legal name, date of birth, email, phone, and
@@ -1814,7 +1840,13 @@ nodes are being backed up off-machine. Given UI-056 (profile data lost when the 
 moves), a user might specifically rely on this as their safety net. It is not one.
 
 ### UI-070 — Storage credentials are plaintext with no indirection option
-**Severity: medium · Status: open**
+**Severity: medium · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `storage_providers.credentials` is encrypted, `secret_access_key` and friends
+> are redacted to the panel, and a save that sends the redaction back preserves the stored
+> secret rather than overwriting a working key with three asterisks. `access_key_id`,
+> `bucket` and `region` stay readable -- they identify, they do not authenticate.
 
 `storage_providers.credentials` is `JSONB NOT NULL DEFAULT '{}'::jsonb`
 ([db.py:284](../python/harness/db.py#L284)) and holds `SECRET ACCESS KEY` inline.
@@ -1877,7 +1909,12 @@ Notable given the SYSTEM panel two tabs away performs a **genuine** PostgreSQL h
 (D14). The real signal exists in the codebase; this panel just does not use it.
 
 ### UI-074 — Database passwords are stored as bare plaintext `TEXT`
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** A bare `TEXT` column has no config dict to walk, so the value is wrapped in
+> the same envelope serialised to JSON, which still fits the column -- no schema migration
+> needed. Redacted to the panel, and a redacted save keeps the stored password.
 
 [db.py:299](../python/harness/db.py#L299):
 

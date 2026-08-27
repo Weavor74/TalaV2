@@ -158,7 +158,11 @@ async def test_handle_inbound_a2a_success(mock_send_helper, mock_httpx, mock_fet
                 "name": "Remote OpenAI",
                 "priority": 1,
                 "status": "online",
-                "config": '{"endpoint": "https://api.openai.com/v1", "model": "gpt-4o", "apiKey": "key-xyz"}'
+                "config": '{"endpoint": "https://api.openai.com/v1", "model": "gpt-4o", "apiKey": "key-xyz"}',
+                # the real SELECT returns locked; the mock omitted it, so the
+                # test was asserting against a row shape the database never
+                # produces
+                "locked": False,
             }
         ]
     ]

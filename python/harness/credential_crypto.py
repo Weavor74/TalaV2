@@ -43,11 +43,43 @@ log = logging.getLogger(__name__)
 ENVELOPE_MARKER = "__enc"
 ENVELOPE_VERSION = "aesgcm-v1"
 
-#: Fields inside a credential config that hold secret material.
-SECRET_FIELDS = frozenset({
-    "api_key", "apiKey", "token", "password", "passphrase",
+#: Secrets that authenticate: keys, tokens, passwords.
+#:
+#: Both snake_case and camelCase spellings appear, because the renderer writes
+#: JSON straight from form fields and the harness writes Python dicts. Missing
+#: one spelling silently leaves that value in clear, so both are listed rather
+#: than normalised at one end -- normalising would mean trusting every writer
+#: to have done it.
+CREDENTIAL_SECRET_FIELDS = frozenset({
+    # generic
+    "key", "api_key", "apiKey", "token", "password", "passphrase", "secret",
     "private_key", "privateKey", "client_secret", "clientSecret",
-    "refresh_token", "refreshToken", "secret",
+    "refresh_token", "refreshToken", "access_token", "accessToken",
+    # object storage (UI-070) -- the highest-value credential in the settings
+    # surface and, before this, the one with the weakest handling
+    "secret_access_key", "secretAccessKey", "aws_secret_access_key",
+    "account_key", "accountKey", "sas_token", "sasToken",
+    "connection_string", "connectionString",
+    # database (UI-074)
+    "db_password", "dbPassword",
+})
+
+#: Personal identity (UI-055). Encrypted at rest like a credential, but kept a
+#: separate set: redacting these in a settings panel would blank fields the
+#: user is trying to read back, and "email" as a username is not a secret.
+PII_FIELDS = frozenset({
+    "dob", "date_of_birth", "legal_name", "legalName", "ssn",
+    "passport", "drivers_license", "national_id",
+})
+
+#: Everything encrypted at rest.
+SECRET_FIELDS = CREDENTIAL_SECRET_FIELDS | PII_FIELDS
+
+#: Fields that identify rather than authenticate. An access key id or a bucket
+#: name has to stay queryable and is not worth a key to read.
+NEVER_ENCRYPT = frozenset({
+    "access_key_id", "accessKeyId", "bucket", "region", "endpoint",
+    "username", "user", "host", "port", "database", "auth_type", "type",
 })
 
 _KEY_FILE = "credential_key.bin"
@@ -123,17 +155,37 @@ def encrypt_config(config: Any) -> Any:
         return config
     out = dict(config)
     for field in list(out):
+        if field in NEVER_ENCRYPT:
+            continue
         if field in SECRET_FIELDS and isinstance(out[field], str) and out[field]:
             out[field] = _encrypt_value(key, out[field])
     return out
 
 
+def _unwrap(value: Any, limit: int = 5) -> Any:
+    """
+    Decode a JSON value that may have been encoded more than once.
+
+    Some columns are double-encoded -- a jsonb codec plus json.dumps at the
+    call site -- so a single loads() yields a string again. A single loads()
+    here returned that string, and the caller then got an AttributeError or,
+    worse, treated it as an empty config.
+    """
+    seen = 0
+    while isinstance(value, (str, bytes)) and seen < limit:
+        try:
+            value = json.loads(value)
+        except (json.JSONDecodeError, ValueError):
+            return value
+        seen += 1
+    return value
+
+
 def decrypt_config(config: Any) -> Any:
     """Decrypt any encrypted fields. Plaintext values pass straight through."""
-    if isinstance(config, str):
-        try:
-            config = json.loads(config)
-        except json.JSONDecodeError:
+    if isinstance(config, (str, bytes)):
+        config = _unwrap(config)
+        if isinstance(config, str):
             return config
     if not isinstance(config, dict):
         return config
@@ -149,4 +201,111 @@ def decrypt_config(config: Any) -> Any:
             plain = _decrypt_value(key, value)
             if plain is not None:
                 out[field] = plain
+    return out
+
+
+# -- single values (plain TEXT columns) --------------------------------------
+#
+# database_providers.password is a bare TEXT column, not JSONB, so there is no
+# config dict to walk (UI-074). These wrap one string in the same envelope,
+# serialised to JSON so it still fits a TEXT column.
+
+def encrypt_value(plaintext: str) -> str:
+    """Encrypt a single string for storage in a TEXT column. Idempotent."""
+    if not isinstance(plaintext, str) or not plaintext:
+        return plaintext
+    if is_encrypted_text(plaintext):
+        return plaintext
+    key = load_or_create_key()
+    if key is None:
+        return plaintext
+    return json.dumps(_encrypt_value(key, plaintext))
+
+
+def is_encrypted_text(value: Any) -> bool:
+    if not isinstance(value, str) or not value.startswith("{"):
+        return False
+    try:
+        return is_encrypted(json.loads(value))
+    except (json.JSONDecodeError, ValueError):
+        return False
+
+
+def decrypt_value(stored: str) -> str:
+    """Decrypt a TEXT column value. Plaintext passes straight through."""
+    if not is_encrypted_text(stored):
+        return stored
+    key = load_or_create_key()
+    if key is None:
+        log.error("credential_crypto: encrypted value present but no key available.")
+        return stored
+    plain = _decrypt_value(key, json.loads(stored))
+    # Returning the ciphertext rather than "" on failure: an unreadable
+    # password is recoverable, a silently blanked one is not.
+    return stored if plain is None else plain
+
+
+# -- whole sections ----------------------------------------------------------
+#
+# profiles.config["pii_vault"] holds a legal name, date of birth, contact
+# details and identity-document registries (UI-055). Every value in it is
+# sensitive by definition, so matching field names would be the wrong tool --
+# a field added to the vault later must not stay in clear because nobody
+# remembered to add its name to a list.
+
+def encrypt_section(section: Any) -> Any:
+    """Encrypt every string value in a section. Idempotent; nesting preserved."""
+    if not isinstance(section, dict):
+        return section
+    key = load_or_create_key()
+    if key is None:
+        return section
+    out: dict[str, Any] = {}
+    for field, value in section.items():
+        if is_encrypted(value):
+            # Already wrapped. Without this the recursion below treats the
+            # envelope as an ordinary dict and encrypts its own nonce and
+            # ciphertext, which decrypts back to an envelope rather than a
+            # value -- a save-after-load cycle would have done exactly that.
+            out[field] = value
+        elif isinstance(value, str) and value:
+            out[field] = _encrypt_value(key, value)
+        elif isinstance(value, dict):
+            out[field] = encrypt_section(value)
+        elif isinstance(value, list):
+            out[field] = [
+                encrypt_section(v) if isinstance(v, dict)
+                else (_encrypt_value(key, v) if isinstance(v, str) and v else v)
+                for v in value
+            ]
+        else:
+            out[field] = value
+    return out
+
+
+def decrypt_section(section: Any) -> Any:
+    """Reverse :func:`encrypt_section`. Plaintext passes straight through."""
+    if isinstance(section, (str, bytes)):
+        section = _unwrap(section)
+        if isinstance(section, str):
+            return section
+    if not isinstance(section, dict):
+        return section
+    key = load_or_create_key()
+    out: dict[str, Any] = {}
+    for field, value in section.items():
+        if is_encrypted(value):
+            if key is None:
+                out[field] = value
+                continue
+            plain = _decrypt_value(key, value)
+            out[field] = value if plain is None else plain
+        elif isinstance(value, dict):
+            out[field] = decrypt_section(value)
+        elif isinstance(value, list):
+            out[field] = [
+                decrypt_section(v) if isinstance(v, dict) else v for v in value
+            ]
+        else:
+            out[field] = value
     return out

@@ -2396,7 +2396,7 @@ async def handle_inference_generate(
     # module-level import here risks a cycle during startup.
     from sdk.agent.queue import _is_embedding_model
     try:
-        rows = await db.fetch("SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC")
+        rows = await load_inference_providers()
         for r in rows:
             cfg_dict = r["config"]
             if isinstance(cfg_dict, str):
@@ -3789,10 +3789,7 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
         elif subject == "user":
             try:
                 row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
-                cfg = row["config"] if row else {}
-                if isinstance(cfg, str):
-                    import json
-                    cfg = json.loads(cfg)
+                cfg = decrypt_profile_config(row["config"] if row else {}) or {}
                 birth_str = (
                     cfg.get("identity", {}).get("birthdate")
                     or cfg.get("pii_vault", {}).get("dob")
@@ -3868,10 +3865,7 @@ async def handle_astro_synastry(params: dict[str, Any], req_id: Any) -> str:
         user_source = "missing"
         user_row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
         if user_row:
-            user_cfg = user_row["config"]
-            if isinstance(user_cfg, str):
-                import json
-                user_cfg = json.loads(user_cfg)
+            user_cfg = decrypt_profile_config(user_row["config"]) or {}
             user_birth_str = (
                 user_cfg.get("identity", {}).get("birthdate")
                 or user_cfg.get("pii_vault", {}).get("dob")
@@ -3979,7 +3973,14 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
             from sdk.agent.parser import parse_file
             try:
                 node = parse_file(str(node_file))
-                sd = node.state_data or {}
+                # Unseal the vault fields. Explicit rather than automatic in
+                # parse_html: if reading any node returned plaintext, the
+                # sealing would be decoration -- retrieval and anything that
+                # ships a node to a peer would carry the values straight back
+                # out. This caller is the settings panel showing the user their
+                # own profile, which is entitled to them.
+                from python.harness.node_vault import unseal_state
+                sd = unseal_state(node.state_data or {})
 
                 profile["id"] = sd.get("id", "master-user")
                 profile["type"] = sd.get("type", "human")
@@ -4000,9 +4001,7 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
                             "SELECT config FROM profiles WHERE id = 'master-user'"
                         )
                         if _row and _row["config"]:
-                            _cfg = _row["config"]
-                            if isinstance(_cfg, str):
-                                _cfg = json.loads(_cfg)
+                            _cfg = decrypt_profile_config(_row["config"])
                             if isinstance(_cfg, dict) and _cfg:
                                 logger.info(
                                     "identity.get_user_profile: node is legacy-flat; "
@@ -4128,8 +4127,16 @@ async def handle_identity_save_user_profile(params: dict[str, Any], req_id: Any)
             "pii_dob": pii_dob,
             "pii_email": pii_email,
             "pii_phone": pii_phone,
-            "pii_registries": pii_registries
+            "pii_registries": pii_registries,
         }
+
+        # Vault-tagged: the PII fields above are encrypted in the node itself
+        # (Steven, 2026-08-23: "the nodes that containe PII can be tagged vault
+        # and anything in vault is encrypted"). The node stays the record --
+        # stripping the values out instead would have made Postgres the real
+        # store and this a lossy summary, against the HTML-NN mandate.
+        from python.harness.node_vault import seal_for
+        state_data = seal_for("user-profile", state_data)
         
         adapter_packet = {
             "activation_keywords": ["age", "old", "birthday", "birthdate", "name", "who am I", "how old am I", "roleplay", "rp", "persona", "avatar", "character", "class", "faction", "alignment", "pii", "secure", "vault", "legal", "email", "phone", "location"],
@@ -4154,15 +4161,13 @@ async def handle_identity_save_user_profile(params: dict[str, Any], req_id: Any)
     <p>RP Character Backstory: {rp_backstory}</p>
 
     <h3>Personally Identifiable Information &amp; Vault Registry</h3>
-    <p>Legal Name: {pii_legal_name}</p>
-    <p>Date of Birth: {pii_dob}</p>
-    <p>Primary Email: {pii_email}</p>
-    <p>Primary Phone: {pii_phone}</p>
-    
-    <h4>Registered Keys & Identifiers</h4>
-    <ul>
-      {"".join([f"<li>{r}</li>" for r in pii_registries]) if pii_registries else "<li>None registered.</li>"}
-    </ul>"""
+    <p>This user has {"a populated" if (pii_legal_name or pii_dob or pii_email or pii_phone) else "an empty"} identity vault
+    holding {len(pii_registries) if pii_registries else 0} registered identifier(s).
+    The values themselves are held encrypted in the profile store and are
+    deliberately not reproduced here: this node is indexed for retrieval, so
+    anything written into it can be surfaced into a model's context. No agent
+    can read them -- user_profile_lookup refuses the pii_vault section at every
+    visibility setting.</p>"""
 
         core_hash, chaincode_id, anchoring_status, raw_response, public_key = canonicalize_and_anchor(
             "user-profile",
@@ -4249,10 +4254,7 @@ __PROV_PLACEHOLDER__
         try:
             existing_row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
             if existing_row:
-                existing_cfg = existing_row["config"]
-                if isinstance(existing_cfg, str):
-                    existing_cfg = json.loads(existing_cfg)
-                existing_cfg = existing_cfg or {}
+                existing_cfg = decrypt_profile_config(existing_row["config"]) or {}
             else:
                 existing_cfg = {}
 
@@ -4396,7 +4398,7 @@ async def handle_inference_get_providers(params: dict[str, Any], req_id: Any) ->
     ``inference.get_providers`` — Retrieve all configured inference providers sorted by priority.
     """
     try:
-        rows = await db.fetch("SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC")
+        rows = await load_inference_providers()
         providers = []
         for r in rows:
             import json as json_mod
@@ -4448,6 +4450,12 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
                         if v is not None:
                             cfg[k] = v
                     
+                    # apiKey was written in clear (UI-047). Selective, so model,
+                    # engine and endpoint stay readable and queryable without a
+                    # key -- only the secret itself is wrapped.
+                    from python.harness.credential_crypto import encrypt_config
+                    stored_cfg = encrypt_config(cfg)
+
                     await conn.execute(
                         """
                         INSERT INTO inference_providers (id, type, name, priority, status, config, locked)
@@ -4458,7 +4466,7 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
                         p["name"],
                         idx + 1,
                         p.get("status", "unknown"),
-                        json_mod.dumps(cfg),
+                        json_mod.dumps(stored_cfg),
                         bool(p.get("locked", False)),
                     )
         try:
@@ -4566,9 +4574,7 @@ async def handle_inference_detect_local_providers(params: dict[str, Any], req_id
     """
     try:
         await _auto_detect_and_verify_providers()
-        rows = await db.fetch(
-            "SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC"
-        )
+        rows = await load_inference_providers()
         import json as json_mod
         providers = []
         for r in rows:
@@ -5401,9 +5407,7 @@ async def _local_identity() -> dict[str, str]:
         if row:
             username = str(row["username"] or "")
             if not username:
-                cfg = row["config"]
-                if isinstance(cfg, str):
-                    cfg = json.loads(cfg)
+                cfg = decrypt_profile_config(row["config"]) or {}
                 username = str(((cfg or {}).get("identity") or {}).get("username") or "")
     except Exception as exc:
         logger.debug("_local_identity: no profile username available: %s", exc)
@@ -5447,10 +5451,7 @@ async def _get_master_profile_config() -> dict[str, Any]:
     row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
     if row is None:
         return {}
-    config = row["config"]
-    if isinstance(config, str):
-        return json.loads(config)
-    return dict(config or {})
+    return decrypt_profile_config(row["config"]) or {}
 
 
 def _profile_for_permissions(profile_config: dict[str, Any], permissions: dict[str, Any]) -> dict[str, Any]:
@@ -5893,9 +5894,7 @@ async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None
 
     # 4. Invoke inference engine
     try:
-        rows = await db.fetch(
-            "SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC"
-        )
+        rows = await load_inference_providers()
     except Exception as e:
         logger.error("A2A: Failed to query inference providers: %s", e)
         return
@@ -6283,10 +6282,7 @@ async def handle_profiles_list(params: dict[str, Any], req_id: Any) -> str:
             rows = await db.fetch("SELECT id, type, name, username, config FROM profiles ORDER BY name ASC")
         profiles = []
         for r in rows:
-            cfg = r["config"]
-            if isinstance(cfg, str):
-                import json as json_mod
-                cfg = json_mod.loads(cfg)
+            cfg = decrypt_profile_config(r["config"])
             profiles.append({
                 "id": r["id"],
                 "type": r["type"],
@@ -6311,10 +6307,7 @@ async def handle_profiles_get(params: dict[str, Any], req_id: Any) -> str:
         row = await db.fetchrow("SELECT id, type, name, username, config FROM profiles WHERE id = $1", profile_id)
         if not row:
             return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Profile with id '{profile_id}' not found")
-        cfg = row["config"]
-        if isinstance(cfg, str):
-            import json as json_mod
-            cfg = json_mod.loads(cfg)
+        cfg = decrypt_profile_config(row["config"])
         profile = {
             "id": row["id"],
             "type": row["type"],
@@ -6326,6 +6319,49 @@ async def handle_profiles_get(params: dict[str, Any], req_id: Any) -> str:
     except Exception as exc:
         logger.exception("profiles.get error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+#: Profile sections whose every value is personal identity (UI-055).
+PII_SECTIONS = ("pii_vault",)
+
+
+def encrypt_profile_config(config: Any) -> Any:
+    """
+    Encrypt the PII sections of a profile config before it is stored.
+
+    Only pii_vault: name, roles, skills and projects are the things the profile
+    exists to make usable, and encrypting them would mean a key read on every
+    lookup for no benefit. Legal name, date of birth, contact details and
+    identity-document registries are a different category.
+    """
+    from python.harness.credential_crypto import encrypt_section
+
+    if not isinstance(config, dict):
+        return config
+    out = dict(config)
+    for section in PII_SECTIONS:
+        if isinstance(out.get(section), dict):
+            out[section] = encrypt_section(out[section])
+    return out
+
+
+def decrypt_profile_config(config: Any) -> Any:
+    """Reverse :func:`encrypt_profile_config`. Plaintext passes through."""
+    from python.harness.credential_crypto import decrypt_section
+
+    if isinstance(config, str):
+        import json as _json
+        try:
+            config = _json.loads(config)
+        except (ValueError, _json.JSONDecodeError):
+            return config
+    if not isinstance(config, dict):
+        return config
+    out = dict(config)
+    for section in PII_SECTIONS:
+        if isinstance(out.get(section), dict):
+            out[section] = decrypt_section(out[section])
+    return out
 
 
 async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
@@ -6350,7 +6386,9 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
         profile_id = f"profile-{sanitized}-{uuid.uuid4().hex[:4]}"
 
     import json as json_mod
-    config_json = json_mod.dumps(config)
+    # Encrypt PII before it is written, but index and return the plaintext:
+    # the caller handed us a live config and expects it back usable.
+    config_json = json_mod.dumps(encrypt_profile_config(config))
 
     try:
         await db.execute(
@@ -6467,8 +6505,12 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
                     "pii_dob": pii_dob,
                     "pii_email": pii_email,
                     "pii_phone": pii_phone,
-                    "pii_registries": pii_registries
+                    "pii_registries": pii_registries,
                 }
+                # Sealed, not stripped: the node keeps the record and the
+                # sensitive half of it is encrypted (UI-054).
+                from python.harness.node_vault import seal_for, summarise_vault
+                state_data = seal_for("user-profile", state_data)
                 
                 adapter_packet = {
                     "activation_keywords": ["age", "old", "birthday", "birthdate", "name", "who am I", "how old am I", "roleplay", "rp", "persona", "avatar", "character", "class", "faction", "alignment", "pii", "secure", "vault", "legal", "email", "phone", "location"],
@@ -6522,15 +6564,12 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
     <p>RP Character Backstory: {rp_backstory}</p>
 
     <h3>Personally Identifiable Information &amp; Vault Registry</h3>
-    <p>Legal Name: {pii_legal_name}</p>
-    <p>Date of Birth: {pii_dob}</p>
-    <p>Primary Email: {pii_email}</p>
-    <p>Primary Phone: {pii_phone}</p>
-    
-    <h4>Registered Keys & Identifiers</h4>
-    <ul>
-      {"".join([f"<li>{r}</li>" for r in pii_registries]) if pii_registries else "<li>None registered.</li>"}
-    </ul>"""
+    <p>{summarise_vault(
+        {"pii_legal_name": pii_legal_name, "pii_dob": pii_dob,
+         "pii_email": pii_email, "pii_phone": pii_phone,
+         "pii_registries": pii_registries},
+        ("pii_legal_name", "pii_dob", "pii_email", "pii_phone", "pii_registries"),
+    )}</p>"""
 
                 core_hash, chaincode_id, anchoring_status, raw_response, public_key = canonicalize_and_anchor(
                     "user-profile",
@@ -7870,12 +7909,31 @@ async def handle_search_query(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+def _storage_credentials_for_storage(
+    incoming: Any, existing: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Encrypt storage credentials, keeping any the panel sent back redacted.
+
+    The panel is shown "***" rather than the real secret, so a plain save would
+    otherwise overwrite a working key with three asterisks -- the fix for one
+    problem creating a worse one. Redacted fields fall back to what is already
+    stored.
+    """
+    from python.harness.credential_crypto import encrypt_config
+
+    merged = _merge_redacted_auth_config(incoming, existing)
+    return encrypt_config(merged)
+
+
 async def handle_storage_get_providers(params: dict[str, Any], req_id: Any) -> str:
     """
     ``storage.get_providers`` — Retrieve all configured storage providers sorted by priority.
     Credentials are stored as a JSONB blob to support heterogeneous provider types.
     """
     try:
+        from python.harness.credential_crypto import decrypt_config
+
         rows = await db.fetch(
             "SELECT id, name, provider_type, credentials, priority, locked "
             "FROM storage_providers ORDER BY priority ASC"
@@ -7885,7 +7943,13 @@ async def handle_storage_get_providers(params: dict[str, Any], req_id: Any) -> s
                 "id":            r["id"],
                 "name":          r["name"],
                 "provider_type": r["provider_type"],
-                "credentials":   dict(r["credentials"]) if r["credentials"] else {},
+                # decrypt_config, not dict(): the column comes back as a JSON
+                # string from the driver, so dict() raises -- and here that
+                # would take out the whole panel. It also normalises, so this
+                # is the decrypt point for UI-070.
+                "credentials":   _redact_auth_config(
+                    decrypt_config(r["credentials"]) or {}
+                ),
                 "priority":      r["priority"],
                 "locked":        r["locked"],
             }
@@ -7907,6 +7971,15 @@ async def handle_storage_save_providers(params: dict[str, Any], req_id: Any) -> 
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'providers' (list) is required")
 
     try:
+        from python.harness.credential_crypto import decrypt_config
+
+        # Read what is stored *before* the table is wiped: the panel is shown
+        # "***" instead of each secret, so a save that took the form at face
+        # value would replace working credentials with asterisks.
+        existing_storage_creds: dict[str, Any] = {}
+        for row in await db.fetch("SELECT id, credentials FROM storage_providers"):
+            existing_storage_creds[row["id"]] = decrypt_config(row["credentials"]) or {}
+
         pool = db.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
@@ -7923,7 +7996,9 @@ async def handle_storage_save_providers(params: dict[str, Any], req_id: Any) -> 
                         p["id"],
                         p["name"],
                         p["provider_type"],
-                        _json.dumps(creds),
+                        _json.dumps(_storage_credentials_for_storage(
+                            creds, existing_storage_creds.get(p["id"], {})
+                        )),
                         idx + 1,
                         is_locked,
                     )
@@ -7971,13 +8046,17 @@ async def handle_database_get_providers(params: dict[str, Any], req_id: Any) -> 
             "SELECT id, name, endpoint, username, password, database, priority, locked "
             "FROM database_providers ORDER BY priority ASC"
         )
+        # password is a bare TEXT column rather than JSONB (UI-074), so it is
+        # wrapped as a single value. Redacted on the way out for the same
+        # reason every other secret is: the panel never needs to see it, and
+        # a save sends the redaction back rather than the real value.
         providers = [
             {
                 "id":       r["id"],
                 "name":     r["name"],
                 "endpoint": r["endpoint"],
                 "username": r["username"],
-                "password": r["password"],
+                "password": "***" if r["password"] else "",
                 "database": r["database"],
                 "priority": r["priority"],
                 "locked":   r["locked"],
@@ -8025,12 +8104,24 @@ async def handle_database_save_providers(params: dict[str, Any], req_id: Any) ->
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'providers' (list) is required")
 
     try:
+        from python.harness.credential_crypto import decrypt_value, encrypt_value
+
+        # Stored passwords, read before the table is wiped. The panel is shown
+        # "***", so taking the form at face value would replace a working
+        # password with three asterisks.
+        existing_db_passwords: dict[str, str] = {}
+        for row in await db.fetch("SELECT id, password FROM database_providers"):
+            existing_db_passwords[row["id"]] = decrypt_value(row["password"] or "")
+
         pool = db.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
                 await conn.execute("DELETE FROM database_providers")
                 for idx, p in enumerate(providers):
                     is_locked = bool(p.get("locked", False))
+                    incoming_password = p.get("password", "")
+                    if _is_redacted_secret(incoming_password):
+                        incoming_password = existing_db_passwords.get(p["id"], "")
                     await conn.execute(
                         """
                         INSERT INTO database_providers
@@ -8041,7 +8132,7 @@ async def handle_database_save_providers(params: dict[str, Any], req_id: Any) ->
                         p["name"],
                         p["endpoint"],
                         p.get("username", ""),
-                        p.get("password", ""),
+                        encrypt_value(incoming_password),
                         p.get("database", ""),
                         idx + 1,
                         is_locked,
@@ -8056,26 +8147,16 @@ async def handle_database_save_providers(params: dict[str, Any], req_id: Any) ->
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
-_SECRET_CONFIG_KEYS = {
-    "key",
-    "passphrase",
-    "password",
-    "api_key",
-    "client_secret",
-    "refresh_token",
-    "access_token",
-    "token",
-    # The SSH private key block itself was absent, so auth.get_credentials sent
-    # the whole "-----BEGIN OPENSSH PRIVATE KEY-----" body to the renderer while
-    # dutifully redacting its passphrase (UI-080). camelCase spellings are here
-    # because the panel posts some fields that way.
-    "private_key",
-    "privateKey",
-    "apiKey",
-    "clientSecret",
-    "refreshToken",
-    "secret",
-}
+from python.harness.credential_crypto import (
+    CREDENTIAL_SECRET_FIELDS as _CREDENTIAL_SECRET_FIELDS,
+)
+
+# One source, so the redaction list and the encryption list cannot drift --
+# a field encrypted but not redacted goes to the renderer in clear, and a field
+# redacted but not encrypted sits in the database in clear. Both have happened
+# here: the SSH private key block was the first (UI-080), storage secrets the
+# second (UI-070).
+_SECRET_CONFIG_KEYS = set(_CREDENTIAL_SECRET_FIELDS)
 
 
 def _is_redacted_secret(value: Any) -> bool:
@@ -8839,7 +8920,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
     # Retrieve configured providers from DB
     providers = []
     try:
-        rows = await db.fetch("SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC")
+        rows = await load_inference_providers()
         for r in rows:
             cfg_dict = r["config"]
             if isinstance(cfg_dict, str):
@@ -11230,6 +11311,48 @@ async def _browser_bridge(channel: str, payload: dict, req_id: any, what: str) -
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+def _row_get(row: Any, column: str, default: Any = None) -> Any:
+    """Read a column from an asyncpg Record or a plain dict, tolerating absence."""
+    try:
+        return row[column]
+    except (KeyError, IndexError, TypeError):
+        return default
+
+
+async def load_inference_providers() -> list[dict[str, Any]]:
+    """
+    Every inference provider, with its config decrypted.
+
+    The same SELECT was copy-pasted at six call sites, so wiring decryption
+    into each would have meant six chances to miss one -- and a missed one does
+    not fail loudly, it just hands an AES envelope to an HTTP client as though
+    it were an API key. One loader, one decrypt point (UI-047).
+
+    Rows come back as plain dicts rather than asyncpg Records so callers can
+    hold the decrypted config without the row's lifetime mattering.
+    """
+    from python.harness.credential_crypto import decrypt_config
+
+    rows = await db.fetch(
+        "SELECT id, type, name, priority, status, config, locked "
+        "FROM inference_providers ORDER BY priority ASC"
+    )
+    providers: list[dict[str, Any]] = []
+    for r in rows:
+        providers.append({
+            "id": r["id"],
+            "type": r["type"],
+            "name": r["name"],
+            "priority": r["priority"],
+            "status": r["status"],
+            "config": decrypt_config(r["config"]) or {},
+            # locked is a display/priority flag, not something to fail a whole
+            # provider list over if a caller hands us a partial row.
+            "locked": _row_get(r, "locked", False),
+        })
+    return providers
+
+
 async def handle_tools_catalogue(params: dict[str, Any], req_id: Any) -> str:
     """
     ``tools.catalogue`` — every tool, read from its HTML-NN.
@@ -11950,7 +12073,7 @@ async def _auto_detect_and_verify_providers() -> None:
     import json as json_mod
 
     # 1. Fetch all existing providers from the DB
-    rows = await db.fetch("SELECT id, type, name, priority, status, config, locked FROM inference_providers ORDER BY priority ASC")
+    rows = await load_inference_providers()
     existing_providers = []
     for r in rows:
         cfg = r["config"]
