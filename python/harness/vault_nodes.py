@@ -59,6 +59,22 @@ VAULT_NODE_TYPE = "vault"
 #: A separate tree would be a second store, which is the thing this avoids.
 VAULT_PREFIX = "vault-"
 
+#: Image types a vault document may hold. Deliberately short: these are the
+#: ones Steven asked for, and every additional format is another decoder the
+#: renderer has to be given a data URI for.
+VAULT_IMAGE_TYPES = {
+    "image/png": "png",
+    "image/jpeg": "jpg",
+    "image/gif": "gif",
+    "image/webp": "webp",
+}
+
+#: Cap on the *decoded* size of an attachment. Base64 inflates by a third and
+#: the whole thing is sealed into a single JSON string, so a large image makes
+#: a node that is slow to parse on every listing. 8 MB is a photograph.
+VAULT_MAX_ATTACHMENT_BYTES = 8 * 1024 * 1024
+
+
 
 class VaultEgressError(PermissionError):
     """Raised when vault content would leave the machine."""
@@ -117,6 +133,8 @@ def write_document(
     tags: list[str] | None = None,
     doc_id: str | None = None,
     grants: dict[str, Any] | None = None,
+    content_type: str = "text/plain",
+    filename: str = "",
 ) -> dict[str, Any]:
     """
     Create or replace a vault document.
@@ -124,7 +142,33 @@ def write_document(
     The body is sealed before it touches disk. The title and tags are not: a
     vault whose contents cannot be listed without the key is a vault nobody can
     use, and the title is what the user picked to recognise it by.
+
+    An image is the same thing with a different ``content_type``: the body is
+    base64 and is sealed exactly like prose, because the sealing works on
+    strings and base64 is a string. That keeps one storage path rather than
+    two, and one thing to get right about encryption rather than two.
     """
+    content_type = str(content_type or "text/plain").strip().lower()
+    if content_type != "text/plain":
+        if content_type not in VAULT_IMAGE_TYPES:
+            raise ValueError(
+                f"Unsupported vault content type {content_type!r}. "
+                f"Supported: text/plain, {', '.join(sorted(VAULT_IMAGE_TYPES))}."
+            )
+        # Measure the decoded size, not the base64 length: the user cares about
+        # the size of their photograph, not its encoding overhead.
+        import base64 as _b64
+        try:
+            decoded = _b64.b64decode(str(body or ""), validate=True)
+        except Exception as exc:
+            raise ValueError(f"The attachment is not valid base64: {exc}") from exc
+        if len(decoded) > VAULT_MAX_ATTACHMENT_BYTES:
+            raise ValueError(
+                f"That file is {len(decoded) / 1048576:.1f} MB. The vault holds "
+                f"attachments up to {VAULT_MAX_ATTACHMENT_BYTES // 1048576} MB, "
+                f"because the whole document is sealed as one value and is read "
+                f"in full every time it is opened."
+            )
     from python.harness.credential_crypto import encrypt_section, load_or_create_key
     import html as _html
     import json
@@ -145,6 +189,8 @@ def write_document(
         "tags": [str(t) for t in (tags or [])],
         "vault_sealed": True,
         "updated_at": now,
+        "content_type": content_type,
+        "filename": str(filename or ""),
         # Default deny. A document with no grants block is closed.
         "grants": grants or {"remote_inference": False, "contacts": []},
         "sealed": sealed,
@@ -215,6 +261,8 @@ def list_documents() -> list[dict[str, Any]]:
             "updated_at": state.get("updated_at", ""),
             "sealed": bool(state.get("vault_sealed")),
             "bytes": path.stat().st_size,
+            "content_type": state.get("content_type") or "text/plain",
+            "filename": state.get("filename") or "",
             # Carried on the listing so a panel can show what is actually
             # stored rather than what the user last typed. Without it the
             # access controls render as "off" whatever they are set to, which
@@ -258,6 +306,8 @@ def read_document(doc_id: str) -> dict[str, Any]:
         "title": state.get("title") or path.stem,
         "tags": state.get("tags") or [],
         "updated_at": state.get("updated_at", ""),
+        "content_type": state.get("content_type") or "text/plain",
+        "filename": state.get("filename") or "",
         "body": body,
     }
 
@@ -278,6 +328,20 @@ def search_documents(query: str) -> list[dict[str, Any]]:
     for entry in list_documents():
         if entry.get("unreadable"):
             continue
+        # Searching base64 finds nothing a person meant, so attachments are
+        # matched on title and filename only. Saying that beats returning a
+        # confident empty result.
+        if (entry.get("content_type") or "text/plain") != "text/plain":
+            haystack = f"{entry.get('title', '')} {entry.get('filename', '')}".lower()
+            if needle in haystack:
+                hits.append({
+                    "id": entry["id"],
+                    "title": entry.get("title") or entry["id"],
+                    "snippet": f"[{entry.get('content_type')} attachment: "
+                               f"{entry.get('filename') or 'no filename'}]",
+                })
+            continue
+
         doc = read_document(entry["id"])
         if not doc.get("success"):
             continue
@@ -357,9 +421,14 @@ def set_grant(doc_id: str, remote_inference: bool | None = None,
             str(c).strip().lstrip("@").lower() for c in contacts if str(c).strip()
         ]
 
+    # content_type and filename ride along: set_grant rewrites the whole
+    # document, and dropping them would silently turn an image into a text
+    # document the next time its permissions changed.
     result = write_document(
         title=doc["title"], body=doc["body"], tags=doc.get("tags") or [],
         doc_id=doc["id"], grants=grants,
+        content_type=doc.get("content_type") or "text/plain",
+        filename=doc.get("filename") or "",
     )
     log.info("vault: grants updated on %s -> %s", doc["id"], grants)
     return {"success": True, "id": doc["id"], "grants": grants, **result}

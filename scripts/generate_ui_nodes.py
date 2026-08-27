@@ -262,6 +262,7 @@ VIEWS["vault"] = dict(
     purpose="Private documents, stored as HTML-NN typed vault and encrypted at rest. The local model can read and search them; they never leave this machine.",
     controls=[
         ("btn-vault-new", "+ New Document", "works"),
+        ("btn-vault-import", "Import Image - PNG, JPEG, GIF or WebP, up to 8 MB", "works"),
         ("vault-search-input", "Filter documents by title or tag", "works"),
         ("vault-doc-title", "Document title, stored in clear so the vault can be listed", "works"),
         ("vault-doc-tags", "Comma separated tags", "works"),
@@ -276,9 +277,12 @@ VIEWS["vault"] = dict(
         "Steven settled four separate rules for 'nothing gets shared outside': remote models are refused unless that document carries an explicit grant; vault bodies ARE indexed locally into ChromaDB; backup and sync never see the vault or its index; contacts get access only by per-document invite.",
         "Every check fails closed. Not knowing which inference provider is active is not permission.",
         "The agent's tools are vault_list, vault_read and vault_search, and they are read-only: writing and deleting stay with the user.",
+        "An image is stored the same way a text document is: base64 sealed as a string, so there is one storage path and one thing to get right about encryption. The content type and filename travel with it, including through a permission change, which rewrites the whole document.",
+        "Attachments are searched by title and filename only. Searching base64 finds nothing a person meant, and the result says it is an attachment rather than returning a confident nothing.",
     ],
     broken=[
-        "UI-036 is closed, but note the view is a text editor only. There is no file drop or import, so a PDF or an image cannot be put in the vault yet.",
+        "Images can be imported; PDFs and other documents cannot. Only PNG, JPEG, GIF and WebP are accepted, and there is no drag-and-drop, only the file picker.",
+        "Imported images are read-only in the vault. There is no crop, resize or annotate.",
     ],
 )
 

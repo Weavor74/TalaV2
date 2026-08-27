@@ -2648,6 +2648,8 @@
             <span class="badge badge-secure" title="Documents are encrypted at rest and are never synced, backed up or shared off this machine.">Sealed · never leaves</span>
             <div class="view-actions">
               <button class="btn btn-primary" id="btn-vault-new">+ New Document</button>
+              <button class="btn" id="btn-vault-import">Import Image…</button>
+              <input type="file" id="vault-import-input" accept="image/png,image/jpeg,image/gif,image/webp" hidden />
             </div>
           </div>
 
@@ -2682,10 +2684,21 @@
                   <label class="form-label" for="vault-doc-tags">Tags (comma separated)</label>
                   <input type="text" id="vault-doc-tags" class="form-control" style="width: 100%;" />
                 </div>
-                <div class="form-group" style="margin-bottom: var(--space-3);">
+                <div class="form-group" id="vault-body-group" style="margin-bottom: var(--space-3);">
                   <label class="form-label" for="vault-doc-body">Contents</label>
                   <textarea id="vault-doc-body" class="form-control" rows="16"
                             style="width: 100%; font-family: var(--font-mono, monospace); font-size: 0.8rem;"></textarea>
+                </div>
+
+                <!-- An imported image. Stored exactly like a text document --
+                     base64 sealed as a string -- so there is one storage path
+                     and one thing to get right about encryption. -->
+                <div class="form-group" id="vault-image-group" style="margin-bottom: var(--space-3); display: none;">
+                  <label class="form-label">Image</label>
+                  <div style="background: #04060b; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: var(--space-3); text-align: center;">
+                    <img id="vault-image" alt="" style="max-width: 100%; max-height: 420px; object-fit: contain;" />
+                    <div id="vault-image-meta" style="margin-top: var(--space-2); font-size: 0.68rem; color: var(--text-muted); font-family: var(--font-mono, monospace);"></div>
+                  </div>
                 </div>
 
                 <fieldset style="border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: var(--space-3); margin-bottom: var(--space-3);">

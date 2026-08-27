@@ -157,3 +157,79 @@ def test_untrusted_text_is_escaped(module_source):
     assert "escapeHtml(d.id)" in block
     raw = re.findall(r"\$\{d\.(\w+)\}", block)
     assert not raw, f"unescaped fields interpolated: {raw}"
+
+# -- image import (Steven: "I at least need to be able to put a image in") ---
+
+def test_there_is_an_import_control(html):
+    view = html.split('id="view-vault"', 1)[1].split("</section>", 1)[0]
+    assert 'id="btn-vault-import"' in view
+    assert 'id="vault-import-input"' in view
+    assert 'accept="image/png,image/jpeg' in view, "the picker does not restrict to images"
+
+
+def test_the_view_can_display_an_image(html):
+    view = html.split('id="view-vault"', 1)[1].split("</section>", 1)[0]
+    assert 'id="vault-image-group"' in view
+    assert 'id="vault-image"' in view
+
+
+def test_an_image_is_read_in_the_renderer_not_through_a_path(module_source):
+    """A file picked in a dialog is already in hand as a File object; routing
+    it back through file:read would re-resolve something the browser has, and
+    the sandbox would refuse anything outside the data root anyway."""
+    assert "readAsBase64" in module_source
+    assert "readAsDataURL" in module_source
+
+
+def test_only_the_base64_payload_is_stored(module_source):
+    """Not the whole data URI: keeping the mime type out of the sealed value
+    means it can be corrected later without re-encrypting."""
+    # the method definition, not the call site
+    block = module_source.split("\n  readAsBase64(file) {", 1)[1][:800]
+    assert "indexOf(',')" in block
+    assert "slice(comma + 1)" in block
+
+
+def test_the_size_cap_is_checked_before_reading(module_source):
+    """Reading an 8 GB file into a data URI to then reject it is not a check."""
+    block = module_source.split("async importImage(event)", 1)[1][:900]
+    assert "MAX_ATTACHMENT_BYTES" in block
+    assert block.index("MAX_ATTACHMENT_BYTES") < block.index("readAsBase64")
+
+
+def test_text_and_image_panes_are_mutually_exclusive(module_source):
+    block = module_source.split("showDocumentBody(doc)", 1)[1][:900]
+    assert "isImage ? 'none' : 'block'" in block
+    assert "isImage ? 'block' : 'none'" in block
+
+
+def test_saving_an_image_does_not_turn_it_into_text(module_source):
+    """Editing the title of an image and saving would otherwise rewrite it as a
+    text document holding base64."""
+    block = module_source.split("async save()", 1)[1][:2400]
+    assert "content_type: this._selected?.content_type" in block
+    assert "filename: this._selected?.filename" in block
+
+
+def test_the_backend_keeps_the_type_through_a_permission_change():
+    """set_grant rewrites the whole document."""
+    src = Path("python/harness/vault_nodes.py").read_text(encoding="utf-8")
+    block = src.split("def set_grant(", 1)[1][:1600]
+    assert "content_type=doc.get(" in block
+    assert "filename=doc.get(" in block
+
+
+def test_only_the_named_image_types_are_accepted():
+    src = Path("python/harness/vault_nodes.py").read_text(encoding="utf-8")
+    assert "VAULT_IMAGE_TYPES" in src
+    block = src.split("VAULT_IMAGE_TYPES = {", 1)[1][:300]
+    for mime in ("image/png", "image/jpeg"):
+        assert mime in block
+
+
+def test_attachments_are_searched_by_name_not_by_base64():
+    """Searching base64 finds nothing a person meant."""
+    src = Path("python/harness/vault_nodes.py").read_text(encoding="utf-8")
+    block = src.split("def search_documents(", 1)[1][:1400]
+    assert "content_type" in block
+    assert "attachment" in block

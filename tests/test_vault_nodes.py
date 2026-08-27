@@ -301,3 +301,126 @@ def test_the_agent_cannot_write_or_delete():
     }
     for forbidden in ("write_document", "delete_document", "set_grant"):
         assert forbidden not in referenced, f"a vault tool calls {forbidden}"
+
+
+# -- images (Steven: "I at least need to be able to put a image in") ---------
+
+import base64
+import hashlib
+import struct
+import zlib
+
+#: The PNG file signature, written as byte values rather than escapes. An
+#: earlier version used escape sequences and they were collapsed into real
+#: control characters while the file was being edited, which broke the module.
+PNG_SIGNATURE = bytes([137, 80, 78, 71, 13, 10, 26, 10])
+NUL = bytes([0])
+
+
+def _png(width=32, height=24):
+    """A real PNG, built here so the test needs no fixture file."""
+    def chunk(tag, data):
+        return (struct.pack(">I", len(data)) + tag + data
+                + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF))
+
+    raw = b""
+    for y in range(height):
+        # A leading zero is the PNG "no filter" byte for each scanline.
+        raw += NUL + bytes(
+            v for x in range(width) for v in (x * 8 % 256, y * 9 % 256, 64))
+
+    return (PNG_SIGNATURE
+            + chunk(b"IHDR", struct.pack(">IIBBBBB", width, height, 8, 2, 0, 0, 0))
+            + chunk(b"IDAT", zlib.compress(raw))
+            + chunk(b"IEND", b""))
+
+
+def test_an_image_round_trips_byte_for_byte(vault):
+    png = _png()
+    vault.write_document(
+        "Passport Scan", base64.b64encode(png).decode("ascii"),
+        content_type="image/png", filename="passport.png",
+    )
+
+    doc = vault.read_document("vault-passport-scan")
+    assert doc["content_type"] == "image/png"
+    assert doc["filename"] == "passport.png"
+    assert hashlib.sha256(base64.b64decode(doc["body"])).digest() \
+        == hashlib.sha256(png).digest()
+
+
+def test_an_image_is_sealed_like_anything_else(vault):
+    """Base64 is a string, so the same sealing works -- one storage path, and
+    one thing to get right about encryption rather than two."""
+    encoded = base64.b64encode(_png()).decode("ascii")
+    vault.write_document("Scan", encoded, content_type="image/png", filename="s.png")
+
+    raw = vault._path_for("vault-scan").read_text(encoding="utf-8")
+    assert encoded[:64] not in raw
+    assert "iVBORw0KGgo" not in raw, "the PNG signature is readable on disk"
+
+
+def test_a_permission_change_does_not_corrupt_an_image(vault):
+    """set_grant rewrites the whole document; dropping the content type would
+    silently turn an image into a text document."""
+    png = _png()
+    vault.write_document("Scan", base64.b64encode(png).decode("ascii"),
+                         content_type="image/png", filename="s.png")
+
+    vault.set_grant("vault-scan", remote_inference=True)
+    doc = vault.read_document("vault-scan")
+
+    assert doc["content_type"] == "image/png"
+    assert doc["filename"] == "s.png"
+    assert base64.b64decode(doc["body"]) == png
+
+
+def test_the_listing_says_what_kind_of_document_it_is(vault):
+    """So the panel can pick a renderer without opening every document."""
+    vault.write_document("Notes", "plain words")
+    vault.write_document("Scan", base64.b64encode(_png()).decode("ascii"),
+                         content_type="image/png", filename="s.png")
+
+    by_id = {d["id"]: d for d in vault.list_documents()}
+    assert by_id["vault-notes"]["content_type"] == "text/plain"
+    assert by_id["vault-scan"]["content_type"] == "image/png"
+    assert by_id["vault-scan"]["filename"] == "s.png"
+
+
+def test_attachments_are_searched_by_name(vault):
+    """Searching base64 finds nothing a person meant."""
+    vault.write_document("Passport Scan", base64.b64encode(_png()).decode("ascii"),
+                         content_type="image/png", filename="passport.png")
+
+    hits = vault.search_documents("passport")
+    assert len(hits) == 1
+    assert "attachment" in hits[0]["snippet"]
+
+
+def test_invalid_base64_is_refused(vault):
+    with pytest.raises(ValueError, match="base64"):
+        vault.write_document("Bad", "not base64!!!", content_type="image/png")
+
+
+def test_an_unsupported_content_type_is_refused(vault):
+    with pytest.raises(ValueError, match="Unsupported"):
+        vault.write_document("Exe", base64.b64encode(b"MZ").decode("ascii"),
+                             content_type="application/x-msdownload")
+
+
+def test_an_oversized_attachment_is_refused(vault):
+    """The whole document is sealed as one value and read in full every time it
+    is opened, so a large image makes every listing slow."""
+    payload = NUL * (vault.VAULT_MAX_ATTACHMENT_BYTES + 1)
+    with pytest.raises(ValueError, match="MB"):
+        vault.write_document("Huge", base64.b64encode(payload).decode("ascii"),
+                             content_type="image/png")
+
+
+def test_the_cap_measures_decoded_bytes_not_base64(vault):
+    """The user cares about the size of their photograph, not its encoding
+    overhead -- base64 inflates by a third."""
+    import inspect
+    src = inspect.getsource(vault.write_document)
+    assert "b64decode" in src
+    assert src.index("b64decode") < src.index("VAULT_MAX_ATTACHMENT_BYTES")

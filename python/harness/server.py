@@ -11943,6 +11943,8 @@ async def handle_vault_write(params: dict[str, Any], req_id: Any) -> str:
             body=params.get("body") or "",
             tags=params.get("tags") or [],
             doc_id=params.get("id"),
+            content_type=params.get("content_type") or "text/plain",
+            filename=params.get("filename") or "",
         )
         return _ok(req_id, {"success": True, **result})
     except (ValueError, RuntimeError) as exc:

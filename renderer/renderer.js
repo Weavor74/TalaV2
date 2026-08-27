@@ -11473,8 +11473,20 @@ const VaultManager = {
     this._contacts= qs('#vault-grant-contacts');
     this._status  = qs('#vault-status');
 
+    this._imageGroup = qs('#vault-image-group');
+    this._bodyGroup  = qs('#vault-body-group');
+    this._image      = qs('#vault-image');
+    this._imageMeta  = qs('#vault-image-meta');
+    this._importInput = qs('#vault-import-input');
+
     const onNew = qs('#btn-vault-new');
     if (onNew) onNew.addEventListener('click', () => this.newDocument());
+
+    const onImport = qs('#btn-vault-import');
+    if (onImport && this._importInput) {
+      onImport.addEventListener('click', () => this._importInput.click());
+      this._importInput.addEventListener('change', (e) => this.importImage(e));
+    }
 
     const onSave = qs('#btn-vault-save');
     if (onSave) onSave.addEventListener('click', () => this.save());
@@ -11490,6 +11502,109 @@ const VaultManager = {
       if (el) el.addEventListener('input', () => this.markDirty());
     });
     if (this._remote) this._remote.addEventListener('change', () => this.markDirty());
+  },
+
+  /** Maximum decoded attachment size, mirroring VAULT_MAX_ATTACHMENT_BYTES. */
+  MAX_ATTACHMENT_BYTES: 8 * 1024 * 1024,
+
+  /**
+   * Read a chosen image and store it as a vault document.
+   *
+   * Read here rather than through file:read, because a file the user picked in
+   * a dialog is already in hand as a File object -- routing it back through a
+   * path would mean re-resolving something the browser already has, and the
+   * sandbox would refuse anything outside the data root anyway.
+   */
+  async importImage(event) {
+    const file = event?.target?.files?.[0];
+    if (this._importInput) this._importInput.value = '';   // allow re-picking the same file
+    if (!file) return;
+
+    if (file.size > this.MAX_ATTACHMENT_BYTES) {
+      this.setStatus(
+        `${file.name} is ${(file.size / 1048576).toFixed(1)} MB. The vault holds ` +
+        `attachments up to ${this.MAX_ATTACHMENT_BYTES / 1048576} MB.`, 'error');
+      return;
+    }
+
+    this.setStatus(`Reading ${file.name}…`);
+    let base64;
+    try {
+      base64 = await this.readAsBase64(file);
+    } catch (err) {
+      this.setStatus(`Could not read ${file.name}: ${err?.message || err}`, 'error');
+      return;
+    }
+
+    const title = (this._title?.value || '').trim() || file.name.replace(/\.[^.]+$/, '');
+    this.setStatus('Sealing…');
+    try {
+      const written = await invoke('python:rpc', {
+        method: 'vault.write',
+        params: {
+          title,
+          body: base64,
+          content_type: file.type || 'image/png',
+          filename: file.name,
+          tags: this._splitList(this._tags?.value),
+        },
+      });
+      if (!written?.success) {
+        this.setStatus(written?.error || 'The image was not stored.', 'error');
+        return;
+      }
+      this._dirty = false;
+      await this.load();
+      await this.open(written.id);
+      this.setStatus(`Imported ${file.name} and sealed it.`, 'ok');
+      IPCLog.append('info', `Vault: imported ${file.name}.`);
+    } catch (err) {
+      this.setStatus(String(err?.message || err), 'error');
+    }
+  },
+
+  readAsBase64(file) {
+    return new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      // readAsDataURL gives "data:<mime>;base64,<payload>" -- the payload is
+      // what is stored, so the mime type is not baked into the sealed value
+      // and can be corrected later without re-encrypting.
+      reader.onload = () => {
+        const result = String(reader.result || '');
+        const comma = result.indexOf(',');
+        comma >= 0 ? resolve(result.slice(comma + 1)) : reject(new Error('unreadable'));
+      };
+      reader.onerror = () => reject(reader.error || new Error('read failed'));
+      reader.readAsDataURL(file);
+    });
+  },
+
+  /** Show either the text editor or the image, never both. */
+  showDocumentBody(doc) {
+    const isImage = (doc?.content_type || 'text/plain') !== 'text/plain';
+
+    if (this._bodyGroup) this._bodyGroup.style.display = isImage ? 'none' : 'block';
+    if (this._imageGroup) this._imageGroup.style.display = isImage ? 'block' : 'none';
+
+    if (!isImage) {
+      if (this._body) this._body.value = doc?.body || '';
+      return;
+    }
+
+    if (this._image) {
+      this._image.src = `data:${doc.content_type};base64,${doc.body}`;
+      this._image.alt = doc.filename || doc.title || '';
+      this._image.onload = () => {
+        if (this._imageMeta) {
+          this._imageMeta.textContent =
+            `${doc.filename || 'image'} · ${doc.content_type} · ` +
+            `${this._image.naturalWidth}×${this._image.naturalHeight}`;
+        }
+      };
+    }
+    // The textarea still holds the base64 so a save round-trips it unchanged,
+    // but it is not shown: a screen of base64 is not an editor.
+    if (this._body) this._body.value = doc?.body || '';
   },
 
   markDirty() {
@@ -11587,7 +11702,7 @@ const VaultManager = {
       if (this._editor) this._editor.hidden = false;
       this._title.value = doc.title || '';
       this._tags.value = (doc.tags || []).join(', ');
-      this._body.value = doc.body || '';
+      this.showDocumentBody(doc);
 
       await this.loadGrants(docId);
       this.setStatus(`Opened. Last saved ${doc.updated_at ? doc.updated_at.slice(0, 19) : 'unknown'}.`);
@@ -11614,7 +11729,7 @@ const VaultManager = {
     if (this._editor) this._editor.hidden = false;
     this._title.value = '';
     this._tags.value = '';
-    this._body.value = '';
+    this.showDocumentBody({ content_type: 'text/plain', body: '' });
     if (this._remote) this._remote.checked = false;
     if (this._contacts) this._contacts.value = '';
     this.setStatus('New document. It is sealed when you save it.');
@@ -11644,6 +11759,10 @@ const VaultManager = {
           title,
           body: this._body?.value || '',
           tags: this._splitList(this._tags?.value),
+          // Carried through, or saving an image after editing its title would
+          // rewrite it as a text document holding base64.
+          content_type: this._selected?.content_type || 'text/plain',
+          filename: this._selected?.filename || '',
         },
       });
       if (!written?.success) {
