@@ -75,6 +75,39 @@ node_collection = _init_chroma_collection()
 
 _INDEXED_MTIMES: dict[str, float] = {}
 
+def _is_vault_file(path: Path) -> bool:
+    return path.name.startswith("vault-")
+
+
+def _vault_node_for_index(path: Path):
+    """
+    A vault document with its body unsealed, for the local index only.
+
+    Returns None rather than raising if it cannot be opened: a vault the key no
+    longer matches should degrade to unsearchable, not take the whole indexing
+    pass down with it.
+    """
+    try:
+        from python.harness.vault_nodes import read_document
+        from sdk.agent.parser import parse_file
+
+        opened = read_document(path.stem)
+        if not opened.get("success"):
+            logger.warning(
+                "retrieval: vault document %s could not be unsealed and is not "
+                "searchable: %s", path.stem, opened.get("error", ""),
+            )
+            return None
+
+        node = parse_file(str(path))
+        # Replace the safe on-disk summary with the real content, in memory.
+        node.semantic_memory = f"{opened.get('title', '')}\n\n{opened.get('body', '')}"
+        return node
+    except Exception as exc:
+        logger.warning("retrieval: could not prepare vault %s for indexing: %s",
+                       path.stem, exc)
+        return None
+
 def index_nodes(nodes_dir: Path) -> None:
     """
     Parse new or modified HTML Neural Nodes and embed them into ChromaDB incrementally.
@@ -93,6 +126,20 @@ def index_nodes(nodes_dir: Path) -> None:
 
     for filepath in nodes_dir.glob("*.html"):
         if "_archive_legacy" in str(filepath):
+            continue
+
+        # Vault documents are sealed on disk, so their file text is ciphertext
+        # and indexing it verbatim would index noise. Steven's decision was
+        # that vault bodies ARE searchable locally -- "index it locally, it
+        # never leaves the machine" -- so they are unsealed for the index and
+        # only for the index. The consequence is deliberate and worth stating:
+        # the Chroma directory holds plaintext of the vault, which is why the
+        # vault and its index are excluded from every sync and backup path.
+        if _is_vault_file(filepath):
+            node = _vault_node_for_index(filepath)
+            if node is not None:
+                nodes.append(node)
+                updated_mtimes[str(filepath)] = filepath.stat().st_mtime
             continue
         try:
             mtime = filepath.stat().st_mtime

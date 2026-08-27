@@ -4835,6 +4835,11 @@ from sdk.agent import node_execution  # noqa: E402,F401
 # (UI-086). Read-only: she cannot clear or archive them (Q-19).
 from sdk.agent import self_diagnosis  # noqa: E402,F401
 
+# Registers vault_list / vault_read / vault_search -- "things the local LLM
+# could reference" (UI-038). Read-only, and every read refuses when the active
+# inference provider is remote.
+from sdk.agent import vault_tools  # noqa: E402,F401
+
 # Registers the agent/swarm authoring tools. Imported last and from its own
 # module because it imports register_tool from here -- doing it at the bottom
 # keeps the cycle resolvable.

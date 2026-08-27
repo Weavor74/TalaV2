@@ -797,7 +797,12 @@ What exists and is genuinely good:
 - A real `vault/` directory with `.keys/`, `character/`, and wallet key material.
 
 ### UI-036 — The Vault view is a static placeholder with no JavaScript
-**Severity: high · Status: open**
+**Severity: high · Status: open — backend done 2026-08-23, view not built**
+
+> **Backend complete, UI not started.** Everything the view needs now exists: `vault.list`,
+> `vault.read`, `vault.write`, `vault.delete` and `vault.grant`, with documents sealed at
+> rest and per-document grants. The eight lines of placeholder HTML in `index.html` are
+> unchanged and there is still no JS module, so this stays open until the view is built.
 
 The entire view is eight lines of HTML:
 
@@ -825,7 +830,15 @@ navigate to a dropped file, the instruction invites an action the app has not ha
 Likewise "Vault is empty" is hardcoded. It would say that with a thousand files in the directory.
 
 ### UI-037 — There is no write path, so "editable documents" is impossible
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `vault.write`, `vault.read`, `vault.list`, `vault.delete` and `vault.grant`.
+> A vault document is an HTML-NN typed `vault` -- Steven's framework, *"we started that
+> framework with the html-nn being labeld as vault"* -- so it is not a second kind of
+> storage and inherits the parser, the schema and the portable data root. The body is sealed
+> before it touches disk; the title is not, because a vault whose contents cannot be listed
+> without the key is one nobody can use.
 
 `vault:read` is the **only** vault channel exposed in
 [preload.js:28](../electron/preload.js#L28). There is no `vault:write`, no `vault:list`, no
@@ -843,7 +856,17 @@ Consequences for the stated purpose:
 Only the security constraint is implemented. The storage feature it is guarding does not exist.
 
 ### UI-038 — The local LLM cannot reference vault documents
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `vault_list`, `vault_read` and `vault_search`. Read-only: putting documents in
+> and taking them out stays with the user, since a private store an agent can silently
+> rewrite is not a private store. A refusal is returned as a refusal rather than as an empty
+> document, and search withholds per document so one closed file does not hide the rest.
+>
+> Vault bodies **are** indexed locally into ChromaDB, by Steven's decision: the index holds
+> plaintext and never leaves the machine, which is the trade that makes the vault findable
+> rather than merely storable.
 
 No vault tool is registered in `sdk/agent/tools.py`. Searching it for `vault` returns only three
 unrelated hits — two string heuristics for tagging node content, and a `tala-vault-gate` creator
@@ -2875,7 +2898,22 @@ asks what a policy's subject is — Q-22 answers it: a **(grantee, resource)** p
 and not an agent. Both should be revisited rather than reopened.
 
 ### UI-102 — Network isolation is never enabled, so `vault:read` can never succeed
-**Severity: high · Status: open · Found while answering Q-59**
+**Severity: high · Status: FIXED 2026-08-23 · Found while answering Q-59**
+
+
+> **Fixed by moving the control.** The flag was permanently false, so `vault:read` could
+> never succeed -- but gating *reads* on global network isolation was the wrong control
+> anyway: it would have made the vault unusable whenever the app was online, which is
+> always. "Nothing gets shared outside" is a property of the **exit**.
+>
+> Steven settled the four edges, and they do not get the same answer: remote models are
+> refused unless that document carries an explicit grant; local search indexes vault bodies;
+> backup and sync never see the vault, sealed or otherwise, and the Chroma directory is
+> excluded with it because it holds unsealed bodies; contacts get access only by per-document
+> invite, deliberately not derived from their general permissions, so a misconfigured
+> contact permission cannot disclose a private document.
+>
+> Every check fails closed. Not knowing which provider is active is not permission.
 
 Steven's lockdown definition — *"it hardlines a network disconnect so no traffic can act, only
 conversation between Harness and LLM"* — describes a mechanism that is **already half-implemented

@@ -11833,6 +11833,140 @@ async def handle_task_prune(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+#: Nothing under these prefixes is ever synced, backed up or shared off the
+#: machine. Steven's rule for the vault is absolute -- "No, vault never leaves
+#: the install" -- and the cost, that losing the drive loses the vault, is the
+#: cost he chose. The Chroma index is listed too: it holds unsealed vault
+#: bodies, so syncing it would export the vault by the back door.
+NEVER_LEAVES_PREFIXES = ("vault-",)
+NEVER_LEAVES_DIRS = ("chroma", ".chroma", "vault")
+
+
+def is_local_only_artifact(name: str) -> bool:
+    """Whether a node or path must never be transmitted anywhere."""
+    base = str(name or "").replace("\\", "/").split("/")[-1]
+    if any(base.startswith(p) for p in NEVER_LEAVES_PREFIXES):
+        return True
+    parts = {p.lower() for p in str(name or "").replace("\\", "/").split("/")}
+    return bool(parts & set(NEVER_LEAVES_DIRS))
+
+
+async def handle_vault_grant(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``vault.grant`` — grant or revoke access to one vault document.
+
+    Two edges, both default-deny and both per document: whether the body may
+    reach a remote model, and which contacts may be sent it. Deliberately not
+    derived from a contact's general permissions -- a contact grant does not
+    reach the vault, so a misconfigured permission elsewhere cannot disclose a
+    private document.
+    """
+    doc_id = str(params.get("id") or "").strip()
+    if not doc_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+
+    remote = params.get("remote_inference")
+    contacts = params.get("contacts")
+    if remote is None and contacts is None:
+        return _err(
+            req_id, JsonRpcError.INVALID_PARAMS,
+            "give 'remote_inference' (bool) and/or 'contacts' (list) to change",
+        )
+    try:
+        from python.harness.vault_nodes import set_grant
+        result = set_grant(
+            doc_id,
+            remote_inference=None if remote is None else bool(remote),
+            contacts=None if contacts is None else list(contacts),
+        )
+        if result.get("success"):
+            await db.log_to_db(
+                "INFO",
+                f"Vault grant changed on {doc_id}",
+                {"document": doc_id, "grants": result.get("grants")},
+            )
+        return _ok(req_id, result)
+    except ValueError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("vault.grant error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_vault_list(params: dict[str, Any], req_id: Any) -> str:
+    """``vault.list`` — enumerate vault documents. Titles only, never bodies."""
+    try:
+        from python.harness.vault_nodes import list_documents
+        documents = list_documents()
+        return _ok(req_id, {"documents": documents, "count": len(documents)})
+    except Exception as exc:
+        logger.exception("vault.list error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_vault_read(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``vault.read`` — open one vault document for the user.
+
+    No local-model guard here, unlike the agent tool: this path ends at the
+    user's own screen, and the rule is that vault content must not leave the
+    machine, not that the user may not look at their own documents.
+    """
+    doc_id = str(params.get("id") or "").strip()
+    if not doc_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    try:
+        from python.harness.vault_nodes import read_document
+        return _ok(req_id, read_document(doc_id))
+    except ValueError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("vault.read error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_vault_write(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``vault.write`` — create or replace a vault document.
+
+    The channel the vault never had: ``vault:read`` was the only vault IPC in
+    preload, so "storage of editable private documents" had no way to put a
+    document in, let alone edit one (UI-037).
+    """
+    title = str(params.get("title") or "").strip()
+    if not title:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'title' is required")
+    try:
+        from python.harness.vault_nodes import write_document
+        result = write_document(
+            title=title,
+            body=params.get("body") or "",
+            tags=params.get("tags") or [],
+            doc_id=params.get("id"),
+        )
+        return _ok(req_id, {"success": True, **result})
+    except (ValueError, RuntimeError) as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("vault.write error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_vault_delete(params: dict[str, Any], req_id: Any) -> str:
+    """``vault.delete`` — remove a vault document. The user's call only."""
+    doc_id = str(params.get("id") or "").strip()
+    if not doc_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    try:
+        from python.harness.vault_nodes import delete_document
+        return _ok(req_id, delete_document(doc_id))
+    except ValueError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("vault.delete error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_tools_catalogue(params: dict[str, Any], req_id: Any) -> str:
     """
     ``tools.catalogue`` — every tool, read from its HTML-NN.
@@ -12268,6 +12402,11 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "vault.grant": handle_vault_grant,
+    "vault.list": handle_vault_list,
+    "vault.read": handle_vault_read,
+    "vault.write": handle_vault_write,
+    "vault.delete": handle_vault_delete,
     "tools.catalogue": handle_tools_catalogue,
     "ui.bridge_result": handle_ui_bridge_result,
     "browser.get_dom": handle_browser_get_dom,
