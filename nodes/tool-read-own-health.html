@@ -1,0 +1,118 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: read_own_health</title>
+</head>
+<body>
+<article
+  data-node-id="tool-read-own-health"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="read_own_health"
+  data-source-files=""
+  data-source-fingerprint="sha256:A73155E85CADBBA2FB73B465FEB72301B6C27C57121BBF6BF3BEAFB9FBD32834"
+  data-generated-at="2026-08-27T15:07:32Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: read_own_health</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;read_own_health&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read Tala&#x27;s own measured subsystem health: which of the twelve services are healthy, degraded, critical or unmeasured, and the evidence behind each verdict. Use this before claiming a subsystem works or does not.&lt;/p&gt;&lt;p&gt;It takes no arguments: &lt;code&gt;read_own_health()&lt;/code&gt;.&lt;/p&gt;&lt;p&gt;Returns the same measured state the LOGGING panel shows, including the reason for each verdict -- &quot;8 of 8 providers online&quot;, &quot;no MCP servers configured&quot; -- so a diagnosis can cite evidence rather than a colour. A subsystem nothing can measure reports UNKNOWN, never HEALTHY, and an UNKNOWN present makes the overall verdict PARTIAL rather than rounding up to healthy.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.self_diagnosis&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-read-own-health"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "read_own_health"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: read_own_health",
+  "description": "Program documentation for read_own_health.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "read_own_health"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-27T15:07:32Z",
+    "schema": "neural-node/v2",
+    "doc_target": "read_own_health",
+    "source_fingerprint": "sha256:A73155E85CADBBA2FB73B465FEB72301B6C27C57121BBF6BF3BEAFB9FBD32834"
+  },
+  "tool": {
+    "name": "read_own_health",
+    "description": "Read Tala's own measured subsystem health: which of the twelve services are healthy, degraded, critical or unmeasured, and the evidence behind each verdict. Use this before claiming a subsystem works or does not.",
+    "signature": "read_own_health()",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "module": "sdk.agent.self_diagnosis",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

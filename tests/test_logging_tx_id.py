@@ -89,7 +89,10 @@ async def test_logging_get_events_rpc_response():
                 break
                 
         assert matching_event is not None
-        assert matching_event["level"] == "WARN"
+        # WARNING, not WARN: levels are normalised on write, because the two
+        # spellings coexisted -- 98 rows against 16,589 -- and any filter for
+        # one silently missed the other. Filtering by "WARN" still works.
+        assert matching_event["level"] == "WARNING"
         assert matching_event["message"] == "Warning: blockchain sync delayed"
         assert matching_event["tx_id"] == test_tx_id
         

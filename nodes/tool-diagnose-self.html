@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: diagnose_self</title>
+</head>
+<body>
+<article
+  data-node-id="tool-diagnose-self"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="diagnose_self"
+  data-source-files=""
+  data-source-fingerprint="sha256:A38C17DF95A23DC8E7A5262E04D3E227DF66940DD6E0B2173357198C577A75A6"
+  data-generated-at="2026-08-27T15:07:30Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: diagnose_self</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;diagnose_self&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run a full self-diagnosis: measured subsystem health plus the recent errors and warnings behind it, in one call. Use this when asked what is wrong, or before reporting that something works.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;diagnose_self(minutes)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;minutes&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Health alone says a subsystem is degraded; the log says why. Asking for both separately is the common case, so this does it in one call and returns them side by side. Read-only, like the two tools it composes.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.self_diagnosis&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-diagnose-self"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "diagnose_self"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: diagnose_self",
+  "description": "Program documentation for diagnose_self.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "diagnose_self"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-27T15:07:30Z",
+    "schema": "neural-node/v2",
+    "doc_target": "diagnose_self",
+    "source_fingerprint": "sha256:A38C17DF95A23DC8E7A5262E04D3E227DF66940DD6E0B2173357198C577A75A6"
+  },
+  "tool": {
+    "name": "diagnose_self",
+    "description": "Run a full self-diagnosis: measured subsystem health plus the recent errors and warnings behind it, in one call. Use this when asked what is wrong, or before reporting that something works.",
+    "signature": "diagnose_self(minutes)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "minutes": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.self_diagnosis",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

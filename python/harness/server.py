@@ -27,6 +27,7 @@ Milestone 1.2 — Tasks 1.2.1–1.2.4 (server orchestration layer)
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import hashlib
 import hmac
 import json
@@ -151,10 +152,65 @@ def _ok(request_id: Any, result: Any) -> str:
     })
 
 
+#: The RPC method currently being handled, so _err can say what failed without
+#: every handler having to pass its own name in.
+_CURRENT_RPC: contextvars.ContextVar[str] = contextvars.ContextVar(
+    "_CURRENT_RPC", default=""
+)
+
+#: Failures that are the caller getting it wrong rather than the harness
+#: breaking. Still logged, but at WARNING: an audit log where a typo'd
+#: parameter looks the same as a crashed subsystem is one nobody reads.
+_CALLER_FAULT_CODES = frozenset({
+    JsonRpcError.INVALID_PARAMS,
+    JsonRpcError.METHOD_NOT_FOUND,
+    JsonRpcError.INVALID_REQUEST,
+    JsonRpcError.PARSE_ERROR,
+})
+
+
+def _audit_rpc_failure(code: int, message: str, data: Any = None) -> None:
+    """
+    Record an RPC failure in ``agent_log``.
+
+    Every RPC error response funnels through ``_err``, which is why the hook is
+    here rather than in the dispatcher: most handlers catch their own
+    exceptions and return ``_err`` directly, so the dispatcher's ``except``
+    never sees them. Before this, ``agent_log`` held 44,464 rows of which
+    exactly **one** was an ERROR -- the audit log recorded everything except
+    things going wrong, which is the one thing an audit log is for (UI-085).
+
+    Fire-and-forget by design: a failure to log a failure must not become a
+    second failure. If there is no running loop -- a synchronous test, or
+    ``_err`` called during startup -- it is skipped rather than raised.
+    """
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return
+
+    level = "WARNING" if code in _CALLER_FAULT_CODES else "ERROR"
+    method = _CURRENT_RPC.get() or "unknown"
+    trace: dict[str, Any] = {"method": method, "code": code}
+    if isinstance(data, dict):
+        # Keep the traceback, drop anything large enough to bloat the table.
+        for key in ("traceback", "reason", "detail"):
+            if key in data:
+                trace[key] = str(data[key])[:2000]
+
+    try:
+        loop.create_task(
+            db.log_to_db(level, f"{method}: {message}"[:1000], trace)
+        )
+    except Exception:  # pragma: no cover - never let logging break a response
+        pass
+
+
 def _err(request_id: Any, code: int, message: str, data: Any = None) -> str:
     error: dict[str, Any] = {"code": code, "message": message}
     if data is not None:
         error["data"] = data
+    _audit_rpc_failure(code, message, data)
     return json.dumps({
         "jsonrpc": JSONRPC_VERSION,
         "id": request_id,
@@ -8490,6 +8546,16 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
     limit = int(params.get("limit", 500))
     search = params.get("search", "").strip()
     levels = params.get("levels", [])
+    # Accept either spelling on input. Levels are normalised on write now
+    # (WARN -> WARNING), but a caller filtering for "WARN" -- including the
+    # panel, and any code written before the normalisation -- must still find
+    # the rows rather than silently getting none.
+    if isinstance(levels, list):
+        from python.harness.db import _LOG_LEVEL_ALIASES
+        levels = [
+            _LOG_LEVEL_ALIASES.get(str(lv).strip().upper(), str(lv).strip().upper())
+            for lv in levels
+        ]
     subsystem = params.get("subsystem", "All Subsystems").strip()
     source = params.get("source", "Audit Log").strip()
 
@@ -11682,6 +11748,91 @@ async def handle_system_architecture_contract(params: dict[str, Any], req_id: An
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+#: Statuses a task can be in when it is finished with. Only these are ever
+#: pruned -- a pending or in-progress task is work, not history, however old
+#: it looks.
+TERMINAL_TASK_STATUSES = ("complete", "completed", "failed", "aborted", "cancelled")
+
+#: Default retention. Deliberately generous: the complaint was "it stays
+#: forever", not "I need this gone tonight", and a retention sweep that is too
+#: eager destroys the record of what happened.
+DEFAULT_TASK_RETENTION_DAYS = 14
+
+
+async def prune_finished_tasks(
+    older_than_days: int = DEFAULT_TASK_RETENTION_DAYS,
+    dry_run: bool = False,
+) -> dict[str, Any]:
+    """
+    Age finished tasks out of the board.
+
+    There was no retention policy anywhere (UI-034) -- Steven's "they dont fade
+    out, it stays forever". The only two deletion paths were a user clicking
+    Delete on one row and a user clicking Clear Queue, which truncates
+    everything including work still running.
+
+    Only terminal statuses are eligible, and a task that never finished is
+    never pruned regardless of age: an abandoned in-progress row is a bug worth
+    seeing, and quietly deleting it hides the bug rather than the row.
+    """
+    try:
+        days = max(1, int(older_than_days))
+    except (TypeError, ValueError):
+        days = DEFAULT_TASK_RETENTION_DAYS
+
+    try:
+        doomed = await db.fetch(
+            f"SELECT id, status, created_at FROM tasks "
+            f"WHERE status = ANY($1) "
+            f"AND COALESCE(completed_at, created_at) < NOW() - INTERVAL '{days} days'",
+            list(TERMINAL_TASK_STATUSES),
+        )
+    except Exception as exc:
+        logger.warning("prune_finished_tasks: could not read tasks: %s", exc)
+        return {"success": False, "error": str(exc), "pruned": 0}
+
+    if not doomed:
+        return {"success": True, "pruned": 0, "dry_run": dry_run,
+                "retention_days": days, "ids": []}
+
+    ids = [r["id"] for r in doomed]
+    if not dry_run:
+        await db.execute(
+            "DELETE FROM tasks WHERE id = ANY($1)", ids,
+            caller="task retention sweep",
+        )
+        # Said out loud rather than swept quietly: a retention policy that
+        # deletes without a record is indistinguishable from data loss.
+        await db.log_to_db(
+            "INFO",
+            f"Task retention: removed {len(ids)} finished task(s) older than {days} days.",
+            {"count": len(ids), "retention_days": days, "ids": ids[:50]},
+        )
+        logger.info("Task retention: pruned %d finished task(s) older than %d days.",
+                    len(ids), days)
+
+    return {"success": True, "pruned": len(ids), "dry_run": dry_run,
+            "retention_days": days, "ids": ids[:50]}
+
+
+async def handle_task_prune(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``task.prune`` — remove finished tasks older than a retention window.
+
+    Separate from ``task.clear``, which truncates the whole table including
+    work in progress. This only ever removes tasks that finished.
+    """
+    try:
+        result = await prune_finished_tasks(
+            older_than_days=params.get("older_than_days", DEFAULT_TASK_RETENTION_DAYS),
+            dry_run=bool(params.get("dry_run", False)),
+        )
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("task.prune error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_tools_catalogue(params: dict[str, Any], req_id: Any) -> str:
     """
     ``tools.catalogue`` — every tool, read from its HTML-NN.
@@ -12116,6 +12267,7 @@ _HANDLERS: dict[str, Any] = {
     "search.test_provider": handle_search_test_provider,
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
+    "task.prune": handle_task_prune,
     "tools.catalogue": handle_tools_catalogue,
     "ui.bridge_result": handle_ui_bridge_result,
     "browser.get_dom": handle_browser_get_dom,
@@ -12324,6 +12476,7 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
                 pass
             return
 
+        _CURRENT_RPC.set(method)
         try:
             # inference.generate, workflow.execute, and telemetry.stream_subscribe need the ws object
             if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe"):
@@ -12332,6 +12485,7 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
                 response = await handler(params, req_id)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unhandled error in handler '%s'", method)
+            # _err audits this; the traceback rides along in the trace column.
             response = _err(
                 req_id,
                 JsonRpcError.INTERNAL_ERROR,
@@ -12704,6 +12858,17 @@ async def _startup() -> None:
     """
     # 1. Database pool + schema migrations
     await db.init_pool()
+
+    # 1.4. Age finished tasks out of the board (UI-034). At startup rather
+    # than on a timer: it is cheap, it is the moment the board is next going to
+    # be looked at, and a sweep nobody can predict the timing of is harder to
+    # reason about than one tied to a restart.
+    try:
+        pruned = await prune_finished_tasks()
+        if pruned.get("pruned"):
+            logger.info("Startup task retention removed %d row(s).", pruned["pruned"])
+    except Exception as exc:
+        logger.warning("Startup task retention sweep failed: %s", exc)
 
     # 1.5. Initialize Memory Providers
     from sdk.agent.memory.manager import get_manager

@@ -992,6 +992,17 @@ async def transaction() -> AsyncIterator[asyncpg.Connection]:
 # Convenience log helper (writes to agent_log table)
 # ---------------------------------------------------------------------------
 
+#: One spelling per level. Both halves of a split spelling look like a working
+#: filter until you notice half the rows are missing.
+_LOG_LEVEL_ALIASES = {
+    "WARN": "WARNING",
+    "ERR": "ERROR",
+    "CRIT": "CRITICAL",
+    "FATAL": "CRITICAL",
+    "TRACE": "DEBUG",
+}
+
+
 async def log_to_db(
     level: str,
     message: str,
@@ -1006,6 +1017,12 @@ async def log_to_db(
     """
     try:
         import json
+        # WARN and WARNING were both in use -- 98 rows against 16,589 -- which
+        # silently breaks any level filter, since a query for one misses the
+        # other. Normalised on the way in so the column has one spelling per
+        # level; existing rows are migrated by scripts/normalise_log_levels.py.
+        level = _LOG_LEVEL_ALIASES.get(str(level or "").strip().upper(),
+                                       str(level or "INFO").strip().upper())
         trace_json = json.dumps(trace or {})
         pool = get_pool()
         async with pool.acquire() as conn:
@@ -1014,7 +1031,7 @@ async def log_to_db(
                 INSERT INTO agent_log (level, message, trace, tx_id)
                 VALUES ($1, $2, $3::jsonb, $4)
                 """,
-                level.upper(),
+                level,
                 message,
                 trace_json,
                 tx_id,

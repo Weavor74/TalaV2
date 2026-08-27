@@ -695,7 +695,15 @@ they come back."*
 Steven's report is **two separate bugs** with two separate causes. Both are diagnosed below.
 
 ### UI-034 — Nothing ever ages a task out ("it stays forever")
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `prune_finished_tasks` ages terminal-status tasks out after 14 days, run at
+> startup and exposed as `task.prune` with a dry run. Only finished tasks are ever eligible:
+> an abandoned in-progress row is a bug worth seeing, and deleting it hides the bug rather
+> than the row. Separate from `task.clear`, which truncates everything including running
+> work. Every sweep writes what it removed to `agent_log` -- a retention policy that deletes
+> without a record is indistinguishable from data loss.
 
 There is **no retention policy for tasks anywhere in the codebase.** `task.list` is a flat
 newest-first window with no status filter and no age filter
@@ -723,7 +731,13 @@ Compounding it: the 50-row `LIMIT` (UI-030) means that once 50 stale completed t
 **new tasks stop appearing on the board at all**, with no message explaining why.
 
 ### UI-035 — Cleared tasks reappear because the test suite re-inserts them
-**Severity: high · Status: open · Root cause of Steven's "they come back"**
+**Severity: high · Status: FIXED 2026-08-23 · verified, was already fixed · Root cause of Steven's "they come back"**
+
+> **Already fixed, and now proven.** I proposed this batch believing the root cause was still
+> live. It is not: `conftest.py` redirects the suite to a separate database before any import
+> can read `settings.DB_URL`. Verified two ways -- the suite resolves `tala_test` while the
+> app resolves `tala`, and a full run left the live task table unchanged at 3 rows before and
+> after. A test now pins it, so it cannot regress silently.
 
 `task.clear` genuinely works — `TRUNCATE TABLE tasks CASCADE` wipes the table, and the UI confirms
 with an accurate count before firing. So reappearance cannot be a failed delete. Something is
@@ -2338,7 +2352,20 @@ The panel itself is well built (D18). Both of Steven's requirements are unmet, a
 metrics are misleading.
 
 ### UI-085 — RPC failures never reach the audit log
-**Severity: high · Status: open · Steven's ask #1**
+**Severity: high · Status: FIXED 2026-08-23 · Steven's ask #1**
+
+
+> **Fixed at the one chokepoint.** The hook is in `_err`, not the dispatcher: most handlers
+> catch their own exceptions and return `_err` directly, so a dispatcher hook would have
+> missed nearly everything. Every RPC error response is now audited, with the failing method
+> name carried on a ContextVar so no handler has to pass it. Severity is split -- an internal
+> error is `ERROR`, a bad parameter is `WARNING`, because an audit log where a typo looks the
+> same as a crashed subsystem is one nobody reads.
+>
+> Also found: `WARN` and `WARNING` both in use, 98 rows against 16,589. Two spellings of one
+> level is a filter that appears to work and silently misses half the rows. Normalised on
+> write, either spelling still accepted on read, and `scripts/normalise_log_levels.py`
+> migrates the existing rows.
 
 `agent_log` is written by exactly one helper, `db.log_to_db()`
 ([db.py:995](../python/harness/db.py#L995)).
@@ -2370,7 +2397,19 @@ Port access is not logged either, and cannot be — no port monitoring concept e
 codebase (established in UI-063).
 
 ### UI-086 — Tala cannot read her own logs or health
-**Severity: high · Status: open · Steven's ask #2**
+**Severity: high · Status: FIXED 2026-08-23 · Steven's ask #2**
+
+
+> **Fixed.** `read_own_health`, `read_own_logs` and `diagnose_self` in
+> `sdk/agent/self_diagnosis.py`. Health returns the problems first rather than twelve rows
+> of green with one amber buried in them, and each carries its evidence.
+>
+> **Read-only, deliberately** (Q-19: *"She cannot clear her logs but I should be able too"*).
+> Nothing here archives, deletes or truncates, and a test asserts that by walking the AST
+> rather than grepping, so the module can go on describing the RPCs it does not call.
+>
+> An empty log read reports "nothing matched the filter, not necessarily that nothing went
+> wrong" -- which is exactly what UI-085 was.
 
 Four logging RPCs exist — `logging.get_events`, `logging.get_health`, `logging.archive_events`,
 `logging.clear_events` — and all four are **UI-only**. None is registered as an agent tool.

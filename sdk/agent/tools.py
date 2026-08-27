@@ -4830,6 +4830,11 @@ from sdk.agent import ui_control  # noqa: E402,F401
 # placement and for the same reason: it imports register_tool from here.
 from sdk.agent import node_execution  # noqa: E402,F401
 
+# Registers read_own_health / read_own_logs / diagnose_self -- Tala reading her
+# own diagnostics, which Steven named as the logging panel's actual purpose
+# (UI-086). Read-only: she cannot clear or archive them (Q-19).
+from sdk.agent import self_diagnosis  # noqa: E402,F401
+
 # Registers the agent/swarm authoring tools. Imported last and from its own
 # module because it imports register_tool from here -- doing it at the bottom
 # keeps the cycle resolvable.
