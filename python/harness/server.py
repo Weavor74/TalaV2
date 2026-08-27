@@ -1295,6 +1295,13 @@ async def handle_inference_generate(
                 # birth is deliberately absent: it feeds astrology, which reads
                 # it straight from the database, and is not persona colour.
                 try:
+                    # Orientation before identity. A model that assumes the
+                    # ordinary architecture reaches confident wrong conclusions
+                    # here, and prose it has to go looking for does not prevent
+                    # that -- it already failed to.
+                    from python.harness.architecture_contract import orientation_line
+                    active_system_prompt = f"{active_system_prompt}\n{orientation_line()}"
+
                     from python.harness.user_profile import system_prompt_line
                     user_line = await system_prompt_line()
                     if user_line:
@@ -8645,26 +8652,55 @@ async def _probe_search() -> tuple[str, str]:
     return "HEALTHY", f"{total} provider(s) configured"
 
 
-def _probe_memory() -> tuple[str, str]:
+async def _probe_memory() -> tuple[str, str]:
     """
-    Whether retrieval has any backend registered at all.
+    Whether Tala's memory can actually be recalled from -- both halves of it.
 
-    This is the check that would have caught the wiring failure behind
-    "MemoryManager.search called with no registered providers -- returning
-    empty", which is silent from the caller's side: an empty result set looks
-    exactly like a search that found nothing.
+    Steven asked which memory this indicator meant, "as this memory is the
+    html-nn". The honest answer was that it did not mean the HTML-NN at all.
+    It counted registrations on ``MemoryManager``, which fronts two providers:
+    Postgres full-text over ``memory_index`` (sessions, tasks, profiles,
+    skills) and Hindsight, an external OS/screen-context daemon on
+    localhost:8080. The HTML-NN store is a *third* thing -- the ChromaDB
+    collection in ``retrieval.py`` -- and was not represented here at all.
+
+    So the count said HEALTHY on the strength of two providers, one of which is
+    an optional external daemon that is usually not running, while the store
+    that actually holds the nodes went unchecked. Both are measured now, and
+    the node store is the one that decides the verdict: an unreachable
+    Hindsight is a missing convenience, an empty node collection means Tala
+    cannot recall her own documents.
     """
+    parts: list[str] = []
+    node_count = None
+
+    try:
+        from python.harness import retrieval
+        if retrieval.node_collection is None:
+            return "CRITICAL", "ChromaDB node collection is not initialised; HTML-NN recall is dead"
+        node_count = retrieval.node_collection.count()
+        parts.append(f"{node_count} HTML-NN indexed")
+    except Exception as exc:
+        return UNKNOWN, f"could not inspect the node collection: {type(exc).__name__}"
+
+    try:
+        indexed = await db.fetchval("SELECT COUNT(*) FROM memory_index") or 0
+        parts.append(f"{indexed} full-text row(s)")
+    except Exception as exc:
+        parts.append(f"memory_index unreadable ({type(exc).__name__})")
+
     try:
         from sdk.agent.memory.manager import get_manager
-        manager = get_manager()
-        providers = getattr(manager, "_providers", None)
-        if providers is None:
-            return UNKNOWN, "memory manager exposes no provider list"
-        if not providers:
-            return "CRITICAL", "no memory providers registered; retrieval returns empty"
-        return "HEALTHY", f"{len(providers)} provider(s) registered"
-    except Exception as exc:
-        return UNKNOWN, f"could not inspect memory manager: {type(exc).__name__}"
+        providers = getattr(get_manager(), "_providers", []) or []
+        parts.append(f"{len(providers)} FTS provider(s) registered")
+    except Exception:
+        parts.append("provider list unavailable")
+
+    if not node_count:
+        # nodes/ is the record; an empty index means nothing can be recalled
+        # from it, which looks identical to "found nothing" at every call site.
+        return "CRITICAL", "no HTML-NN indexed; " + ", ".join(parts[1:])
+    return "HEALTHY", ", ".join(parts)
 
 
 def _probe_tools() -> tuple[str, str]:
@@ -11629,6 +11665,23 @@ async def handle_database_test_provider(params: dict[str, Any], req_id: Any) -> 
         return _ok(req_id, {"state": "failed", "detail": f"{type(exc).__name__}: {exc}"})
 
 
+async def handle_system_architecture_contract(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``system.architecture_contract`` — how this system differs from the defaults.
+
+    Exposed as an RPC as well as a tool so that a remote model, or any external
+    system, can orient itself before acting. Steven's reason for asking for it:
+    "systems need to be able to loook at mine and determine its default system.
+    Otherwise Ill run into the same problem with other remote LLM."
+    """
+    try:
+        from python.harness.architecture_contract import load_contract
+        return _ok(req_id, load_contract(str(params.get("section") or "")))
+    except Exception as exc:
+        logger.exception("system.architecture_contract error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_tools_catalogue(params: dict[str, Any], req_id: Any) -> str:
     """
     ``tools.catalogue`` — every tool, read from its HTML-NN.
@@ -12062,6 +12115,7 @@ _HANDLERS: dict[str, Any] = {
     "channels.status": handle_channels_status,
     "search.test_provider": handle_search_test_provider,
     "database.test_provider": handle_database_test_provider,
+    "system.architecture_contract": handle_system_architecture_contract,
     "tools.catalogue": handle_tools_catalogue,
     "ui.bridge_result": handle_ui_bridge_result,
     "browser.get_dom": handle_browser_get_dom,

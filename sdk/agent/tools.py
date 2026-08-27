@@ -440,6 +440,48 @@ def _get_workspace_root() -> Path:
 # ---------------------------------------------------------------------------
 
 @register_tool(
+    name="describe_architecture",
+    description=(
+        "Read this system's architecture contract: what its terms mean here, "
+        "which common assumptions do NOT hold, and where its data actually "
+        "lives. Call this before reasoning about how the system is built, "
+        "especially before writing a health check, a migration, or a backup."
+    ),
+)
+async def describe_architecture(section: str = "") -> dict:
+    """
+    NAME
+           describe_architecture - how this system differs from the defaults
+
+    SYNOPSIS
+           describe_architecture(section: str = "") -> dict
+
+    DESCRIPTION
+           Tala does not follow several ordinary conventions -- memory is the
+           HTML-NN store rather than a database, the data root travels with a
+           portable install rather than living in an OS profile directory, and
+           a configured provider is not a working one until probed.
+
+           A model applying default assumptions produces conclusions that look
+           correct and are not. That has already happened here: a health check
+           for "memory" was written against the assumption that memory means a
+           database service, and reported healthy while never looking at the
+           store that actually holds the nodes.
+
+           Prose describing the architecture existed and did not prevent it,
+           because prose answers a reader who has already decided to look. This
+           returns the same information as a contract a caller can be pointed
+           at before it starts guessing.
+
+    PARAMETERS
+           section - optional: vocabulary, differs_from_default, stores,
+                     capabilities. Omitted returns the whole contract.
+    """
+    from python.harness.architecture_contract import load_contract
+    return load_contract(section)
+
+
+@register_tool(
     name="user_profile_lookup",
     description=(
         "Look up one section of the user's own profile: identity, about, roles, "

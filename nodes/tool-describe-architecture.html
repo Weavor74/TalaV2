@@ -1,0 +1,122 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: describe_architecture</title>
+</head>
+<body>
+<article
+  data-node-id="tool-describe-architecture"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="describe_architecture"
+  data-source-files=""
+  data-source-fingerprint="sha256:0CD07C9D27DCF73AAB6B6D5C434D47AACDDD1775C6EFE69517598B824227BA9F"
+  data-generated-at="2026-08-27T14:51:23Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: describe_architecture</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;describe_architecture&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read this system&#x27;s architecture contract: what its terms mean here, which common assumptions do NOT hold, and where its data actually lives. Call this before reasoning about how the system is built, especially before writing a health check, a migration, or a backup.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;describe_architecture(section)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;section&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Tala does not follow several ordinary conventions -- memory is the HTML-NN store rather than a database, the data root travels with a portable install rather than living in an OS profile directory, and a configured provider is not a working one until probed. A model applying default assumptions produces conclusions that look correct and are not. That has already happened here: a health check for &quot;memory&quot; was written against the assumption that memory means a database service, and reported healthy while never looking at the store that actually holds the nodes. Prose describing the architecture existed and did not prevent it, because prose answers a reader who has already decided to look. This returns the same information as a contract a caller can be pointed at before it starts guessing.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-describe-architecture"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "describe_architecture"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: describe_architecture",
+  "description": "Program documentation for describe_architecture.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "describe_architecture"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-27T14:51:23Z",
+    "schema": "neural-node/v2",
+    "doc_target": "describe_architecture",
+    "source_fingerprint": "sha256:0CD07C9D27DCF73AAB6B6D5C434D47AACDDD1775C6EFE69517598B824227BA9F"
+  },
+  "tool": {
+    "name": "describe_architecture",
+    "description": "Read this system's architecture contract: what its terms mean here, which common assumptions do NOT hold, and where its data actually lives. Call this before reasoning about how the system is built, especially before writing a health check, a migration, or a backup.",
+    "signature": "describe_architecture(section)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "section": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.tools",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>
