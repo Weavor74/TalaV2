@@ -2618,10 +2618,83 @@
         <section class="view" id="view-vault" aria-label="Vault" hidden>
           <div class="view-header">
             <h1 class="view-title">Vault</h1>
-            <span class="badge badge-secure">Network Isolated</span>
+            <!-- Was a hardcoded "Network Isolated" badge (UI-039). It claimed a
+                 control that never worked and is no longer the rule: the vault
+                 is sealed at rest and excluded from sync, which is what this
+                 says instead. -->
+            <span class="badge badge-secure" title="Documents are encrypted at rest and are never synced, backed up or shared off this machine.">Sealed · never leaves</span>
+            <div class="view-actions">
+              <button class="btn btn-primary" id="btn-vault-new">+ New Document</button>
+            </div>
           </div>
-          <div class="empty-state">
-            <p>Vault is empty. Drop files here to store them securely.</p>
+
+          <div class="contacts-layout">
+            <!-- Left: the document list -->
+            <div class="contacts-left glass-card">
+              <div class="panel-toolbar-compact">
+                <input type="text" id="vault-search-input" class="form-control"
+                       placeholder="Search inside documents…" style="width: 100%;" />
+              </div>
+              <div id="vault-list" class="contacts-list">
+                <div class="empty-state" style="padding: var(--space-4);">Loading…</div>
+              </div>
+            </div>
+
+            <!-- Right: the open document -->
+            <div class="contacts-right glass-card" id="vault-detail">
+              <div class="empty-state" id="vault-empty" style="padding: var(--space-5); text-align: center;">
+                <p>Select a document, or create one.</p>
+                <p style="font-size: 0.75rem; color: var(--text-muted); margin-top: var(--space-2);">
+                  Contents are encrypted on disk. They are searchable locally and
+                  never leave this machine.
+                </p>
+              </div>
+
+              <div id="vault-editor" hidden>
+                <div class="form-group" style="margin-bottom: var(--space-3);">
+                  <label class="form-label" for="vault-doc-title">Title</label>
+                  <input type="text" id="vault-doc-title" class="form-control" style="width: 100%;" />
+                </div>
+                <div class="form-group" style="margin-bottom: var(--space-3);">
+                  <label class="form-label" for="vault-doc-tags">Tags (comma separated)</label>
+                  <input type="text" id="vault-doc-tags" class="form-control" style="width: 100%;" />
+                </div>
+                <div class="form-group" style="margin-bottom: var(--space-3);">
+                  <label class="form-label" for="vault-doc-body">Contents</label>
+                  <textarea id="vault-doc-body" class="form-control" rows="16"
+                            style="width: 100%; font-family: var(--font-mono, monospace); font-size: 0.8rem;"></textarea>
+                </div>
+
+                <fieldset style="border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: var(--space-3); margin-bottom: var(--space-3);">
+                  <legend style="font-size: 0.7rem; color: var(--text-secondary); padding: 0 6px;">Access</legend>
+                  <label style="display: flex; gap: 8px; align-items: flex-start; font-size: 0.78rem;">
+                    <input type="checkbox" id="vault-grant-remote" style="margin-top: 3px;" />
+                    <span>
+                      Allow this document to be read while a <strong>remote</strong> model is active.
+                      <span style="display: block; color: var(--text-muted); font-size: 0.7rem;">
+                        Off by default. With this off, the agent is refused access whenever
+                        the active provider is hosted.
+                      </span>
+                    </span>
+                  </label>
+                  <div class="form-group" style="margin-top: var(--space-3);">
+                    <label class="form-label" for="vault-grant-contacts">Shared with contacts</label>
+                    <input type="text" id="vault-grant-contacts" class="form-control"
+                           placeholder="none" style="width: 100%;" />
+                    <small style="color: var(--text-muted); font-size: 0.65rem;">
+                      Comma separated. Empty means nobody — a contact's other permissions
+                      never reach the vault.
+                    </small>
+                  </div>
+                </fieldset>
+
+                <div style="display: flex; gap: var(--space-2); align-items: center;">
+                  <button class="btn btn-primary" id="btn-vault-save">Save</button>
+                  <button class="btn" id="btn-vault-delete">Delete</button>
+                  <span id="vault-status" style="font-size: 0.72rem; color: var(--text-muted);"></span>
+                </div>
+              </div>
+            </div>
           </div>
         </section>
 

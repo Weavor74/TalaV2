@@ -797,7 +797,22 @@ What exists and is genuinely good:
 - A real `vault/` directory with `.keys/`, `character/`, and wallet key material.
 
 ### UI-036 — The Vault view is a static placeholder with no JavaScript
-**Severity: high · Status: open — backend done 2026-08-23, view not built**
+**Severity: high · Status: FIXED 2026-08-23**
+
+> **Fixed.** The view is built: a document list with a filter, a title/tags/body editor, and
+> the per-document access controls. `VaultManager` is registered in the init sequence and
+> loads when the view is opened -- a module nothing tells to load is the same as no module.
+>
+> Two habits the panel keeps, because this is the one screen where getting them wrong is a
+> disclosure rather than an annoyance. Grants are rendered from what is **stored**, not from
+> what was last typed, so a grant that failed to persist cannot look applied -- which meant
+> `vault.list` had to start returning them, or the controls would have rendered "off"
+> whatever they were set to. And the document write and the grant write are separate calls
+> and separate failures: a save that loses its permissions says so rather than reporting
+> success.
+>
+> Still a text editor only: there is no file drop or import, so a PDF or an image cannot go
+> into the vault yet. Recorded on `ui-view-vault` so the map does not overstate it.
 
 > **Backend complete, UI not started.** Everything the view needs now exists: `vault.list`,
 > `vault.read`, `vault.write`, `vault.delete` and `vault.grant`, with documents sealed at
@@ -882,7 +897,12 @@ refused by design. Whether "local LLM only" means *Ollama-only* needs deciding b
 specified.
 
 ### UI-039 — The `Network Isolated` badge is hardcoded, not wired to the real flag
-**Severity: medium · Status: open**
+**Severity: medium · Status: FIXED 2026-08-23**
+
+> **Fixed by removing the claim, not by wiring the flag.** The badge asserted "Network
+> Isolated", a control that never worked and is no longer the rule -- sharing is governed at
+> the exit now (UI-102). It reads "Sealed · never leaves", which is true of every vault
+> document: encrypted at rest, excluded from sync and backup.
 
 The badge is static markup with no JS behind it — it always reads `Network Isolated`, in every
 state.

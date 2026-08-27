@@ -207,6 +207,7 @@ def list_documents() -> list[dict[str, Any]]:
             out.append({"id": path.stem, "title": path.stem, "unreadable": True,
                         "error": f"{type(exc).__name__}"})
             continue
+        grants = state.get("grants")
         out.append({
             "id": path.stem,
             "title": state.get("title") or path.stem,
@@ -214,6 +215,14 @@ def list_documents() -> list[dict[str, Any]]:
             "updated_at": state.get("updated_at", ""),
             "sealed": bool(state.get("vault_sealed")),
             "bytes": path.stat().st_size,
+            # Carried on the listing so a panel can show what is actually
+            # stored rather than what the user last typed. Without it the
+            # access controls render as "off" whatever they are set to, which
+            # is the most dangerous direction for that particular mistake.
+            "grants": {
+                "remote_inference": bool((grants or {}).get("remote_inference")),
+                "contacts": list((grants or {}).get("contacts") or []),
+            },
         })
     return out
 

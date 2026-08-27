@@ -27,6 +27,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSafe('Navigation', () => Navigation.init());
   initSafe('ProfileManager', () => ProfileManager.init());
   initSafe('ContactsManager', () => ContactsManager.init());
+  initSafe('VaultManager', () => VaultManager.init());
   initSafe('FileExplorer', () => FileExplorer.init());
   initSafe('SettingsDashboard', () => SettingsDashboard.init());
   initSafe('AgentChat', () => AgentChat.init());
@@ -322,6 +323,10 @@ const TabManager = {
 
       if (id === 'contacts') {
         ContactsManager.load();
+      }
+
+      if (id === 'vault') {
+        VaultManager.load();
       }
 
       if (id === 'research') {
@@ -11259,6 +11264,271 @@ const MissionControl = {
       alert(`Halt loop error: ${err.message}`);
     }
   }
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   VaultManager — private documents, sealed at rest
+
+   The view was eight lines of placeholder HTML with no JS module at all
+   (UI-036), against a backend that had only vault:read and no way to put a
+   document in (UI-037).
+
+   Two habits this panel keeps, because the vault is the one screen where
+   getting them wrong is a disclosure rather than an annoyance:
+
+   * Grants are shown as they are, not as the user last typed them. After a
+     save the panel re-reads what was actually stored, so a grant that failed
+     to persist cannot look applied.
+   * A refusal is never rendered as emptiness. "Nothing here" and "you may not
+     see this" are different facts.
+   ═══════════════════════════════════════════════════════════════════ */
+const VaultManager = {
+  _documents: [],
+  _selected: null,
+  _dirty: false,
+
+  init() {
+    this._list    = qs('#vault-list');
+    this._search  = qs('#vault-search-input');
+    this._editor  = qs('#vault-editor');
+    this._empty   = qs('#vault-empty');
+    this._title   = qs('#vault-doc-title');
+    this._tags    = qs('#vault-doc-tags');
+    this._body    = qs('#vault-doc-body');
+    this._remote  = qs('#vault-grant-remote');
+    this._contacts= qs('#vault-grant-contacts');
+    this._status  = qs('#vault-status');
+
+    const onNew = qs('#btn-vault-new');
+    if (onNew) onNew.addEventListener('click', () => this.newDocument());
+
+    const onSave = qs('#btn-vault-save');
+    if (onSave) onSave.addEventListener('click', () => this.save());
+
+    const onDelete = qs('#btn-vault-delete');
+    if (onDelete) onDelete.addEventListener('click', () => this.remove());
+
+    if (this._search) {
+      this._search.addEventListener('input', () => this.renderList());
+    }
+
+    [this._title, this._tags, this._body, this._contacts].forEach(el => {
+      if (el) el.addEventListener('input', () => this.markDirty());
+    });
+    if (this._remote) this._remote.addEventListener('change', () => this.markDirty());
+  },
+
+  markDirty() {
+    this._dirty = true;
+    this.setStatus('Unsaved changes.');
+  },
+
+  setStatus(text, kind) {
+    if (!this._status) return;
+    this._status.textContent = text || '';
+    this._status.style.color =
+      kind === 'error' ? 'var(--status-error)' :
+      kind === 'ok'    ? 'var(--status-ok)'    : 'var(--text-muted)';
+  },
+
+  async load() {
+    if (!this._list) return;
+    try {
+      const result = await invoke('python:rpc', { method: 'vault.list', params: {} });
+      this._documents = result?.documents || [];
+      this.renderList();
+    } catch (err) {
+      this._list.innerHTML =
+        `<div class="empty-state" style="padding: var(--space-4); color: var(--status-error);">
+           Could not read the vault: ${escapeHtml(String(err?.message || err))}
+         </div>`;
+    }
+  },
+
+  renderList() {
+    if (!this._list) return;
+    const filter = (this._search?.value || '').trim().toLowerCase();
+    const matches = filter
+      ? this._documents.filter(d =>
+          (d.title || '').toLowerCase().includes(filter) ||
+          (d.tags || []).join(' ').toLowerCase().includes(filter))
+      : this._documents;
+
+    if (!this._documents.length) {
+      this._list.innerHTML =
+        `<div class="empty-state" style="padding: var(--space-4);">
+           The vault is empty. Create a document to begin.
+         </div>`;
+      return;
+    }
+    if (!matches.length) {
+      this._list.innerHTML =
+        `<div class="empty-state" style="padding: var(--space-4);">
+           Nothing matches "${escapeHtml(filter)}". Titles and tags are searched here;
+           use the agent's vault_search to search inside documents.
+         </div>`;
+      return;
+    }
+
+    this._list.innerHTML = matches.map(d => {
+      const selected = d.id === this._selected?.id;
+      // A document that cannot be parsed is shown as a problem rather than
+      // omitted: silently dropping it would look like it was never there.
+      const broken = d.unreadable
+        ? '<span class="badge" style="background: var(--status-error); color:#fff; font-size:0.6rem;">UNREADABLE</span>'
+        : '';
+      return `
+        <div class="contact-item${selected ? ' selected' : ''}" data-vault-id="${escapeHtml(d.id)}"
+             style="cursor: pointer; padding: var(--space-2) var(--space-3);">
+          <div style="display:flex; justify-content:space-between; align-items:baseline; gap:8px;">
+            <strong style="font-size:0.82rem;">${escapeHtml(d.title || d.id)}</strong>
+            ${broken}
+          </div>
+          <div style="font-size:0.66rem; color: var(--text-muted);">
+            ${escapeHtml((d.tags || []).join(', ') || 'no tags')}
+          </div>
+        </div>`;
+    }).join('');
+
+    this._list.querySelectorAll('[data-vault-id]').forEach(el => {
+      el.addEventListener('click', () => this.open(el.dataset.vaultId));
+    });
+  },
+
+  async open(docId) {
+    if (this._dirty && !confirm('Discard unsaved changes to this document?')) return;
+
+    try {
+      const doc = await invoke('python:rpc', { method: 'vault.read', params: { id: docId } });
+      if (!doc?.success) {
+        // Says why rather than showing a blank editor, which would read as
+        // "this document is empty".
+        this.setStatus(doc?.error || 'The document could not be opened.', 'error');
+        return;
+      }
+      this._selected = doc;
+      this._dirty = false;
+
+      if (this._empty) this._empty.hidden = true;
+      if (this._editor) this._editor.hidden = false;
+      this._title.value = doc.title || '';
+      this._tags.value = (doc.tags || []).join(', ');
+      this._body.value = doc.body || '';
+
+      await this.loadGrants(docId);
+      this.setStatus(`Opened. Last saved ${doc.updated_at ? doc.updated_at.slice(0, 19) : 'unknown'}.`);
+      this.renderList();
+    } catch (err) {
+      this.setStatus(String(err?.message || err), 'error');
+    }
+  },
+
+  async loadGrants(docId) {
+    // Read from the list payload rather than trusting the form: this is what
+    // is actually stored.
+    const entry = this._documents.find(d => d.id === docId) || {};
+    const grants = entry.grants || {};
+    if (this._remote) this._remote.checked = Boolean(grants.remote_inference);
+    if (this._contacts) this._contacts.value = (grants.contacts || []).join(', ');
+  },
+
+  newDocument() {
+    if (this._dirty && !confirm('Discard unsaved changes?')) return;
+    this._selected = null;
+    this._dirty = false;
+    if (this._empty) this._empty.hidden = true;
+    if (this._editor) this._editor.hidden = false;
+    this._title.value = '';
+    this._tags.value = '';
+    this._body.value = '';
+    if (this._remote) this._remote.checked = false;
+    if (this._contacts) this._contacts.value = '';
+    this.setStatus('New document. It is sealed when you save it.');
+    this._title.focus();
+  },
+
+  _splitList(value) {
+    return String(value || '')
+      .split(',')
+      .map(v => v.trim())
+      .filter(Boolean);
+  },
+
+  async save() {
+    const title = (this._title?.value || '').trim();
+    if (!title) {
+      this.setStatus('A title is required.', 'error');
+      return;
+    }
+
+    this.setStatus('Sealing…');
+    try {
+      const written = await invoke('python:rpc', {
+        method: 'vault.write',
+        params: {
+          id: this._selected?.id,
+          title,
+          body: this._body?.value || '',
+          tags: this._splitList(this._tags?.value),
+        },
+      });
+      if (!written?.success) {
+        this.setStatus(written?.error || 'The document was not saved.', 'error');
+        return;
+      }
+
+      // Grants are a separate call and a separate failure: a document that
+      // saved but whose permissions did not must not report success.
+      const granted = await invoke('python:rpc', {
+        method: 'vault.grant',
+        params: {
+          id: written.id,
+          remote_inference: Boolean(this._remote?.checked),
+          contacts: this._splitList(this._contacts?.value),
+        },
+      });
+
+      this._dirty = false;
+      await this.load();
+      await this.open(written.id);
+
+      if (!granted?.success) {
+        this.setStatus(
+          `Saved, but the access settings were not applied: ${granted?.error || 'unknown error'}`,
+          'error'
+        );
+      } else {
+        this.setStatus('Saved and sealed.', 'ok');
+      }
+      IPCLog.append('info', `Vault: saved "${title}".`);
+    } catch (err) {
+      this.setStatus(String(err?.message || err), 'error');
+    }
+  },
+
+  async remove() {
+    if (!this._selected) return;
+    const title = this._selected.title || this._selected.id;
+    if (!confirm(`Delete "${title}"? The vault is never backed up, so this cannot be undone.`)) return;
+
+    try {
+      const result = await invoke('python:rpc', {
+        method: 'vault.delete', params: { id: this._selected.id },
+      });
+      if (!result?.success) {
+        this.setStatus(result?.error || 'The document was not deleted.', 'error');
+        return;
+      }
+      this._selected = null;
+      this._dirty = false;
+      if (this._editor) this._editor.hidden = true;
+      if (this._empty) this._empty.hidden = false;
+      await this.load();
+      IPCLog.append('info', `Vault: deleted "${title}".`);
+    } catch (err) {
+      this.setStatus(String(err?.message || err), 'error');
+    }
+  },
 };
 
 /* ═══════════════════════════════════════════════════════════════════
