@@ -316,19 +316,21 @@ VIEWS["settings"] = dict(
     purpose="All configuration. Eighteen panels under one nav.",
     controls=[
         ("settings-tab-nav", "Panel switcher, 18 entries", "works"),
-        ("settings-tab-nav", "Panel switcher, 18 entries", "works"),
-        ("btn-settings-export", "EXPORT", "dead"),
-        ("btn-settings-import", "IMPORT", "dead"),
-        ("btn-settings-apply", "APPLY CHANGES", "dead"),
+        ("btn-settings-export", "EXPORT - writes a settings JSON, credentials omitted", "works"),
+        ("btn-settings-import", "IMPORT - applies the environment from a settings JSON", "works"),
+        ("settings-lockdown-toggle", "LOCKDOWN - a security override, separate from the environment", "works"),
+        ("settings-env-status", "Says what the current preset permits and which axis is restricting", "works"),
     ],
     reads=[
         "Panels: inference, agent, identity, workflows, guardrails, search, system, git, storage, database, runtime, plugins, auth, firewall, channels, logging, architecture, about.",
-        "Panels currently save on change; APPLY CHANGES is to become staged-then-apply.",
+        "Panels save on change. APPLY CHANGES was removed rather than wired: it was the primary action of the screen, had no handler, and taught the wrong model - that edits were staged awaiting commit when they were already live.",
+        "The environment buttons are presets. USB permits the embedded engine only and doubles as a troubleshooting mode; LOCAL permits embedded and local engines; REMOTE permits any. Each also sets the permitted storage.",
+        "Lockdown is orthogonal to the environment: a security override that forces embedded or local inference regardless of preset, and does not move the data root, because moving a user's data is not a safety measure.",
+        "The restriction is applied where the inference fallback chain is assembled, not at the panel - filtering at the panel would leave it cosmetic, which is what it was.",
+        "Export omits credentials deliberately. Import applies only the environment; replacing provider lists would delete credentials the export never contained.",
     ],
     broken=[
-        "UI-044: the environment and scope selectors are cosmetic.",
-        "UI-045: EXPORT, IMPORT and APPLY CHANGES have no handlers.",
-        "UI-109: the env buttons were designed as presets setting data root, inference and storage together.",
+        "The GLOBAL / WORKSPACE scope buttons are still cosmetic. They now say so rather than logging a line that implies otherwise; all settings remain global.",
     ],
 )
 

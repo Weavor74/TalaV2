@@ -31,7 +31,7 @@
   <section id="semantic-memory">
     <p>All configuration. Eighteen panels under one nav. Reached: Sidebar rail, bottom gear icon. 18 panels selected by data-panel.</p>
     <p>The operator describes this screen as: “settings.&lt;panel&gt;”</p>
-    <p>3 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
+    <p>1 known defect(s) affect this screen; see the Known defects section before relying on it.</p>
   </section>
 
   <section id="controls">
@@ -39,10 +39,10 @@
     <table>
       <tr><th>Element id</th><th>What it does</th><th>Verdict</th></tr>
       <tr><td>settings-tab-nav</td><td>Panel switcher, 18 entries</td><td>works</td></tr>
-      <tr><td>settings-tab-nav</td><td>Panel switcher, 18 entries</td><td>works</td></tr>
-      <tr><td>btn-settings-export</td><td>EXPORT</td><td>dead</td></tr>
-      <tr><td>btn-settings-import</td><td>IMPORT</td><td>dead</td></tr>
-      <tr><td>btn-settings-apply</td><td>APPLY CHANGES</td><td>dead</td></tr>
+      <tr><td>btn-settings-export</td><td>EXPORT - writes a settings JSON, credentials omitted</td><td>works</td></tr>
+      <tr><td>btn-settings-import</td><td>IMPORT - applies the environment from a settings JSON</td><td>works</td></tr>
+      <tr><td>settings-lockdown-toggle</td><td>LOCKDOWN - a security override, separate from the environment</td><td>works</td></tr>
+      <tr><td>settings-env-status</td><td>Says what the current preset permits and which axis is restricting</td><td>works</td></tr>
     </table>
   </section>
 
@@ -50,16 +50,18 @@
     <h2>Behaviour notes</h2>
     <ul>
       <li>Panels: inference, agent, identity, workflows, guardrails, search, system, git, storage, database, runtime, plugins, auth, firewall, channels, logging, architecture, about.</li>
-      <li>Panels currently save on change; APPLY CHANGES is to become staged-then-apply.</li>
+      <li>Panels save on change. APPLY CHANGES was removed rather than wired: it was the primary action of the screen, had no handler, and taught the wrong model - that edits were staged awaiting commit when they were already live.</li>
+      <li>The environment buttons are presets. USB permits the embedded engine only and doubles as a troubleshooting mode; LOCAL permits embedded and local engines; REMOTE permits any. Each also sets the permitted storage.</li>
+      <li>Lockdown is orthogonal to the environment: a security override that forces embedded or local inference regardless of preset, and does not move the data root, because moving a user's data is not a safety measure.</li>
+      <li>The restriction is applied where the inference fallback chain is assembled, not at the panel - filtering at the panel would leave it cosmetic, which is what it was.</li>
+      <li>Export omits credentials deliberately. Import applies only the environment; replacing provider lists would delete credentials the export never contained.</li>
     </ul>
   </section>
 
   <section id="known-defects">
     <h2>Known defects</h2>
     <ul>
-      <li>UI-044: the environment and scope selectors are cosmetic.</li>
-      <li>UI-045: EXPORT, IMPORT and APPLY CHANGES have no handlers.</li>
-      <li>UI-109: the env buttons were designed as presets setting data root, inference and storage together.</li>
+      <li>The GLOBAL / WORKSPACE scope buttons are still cosmetic. They now say so rather than logging a line that implies otherwise; all settings remain global.</li>
     </ul>
   </section>
 
@@ -91,34 +93,32 @@
       "verdict": "works"
     },
     {
-      "id": "settings-tab-nav",
-      "does": "Panel switcher, 18 entries",
+      "id": "btn-settings-export",
+      "does": "EXPORT - writes a settings JSON, credentials omitted",
       "verdict": "works"
     },
     {
-      "id": "btn-settings-export",
-      "does": "EXPORT",
-      "verdict": "dead"
-    },
-    {
       "id": "btn-settings-import",
-      "does": "IMPORT",
-      "verdict": "dead"
+      "does": "IMPORT - applies the environment from a settings JSON",
+      "verdict": "works"
     },
     {
-      "id": "btn-settings-apply",
-      "does": "APPLY CHANGES",
-      "verdict": "dead"
+      "id": "settings-lockdown-toggle",
+      "does": "LOCKDOWN - a security override, separate from the environment",
+      "verdict": "works"
+    },
+    {
+      "id": "settings-env-status",
+      "does": "Says what the current preset permits and which axis is restricting",
+      "verdict": "works"
     }
   ],
   "known_defects": [
-    "UI-044: the environment and scope selectors are cosmetic.",
-    "UI-045: EXPORT, IMPORT and APPLY CHANGES have no handlers.",
-    "UI-109: the env buttons were designed as presets setting data root, inference and storage together."
+    "The GLOBAL / WORKSPACE scope buttons are still cosmetic. They now say so rather than logging a line that implies otherwise; all settings remain global."
   ],
   "metadata": {
     "author": "ui-audit",
-    "created_or_updated": "2026-08-27T21:38:05Z",
+    "created_or_updated": "2026-08-27T21:51:12Z",
     "schema": "neural-node/v2",
     "source": "docs/ui-audit-findings.md"
   }

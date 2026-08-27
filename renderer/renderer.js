@@ -945,26 +945,193 @@ const FileExplorer = {
 };
 
 const SettingsDashboard = {
+  /** Read the stored environment and reflect it, rather than assuming LOCAL. */
+  async loadEnvironment() {
+    try {
+      const state = await invoke('python:rpc', { method: 'environment.get', params: {} });
+      this.renderEnvironment(state);
+    } catch (err) {
+      const status = qs('#settings-env-status');
+      if (status) {
+        status.textContent = `Could not read the environment: ${err?.message || err}`;
+        status.style.color = 'var(--status-error)';
+      }
+    }
+  },
+
+  renderEnvironment(state) {
+    if (!state) return;
+    document.querySelectorAll('.btn-settings-env').forEach(b => {
+      b.classList.toggle('active', b.dataset.env === state.environment);
+    });
+    const lockdown = qs('#settings-lockdown-toggle');
+    if (lockdown) lockdown.checked = Boolean(state.lockdown);
+
+    const status = qs('#settings-env-status');
+    if (!status) return;
+    status.style.color = 'var(--text-muted)';
+    const permitted = (state.permitted_inference || []).join(', ');
+    // Says which axis is restricting, so a blocked provider can be explained
+    // rather than just greyed out.
+    const because =
+      state.restricted_by === 'lockdown' ? ' Lockdown is what is restricting this.' :
+      state.restricted_by === 'environment' ? ' The environment preset is what is restricting this.' :
+      '';
+    status.textContent =
+      `${escapeHtml(state.description || '')} Inference limited to: ${permitted}.` + because;
+  },
+
+  async setEnvironment(env) {
+    if (!env) return;
+    try {
+      const state = await invoke('python:rpc', {
+        method: 'environment.set', params: { environment: env },
+      });
+      this.renderEnvironment(state);
+      IPCLog.append('info',
+        `Environment set to ${env.toUpperCase()}; inference limited to ` +
+        `${(state.permitted_inference || []).join(', ')}.`);
+    } catch (err) {
+      IPCLog.append('error', `Could not set the environment: ${err?.message || err}`);
+      // Put the buttons back to what is actually stored, so the UI cannot show
+      // a preset that was never applied.
+      this.loadEnvironment();
+    }
+  },
+
+  async setLockdown(on) {
+    try {
+      const state = await invoke('python:rpc', {
+        method: 'environment.set', params: { lockdown: Boolean(on) },
+      });
+      this.renderEnvironment(state);
+      IPCLog.append(on ? 'warn' : 'info',
+        on ? 'Lockdown engaged: inference forced local.' : 'Lockdown released.');
+    } catch (err) {
+      IPCLog.append('error', `Could not change lockdown: ${err?.message || err}`);
+      this.loadEnvironment();
+    }
+  },
+
+  /**
+   * Export the settings that are safe to write to a file.
+   *
+   * Credentials are deliberately absent: they are encrypted at rest, and an
+   * export that decrypted them would be a plaintext copy of every secret in
+   * the app sitting in the user's downloads folder.
+   */
+  async exportSettings() {
+    try {
+      const bundle = { exported_at: new Date().toISOString(), version: 1 };
+      const [environment, providers, search] = await Promise.all([
+        invoke('python:rpc', { method: 'environment.get', params: {} }),
+        invoke('python:rpc', { method: 'inference.get_providers', params: {} }),
+        invoke('python:rpc', { method: 'search.get_providers', params: {} }),
+      ]);
+      bundle.environment = environment;
+      // Strip anything secret-shaped on the way out rather than trusting the
+      // reader to have redacted it.
+      const scrub = (list) => (list || []).map(p => {
+        const copy = { ...p };
+        delete copy.api_key; delete copy.apiKey; delete copy.config;
+        return copy;
+      });
+      bundle.inference_providers = scrub(providers?.providers);
+      bundle.search_providers = scrub(search?.providers);
+
+      const blob = new Blob([JSON.stringify(bundle, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tala-settings-${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      IPCLog.append('ok', 'Settings exported. Credentials were not included.');
+    } catch (err) {
+      IPCLog.append('error', `Export failed: ${err?.message || err}`);
+    }
+  },
+
+  async importSettings(event) {
+    const file = event?.target?.files?.[0];
+    if (event?.target) event.target.value = '';
+    if (!file) return;
+
+    let bundle;
+    try {
+      bundle = JSON.parse(await file.text());
+    } catch (err) {
+      IPCLog.append('error', `${file.name} is not valid JSON.`);
+      return;
+    }
+
+    // Only the environment is applied. Importing provider lists would mean
+    // deciding whether to merge or replace, and replacing would silently
+    // delete credentials the export never contained.
+    if (!bundle?.environment?.environment) {
+      IPCLog.append('error',
+        `${file.name} carries no environment setting. Only the environment is ` +
+        `imported; provider lists are not, because the export omits credentials ` +
+        `and replacing them would delete working ones.`);
+      return;
+    }
+
+    try {
+      const state = await invoke('python:rpc', {
+        method: 'environment.set',
+        params: {
+          environment: bundle.environment.environment,
+          lockdown: Boolean(bundle.environment.lockdown),
+        },
+      });
+      this.renderEnvironment(state);
+      IPCLog.append('ok', `Imported the environment from ${file.name}.`);
+    } catch (err) {
+      IPCLog.append('error', `Import failed: ${err?.message || err}`);
+    }
+  },
+
   init() {
-    // Env selector
+    // Environment presets (UI-044, UI-109). These were a class toggle and a
+    // log line. That mattered more than a dead button usually does, because
+    // USB (ISOLATED) reads as a security control: selecting it and having
+    // nothing change is worse than not offering it at all.
     const envBtns = document.querySelectorAll('.btn-settings-env');
     envBtns.forEach(btn => {
-      btn.addEventListener('click', () => {
-        envBtns.forEach(b => b.classList.remove('active'));
-        btn.classList.add('active');
-        IPCLog.append('info', `Environment: ${btn.dataset.env.toUpperCase()}`);
-      });
+      btn.addEventListener('click', () => this.setEnvironment(btn.dataset.env));
     });
 
-    // Scope selector
+    const lockdown = qs('#settings-lockdown-toggle');
+    if (lockdown) {
+      lockdown.addEventListener('change', () => this.setLockdown(lockdown.checked));
+    }
+
+    this.loadEnvironment();
+
+    // Scope selector. Still cosmetic, and now says so rather than logging a
+    // line that implies something happened.
     const scopeBtns = document.querySelectorAll('.btn-settings-scope');
     scopeBtns.forEach(btn => {
+      btn.title = 'Not yet implemented — settings are global.';
       btn.addEventListener('click', () => {
         scopeBtns.forEach(b => b.classList.remove('active'));
         btn.classList.add('active');
-        IPCLog.append('info', `Scope: ${btn.dataset.scope.toUpperCase()}`);
+        IPCLog.append('warn',
+          `Scope ${btn.dataset.scope.toUpperCase()} selected, but scoping is not ` +
+          `implemented — all settings remain global.`);
       });
     });
+
+    // EXPORT / IMPORT had no handlers at all (UI-045).
+    const onExport = qs('#btn-settings-export');
+    if (onExport) onExport.addEventListener('click', () => this.exportSettings());
+
+    const importInput = qs('#settings-import-input');
+    const onImport = qs('#btn-settings-import');
+    if (onImport && importInput) {
+      onImport.addEventListener('click', () => importInput.click());
+      importInput.addEventListener('change', (e) => this.importSettings(e));
+    }
 
     // Unified panel tab switching
     const tabs = document.querySelectorAll('#settings-tab-nav .settings-sub-tab');

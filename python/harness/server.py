@@ -2503,6 +2503,39 @@ async def handle_inference_generate(
             "locked": True
         }]
 
+    # The environment preset and lockdown decide which provider types may be
+    # used at all (UI-044, UI-109, UI-112). Applied here because this is where
+    # the fallback chain is assembled -- filtering at the panel would leave the
+    # restriction cosmetic, which is what it was.
+    try:
+        from python.harness import environment as _env
+
+        _env_state = await _env.get_state()
+        _allowed, _blocked = _env.filter_providers(providers, _env_state)
+        if _blocked:
+            # Said out loud. A provider that vanishes from the chain with no
+            # explanation is indistinguishable from one never configured.
+            logger.info(
+                "Environment %r%s permits %s; %d provider(s) held back: %s",
+                _env_state["environment"],
+                " with lockdown" if _env_state["lockdown"] else "",
+                _env_state["permitted_inference"], len(_blocked),
+                ", ".join(f"{b['name']} ({b['type']})" for b in _blocked),
+            )
+        if _allowed:
+            providers = _allowed
+        elif _blocked:
+            # Never leave the user with nothing: the embedded engine is
+            # permitted in every environment, so fall back to it rather than
+            # failing the request outright.
+            logger.warning(
+                "Environment %r permits no configured provider; falling back to "
+                "the embedded engine.", _env_state["environment"],
+            )
+            providers = []
+    except Exception as exc:
+        logger.warning("Could not apply the environment restriction: %s", exc)
+
     request_provider_id = str(params.get("provider_id", "") or "").strip()
 
     # Check if there is a per-request or globally forced provider
@@ -11851,6 +11884,55 @@ def is_local_only_artifact(name: str) -> bool:
     return bool(parts & set(NEVER_LEAVES_DIRS))
 
 
+async def handle_environment_get(params: dict[str, Any], req_id: Any) -> str:
+    """``environment.get`` — the current preset, lockdown, and what they permit."""
+    try:
+        from python.harness import environment as env
+        return _ok(req_id, await env.get_state())
+    except Exception as exc:
+        logger.exception("environment.get error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_environment_set(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``environment.set`` — choose a preset, or turn lockdown on or off.
+
+    The buttons were a CSS class toggle and a log line (UI-044). That mattered
+    more than a dead control usually does: USB (ISOLATED) reads as a security
+    guarantee, so selecting it and having nothing change is worse than not
+    offering it.
+    """
+    from python.harness import environment as env
+
+    environment = params.get("environment")
+    lockdown = params.get("lockdown")
+    if environment is None and lockdown is None:
+        return _err(
+            req_id, JsonRpcError.INVALID_PARAMS,
+            "give 'environment' (usb, local, remote) and/or 'lockdown' (bool)",
+        )
+    if environment is not None and str(environment).strip().lower() not in env.ENVIRONMENTS:
+        return _err(
+            req_id, JsonRpcError.INVALID_PARAMS,
+            f"unknown environment {environment!r}; expected one of "
+            f"{', '.join(env.ENVIRONMENTS)}",
+        )
+
+    try:
+        state = await env.set_state(environment=environment, lockdown=lockdown)
+        await db.log_to_db(
+            "INFO",
+            f"Environment set to {state['environment']}"
+            + (" with lockdown engaged" if state["lockdown"] else ""),
+            {"state": state},
+        )
+        return _ok(req_id, state)
+    except Exception as exc:
+        logger.exception("environment.set error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_vault_grant(params: dict[str, Any], req_id: Any) -> str:
     """
     ``vault.grant`` — grant or revoke access to one vault document.
@@ -12404,6 +12486,8 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "environment.get": handle_environment_get,
+    "environment.set": handle_environment_set,
     "vault.grant": handle_vault_grant,
     "vault.list": handle_vault_list,
     "vault.read": handle_vault_read,

@@ -519,6 +519,21 @@ _DDL_STATEMENTS: list[str] = [
         $$;
     """),
     # ------------------------------------------------------------------
+    # app_settings — small, single-purpose settings that must not be lost
+    # inside a larger blob.
+    #
+    # A key/value row rather than another JSON column on an existing table:
+    # the profile data appeared to vanish because one save overwrote a whole
+    # config object (UI-056), and the environment preset is exactly the kind of
+    # value that would go the same way.
+    # ------------------------------------------------------------------
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS app_settings (
+            key        TEXT        PRIMARY KEY,
+            value      JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+
     # heartbeats — proactive cron-scheduled autonomous goals
     # ------------------------------------------------------------------
     textwrap.dedent("""\

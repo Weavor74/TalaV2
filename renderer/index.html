@@ -425,11 +425,21 @@
                   <button class="btn-settings-env" data-env="usb">USB (ISOLATED)</button>
                   <button class="btn-settings-env active" data-env="local">LOCAL (SYSTEM)</button>
                   <button class="btn-settings-env" data-env="remote">REMOTE (CLOUD)</button>
+                  <div id="settings-env-status" style="margin-top: 6px; font-size: 0.68rem; color: var(--text-muted); line-height: 1.35;"></div>
                 </div>
                 <div class="settings-actions">
                   <button class="btn btn-ghost" id="btn-settings-export">EXPORT</button>
                   <button class="btn btn-ghost" id="btn-settings-import">IMPORT</button>
-                  <button class="btn btn-primary" id="btn-settings-apply">APPLY CHANGES</button>
+                  <input type="file" id="settings-import-input" accept="application/json,.json" hidden />
+                  <!-- APPLY CHANGES removed (UI-045). It was the primary action
+                       of the whole settings screen and had no handler, and every
+                       panel already persists on change - so it taught the wrong
+                       model: that edits were staged and awaiting commit, when
+                       they were already live. -->
+                  <label class="btn btn-ghost" id="btn-settings-lockdown" title="A security override, separate from the environment: forces local inference and the strictest guardrails." style="display: inline-flex; gap: 6px; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="settings-lockdown-toggle" />
+                    <span>LOCKDOWN</span>
+                  </label>
                 </div>
               </div>
               <div class="settings-scope-row">

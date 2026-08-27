@@ -1042,7 +1042,13 @@ Found while auditing `settings.inference`, but these controls sit above the pane
 present on every settings tab.
 
 ### UI-044 — The environment and scope selectors are cosmetic
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** The presets now set what they claim. This one mattered more than a dead button
+> usually does: `USB (ISOLATED)` reads as a security guarantee, so selecting it and having
+> nothing change was worse than not offering it. The **scope** buttons are still cosmetic and
+> now say so, rather than logging a line that implies otherwise.
 
 `USB (ISOLATED)` / `LOCAL (SYSTEM)` / `REMOTE (CLOUD)` and `GLOBAL` / `WORKSPACE` are handled at
 [renderer.js:691](../renderer/renderer.js#L691) by:
@@ -1067,7 +1073,19 @@ Equally, `GLOBAL` vs `WORKSPACE` scope implies settings can be scoped per worksp
 scoped by anything.
 
 ### UI-045 — `EXPORT`, `IMPORT`, and `APPLY CHANGES` have no handlers
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed, two different ways.** `APPLY CHANGES` was **removed** rather than wired: it was
+> the primary action of the whole settings screen, had no handler, and taught the wrong
+> model — that edits were staged awaiting commit, when every panel already persists on
+> change. Wiring it would have made the wrong model true.
+>
+> `EXPORT` and `IMPORT` are implemented. Export **omits credentials deliberately**: they are
+> encrypted at rest, and an export that decrypted them would be a plaintext copy of every
+> secret in the app sitting in the user's downloads folder. Import applies only the
+> environment — replacing provider lists would silently delete credentials the export never
+> contained.
 
 `btn-settings-export`, `btn-settings-import`, and `btn-settings-apply` appear **only** in
 `index.html` ([lines 407-409](../renderer/index.html#L407)). No listener is bound to any of them
@@ -3164,7 +3182,17 @@ than transformed into a node. This is the one place the mandate is deliberately 
 scope requires the network — so one search cannot currently span both.
 
 ### UI-109 — The environment buttons are presets, and each sets three things at once
-**Severity: high (design) · Status: specified, not built · Source: Q-25**
+**Severity: high (design) · Status: FIXED 2026-08-23 · Source: Q-25**
+
+
+> **Built.** USB permits the embedded engine only — Steven's *"the embedded engine is all we
+> have access to"*, and it doubles as a troubleshooting mode; LOCAL permits embedded and
+> local; REMOTE permits any. Each also sets permitted storage.
+>
+> Enforced where the inference fallback chain is assembled, not at the panel — filtering at
+> the panel would have left the restriction cosmetic, which is exactly what it was. Blocked
+> providers are logged by name rather than silently dropped, and if a preset would leave no
+> provider at all the embedded engine still answers.
 
 > **Steven:** *"If you select the USB button you are running from a USB and all data stored is on
 > USB. The embedded engine is all we have access to. Think of it as a troubleshooting mode. If you
@@ -3245,7 +3273,14 @@ remotely at all today. Q-40 confirmed the panel stays generic because the user s
 that does not remove the need for the app to speak the protocol.
 
 ### UI-112 — Lockdown and the LOCAL preset are separate, and lockdown also tightens guardrails
-**Severity: high (design) · Status: specified · Source: Q-25 follow-up**
+**Severity: high (design) · Status: FIXED 2026-08-23 · Source: Q-25 follow-up**
+
+
+> **Built, and kept orthogonal.** Lockdown restricts inference to embedded and local
+> regardless of preset, and does **not** move the data root — moving a user's data is not a
+> safety measure. It can land on the same restriction as the LOCAL preset by a different
+> route, which is not a reason to merge them: the state reports `restricted_by` so the panel
+> can say *why* a provider is unavailable rather than just greying it out.
 
 > **Steven:** *"This should be a separate thing. Lockdown is a security override. This should
 > probably include the strictest guardrail settings possible. Local is just the operational
