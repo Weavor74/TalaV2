@@ -94,12 +94,16 @@ def test_server_indexes_the_builtin_specs():
 # --- documentation authority: one value, checked everywhere -----------------
 
 
-def test_a_freshly_written_node_validates():
+def test_a_freshly_written_node_validates(monkeypatch, tmp_path):
     """The generator rejected its own output: it wrote 0.60 and its post-write
     check demanded 0.00, so every node reported validation_passed=False."""
     from sdk.agent.documentation_nodes import create_documentation_node
 
-    os.environ["TALA_USER_DATA"] = tempfile.mkdtemp(prefix="tala-r3-")
+    # monkeypatch, not os.environ directly: this used to set TALA_USER_DATA and
+    # never restore it, so every test that ran afterwards in the same session
+    # resolved nodes/ to a leftover temp directory. Nothing failed loudly --
+    # they just quietly read and wrote the wrong tree.
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     result = create_documentation_node(
         node_id="probe-round3",
         title="Probe",

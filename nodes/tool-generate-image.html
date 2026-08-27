@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "generate_image",
+    "description": "Generate an image from a text prompt. Uses an OpenAI-compatible images endpoint if a provider has an imageModel configured, otherwise a local Stable Diffusion WebUI (AUTOMATIC1111) at localhost:7860. Saves the PNG to data/generated_images/ and shows it in the chat UI.",
     "signature": "generate_image(prompt*, provider_id, size)",
     "schema": {
       "type": "object",

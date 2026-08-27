@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "self_improvement.execute_goal",
+    "description": "Execute a self-improvement goal by selecting an approved bridge. Documentation goals route to docs.generate_and_verify_program_nodes. For code/config changes, pass concrete replacements or file_writes: without them this is a no-op (result.no_op will be true) even when dry_run is false.",
     "signature": "self_improvement.execute_goal(goal*, dry_run, targets, target_files, replacements, file_writes, validation_commands)",
     "schema": {
       "type": "object",

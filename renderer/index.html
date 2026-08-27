@@ -1081,6 +1081,15 @@
                           <div class="palette-item-desc">Workflow results gatherer</div>
                         </div>
                       </div>
+                      <div class="palette-group-title" style="margin-top: var(--space-3);">
+                        tool palette <span id="workflow-tool-count" style="opacity: 0.6; font-weight: 400;"></span>
+                      </div>
+                      <input type="search" id="workflow-tool-search" placeholder="Filter tools…" autocomplete="off"
+                        style="width: 100%; padding: var(--space-2); margin-bottom: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem;" />
+                      <div id="workflow-tool-palette" style="max-height: 340px; overflow-y: auto;">
+                        <div class="palette-item-desc" style="padding: var(--space-2);">Loading tools…</div>
+                      </div>
+
                       <div class="palette-help-card">
                         💡 <strong>Quick Tip:</strong> Click or drag a node to add it to the canvas. Select a node to configure properties on the right.
                       </div>
@@ -1188,6 +1197,20 @@
                               <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Python Script Instruction</label>
                               <textarea id="prop-script-code" rows="8" placeholder="result = 10 + 20" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem; resize: vertical; font-family: 'JetBrains Mono', monospace;"></textarea>
                               <small style="color: var(--text-muted); font-size: 0.6rem; display: block; margin-top: 4px;">Write simple expressions allocating variables or mathematical operations returning `result`.</small>
+                            </div>
+                          </div>
+
+                          <div id="config-tool-fields" class="dynamic-config-fields" style="display: none;">
+                            <div class="form-group" style="margin-bottom: var(--space-3);">
+                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Tool</label>
+                              <input type="text" id="prop-tool-name" readonly style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;" />
+                              <small id="prop-tool-signature" style="color: var(--text-muted); font-size: 0.6rem; display: block; margin-top: 4px; font-family: 'JetBrains Mono', monospace;"></small>
+                            </div>
+                            <div class="form-group" style="margin-bottom: var(--space-3);">
+                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Arguments (JSON)</label>
+                              <textarea id="prop-tool-args" rows="6" placeholder='{"query": "example"}' style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem; resize: vertical; font-family: 'JetBrains Mono', monospace;"></textarea>
+                              <small id="prop-tool-args-error" style="color: var(--status-error); font-size: 0.6rem; display: none; margin-top: 4px;"></small>
+                              <small style="color: var(--text-muted); font-size: 0.6rem; display: block; margin-top: 4px;">Pass a previous step's output with <code>{{step_&lt;id&gt;.result.&lt;key&gt;}}</code>. Required arguments are pre-filled.</small>
                             </div>
                           </div>
 

@@ -9435,9 +9435,23 @@ const WorkflowManager = {
       this._palette.querySelectorAll('.palette-item').forEach(item => {
         item.addEventListener('dragstart', (e) => {
           this._draggedNodeType = item.dataset.type;
+          this._draggedTool = null;
         });
       });
     }
+
+    // The tool palette (UI-059). The five static palette items covered five
+    // node types while the registry held ninety tools, so "Every tool created
+    // in the html-nn should be available here" was not true of any of them.
+    this._toolPalette = qs('#workflow-tool-palette');
+    this._toolSearch = qs('#workflow-tool-search');
+    this._toolCount = qs('#workflow-tool-count');
+    this._tools = [];
+
+    if (this._toolSearch) {
+      this._toolSearch.addEventListener('input', () => this.renderToolPalette());
+    }
+    this.loadToolPalette();
 
     // Canvas drop setup
     if (this._canvasContainer) {
@@ -9461,7 +9475,7 @@ const WorkflowManager = {
         this._propAuthProvider, this._propAuthApikey, this._propEmailProvider,
         this._propEmailTo, this._propEmailSubject, this._propEmailBody,
         this._propScriptCode, this._propOutputFormat, this._propConnSuccess,
-        this._propConnFailure
+        this._propConnFailure, qs('#prop-tool-args')
       ];
       inputs.forEach(input => {
         if (input) {
@@ -9670,13 +9684,91 @@ const WorkflowManager = {
   },
 
   // Drag and drop palette handlers
+  /** Fetch the tool catalogue from the tool-*.html nodes. */
+  async loadToolPalette() {
+    if (!this._toolPalette) return;
+    try {
+      const response = await invoke('python:rpc', { method: 'tools.catalogue', params: {} });
+      this._tools = response?.tools || [];
+      if (response?.unreadable) {
+        // A palette quietly missing tools looks identical to a complete one.
+        IPCLog.append('warn',
+          `${response.unreadable} tool node(s) could not be read and are missing from the palette.`);
+      }
+      this.renderToolPalette();
+    } catch (err) {
+      this._toolPalette.innerHTML =
+        `<div class="palette-item-desc" style="padding: 8px; color: var(--status-error);">
+           Could not load tools: ${escapeHtml(String(err?.message || err))}
+         </div>`;
+    }
+  },
+
+  renderToolPalette() {
+    if (!this._toolPalette) return;
+    const filter = (this._toolSearch?.value || '').trim().toLowerCase();
+    const matches = filter
+      ? this._tools.filter(t =>
+          t.name.toLowerCase().includes(filter) ||
+          (t.description || '').toLowerCase().includes(filter))
+      : this._tools;
+
+    if (this._toolCount) {
+      this._toolCount.textContent = filter
+        ? `(${matches.length} of ${this._tools.length})`
+        : `(${this._tools.length})`;
+    }
+
+    if (!matches.length) {
+      this._toolPalette.innerHTML =
+        `<div class="palette-item-desc" style="padding: 8px;">No tool matches “${escapeHtml(filter)}”.</div>`;
+      return;
+    }
+
+    this._toolPalette.innerHTML = matches.map(t => `
+      <div class="palette-item" data-type="tool" data-tool="${escapeHtml(t.name)}"
+           draggable="true" title="${escapeHtml(t.signature)}">
+        <span class="palette-dot dot-script"></span>
+        <div class="palette-item-text">
+          <div class="palette-item-name" style="font-family: var(--font-mono, monospace); font-size: 0.7rem;">${escapeHtml(t.name)}</div>
+          <div class="palette-item-desc">${escapeHtml((t.description || '').slice(0, 70))}</div>
+        </div>
+      </div>`).join('');
+
+    this._toolPalette.querySelectorAll('.palette-item').forEach(item => {
+      const tool = this._tools.find(t => t.name === item.dataset.tool);
+      item.addEventListener('dragstart', () => {
+        this._draggedNodeType = 'tool';
+        this._draggedTool = tool || null;
+      });
+      // Click to add, matching the five static items.
+      item.addEventListener('click', () => {
+        this._draggedNodeType = 'tool';
+        this._draggedTool = tool || null;
+        this.addNodeAt(60, 60);
+      });
+    });
+  },
+
+  /** Pre-fill a tool step with its required arguments. */
+  defaultArgsFor(tool) {
+    if (!tool) return {};
+    const args = {};
+    (tool.required || []).forEach(name => { args[name] = ''; });
+    return args;
+  },
+
   handleCanvasDrop(e) {
     e.preventDefault();
     if (!this._draggedNodeType) return;
 
     const rect = this._canvasSurface.getBoundingClientRect();
-    const x = e.clientX - rect.left;
-    const y = e.clientY - rect.top;
+    this.addNodeAt(e.clientX - rect.left, e.clientY - rect.top);
+  },
+
+  /** Create a node of the currently dragged type at canvas coordinates. */
+  addNodeAt(x, y) {
+    if (!this._draggedNodeType) return;
 
     const nodeShortId = crypto.randomUUID().substring(0, 4);
     const nodeId = `${this._draggedNodeType}-${nodeShortId}`;
@@ -9691,7 +9783,21 @@ const WorkflowManager = {
       output: { label: "Gather Result", config: { format: "json" } }
     };
 
-    const nodeMeta = defaults[this._draggedNodeType] || { label: "Action Node", config: {} };
+    let nodeMeta = defaults[this._draggedNodeType] || { label: "Action Node", config: {} };
+
+    // A tool step carries the tool name and its arguments; the executor reads
+    // both (config.tool / config.args) and resolves {{...}} references in the
+    // arguments against previous steps' output.
+    if (this._draggedNodeType === 'tool' && this._draggedTool) {
+      nodeMeta = {
+        label: this._draggedTool.name,
+        config: {
+          tool: this._draggedTool.name,
+          args: this.defaultArgsFor(this._draggedTool),
+          signature: this._draggedTool.signature || ''
+        }
+      };
+    }
 
     const newNode = {
       id: nodeId,
@@ -9704,6 +9810,7 @@ const WorkflowManager = {
 
     this._currentWorkflow.nodes.push(newNode);
     this._draggedNodeType = null;
+    this._draggedTool = null;
     this.renderCanvasNodes();
     this.selectNode(nodeId);
   },
@@ -9956,6 +10063,25 @@ const WorkflowManager = {
       if (scriptSec) scriptSec.style.display = 'block';
       if (this._propScriptCode) this._propScriptCode.value = config.code || '';
       
+    } else if (node.type === 'tool') {
+      const toolSec = qs('#config-tool-fields');
+      if (toolSec) toolSec.style.display = 'block';
+      const nameEl = qs('#prop-tool-name');
+      const sigEl = qs('#prop-tool-signature');
+      const argsEl = qs('#prop-tool-args');
+      const errEl = qs('#prop-tool-args-error');
+
+      if (nameEl) nameEl.value = config.tool || '';
+      if (sigEl) {
+        // Prefer the live catalogue's signature over the one stored in the
+        // node: a tool's arguments can change, and the stale copy is exactly
+        // what would send a step out with parameters that no longer exist.
+        const known = (this._tools || []).find(t => t.name === config.tool);
+        sigEl.textContent = known?.signature || config.signature || '';
+      }
+      if (argsEl) argsEl.value = JSON.stringify(config.args || {}, null, 2);
+      if (errEl) errEl.style.display = 'none';
+
     } else if (node.type === 'output') {
       const outSec = qs('#config-output-fields');
       if (outSec) outSec.style.display = 'block';
@@ -10027,6 +10153,29 @@ const WorkflowManager = {
     } else if (node.type === 'custom_script') {
       node.config.code = this._propScriptCode.value;
       
+    } else if (node.type === 'tool') {
+      const argsEl = qs('#prop-tool-args');
+      const errEl = qs('#prop-tool-args-error');
+      if (argsEl) {
+        const raw = argsEl.value.trim();
+        try {
+          const parsed = raw ? JSON.parse(raw) : {};
+          if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
+            throw new Error('Arguments must be a JSON object.');
+          }
+          node.config.args = parsed;
+          if (errEl) errEl.style.display = 'none';
+        } catch (err) {
+          // Keep the last good arguments rather than writing a broken step:
+          // silently saving unparseable JSON as {} would strip the user's work
+          // and the flow would run with no arguments at all.
+          if (errEl) {
+            errEl.textContent = `Not saved — ${err.message}`;
+            errEl.style.display = 'block';
+          }
+        }
+      }
+
     } else if (node.type === 'output') {
       node.config.format = this._propOutputFormat.value.trim();
     }

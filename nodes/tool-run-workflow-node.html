@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "run_workflow_node",
+    "description": "Execute a multi-step JSON workflow graph defined in an HTML Neural Node. Use this tool to progress through interactive node-based workflows step-by-step. Actions available: 1. 'start': Starts the workflow. Requires 'node_id'. 2. 'step': Submit data for the current step. Requires 'node_id' and 'value'. IMPORTANT: You MUST follow the instructions returned by each step! If a step asks you to prompt the user, DO NOT guess the answer. Ask the user!",
     "signature": "run_workflow_node(action, node_id, value)",
     "schema": {
       "type": "object",

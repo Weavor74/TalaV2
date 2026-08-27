@@ -1450,7 +1450,19 @@ JSON editor, import/export. The failures are at both ends: what can go *into* a 
 whether anything can *run* one.
 
 ### UI-059 — The palette is five hardcoded types; none of the 66 tools are available
-**Severity: high · Status: open — executor half done 2026-08-23 · Steven's point 2**
+**Severity: high · Status: FIXED 2026-08-23 · Steven's point 2**
+
+> **Fixed.** The palette now has a tool section fed by `tools.catalogue`, which reads the
+> `tool-*.html` nodes rather than the Python registry — a palette built from the registry
+> would leave the nodes decorative, which is what UI-107 just fixed. All 90 tools appear,
+> with a filter because ninety items need one. Dropping one creates a `tool` node carrying
+> `config.tool` and `config.args`, pre-filled from the schema's required arguments, and the
+> properties panel edits those arguments as JSON. Unparseable JSON is **not saved** — it
+> shows an error and keeps the last good value, because silently writing `{}` would strip
+> the user's work and run the step with no arguments at all.
+>
+> The five original types stay: `trigger` and `output` are structural and have no tool
+> equivalent.
 
 > **Half fixed.** Steven's requirement was *"Every tool created in the html-nn should be
 > available here."* The executor now has a `tool` node type that reaches all 90 registered
@@ -3500,7 +3512,14 @@ not to *apply* to its own source.
 ## B. Self-navigation infrastructure gaps
 
 ### UI-122 — `run_workflow_node` mocks script execution and reports completion
-**Severity: high · Status: open · Found 2026-08-23 while fixing UI-060**
+**Severity: high · Status: FIXED 2026-08-23 · Found while fixing UI-060**
+
+> **Fixed by deleting the second implementation.** The per-node dispatch is extracted to
+> `WorkflowExecutor.run_single_node`, and the interactive driver calls it instead of
+> imitating it. Two copies would drift, and the copy that drifted would be the one quietly
+> doing nothing. A failed step now follows `onFailure`, or stops with `*** WORKFLOW
+> FAILED ***` naming the step and the reason — it can no longer report completion after a
+> step that did not run.
 
 `run_workflow_node` is a separate, interactive workflow driver — it walks a flow asking the
 user each `interactive_prompt` question — and it reads its flow from the HTML-NN, which is

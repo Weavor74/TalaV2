@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "schedule_goal",
+    "description": "Schedule a recurring autonomous goal on a cron expression (5-field, e.g. '0 8 * * *' = daily 8am). The goal runs unattended through the GoalEngine and can use any tool, including messaging channels.",
     "signature": "schedule_goal(name*, cron_expr*, goal_text*, enabled)",
     "schema": {
       "type": "object",

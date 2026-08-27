@@ -11230,6 +11230,79 @@ async def _browser_bridge(channel: str, payload: dict, req_id: any, what: str) -
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+async def handle_tools_catalogue(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``tools.catalogue`` — every tool, read from its HTML-NN.
+
+    Feeds the workflow palette, which was five hardcoded ``<div data-type>``
+    elements while the registry held ninety tools (UI-059). Steven's
+    requirement was "Every tool created in the html-nn should be available
+    here", so this reads the ``tool-*.html`` nodes rather than the Python
+    registry: the node is the catalogue, and a palette built from the registry
+    would leave the nodes decorative again.
+
+    Each entry carries the argument schema, so the builder can pre-fill a
+    step's parameters instead of leaving the user to guess them -- the same
+    gap that had the planner emitting empty tool_params.
+    """
+    try:
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+        from sdk.agent.parser import parse_file
+
+        nodes_dir = resolve_active_nodes_dir()
+        query = str(params.get("query") or "").strip().lower()
+
+        tools: list[dict[str, Any]] = []
+        unreadable = 0
+        for path in sorted(nodes_dir.glob("tool-*.html")):
+            try:
+                state = parse_file(str(path)).state_data or {}
+            except Exception:
+                unreadable += 1
+                continue
+            entry = state.get("tool")
+            if not isinstance(entry, dict) or not entry.get("name"):
+                continue
+
+            # The tool's own words. state["description"] is the generic
+            # "Program documentation for X" stamped on every documentation node.
+            description = str(
+                entry.get("description") or state.get("description") or ""
+            )
+            name = str(entry["name"])
+            if query and query not in name.lower() and query not in description.lower():
+                continue
+
+            schema = entry.get("schema") or {}
+            tools.append({
+                "name": name,
+                "node_id": path.stem,
+                "signature": entry.get("signature") or f"{name}()",
+                "module": entry.get("module") or "",
+                "required": entry.get("required") or [],
+                "properties": list((schema.get("properties") or {}).keys()),
+                "schema": schema,
+                "description": description,
+            })
+
+        if unreadable:
+            # Say so rather than silently serving a short list: a palette that
+            # is quietly missing tools looks identical to one that is complete.
+            logger.warning(
+                "tools.catalogue: %d tool node(s) could not be parsed and are "
+                "missing from the palette.", unreadable,
+            )
+
+        return _ok(req_id, {
+            "tools": tools,
+            "count": len(tools),
+            "unreadable": unreadable,
+        })
+    except Exception as exc:
+        logger.exception("tools.catalogue error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_ui_bridge_result(params: dict[str, Any], req_id: Any) -> str:
     """
     ``ui.bridge_result`` — the renderer delivering an answer to a ui_bridge request.
@@ -11588,6 +11661,7 @@ _HANDLERS: dict[str, Any] = {
     "channels.save": handle_channels_save,
     "channels.delete": handle_channels_delete,
     "channels.status": handle_channels_status,
+    "tools.catalogue": handle_tools_catalogue,
     "ui.bridge_result": handle_ui_bridge_result,
     "browser.get_dom": handle_browser_get_dom,
     "browser.execute_js": handle_browser_execute_js,

@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "code.write_and_verify",
+    "description": "Write files, run validation commands, and automatically restore the previous contents of those files if validation fails. Reverts only the files it wrote, never a directory tree. Use this instead of code.write_files when changing code that must keep working, such as anything under renderer/ or sdk/.",
     "signature": "code.write_and_verify(file_writes*, validation_commands, expected_files, timeout)",
     "schema": {
       "type": "object",

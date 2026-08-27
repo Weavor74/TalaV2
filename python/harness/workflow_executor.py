@@ -131,6 +131,301 @@ class WorkflowExecutor:
             return [self._resolve(v, unresolved) for v in value]
         return value
 
+    async def run_single_node(
+        self, current_node: dict[str, Any]
+    ) -> tuple[bool, str, dict[str, Any], list[str]]:
+        """
+        Execute one workflow node and report what happened.
+
+        Extracted from the execute() loop so that the interactive driver
+        (``run_workflow_node``) can run real steps instead of recording
+        "Executed script" and reporting the workflow complete (UI-122).
+        Two copies of this dispatch would drift, and the copy that drifted
+        would be the one that silently did nothing.
+
+        Returns ``(success, message, result_data, logs)``. Never raises:
+        a step that throws is a failed step, which the caller must be able
+        to see rather than have propagate as a crash.
+        """
+        node_id = current_node["id"]
+        node_type = current_node.get("type", "unknown")
+        node_label = current_node.get("label", f"Node ({node_type})")
+        raw_config = current_node.get("config", {})
+        connections = current_node.get("connections", {})
+        # Every node type sees resolved references, not just tool nodes: a
+        # bash command or an email body is just as likely to want a prior
+        # step's output.
+        config = self._resolve(raw_config) if node_type != "tool" else raw_config
+
+        node_logs: list[str] = []
+        node_logs.append(f"Starting execution of node '{node_label}' (Type: {node_type})")
+
+        # Execute specific node type behavior
+        success = True
+        message = "Node executed successfully"
+        result_data = {}
+
+        try:
+            if node_type == "trigger":
+                node_logs.append("Trigger matched. Ingesting input context.")
+                result_data = {"trigger_inputs": self.variables}
+                message = "Trigger captured input payload."
+                
+            elif node_type == "auth":
+                from python.harness import db
+                rows = await db.fetch(
+                    "SELECT name, auth_type, config, locked FROM auth_credentials ORDER BY priority ASC"
+                )
+                locked_rows = [r for r in rows if r["locked"]]
+                active_credentials = locked_rows if locked_rows else rows
+
+                if not active_credentials:
+                    success = False
+                    message = "Auth failed: No credentials configured in the Settings -> Auth tab."
+                    node_logs.append(message)
+                else:
+                    success = False
+                    for cred in active_credentials:
+                        cred_cfg = dict(cred["config"]) if cred["config"] else {}
+                        api_key = cred_cfg.get("api_key", "")
+                        provider = cred["name"]
+                        node_logs.append(f"Attempting authentication with Auth tab Provider '{provider}'...")
+                        
+                        if api_key:
+                            masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
+                            node_logs.append(f"Verifying credentials (key: {masked_key})...")
+                            await asyncio.sleep(0.3)  # mock auth latency
+                            result_data = {"auth_status": "verified", "token_type": "Bearer", "resolved_provider": provider}
+                            message = f"Successfully authenticated via provider '{provider}' from Auth section."
+                            node_logs.append(message)
+                            success = True
+                            break
+                        else:
+                            node_logs.append(f"Provider '{provider}' has no token config. Trying next...")
+
+                    if not success:
+                        success = False
+                        message = "Auth failed: None of the active credentials configured in Settings -> Auth tab succeeded."
+                        node_logs.append(message)
+
+            elif node_type == "email":
+                to_addr = config.get("to", "")
+                subject = config.get("subject", "Tala Flow Alert")
+                body = config.get("body", "This is an automated workflow message from Tala.")
+                
+                from python.harness import db
+                rows = await db.fetch(
+                    "SELECT name, auth_type, config, locked FROM auth_credentials ORDER BY priority ASC"
+                )
+                locked_rows = [r for r in rows if r["locked"]]
+                active_credentials = locked_rows if locked_rows else rows
+
+                email_cred = None
+                for cred in active_credentials:
+                    cfg = dict(cred["config"]) if cred["config"] else {}
+                    service = (cfg.get("service") or "").lower()
+                    name = cred["name"].lower()
+                    if any(term in service or term in name for term in ("email", "smtp", "mail", "sendgrid", "mailgun")):
+                        email_cred = cred
+                        break
+
+                if not email_cred and active_credentials:
+                    email_cred = active_credentials[0]
+
+                provider = "SMTP"
+                cred_cfg = {}
+                if email_cred:
+                    provider = email_cred["name"]
+                    cred_cfg = dict(email_cred["config"]) if email_cred["config"] else {}
+                    node_logs.append(f"Loaded email auth settings from Auth tab Provider '{provider}'")
+                    result_data = {
+                        "resolved_credential": {
+                            "name": provider,
+                            "config": cred_cfg
+                        }
+                    }
+                else:
+                    node_logs.append("Warning: No email-capable auth provider found in Auth section. Falling back to default SMTP.")
+
+                node_logs.append(f"Preparing mail package via {provider}...")
+                if not to_addr:
+                    success = False
+                    message = "Email dispatch failed: Recipient 'to' address is empty."
+                    node_logs.append(message)
+                else:
+                    node_logs.append(f"To: {to_addr}")
+                    node_logs.append(f"Subject: {subject}")
+                    node_logs.append(f"Body snippet: {body[:60]}...")
+                    await asyncio.sleep(0.5)  # simulate sending SMTP packet
+                    msg_id = f"msg-{uuid.uuid4().hex[:12]}"
+                    if not result_data:
+                        result_data = {}
+                    result_data.update({"message_id": msg_id, "sent_at": datetime_now_iso()})
+                    message = f"Email dispatched successfully via {provider}."
+                    node_logs.append(message)
+
+            elif node_type == "custom_script":
+                script_code = config.get("code", "")
+                node_logs.append("Parsing script instructions...")
+                node_logs.append(f"Script: {script_code[:200]}")
+                
+                # Sandbox: simple expression eval, or mock run
+                # If script contains simple math expressions, let's eval them safely
+                # e.g. "result = 5 + 10" or similar
+                local_scope = {"variables": self.variables, "result": None}
+                try:
+                    # Clean code of comments and basic formatting
+                    sanitized_code = script_code.strip()
+                    if sanitized_code:
+                        # If it starts with result =, execute it
+                        # Otherwise mock execute it
+                        node_logs.append("Running sandbox executor...")
+                        # Safe execution mockup: we don't call raw exec() on user input
+                        # unless we parse it or mock it. Let's do simple math evaluations safely.
+                        if "result =" in sanitized_code:
+                            expr = sanitized_code.split("result =")[1].strip()
+                            # Allow only numbers, operators, space
+                            if all(c in "0123456789+-*/(). " for c in expr):
+                                local_scope["result"] = eval(expr, {"__builtins__": None}, {})
+                                node_logs.append(f"Evaluated math expression: {expr} -> {local_scope['result']}")
+                            else:
+                                node_logs.append("Script expression contains non-math characters, skipping execution.")
+                                local_scope["result"] = "Executed code snippet successfully (mocked)."
+                        else:
+                            local_scope["result"] = "Executed custom script logic."
+                    else:
+                        local_scope["result"] = "Empty script executed."
+                        
+                    result_data = {"script_result": local_scope["result"]}
+                    message = "Custom script executed successfully."
+                except Exception as expr_exc:
+                    success = False
+                    message = f"Script execution error: {expr_exc}"
+                    node_logs.append(message)
+
+            elif node_type == "mcp_tool":
+                server_name = config.get("server_name", "default")
+                tool_name = config.get("tool_name", "unknown")
+                tool_args = config.get("args", {})
+                
+                node_logs.append(f"Executing MCP tool '{tool_name}' on server '{server_name}'...")
+                from python.harness.mcp_manager import mcp_manager
+
+                server_config = config.get("server") or config.get("server_config")
+                if server_config:
+                    await mcp_manager.connect_server(
+                        server_name,
+                        server_config,
+                        persist=bool(config.get("persist_server", False)),
+                    )
+                
+                mcp_result = await mcp_manager.call_tool(server_name, tool_name, tool_args)
+                result_data = {"mcp_result": mcp_result}
+                message = f"MCP tool '{tool_name}' executed."
+                node_logs.append(message)
+                
+            elif node_type == "bash":
+                cmd = config.get("command", "")
+                backend = config.get("backend", "local")
+                node_logs.append(f"Executing bash command via {backend} backend: {cmd}")
+                env = self._create_terminal_environment(config)
+                try:
+                    if not getattr(env, "_snapshot_ready", False):
+                        env.init_session()
+                    proc_result = env.execute(cmd, cwd=config.get("cwd"))
+                finally:
+                    env.cleanup()
+                
+                if proc_result.returncode != 0:
+                    success = False
+                    message = f"Bash command failed (Exit {proc_result.returncode}): {proc_result.output}"
+                else:
+                    message = "Bash command executed successfully."
+                    result_data = {
+                        "stdout": proc_result.output,
+                        "returncode": proc_result.returncode,
+                        "backend": backend,
+                    }
+                    
+                node_logs.append(message)
+
+            elif node_type == "tool":
+                # The node type Steven's definition of a workflow requires:
+                # "a series of tool calls, that pass one bit of info from
+                # one tool to the next". Every registered tool is reachable
+                # here, so the 88-entry registry is the palette rather than
+                # the five hardcoded types (UI-059).
+                #
+                # Routed through ToolRegistry.run_tool rather than calling
+                # the function directly, so a workflow step passes the same
+                # risk classification, confidence gate and plugin
+                # permission checks as any other invocation. A workflow
+                # must not be a way around governance.
+                tool_name = str(config.get("tool") or config.get("tool_name") or "").strip()
+                if not tool_name:
+                    success = False
+                    message = "Tool node has no 'tool' name configured."
+                    node_logs.append(message)
+                else:
+                    unresolved: list[str] = []
+                    raw_args = config.get("args") or config.get("tool_params") or {}
+                    tool_args = self._resolve(raw_args, unresolved)
+
+                    if unresolved:
+                        # A reference that does not resolve becomes the
+                        # literal "{{...}}" text. Passing that to a tool
+                        # produces a confident call on garbage, so refuse.
+                        success = False
+                        message = (
+                            f"Tool node references values that do not exist: "
+                            f"{', '.join(sorted(set(unresolved)))}."
+                        )
+                        node_logs.append(message)
+                    else:
+                        node_logs.append(
+                            f"Calling tool '{tool_name}' with {json.dumps(tool_args, default=str)[:300]}"
+                        )
+                        from sdk.agent.tools import ToolRegistry
+
+                        tool_result = await ToolRegistry.run_tool(tool_name, tool_args)
+                        # run_tool reports failure in-band; a dict saying
+                        # success=False is a failed step, not a successful
+                        # one that happens to contain the word.
+                        if isinstance(tool_result, dict) and tool_result.get("success") is False:
+                            success = False
+                            message = str(
+                                tool_result.get("error")
+                                or f"Tool '{tool_name}' failed."
+                            )
+                        else:
+                            message = f"Tool '{tool_name}' executed."
+                        result_data = {"tool": tool_name, "result": tool_result}
+                        node_logs.append(message)
+
+            elif node_type == "output":
+                node_logs.append("Output node reached. Consolidating workflow result.")
+                result_data = {"status": "SUCCESS", "final_data": self.variables}
+                message = "Workflow outputs compiled."
+
+            else:
+                # This branch used to log "Custom action node type X logic
+                # executed", set {"status": "ok"} and report SUCCESS -- a
+                # silent no-op wearing a success response. A flow built
+                # around a node type the executor does not implement ran
+                # green while doing nothing at all.
+                success = False
+                message = (
+                    f"Unknown workflow node type {node_type!r}. Supported types: "
+                    f"{', '.join(SUPPORTED_NODE_TYPES)}."
+                )
+                node_logs.append(message)
+
+        except Exception as exc:
+            success = False
+            message = f"Step execution failed: {exc}"
+            node_logs.append(message)
+        return success, message, result_data, node_logs
+
     async def execute(self, initial_inputs: dict[str, Any] | None = None) -> dict[str, Any]:
         """
         Run the workflow starting from the first trigger node.
@@ -172,283 +467,12 @@ class WorkflowExecutor:
 
         while current_node:
             node_id = current_node["id"]
-            node_type = current_node.get("type", "unknown")
-            node_label = current_node.get("label", f"Node ({node_type})")
-            raw_config = current_node.get("config", {})
             connections = current_node.get("connections", {})
-            # Every node type sees resolved references, not just tool nodes: a
-            # bash command or an email body is just as likely to want a prior
-            # step's output.
-            config = self._resolve(raw_config) if node_type != "tool" else raw_config
-
             execution_path.append(node_id)
-            node_logs: list[str] = []
-            node_logs.append(f"Starting execution of node '{node_label}' (Type: {node_type})")
 
-            # Execute specific node type behavior
-            success = True
-            message = "Node executed successfully"
-            result_data = {}
-
-            try:
-                if node_type == "trigger":
-                    node_logs.append("Trigger matched. Ingesting input context.")
-                    result_data = {"trigger_inputs": self.variables}
-                    message = "Trigger captured input payload."
-                    
-                elif node_type == "auth":
-                    from python.harness import db
-                    rows = await db.fetch(
-                        "SELECT name, auth_type, config, locked FROM auth_credentials ORDER BY priority ASC"
-                    )
-                    locked_rows = [r for r in rows if r["locked"]]
-                    active_credentials = locked_rows if locked_rows else rows
-
-                    if not active_credentials:
-                        success = False
-                        message = "Auth failed: No credentials configured in the Settings -> Auth tab."
-                        node_logs.append(message)
-                    else:
-                        success = False
-                        for cred in active_credentials:
-                            cred_cfg = dict(cred["config"]) if cred["config"] else {}
-                            api_key = cred_cfg.get("api_key", "")
-                            provider = cred["name"]
-                            node_logs.append(f"Attempting authentication with Auth tab Provider '{provider}'...")
-                            
-                            if api_key:
-                                masked_key = api_key[:4] + "..." + api_key[-4:] if len(api_key) > 8 else "***"
-                                node_logs.append(f"Verifying credentials (key: {masked_key})...")
-                                await asyncio.sleep(0.3)  # mock auth latency
-                                result_data = {"auth_status": "verified", "token_type": "Bearer", "resolved_provider": provider}
-                                message = f"Successfully authenticated via provider '{provider}' from Auth section."
-                                node_logs.append(message)
-                                success = True
-                                break
-                            else:
-                                node_logs.append(f"Provider '{provider}' has no token config. Trying next...")
-
-                        if not success:
-                            success = False
-                            message = "Auth failed: None of the active credentials configured in Settings -> Auth tab succeeded."
-                            node_logs.append(message)
-
-                elif node_type == "email":
-                    to_addr = config.get("to", "")
-                    subject = config.get("subject", "Tala Flow Alert")
-                    body = config.get("body", "This is an automated workflow message from Tala.")
-                    
-                    from python.harness import db
-                    rows = await db.fetch(
-                        "SELECT name, auth_type, config, locked FROM auth_credentials ORDER BY priority ASC"
-                    )
-                    locked_rows = [r for r in rows if r["locked"]]
-                    active_credentials = locked_rows if locked_rows else rows
-
-                    email_cred = None
-                    for cred in active_credentials:
-                        cfg = dict(cred["config"]) if cred["config"] else {}
-                        service = (cfg.get("service") or "").lower()
-                        name = cred["name"].lower()
-                        if any(term in service or term in name for term in ("email", "smtp", "mail", "sendgrid", "mailgun")):
-                            email_cred = cred
-                            break
-
-                    if not email_cred and active_credentials:
-                        email_cred = active_credentials[0]
-
-                    provider = "SMTP"
-                    cred_cfg = {}
-                    if email_cred:
-                        provider = email_cred["name"]
-                        cred_cfg = dict(email_cred["config"]) if email_cred["config"] else {}
-                        node_logs.append(f"Loaded email auth settings from Auth tab Provider '{provider}'")
-                        result_data = {
-                            "resolved_credential": {
-                                "name": provider,
-                                "config": cred_cfg
-                            }
-                        }
-                    else:
-                        node_logs.append("Warning: No email-capable auth provider found in Auth section. Falling back to default SMTP.")
-
-                    node_logs.append(f"Preparing mail package via {provider}...")
-                    if not to_addr:
-                        success = False
-                        message = "Email dispatch failed: Recipient 'to' address is empty."
-                        node_logs.append(message)
-                    else:
-                        node_logs.append(f"To: {to_addr}")
-                        node_logs.append(f"Subject: {subject}")
-                        node_logs.append(f"Body snippet: {body[:60]}...")
-                        await asyncio.sleep(0.5)  # simulate sending SMTP packet
-                        msg_id = f"msg-{uuid.uuid4().hex[:12]}"
-                        if not result_data:
-                            result_data = {}
-                        result_data.update({"message_id": msg_id, "sent_at": datetime_now_iso()})
-                        message = f"Email dispatched successfully via {provider}."
-                        node_logs.append(message)
-
-                elif node_type == "custom_script":
-                    script_code = config.get("code", "")
-                    node_logs.append("Parsing script instructions...")
-                    node_logs.append(f"Script: {script_code[:200]}")
-                    
-                    # Sandbox: simple expression eval, or mock run
-                    # If script contains simple math expressions, let's eval them safely
-                    # e.g. "result = 5 + 10" or similar
-                    local_scope = {"variables": self.variables, "result": None}
-                    try:
-                        # Clean code of comments and basic formatting
-                        sanitized_code = script_code.strip()
-                        if sanitized_code:
-                            # If it starts with result =, execute it
-                            # Otherwise mock execute it
-                            node_logs.append("Running sandbox executor...")
-                            # Safe execution mockup: we don't call raw exec() on user input
-                            # unless we parse it or mock it. Let's do simple math evaluations safely.
-                            if "result =" in sanitized_code:
-                                expr = sanitized_code.split("result =")[1].strip()
-                                # Allow only numbers, operators, space
-                                if all(c in "0123456789+-*/(). " for c in expr):
-                                    local_scope["result"] = eval(expr, {"__builtins__": None}, {})
-                                    node_logs.append(f"Evaluated math expression: {expr} -> {local_scope['result']}")
-                                else:
-                                    node_logs.append("Script expression contains non-math characters, skipping execution.")
-                                    local_scope["result"] = "Executed code snippet successfully (mocked)."
-                            else:
-                                local_scope["result"] = "Executed custom script logic."
-                        else:
-                            local_scope["result"] = "Empty script executed."
-                            
-                        result_data = {"script_result": local_scope["result"]}
-                        message = "Custom script executed successfully."
-                    except Exception as expr_exc:
-                        success = False
-                        message = f"Script execution error: {expr_exc}"
-                        node_logs.append(message)
-
-                elif node_type == "mcp_tool":
-                    server_name = config.get("server_name", "default")
-                    tool_name = config.get("tool_name", "unknown")
-                    tool_args = config.get("args", {})
-                    
-                    node_logs.append(f"Executing MCP tool '{tool_name}' on server '{server_name}'...")
-                    from python.harness.mcp_manager import mcp_manager
-
-                    server_config = config.get("server") or config.get("server_config")
-                    if server_config:
-                        await mcp_manager.connect_server(
-                            server_name,
-                            server_config,
-                            persist=bool(config.get("persist_server", False)),
-                        )
-                    
-                    mcp_result = await mcp_manager.call_tool(server_name, tool_name, tool_args)
-                    result_data = {"mcp_result": mcp_result}
-                    message = f"MCP tool '{tool_name}' executed."
-                    node_logs.append(message)
-                    
-                elif node_type == "bash":
-                    cmd = config.get("command", "")
-                    backend = config.get("backend", "local")
-                    node_logs.append(f"Executing bash command via {backend} backend: {cmd}")
-                    env = self._create_terminal_environment(config)
-                    try:
-                        if not getattr(env, "_snapshot_ready", False):
-                            env.init_session()
-                        proc_result = env.execute(cmd, cwd=config.get("cwd"))
-                    finally:
-                        env.cleanup()
-                    
-                    if proc_result.returncode != 0:
-                        success = False
-                        message = f"Bash command failed (Exit {proc_result.returncode}): {proc_result.output}"
-                    else:
-                        message = "Bash command executed successfully."
-                        result_data = {
-                            "stdout": proc_result.output,
-                            "returncode": proc_result.returncode,
-                            "backend": backend,
-                        }
-                        
-                    node_logs.append(message)
-
-                elif node_type == "tool":
-                    # The node type Steven's definition of a workflow requires:
-                    # "a series of tool calls, that pass one bit of info from
-                    # one tool to the next". Every registered tool is reachable
-                    # here, so the 88-entry registry is the palette rather than
-                    # the five hardcoded types (UI-059).
-                    #
-                    # Routed through ToolRegistry.run_tool rather than calling
-                    # the function directly, so a workflow step passes the same
-                    # risk classification, confidence gate and plugin
-                    # permission checks as any other invocation. A workflow
-                    # must not be a way around governance.
-                    tool_name = str(config.get("tool") or config.get("tool_name") or "").strip()
-                    if not tool_name:
-                        success = False
-                        message = "Tool node has no 'tool' name configured."
-                        node_logs.append(message)
-                    else:
-                        unresolved: list[str] = []
-                        raw_args = config.get("args") or config.get("tool_params") or {}
-                        tool_args = self._resolve(raw_args, unresolved)
-
-                        if unresolved:
-                            # A reference that does not resolve becomes the
-                            # literal "{{...}}" text. Passing that to a tool
-                            # produces a confident call on garbage, so refuse.
-                            success = False
-                            message = (
-                                f"Tool node references values that do not exist: "
-                                f"{', '.join(sorted(set(unresolved)))}."
-                            )
-                            node_logs.append(message)
-                        else:
-                            node_logs.append(
-                                f"Calling tool '{tool_name}' with {json.dumps(tool_args, default=str)[:300]}"
-                            )
-                            from sdk.agent.tools import ToolRegistry
-
-                            tool_result = await ToolRegistry.run_tool(tool_name, tool_args)
-                            # run_tool reports failure in-band; a dict saying
-                            # success=False is a failed step, not a successful
-                            # one that happens to contain the word.
-                            if isinstance(tool_result, dict) and tool_result.get("success") is False:
-                                success = False
-                                message = str(
-                                    tool_result.get("error")
-                                    or f"Tool '{tool_name}' failed."
-                                )
-                            else:
-                                message = f"Tool '{tool_name}' executed."
-                            result_data = {"tool": tool_name, "result": tool_result}
-                            node_logs.append(message)
-
-                elif node_type == "output":
-                    node_logs.append("Output node reached. Consolidating workflow result.")
-                    result_data = {"status": "SUCCESS", "final_data": self.variables}
-                    message = "Workflow outputs compiled."
-
-                else:
-                    # This branch used to log "Custom action node type X logic
-                    # executed", set {"status": "ok"} and report SUCCESS -- a
-                    # silent no-op wearing a success response. A flow built
-                    # around a node type the executor does not implement ran
-                    # green while doing nothing at all.
-                    success = False
-                    message = (
-                        f"Unknown workflow node type {node_type!r}. Supported types: "
-                        f"{', '.join(SUPPORTED_NODE_TYPES)}."
-                    )
-                    node_logs.append(message)
-
-            except Exception as exc:
-                success = False
-                message = f"Step execution failed: {exc}"
-                node_logs.append(message)
+            success, message, result_data, node_logs = await self.run_single_node(
+                current_node
+            )
 
             # Store node results in variables
             step_key = f"step_{node_id}"

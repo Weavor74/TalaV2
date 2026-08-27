@@ -2963,7 +2963,14 @@ async def run_workflow_node(action: str = "auto", node_id: str = "workflow-node_
     import re
     from pathlib import Path
     
-    state_file = Path("nodes/.workflow_state.json")
+    # resolve_active_nodes_dir(), not Path("nodes/..."): Tala is meant to run
+    # from a USB stick on any OS, and a cwd-relative path puts her state
+    # wherever the app happened to be launched from rather than in the install
+    # that travels with her.
+    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+
+    _nodes_root = resolve_active_nodes_dir()
+    state_file = _nodes_root / ".workflow_state.json"
     
     # Load state
     state = {}
@@ -2976,7 +2983,7 @@ async def run_workflow_node(action: str = "auto", node_id: str = "workflow-node_
             
     # Helper to parse workflow JSON from HTML
     def _parse_workflow_json(nid: str) -> dict:
-        node_file = Path(f"nodes/{nid}.html")
+        node_file = _nodes_root / f"{nid}.html"
         if not node_file.exists():
             return {}
         try:
@@ -3090,20 +3097,56 @@ If the workflow requires information from the user, ask the user and wait for th
                 state["variables"][current_id] = "Failed to chain: missing target_id"
                 state["current_node_id"] = current_node.get("connections", {}).get("onFailure")
 
-        elif node_type == "custom_script":
-            # Mock execution or basic handling
-            state["variables"][current_id] = "Executed script"
-            state["current_node_id"] = current_node.get("connections", {}).get("onSuccess")
-            
         elif node_type == "output":
             # Finished
             state["current_node_id"] = None
             break
-            
+
         else:
-            # Generic pass-through
-            state["variables"][current_id] = f"Executed {node_type}"
-            state["current_node_id"] = current_node.get("connections", {}).get("onSuccess")
+            # Everything that is not an interactive prompt is a real step, and
+            # is run by the real executor (UI-122).
+            #
+            # This branch used to record "Executed script" for custom_script
+            # and "Executed {type}" for anything else, then walk on to the
+            # output node and return "*** WORKFLOW COMPLETE ***". A flow with a
+            # script step reported success having executed nothing at all.
+            #
+            # Delegating rather than reimplementing matters: two copies of the
+            # node dispatch would drift, and the copy that drifted would be the
+            # one quietly doing nothing.
+            from python.harness.workflow_executor import WorkflowExecutor
+
+            executor = WorkflowExecutor(workflow)
+            # Answers collected from the user so far are addressable by the
+            # running step, so an interview can feed the work it set up.
+            executor.variables = dict(state.get("variables") or {})
+
+            success, message, result_data, _logs = await executor.run_single_node(
+                current_node
+            )
+            state["variables"][current_id] = {
+                "success": success,
+                "message": message,
+                "result": result_data,
+            }
+
+            if not success:
+                # A failed step follows onFailure, exactly as it does in the
+                # non-interactive executor. Reporting completion after a failed
+                # step is what this fix exists to stop.
+                next_id = current_node.get("connections", {}).get("onFailure")
+                state["current_node_id"] = next_id
+                if not next_id:
+                    if state_file.exists():
+                        state_file.unlink()
+                    return (
+                        f"*** WORKFLOW FAILED ***\n\n"
+                        f"Step '{current_node.get('label') or current_id}' "
+                        f"({node_type}) failed: {message}\n"
+                        f"The workflow stopped here and did not complete."
+                    )
+            else:
+                state["current_node_id"] = current_node.get("connections", {}).get("onSuccess")
 
     # If we exit the loop, the workflow is complete
     if node_id == "flow-node_builder" and "variables" in state:

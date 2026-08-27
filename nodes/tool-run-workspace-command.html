@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "run_workspace_command",
+    "description": "Run a shell command asynchronously in the workspace root. Pass timeout_seconds for anything long-running -- the default is only 30s, which is far too short for generation or test runs.",
     "signature": "run_workspace_command(command*, env, timeout_seconds)",
     "schema": {
       "type": "object",

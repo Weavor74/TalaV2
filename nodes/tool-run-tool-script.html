@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "run_tool_script",
+    "description": "Execute a Python script that can call registered tools directly via `await call_tool(name, **kwargs)`. Collapses multi-step tool pipelines into one execution. The script's stdout and return value are captured.",
     "signature": "run_tool_script(code*, timeout_seconds)",
     "schema": {
       "type": "object",

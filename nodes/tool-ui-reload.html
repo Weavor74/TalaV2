@@ -101,6 +101,7 @@
   },
   "tool": {
     "name": "ui_reload",
+    "description": "Reload Tala's window so an edit to renderer/ takes effect without restarting the app. Refuses while a task is mid-run unless force=True, because a reload discards in-flight UI state. Use after editing renderer files.",
     "signature": "ui_reload(force)",
     "schema": {
       "type": "object",

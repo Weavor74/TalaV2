@@ -204,6 +204,10 @@ def build(dry_run: bool = False, prune: bool = False) -> int:
                     # palette needs in order to actually build a call.
                     "tool": {
                         "name": name,
+                        # The tool's own description, not the generic
+                        # "Program documentation for X" that create_documentation_node
+                        # puts in the description field.
+                        "description": " ".join(str(tool.get("description") or "").split()),
                         "signature": f"{name}({_signature(schema)})",
                         "schema": schema,
                         "module": getattr(tool.get("func"), "__module__", ""),
