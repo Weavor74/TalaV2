@@ -444,36 +444,102 @@ async def real_endpoint() -> str:
 
 async def authorities() -> set[str]:
     """
-    The signers permitted to write to the shared chain, as fingerprints.
+    Every signer whose blocks this install recognises.
+
+    Includes signers that have since been withdrawn or retired, and that is not
+    an oversight. Membership is consulted for every block, historical ones
+    included, so dropping a key from this set refuses everything it ever wrote
+    — the same "retiring a key collapses its history" failure the revocation
+    cutoff exists to prevent, arriving through the other door. Whether a signer
+    may sign *now* is answered by :func:`cutoffs`, not by this.
 
     Empty means no restriction *has been configured*, which is not the same as
     no restriction being wanted, so :func:`reconcile` treats the two cases
     differently rather than quietly importing anything on an unconfigured
     install.
     """
+    return set((await _authority_record()).keys())
+
+
+async def cutoffs() -> dict[str, int]:
+    """
+    Signers that may no longer sign, and the block they stopped at.
+
+    A withdrawn signer keeps its history and loses its future. The block
+    recorded is the shared chain's height at the moment of withdrawal, so
+    anything they signed while trusted stays valid and anything after does not.
+    """
+    return {print_: entry["until"]
+            for print_, entry in (await _authority_record()).items()
+            if entry.get("until") is not None}
+
+
+async def _authority_record() -> dict[str, dict[str, Any]]:
+    """
+    The stored signer list, in its current shape.
+
+    Reads the older plain-list form as well, where every entry is an active
+    signer with no cutoff — an install that has not withdrawn anybody has
+    nothing to migrate.
+    """
     from python.harness import db
 
     try:
         row = await db.fetchrow(
             "SELECT value FROM app_settings WHERE key = 'real_chain'")
-        if row and row["value"]:
-            listed = _unwrap(row["value"]).get("authorities") or []
-            return {str(item).strip() for item in listed if str(item).strip()}
+        if not (row and row["value"]):
+            return {}
+        listed = _unwrap(row["value"]).get("authorities") or []
     except Exception as exc:
         log.debug("chain: could not read the authority list (%s)", exc)
-    return set()
+        return {}
+
+    record: dict[str, dict[str, Any]] = {}
+    for item in listed:
+        if isinstance(item, str):
+            print_, until = item.strip(), None
+        elif isinstance(item, dict):
+            print_ = str(item.get("fingerprint") or "").strip()
+            until = item.get("until")
+        else:
+            continue
+        if print_:
+            record[print_] = {"until": until}
+    return record
 
 
 async def set_authorities(fingerprints: list[str]) -> set[str]:
-    """Replace the permitted-signer list."""
+    """
+    Set which signers may sign from now on.
+
+    Anyone dropped is *withdrawn*, not erased: their entry is kept with a
+    cutoff at the current chain height, so the blocks they signed while trusted
+    stay valid and nothing they sign afterwards does. Erasing them instead
+    would refuse their whole history, which is the failure this guards.
+    """
     from python.harness import db
 
-    cleaned = sorted({str(item).strip() for item in fingerprints
-                      if str(item).strip()})
+    wanted = {str(item).strip() for item in fingerprints if str(item).strip()}
+    existing = await _authority_record()
+    height = await _shared_height()
+
+    record: dict[str, dict[str, Any]] = {}
+    for print_ in wanted:
+        # Re-admitting a withdrawn signer clears its cutoff.
+        record[print_] = {"until": None}
+    for print_, entry in existing.items():
+        if print_ in wanted:
+            continue
+        record[print_] = {"until": entry["until"] if entry["until"] is not None
+                          else height}
+
     stored = _unwrap((await db.fetchrow(
         "SELECT value FROM app_settings WHERE key = 'real_chain'")
         or {"value": "{}"})["value"])
-    stored["authorities"] = cleaned
+    stored["authorities"] = [
+        {"fingerprint": print_, "until": entry["until"]}
+        for print_, entry in sorted(record.items())
+    ]
     await db.execute(
         "INSERT INTO app_settings (key, value, updated_at) "
         "VALUES ('real_chain', $1::jsonb, NOW()) "
@@ -481,7 +547,33 @@ async def set_authorities(fingerprints: list[str]) -> set[str]:
         "updated_at = NOW()",
         json.dumps(stored), caller="chains.set_authorities",
     )
-    return set(cleaned)
+    return wanted
+
+
+async def active_authorities() -> set[str]:
+    """Signers that may sign right now."""
+    return {print_ for print_, entry in (await _authority_record()).items()
+            if entry.get("until") is None}
+
+
+async def _shared_height() -> int:
+    """How far the shared chain has got, for stamping a withdrawal.
+
+    Falling back to 0 would withdraw a signer from the beginning of time and
+    refuse their whole history, so an unreadable height falls back to a cutoff
+    beyond any real block instead: they keep everything and sign nothing new
+    once the height is known again.
+    """
+    from python.harness import db
+
+    try:
+        highest = await db.fetchval(
+            "SELECT MAX((metadata->>'block')::int) FROM chain_ledger "
+            "WHERE chain = 'real' AND origin = 'peer'")
+        return int(highest) if highest is not None else 0
+    except Exception as exc:
+        log.debug("chain: could not read the shared chain height (%s)", exc)
+        return 0
 
 
 async def flush() -> dict[str, Any]:
@@ -644,7 +736,21 @@ async def reconcile(endpoint: str = "") -> dict[str, Any]:
             "height": len(blocks) if isinstance(blocks, list) else 0,
         }
 
-    verdict = chain_verify.verify(blocks, authorities=permitted)
+    # Revocations are applied before validity is judged, and before anything is
+    # imported. This is where revocation propagates: a key that retired itself
+    # is dropped from the local authority list on the next reconcile, on every
+    # install that pulls the chain, without anybody being told to do it.
+    #
+    # Acting on them first also keeps the verdict honest -- otherwise a chain
+    # containing the very revocation that explains why a signer is refused
+    # would be rejected for containing it.
+    withdrawn = await _apply_revocations(blocks, permitted)
+
+    # The retired key stays in the recognised set. Its revocation is what stops
+    # it signing anything new, and removing it here would refuse every block it
+    # signed while it was trusted — which is the whole chain, permanently.
+    verdict = chain_verify.verify(blocks, authorities=permitted,
+                                  cutoffs=await cutoffs())
     if not verdict.valid:
         # Say which blocks and why. A shared chain that stops verifying is
         # either corrupted or being tampered with, and "reconcile failed" is
@@ -652,9 +758,74 @@ async def reconcile(endpoint: str = "") -> dict[str, Any]:
         log.error("chain: refused a shared chain that does not verify: %s",
                   "; ".join(verdict.problems[:3]))
         return {"reconciled": False, "reason": "the shared chain does not verify",
-                "problems": verdict.problems, "height": verdict.height}
+                "problems": verdict.problems, "height": verdict.height,
+                "revoked": sorted(withdrawn)}
 
-    return await _absorb(chain_verify.transactions_of(blocks), verdict)
+    result = await _absorb(chain_verify.transactions_of(blocks), verdict)
+    result["revoked"] = sorted(withdrawn)
+    return result
+
+
+async def _apply_revocations(blocks: list[dict[str, Any]],
+                             permitted: set[str]) -> set[str]:
+    """
+    Act on every self-revocation carried by the chain.
+
+    A revocation is not a request. It is a signature only the holder could have
+    made, saying their key is no longer to be trusted, so it is applied rather
+    than queued for approval -- waiting for someone to click something is
+    exactly the wrong behaviour for a key its owner has declared compromised.
+
+    Only keys this install actually trusts are touched. A revocation for a key
+    that was never an authority is recorded and changes nothing.
+    """
+    from python.harness import chain_verify, db
+
+    retired = chain_verify.revocations_in(blocks)
+    if not retired:
+        return set()
+
+    withdrawn = {print_ for print_ in retired if print_ in permitted}
+
+
+    # Recorded whether or not it was trusted here, so a key that turns up in an
+    # offer later is already known to be retired.
+    for print_ in retired:
+        try:
+            await db.execute(
+                """
+                INSERT INTO chain_key_offers (fingerprint, public_key, source,
+                                              status, note, decided_at)
+                VALUES ($1, '', 'shared chain', 'rejected',
+                        'retired by its holder', NOW())
+                ON CONFLICT (fingerprint) DO UPDATE
+                    SET status = 'rejected',
+                        note = 'retired by its holder',
+                        decided_at = NOW()
+                """,
+                print_, caller="chains.revocations",
+            )
+        except Exception as exc:
+            log.warning("chain: could not record the revocation of %s: %s",
+                        print_, exc)
+
+    if withdrawn:
+        # Marked inactive, not erased — see set_authorities. The cutoff comes
+        # from the revocation itself, which is more precise than the current
+        # height and is what every other node will use too.
+        await _stamp_cutoffs({print_: retired[print_] for print_ in withdrawn})
+        for print_ in sorted(withdrawn):
+            await db.log_to_db(
+                "WARNING",
+                f"{print_} retired itself and is no longer a permitted signer "
+                f"on the shared chain. Blocks it signed before retiring remain "
+                f"valid.",
+                {"fingerprint": print_, "block": retired[print_]},
+            )
+        log.warning("chain: withdrew %d retired signer(s): %s",
+                    len(withdrawn), ", ".join(sorted(withdrawn)))
+
+    return withdrawn
 
 
 async def _absorb(transactions: list[dict[str, Any]],
@@ -729,3 +900,27 @@ def _block_time(raw: Any) -> datetime:
         return datetime.fromtimestamp(
             raw / 1000.0 if raw > 1e11 else raw, tz=timezone.utc)
     return _as_datetime(raw)
+
+
+async def _stamp_cutoffs(at: dict[str, int]) -> None:
+    """Record where each named signer stopped being able to sign."""
+    from python.harness import db
+
+    record = await _authority_record()
+    for print_, block in at.items():
+        record.setdefault(print_, {"until": None})["until"] = block
+
+    stored = _unwrap((await db.fetchrow(
+        "SELECT value FROM app_settings WHERE key = 'real_chain'")
+        or {"value": "{}"})["value"])
+    stored["authorities"] = [
+        {"fingerprint": print_, "until": entry["until"]}
+        for print_, entry in sorted(record.items())
+    ]
+    await db.execute(
+        "INSERT INTO app_settings (key, value, updated_at) "
+        "VALUES ('real_chain', $1::jsonb, NOW()) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "
+        "updated_at = NOW()",
+        json.dumps(stored), caller="chains.cutoffs",
+    )

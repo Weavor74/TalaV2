@@ -111,6 +111,17 @@ if (fs.existsSync(KEYS_FILE)) {
 // bare 64-character hex hash. See POST /chain/prove.
 const POP_PREFIX = 'tala-proof-of-possession:v1:';
 
+// Domain separation for revocations, for the same reason and with the same
+// force: a revocation signature must never be mistakable for a block
+// signature, which is made over a bare 64-character hex hash.
+const REVOCATION_PREFIX = 'tala-key-revocation:v1:';
+
+// The message a key signs to retire itself. Both sides must build it
+// identically or a valid revocation reads as a forged one.
+function revocationMessage(fingerprint, revokedAt) {
+  return `${REVOCATION_PREFIX}${fingerprint}:${revokedAt}`;
+}
+
 function keyFingerprint(publicKeyPem) {
   // Whitespace-insensitive, so a PEM that has been through JSON, a text field
   // or a different line ending still resolves to the same signer.
@@ -195,9 +206,29 @@ class AuthoritySet {
       throw new Error(`Not a usable public key: ${err.message}`);
     }
 
+    // Admitting a key that has retired itself would be admitting one whose
+    // holder has said not to trust it. Refused rather than accepted-and-ignored,
+    // so the list never claims a signer that nothing would accept.
+    //
+    // Guarded because the authority set is constructed before the ledger is,
+    // and `talaLedger` is a const: reaching it too early throws rather than
+    // reading as undefined. Nothing calls add() that early today, and this
+    // stops that staying true by luck.
+    let retired = false;
+    try {
+      retired = talaLedger.revocations().has(keyFingerprint(pem));
+    } catch (err) {
+      retired = false;
+    }
+    if (retired) {
+      const error = new Error('That key has retired itself and cannot be admitted');
+      error.conflict = true;
+      throw error;
+    }
     if (this.has(pem)) {
       return { added: false, fingerprint: keyFingerprint(pem), reason: 'already an authority' };
     }
+
     this.authorities.push({
       public_key: pem,
       fingerprint: keyFingerprint(pem),
@@ -467,6 +498,17 @@ class Blockchain {
       }
     }
 
+    // A revocation retires a key for every node that sees it, so an unverifiable
+    // one must never reach the chain -- it would be a denial-of-service against
+    // whoever it names.
+    if (tx.type === 'key-revocation') {
+      const print = Blockchain.verifyRevocation(tx);
+      if (!print) {
+        throw new Error('Unauthorized: a revocation must be signed by the key it retires.');
+      }
+      console.log(`[Chain] Key ${print} retired itself.`);
+    }
+
     this.pendingTransactions.push(tx);
     console.log(`[Chain] Transaction added: ${tx.id}`);
     
@@ -535,6 +577,69 @@ class Blockchain {
       document: tx.document ?? null, metadata: tx.metadata ?? null,
       signature: tx.signature ?? null, public_key: tx.public_key ?? null,
     })).digest('hex');
+  }
+
+  /**
+   * Which keys have retired themselves, and where on the chain they did it.
+   *
+   * Only *self*-revocation lives on the chain, and the distinction is the
+   * whole design. A revocation signed by the key being revoked is a fact
+   * anybody can check: nobody but the holder could have produced it, so every
+   * node can act on it without trusting whoever relayed it. "I no longer trust
+   * your key" is an opinion, and putting opinions on a shared chain would let
+   * any signer evict any other — so local distrust stays local.
+   *
+   * Returns fingerprint -> the block index the revocation appeared in, because
+   * a revocation is not retroactive: blocks signed before it stay valid.
+   * Retiring a key must not collapse the history it wrote, or nobody could
+   * ever safely retire one.
+   */
+  revocations() {
+    const found = new Map();
+    for (const block of this.chain) {
+      for (const tx of block.transactions || []) {
+        if (tx.type !== 'key-revocation') continue;
+        const print = Blockchain.verifyRevocation(tx);
+        if (!print) continue;
+        // The earliest wins: a key is retired from the first moment it said so.
+        if (!found.has(print)) found.set(print, block.index);
+      }
+    }
+    return found;
+  }
+
+  /**
+   * Check a revocation transaction. Returns the revoked fingerprint, or null.
+   *
+   * Verified from the transaction alone, with no reference to who relayed it
+   * or which chain it arrived on — that is what makes revocation propagate
+   * safely through nodes that do not trust each other.
+   */
+  static verifyRevocation(tx) {
+    const meta = tx.metadata || {};
+    const publicKey = String(meta.public_key || tx.public_key || '').trim();
+    const claimed = String(meta.fingerprint || '').trim();
+    const revokedAt = String(meta.revoked_at || '');
+    const signature = String(tx.signature || '');
+    if (!publicKey || !claimed || !revokedAt || !signature) return null;
+
+    // The fingerprint is derived, never believed: a revocation naming one key
+    // and carrying another would otherwise retire whichever the reader
+    // happened to look at.
+    const print = keyFingerprint(publicKey);
+    if (print !== claimed) return null;
+
+    try {
+      const ok = crypto.verify(
+        null,
+        Buffer.from(revocationMessage(print, revokedAt)),
+        publicKey,
+        Buffer.from(signature, 'hex'),
+      );
+      return ok ? print : null;
+    } catch (err) {
+      return null;
+    }
   }
 
   // The last position at which the two chains still agree.
@@ -698,6 +803,11 @@ class Blockchain {
   isValid() {
     this.invalidReason = '';
 
+    // Scanned once up front rather than per block: a key retired at block R
+    // may not sign anything after R, and that question is asked for every
+    // block.
+    const retired = this.revocations();
+
     for (let i = 1; i < this.chain.length; i++) {
       const current = this.chain[i];
       const previous = this.chain[i - 1];
@@ -720,6 +830,18 @@ class Blockchain {
         this.invalidReason =
           `block ${current.index}: signed by ${keyFingerprint(current.public_key)}, ` +
           `which is not a permitted signer`;
+        return false;
+      }
+
+      const retiredAt = retired.get(keyFingerprint(current.public_key));
+      if (retiredAt !== undefined && current.index > retiredAt) {
+        // Not retroactive: blocks it signed before retiring stay valid, or
+        // retiring a key would collapse the history it wrote and nobody could
+        // ever safely do it.
+        this.invalidReason =
+          `block ${current.index}: signed by ` +
+          `${keyFingerprint(current.public_key)}, which retired itself at ` +
+          `block ${retiredAt}`;
         return false;
       }
 
@@ -1254,6 +1376,106 @@ const server = http.createServer((req, res) => {
     return;
   }
 
+  // Route: POST /chain/revoke
+  //
+  // Retire this node's own signing key, permanently, and publish that fact.
+  //
+  // Self-revocation is the only kind that belongs on a shared chain. A
+  // revocation signed by the key it retires is a fact anyone can check --
+  // nobody but the holder could have produced it -- so every node can act on it
+  // without trusting whoever passed it along. "I no longer trust your key" is
+  // an opinion, and an opinion on a shared chain would let any signer evict any
+  // other, so local distrust stays local.
+  //
+  // Admin-gated, and irreversible: there is no un-revoke, because a key whose
+  // retirement can be withdrawn is not retired. After this the node keeps its
+  // existing blocks -- revocation is not retroactive -- and can sign nothing
+  // further until it is given a new key.
+  if (url.pathname === '/chain/revoke' && req.method === 'POST') {
+    if (!requireAdminSecret(req, res)) return;
+    readRequestBody(req).then(body => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const fingerprint = keyFingerprint(poaPublicKey);
+
+        // Deliberately awkward. Retiring the key this node signs with is not
+        // something to do by sending an empty POST at the wrong URL.
+        if (String(payload.confirm || '') !== fingerprint) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: `To retire this key, send confirm: "${fingerprint}"`,
+            fingerprint,
+          }));
+          return;
+        }
+
+        if (talaLedger.revocations().has(fingerprint)) {
+          res.writeHead(200, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            success: true, already: true, fingerprint,
+            note: 'This key was already retired.',
+          }));
+          return;
+        }
+
+        const revokedAt = new Date().toISOString();
+        const message = revocationMessage(fingerprint, revokedAt);
+        const tx = new Transaction(
+          `revocation-${fingerprint}`,
+          'key-revocation',
+          crypto.createHash('sha256').update(message).digest('hex'),
+          fingerprint,
+          'chain',
+          Date.now(),
+          null,
+          {
+            fingerprint,
+            public_key: poaPublicKey,
+            revoked_at: revokedAt,
+            reason: String(payload.reason || ''),
+          },
+          crypto.sign(null, Buffer.from(message), poaPrivateKey).toString('hex'),
+          poaPublicKey,
+        );
+
+        // Mined into a block signed by this same key. That is not a
+        // contradiction: the revocation takes effect *after* the block it
+        // appears in, so the block carrying it is the last one this key may
+        // sign.
+        talaLedger.addTransaction(tx);
+
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          success: true,
+          fingerprint,
+          revoked_at: revokedAt,
+          block: talaLedger.getLatestBlock().index,
+          note: 'Blocks signed before this stay valid. Nothing may be signed with this key after it.',
+        }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    }).catch(err => {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Unable to read request body' }));
+    });
+    return;
+  }
+
+  // Route: GET /chain/revocations
+  //
+  // Keys that have retired themselves, and where. Not admin-gated: a
+  // revocation is meant to travel, and one only its holder's friends can read
+  // is not a revocation.
+  if (url.pathname === '/chain/revocations' && req.method === 'GET') {
+    const retired = [...talaLedger.revocations().entries()].map(
+      ([fingerprint, block]) => ({ fingerprint, block }));
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({ revocations: retired, count: retired.length }));
+    return;
+  }
+
   // Route: GET /chain/authorities
   //
   // Who may sign a block on this chain. Admin-gated: the list of parties a
@@ -1284,7 +1506,9 @@ const server = http.createServer((req, res) => {
         res.writeHead(200, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ success: true, ...result }));
       } catch (err) {
-        res.writeHead(400, { 'Content-Type': 'application/json' });
+        // A retired key is a conflict with the chain's own state, not a
+        // malformed request; the two deserve different answers.
+        res.writeHead(err.conflict ? 409 : 400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message }));
       }
     }).catch(err => {

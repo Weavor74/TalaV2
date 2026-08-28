@@ -268,7 +268,9 @@ def decisions(monkeypatch):
     from python.harness import chains, db
 
     async def fetchrow(query, *args):
-        return state["offers"].get(args[0]) if args else None
+        row = state["offers"].get(args[0]) if args else None
+        # trust() reads `note` to spot a key its holder has retired.
+        return {**row, "note": row.get("note", "")} if row else None
 
     async def execute(query, *args, caller=""):
         if "UPDATE chain_key_offers" in query:

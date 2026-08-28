@@ -47,6 +47,11 @@ POP_PREFIX = "tala-proof-of-possession:v1:"
 
 OFFERED, TRUSTED, REJECTED = "offered", "trusted", "rejected"
 
+#: Written against an offer when the chain carries a self-revocation for it.
+#: Distinct from an owner refusing a key: this one is not reversible here,
+#: because it is not this install's decision.
+RETIRED_NOTE = "retired by its holder"
+
 
 async def identity() -> dict[str, Any]:
     """This node's own signing key, for handing to a peer."""
@@ -260,12 +265,20 @@ async def trust(fingerprint: str) -> dict[str, Any]:
 
     fingerprint = str(fingerprint or "").strip()
     row = await db.fetchrow(
-        "SELECT fingerprint, proven, label FROM chain_key_offers "
+        "SELECT fingerprint, proven, label, note FROM chain_key_offers "
         "WHERE fingerprint = $1", fingerprint)
     if not row:
         return {"trusted": False,
                 "reason": "that key has not been offered, so there is nothing "
                           "to compare it against"}
+
+    # A key whose holder has retired it is not a matter of local preference:
+    # they signed a statement saying not to trust it. Admitting it anyway would
+    # produce an authority list nothing else on the chain would honour.
+    if row["note"] == RETIRED_NOTE:
+        return {"trusted": False,
+                "reason": "its holder retired that key, so it cannot be "
+                          "admitted"}
 
     permitted = await chains.authorities()
     permitted.add(fingerprint)
@@ -317,3 +330,98 @@ async def reject(fingerprint: str) -> dict[str, Any]:
             "note": ("Blocks it already signed stay on the chain; removing "
                      "them would be a whole-chain rewrite."
                      if was_trusted else "")}
+
+
+async def retire_own_key(reason: str = "") -> dict[str, Any]:
+    """
+    Retire this node's own signing key and publish that fact.
+
+    The only kind of revocation that belongs on a shared chain. A revocation
+    signed by the key it retires is a fact anyone can check -- nobody but the
+    holder could produce it -- so every node acts on it without having to trust
+    whoever relayed it. "I no longer trust your key" is an opinion, and an
+    opinion on a shared chain would let any signer evict any other, so local
+    distrust stays local (see :func:`reject`).
+
+    Irreversible. There is no un-retire, because a retirement that can be
+    withdrawn is not one. Blocks already signed stay valid; nothing further can
+    be signed with this key.
+    """
+    import httpx
+
+    from python.harness import chains, db
+
+    identity_now = await identity()
+    if not identity_now.get("available"):
+        return {"retired": False,
+                "reason": f"the local chain is unreachable: "
+                          f"{identity_now.get('reason', '')}"}
+
+    fingerprint = identity_now["fingerprint"]
+    endpoint = await chains.ghost_endpoint()
+
+    try:
+        async with httpx.AsyncClient(timeout=15.0) as client:
+            response = await client.post(
+                f"{endpoint.rstrip('/')}/chain/revoke",
+                json={"confirm": fingerprint, "reason": reason},
+                headers=_admin_headers(),
+            )
+        body = response.json()
+    except Exception as exc:
+        return {"retired": False, "reason": f"{type(exc).__name__}: {exc}"}
+
+    if response.status_code >= 400:
+        return {"retired": False,
+                "reason": body.get("error", f"HTTP {response.status_code}")}
+
+    await db.log_to_db(
+        "WARNING",
+        f"This node retired its signing key {fingerprint}. Blocks it signed "
+        f"before now stay valid; nothing further can be signed with it."
+        + (f" Reason: {reason}" if reason else ""),
+        {"fingerprint": fingerprint, "block": body.get("block")},
+    )
+    log.warning("chain: this node retired its signing key %s", fingerprint)
+    return {"retired": True, "fingerprint": fingerprint,
+            "already": bool(body.get("already")),
+            "block": body.get("block"),
+            "note": ("It reaches other installs when they next reconcile a "
+                     "chain carrying this block.")}
+
+
+def _admin_headers() -> dict[str, str]:
+    """
+    The local chain node's admin secret.
+
+    Local only, and never sent anywhere else: it authenticates "this caller can
+    read files on this machine", which is not a network identity.
+    """
+    import os
+    from pathlib import Path
+
+    secret = os.environ.get("TALA_CHAIN_ADMIN_SECRET", "")
+    if not secret:
+        candidate = (Path(__file__).resolve().parents[2]
+                     / "blockchain" / "data" / "admin_secret.txt")
+        try:
+            secret = candidate.read_text(encoding="utf-8").strip()
+        except OSError:
+            secret = ""
+    return {"X-Tala-Chain-Secret": secret} if secret else {}
+
+
+async def retired_keys() -> list[dict[str, Any]]:
+    """Keys known to have retired themselves, from the offers record."""
+    from python.harness import db
+
+    try:
+        rows = await db.fetch(
+            "SELECT fingerprint, source, decided_at FROM chain_key_offers "
+            "WHERE note = $1 ORDER BY decided_at DESC", RETIRED_NOTE)
+    except Exception as exc:
+        log.error("chain: could not read the retired keys: %s", exc)
+        return []
+    return [{"fingerprint": row["fingerprint"], "source": row["source"],
+             "retired_at": row["decided_at"].isoformat() if row["decided_at"] else ""}
+            for row in rows]

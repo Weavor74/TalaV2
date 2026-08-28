@@ -6929,6 +6929,7 @@ const BlockchainViewer = {
     this.loadSigners();
     this.loadOffers();
     this.loadIdentity();
+    this.loadRetired();
     const ghostCount = qs('#chain-ghost-count');
     const realCount = qs('#chain-real-count');
     if (!ghostCount || !realCount) return;
@@ -7037,9 +7038,24 @@ const BlockchainViewer = {
         const remove = document.createElement('button');
         remove.className = 'chain-signer-remove';
         remove.textContent = '×';
-        remove.title = `Stop accepting blocks signed by ${fingerprint}`;
+        remove.title = `Stop accepting new blocks signed by ${fingerprint}. ` +
+                       `What it already signed stays valid.`;
         remove.addEventListener('click', () => this.removeSigner(fingerprint));
         chip.appendChild(remove);
+        list.appendChild(chip);
+      }
+
+      // Signers that have stopped. Shown rather than hidden, because they are
+      // still recognised for the blocks they signed while trusted — striking
+      // them out entirely would refuse that history.
+      for (const entry of result.stopped || []) {
+        const chip = document.createElement('span');
+        chip.className = 'chain-signer chain-signer-stopped mono';
+        chip.textContent = entry.fingerprint;
+        const until = document.createElement('span');
+        until.className = 'chain-signer-until';
+        until.textContent = `stopped at block ${entry.until_block}`;
+        chip.appendChild(until);
         list.appendChild(chip);
       }
     } catch (err) {
@@ -7177,6 +7193,32 @@ const BlockchainViewer = {
         ? 'chain-identity mono' : 'chain-identity';
     } catch (err) {
       element.textContent = `unavailable — ${err?.message || err}`;
+    }
+  },
+
+  /**
+   * Keys whose holders retired them.
+   *
+   * Learned from the shared chain when reconciling — nobody has to be told.
+   * A revocation signed by the key it retires is a fact anyone can check, so
+   * it is acted on rather than queued for approval: waiting for a click is the
+   * wrong behaviour for a key its owner has declared compromised.
+   */
+  async loadRetired() {
+    const note = qs('#chain-retired');
+    if (!note) return;
+    try {
+      const result = await invoke('python:rpc',
+        { method: 'chain.retired_keys', params: {} });
+      note.hidden = !result.count;
+      note.textContent = result.count
+        ? `${result.count} key(s) retired by their holders: ` +
+          result.retired.map(entry => entry.fingerprint).join(', ') +
+          '. They can no longer sign; what they signed before stays valid.'
+        : '';
+    } catch (err) {
+      note.hidden = false;
+      note.textContent = `Could not read the retired keys: ${err?.message || err}`;
     }
   },
 

@@ -11789,6 +11789,65 @@ def _principal_from(params: dict[str, Any]):
     )
 
 
+async def handle_chain_retire_key(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.retire_key`` — retire this node's own signing key, permanently.
+
+    The only revocation that propagates. A revocation signed by the key it
+    retires is a fact anyone can check, so every node acts on it without having
+    to trust whoever relayed it; "I no longer trust your key" is an opinion, and
+    an opinion on a shared chain would let any signer evict any other.
+
+    Irreversible, and gated on repeating the fingerprint back, because there is
+    no un-retire — a retirement that can be withdrawn is not one.
+    """
+    try:
+        from python.harness import chain_keys
+
+        identity = await chain_keys.identity()
+        if not identity.get("available"):
+            return _err(req_id, JsonRpcError.INTERNAL_ERROR,
+                        f"the local chain is unreachable: "
+                        f"{identity.get('reason', '')}")
+
+        confirm = str(params.get("confirm") or "").strip()
+        if confirm != identity["fingerprint"]:
+            return _err(
+                req_id, JsonRpcError.INVALID_PARAMS,
+                f"This retires {identity['fingerprint']} permanently and "
+                f"cannot be undone. To proceed, send confirm: "
+                f"\"{identity['fingerprint']}\".")
+
+        result = await chain_keys.retire_own_key(str(params.get("reason") or ""))
+        if not result.get("retired"):
+            return _err(req_id, JsonRpcError.INTERNAL_ERROR,
+                        result.get("reason", "the key could not be retired"))
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("chain.retire_key error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_retired_keys(params: dict[str, Any], req_id: Any) -> str:
+    """``chain.retired_keys`` — keys known to have retired themselves."""
+    try:
+        from python.harness import chain_keys
+
+        retired = await chain_keys.retired_keys()
+        return _ok(req_id, {
+            "retired": retired,
+            "count": len(retired),
+            "note": (
+                "Learned from the shared chain when reconciling. A retired key "
+                "is dropped as a permitted signer automatically, and blocks it "
+                "signed before retiring stay valid."
+            ),
+        })
+    except Exception as exc:
+        logger.exception("chain.retired_keys error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_chain_identity(params: dict[str, Any], req_id: Any) -> str:
     """
     ``chain.identity`` — this node's own signing key, to hand to a peer.
@@ -11919,16 +11978,24 @@ async def handle_chain_authorities(params: dict[str, Any], req_id: Any) -> str:
     try:
         from python.harness import chains
 
-        permitted = sorted(await chains.authorities())
+        # Active and stopped are reported separately. A stopped signer stays in
+        # the recognised set on purpose -- it signed valid history, and striking
+        # it out would refuse every block it ever wrote.
+        active = sorted(await chains.active_authorities())
+        stopped = await chains.cutoffs()
         return _ok(req_id, {
-            "authorities": permitted,
-            "count": len(permitted),
+            "authorities": active,
+            "stopped": [{"fingerprint": print_, "until_block": block}
+                        for print_, block in sorted(stopped.items())],
+            "count": len(active),
             "note": (
                 "Fingerprints of the keys permitted to sign blocks on the "
                 "shared chain. With none listed, reconcile refuses to import "
                 "rather than importing from unknown signers."
-                if not permitted else
-                "A block signed by a key not listed here is refused."
+                if not active else
+                "A block signed by a key not listed here is refused. A stopped "
+                "signer keeps the blocks it signed while trusted and may sign "
+                "nothing after."
             ),
         })
     except Exception as exc:
@@ -12028,7 +12095,9 @@ async def handle_chain_reconcile(params: dict[str, Any], req_id: Any) -> str:
                 "INFO",
                 f"Reconciled with the shared chain: {result['learned']} "
                 f"transaction(s) learned from peers, {result['confirmed']} "
-                f"of ours confirmed",
+                f"of ours confirmed"
+                + (f", {len(result['revoked'])} retired signer(s) withdrawn"
+                   if result.get("revoked") else ""),
             )
         return _ok(req_id, result)
     except Exception as exc:
@@ -13532,6 +13601,8 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "chain.retire_key": handle_chain_retire_key,
+    "chain.retired_keys": handle_chain_retired_keys,
     "chain.identity": handle_chain_identity,
     "chain.fetch_key": handle_chain_fetch_key,
     "chain.offer_key": handle_chain_offer_key,

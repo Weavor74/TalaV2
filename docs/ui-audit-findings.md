@@ -4076,12 +4076,59 @@ Verified end to end against a second chain node: published, fetched, challenged,
 offered, its chain refused, trusted, its chain accepted, withdrawn, refused again. 26 Node tests and
 25 Python.
 
+#### Revocation (2026-08-28)
+
+Only one kind of revocation can safely travel, and the distinction is the whole design.
+
+A revocation **signed by the key it retires** is a fact anyone can check: nobody but the holder
+could have produced it, so every node acts on it without needing to trust whoever relayed it. *"I no
+longer trust your key"* is an opinion, and an opinion on a shared chain would let any signer evict
+any other. So self-revocation goes on the chain as a `key-revocation` transaction and propagates;
+local distrust stays local.
+
+Propagation is not a notification. A node that reconciles reads the revocations off the chain and
+acts on them — nobody is told anything, and there is nothing to deliver, retry or miss.
+
+**Applied, not queued.** Waiting for someone to approve a revocation is exactly the wrong behaviour
+for a key whose owner has declared it compromised, so `reconcile` acts on it in the same pass.
+
+**A serious bug this uncovered, found by an end-to-end run against two real nodes rather than by the
+unit tests.** Withdrawing a signer removed it from the authority list — and membership is consulted
+for *every* block, historical ones included. So dropping a key refused everything it had ever
+written: the revocation stopped it at block R, the removal refused it from block 1, and the chain
+became permanently unverifiable. That is precisely the "retiring a key collapses its history"
+failure the not-retroactive rule was written to prevent, arriving through the other door.
+
+Withdrawal is therefore a **cutoff, not an erasure**. A signer stays recognised for what it signed
+while trusted and may sign nothing after — whether it retired itself (cutoff at the revocation's own
+block, which is what every other node will use) or was withdrawn here (cutoff at the current chain
+height). The panel shows stopped signers rather than hiding them, since their history is still being
+relied on. Three tests hold this down, including one asserting the broken behaviour stays broken so
+nobody restores it by simplifying the cutoff away.
+
+**Forging a revocation is checked for, in the ways it could be attempted.** A revocation signed by
+anyone but the key it names is ignored — otherwise anyone could retire anyone's key, a denial of
+service dressed up as a security feature. The fingerprint is derived from the carried key rather
+than believed, so a revocation naming one key and carrying another retires nothing. The signature
+covers the moment as well as the key, so a revocation cannot be lifted out and re-dated. And the
+message is domain-separated (`tala-key-revocation:v1:`) for the same reason as proof of possession.
+
+Retiring is irreversible, admin-gated, and requires repeating the fingerprint back — there is no
+un-retire, because a retirement that can be withdrawn is not one. A retired key cannot be re-admitted
+as a signer on any install that has seen the revocation.
+
+Verified end to end across two real chain nodes: the peer retires its key, and this install learns
+about it purely by reconciling — the key stops being active, keeps its history, cannot be
+re-admitted, and its next block is refused. 36 Node tests and 29 Python; full suite 1295 passed.
+
 #### Still open
 
-Revocation is local. Removing a signer here does not tell any other node to stop accepting them, so
-a key that turns out to be compromised has to be withdrawn on every install separately. Peers can
-advertise a `signing_key` in the directory, but nothing consumes the directory to *suggest* keys
-yet — obtaining one means having the peer's node URL.
+Suppression, which is inherent rather than an oversight: a node that simply does not relay a
+revocation keeps its own peers ignorant of it. Nothing here can fix that, and no gossip design can —
+it is a reason to reconcile with more than one peer, not a bug to close.
+
+Peers can advertise a `signing_key` in the directory, but nothing reads the directory to *suggest*
+keys yet, so obtaining one still means having the peer's node URL.
 
 ---
 

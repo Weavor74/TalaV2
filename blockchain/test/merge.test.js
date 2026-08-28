@@ -618,3 +618,189 @@ test('a peer may advertise a signing key without it being trusted', async () => 
   assert.ok(!listed.authorities.some(entry => entry.fingerprint === print),
             'advertising a key did not admit it');
 });
+
+// ── retiring a key ───────────────────────────────────────────────────────────
+//
+// Only *self*-revocation lives on the chain. A revocation signed by the key it
+// retires is a fact anyone can check — nobody but the holder could produce it —
+// so every node acts on it without trusting whoever relayed it. "I no longer
+// trust your key" is an opinion, and an opinion on a shared chain would let any
+// signer evict any other.
+
+function revocationMessage(fingerprint, revokedAt) {
+  return `tala-key-revocation:v1:${fingerprint}:${revokedAt}`;
+}
+
+function fingerprintOf(pem) {
+  return crypto.createHash('sha256')
+    .update(pem.replace(/\s+/g, '')).digest('hex').slice(0, 16);
+}
+
+/** A revocation transaction signed by the key it retires. */
+function revocationTx(keyPair, { signWith, claimFingerprint } = {}) {
+  const pem = keyPair.publicKey.export({ type: 'spki', format: 'pem' });
+  const print = claimFingerprint || fingerprintOf(pem);
+  const revokedAt = '2026-08-28T12:00:00.000Z';
+  const message = revocationMessage(print, revokedAt);
+  return {
+    id: `revocation-${print}`,
+    type: 'key-revocation',
+    hash: crypto.createHash('sha256').update(message).digest('hex'),
+    creator: print,
+    counterparty: 'chain',
+    timestamp: 1756000020000,
+    document: null,
+    metadata: { fingerprint: print, public_key: pem, revoked_at: revokedAt, reason: '' },
+    signature: crypto.sign(null, Buffer.from(message),
+                           (signWith || keyPair).privateKey).toString('hex'),
+    public_key: pem,
+  };
+}
+
+test('a node retires its own key and publishes it', async () => {
+  const { body: base } = await get('/chain/blocks');
+  await reset([base[0]]);
+
+  const { body: identity } = await get('/chain/identity');
+  const response = await fetch(`${BASE}/chain/revoke`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+               'x-tala-chain-secret': adminSecret },
+    body: JSON.stringify({ confirm: identity.fingerprint, reason: 'rotating' }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.fingerprint, identity.fingerprint);
+
+  const { body: retired } = await get('/chain/revocations');
+  assert.equal(retired.count, 1);
+  assert.equal(retired.revocations[0].fingerprint, identity.fingerprint);
+});
+
+test('retiring is not retroactive', async () => {
+  // Blocks signed before the revocation stay valid. Otherwise retiring a key
+  // would collapse the history it wrote, and nobody could ever safely do it.
+  const { body: status } = await get('/chain/status');
+  assert.equal(status.isValid, true);
+});
+
+test('a retired key may not sign anything further', async () => {
+  const { body: chain } = await get('/chain/blocks');
+  const { body: retired } = await get('/chain/revocations');
+  const revokedAt = retired.revocations[0].block;
+
+  // Forge a block signed by the retired key, positioned after the revocation.
+  const nodeKey = JSON.parse(
+    fs.readFileSync(path.join(dataDir, 'poa_keys.json'), 'utf8'));
+  const previous = chain[chain.length - 1];
+  const block = {
+    index: previous.index + 1, previousHash: previous.hash,
+    timestamp: 1756000030000, transactions: [transaction('after-retirement')],
+    nonce: 0,
+  };
+  block.hash = blockHash(block);
+  block.signature = crypto.sign(null, Buffer.from(block.hash),
+                                nodeKey.privateKey).toString('hex');
+  block.public_key = nodeKey.publicKey;
+
+  assert.ok(block.index > revokedAt);
+  const { status, body } = await reconcile([...chain, block]);
+
+  assert.equal(status, 400);
+  assert.match(body.reason, /retired itself/);
+});
+
+test('a retired key cannot be admitted as a signer', async () => {
+  const nodeKey = JSON.parse(
+    fs.readFileSync(path.join(dataDir, 'poa_keys.json'), 'utf8'));
+
+  const { status, body } = await authorities('POST',
+    { public_key: nodeKey.publicKey, label: 'retired' });
+
+  assert.equal(status, 409);
+  assert.match(body.error, /retired itself/);
+});
+
+test('a revocation signed by somebody else is ignored', async () => {
+  // Otherwise anyone could retire anyone's key, which is a denial of service
+  // dressed up as a security feature.
+  const victim = crypto.generateKeyPairSync('ed25519');
+  const attacker = crypto.generateKeyPairSync('ed25519');
+  const forged = revocationTx(victim, { signWith: attacker });
+
+  const { body: base } = await get('/chain/blocks');
+  await reset([base[0]]);
+
+  const response = await fetch(`${BASE}/chain/tx`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(forged),
+  });
+
+  assert.ok(response.status >= 400, 'the forged revocation was refused');
+  const { body: retired } = await get('/chain/revocations');
+  assert.equal(retired.count, 0);
+});
+
+test('a revocation naming one key and carrying another is ignored', async () => {
+  // The fingerprint is derived, never believed: otherwise a revocation could
+  // retire whichever key the reader happened to look at.
+  const holder = crypto.generateKeyPairSync('ed25519');
+  const mismatched = revocationTx(holder, { claimFingerprint: 'deadbeefdeadbeef' });
+
+  const response = await fetch(`${BASE}/chain/tx`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(mismatched),
+  });
+
+  assert.ok(response.status >= 400);
+});
+
+test('retiring twice is not an error', async () => {
+  const { body: base } = await get('/chain/blocks');
+  await reset([base[0]]);
+  const { body: identity } = await get('/chain/identity');
+
+  const send = () => fetch(`${BASE}/chain/revoke`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+               'x-tala-chain-secret': adminSecret },
+    body: JSON.stringify({ confirm: identity.fingerprint }),
+  });
+
+  await send();
+  const second = await send();
+  const body = await second.json();
+
+  assert.equal(second.status, 200);
+  assert.equal(body.already, true);
+});
+
+test('retiring needs the fingerprint repeated back', async () => {
+  const response = await fetch(`${BASE}/chain/revoke`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+               'x-tala-chain-secret': adminSecret },
+    body: JSON.stringify({}),
+  });
+
+  assert.equal(response.status, 400);
+  assert.match((await response.json()).error, /confirm/);
+});
+
+test('retiring is admin-gated', async () => {
+  const response = await fetch(`${BASE}/chain/revoke`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ confirm: 'anything' }),
+  });
+  assert.ok(response.status === 401 || response.status === 403);
+});
+
+test('revocations are readable without the admin secret', async () => {
+  // A revocation only its holder's friends can read is not a revocation.
+  const response = await fetch(`${BASE}/chain/revocations`);
+  assert.equal(response.status, 200);
+});
