@@ -295,7 +295,7 @@
             <button class="btn-browser-nav" id="btn-browser-forward" title="Forward">▶</button>
             <button class="btn-browser-nav" id="btn-browser-refresh" title="Reload">🔄</button>
             <input type="text" id="browser-url-input" value="https://duckduckgo.com/" placeholder="Enter URL or search term..." />
-            <span class="browser-status-ready">READY</span>
+            <span class="browser-status-ready" id="browser-status">READY</span>
           </div>
           <div class="browser-viewport">
             <webview id="browser-iframe" src="https://duckduckgo.com/"></webview>
@@ -927,7 +927,7 @@
                 <div class="profile-tab-panel" id="profile-panel-pii-vault" hidden>
                   <h4 class="section-title">Personally Identifiable Information (PII) &amp; Vault Registry</h4>
                   <p class="section-desc" style="font-size:0.8rem; color:var(--text-muted); margin-bottom:var(--space-4);">
-                    Manage your legal credentials, sensitive contact paths, and document repository directories. The AI agent consults these mappings to locate your personal records for automated task execution.
+                    Your legal credentials, sensitive contact paths, and document repository directories. These are encrypted at rest and <strong>no agent can read them</strong> — <code>user_profile_lookup</code> refuses this section at every visibility setting. They are kept here for you, not for Tala: nothing is consulted automatically, and nothing is used to locate your records on your behalf.
                   </p>
                   <div class="form-grid">
                     <div class="form-group">
@@ -1863,7 +1863,7 @@
                 <div class="panel-toolbar">
                   <div class="panel-toolbar-info">
                     <h2 class="panel-heading">Git Providers</h2>
-                    <p class="panel-subheading">Configure and prioritize Git hosting providers (GitHub, GitLab, Gitea, Bitbucket, etc.). Higher priority providers are used first for clone, push, and pull operations.</p>
+                    <p class="panel-subheading">Your version control, for your own code and content (GitHub, GitLab, Gitea, Bitbucket, etc.). Higher priority providers are used first for clone, push and pull. <em>Tala does not use git for herself</em> — her own updates come from the website, not from a repository.</p>
                   </div>
                   <button class="btn btn-primary" id="btn-add-git-provider">+ Add Git Provider</button>
                 </div>
@@ -1904,7 +1904,7 @@
                 <div class="panel-toolbar">
                   <div class="panel-toolbar-info">
                     <h2 class="panel-heading">Storage Providers</h2>
-                    <p class="panel-subheading">Configure and prioritize remote and local storage backends (S3, Google Drive, NFS, Azure Blob, SFTP, etc.) for node state synchronization, backups, and media assets.</p>
+                    <p class="panel-subheading">Optional, general-purpose storage — text, images, audio, anything. Remote HTML-NN is one common use among others. Add none, one, or many: nothing here is required, and Tala's own storage does not depend on it.</p>
                   </div>
                   <button class="btn btn-primary" id="btn-add-storage-provider">+ Add Storage Provider</button>
                 </div>
@@ -1930,7 +1930,7 @@
                     </div>
                     <div class="fallback-rule-item">
                       <span class="fallback-rule-bullet fallback-bullet-embedded" style="background: rgba(142, 68, 173, 0.1); color: #8e44ad; border: 1px solid rgba(142, 68, 173, 0.3);">🔄</span>
-                      <div class="fallback-rule-text"><strong>Bidirectional Sync</strong> — Tala propagates changes to active storage providers in the background, keeping your knowledge graphs aligned.</div>
+                      <div class="fallback-rule-text"><strong>On request, not in the background</strong> — storage is read and written when something asks for it. Nothing walks these providers on a timer, so a change here is not propagated until it is used.</div>
                     </div>
                   </div>
                 </div>
@@ -2064,7 +2064,7 @@
                   <div class="fallback-rules-list">
                     <div class="fallback-rule-item">
                       <span class="fallback-rule-bullet fallback-bullet-token" style="background: rgba(0, 242, 254, 0.1); color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3);">P</span>
-                      <div class="fallback-rule-text"><strong>Priority Routing</strong> — Authenticated shell tasks attempt credentials in descending order of user-defined priority. Reprioritize via move buttons.</div>
+                      <div class="fallback-rule-text"><strong>Priority Routing</strong> — Search and git providers select their credential by priority, highest first. Reprioritize via move buttons. <em>Shell tasks do not use this order: they strip credentials out of the subprocess environment rather than attempting them.</em></div>
                     </div>
                     <div class="fallback-rule-item">
                       <span class="fallback-rule-bullet fallback-bullet-error" style="background: rgba(250, 82, 82, 0.1); color: #fa5252; border: 1px solid rgba(250, 82, 82, 0.3);">!</span>
@@ -2351,8 +2351,9 @@
                   <div>
                     <h2 class="arch-section-title">
                       <svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                      Component Graph & Data Flow Map
+                      Architecture Overview
                     </h2>
+                      <p class="arch-overview-note">Hand-maintained, not derived from the code — so it can only fall out of date quietly. Treat it as an orientation sketch rather than a source of truth.</p>
                     <div class="arch-diagram-wrapper">
                       <!-- SVG Data flows -->
                       <svg class="arch-svg-overlay" preserveAspectRatio="none">
@@ -2425,8 +2426,8 @@
                         <!-- Row 3: Data and Core Processing -->
                         <div class="arch-node">
                           <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2"><ellipse cx="12" cy="5" rx="9" ry="3"/><path d="M21 12c0 1.66-4 3-9 3s-9-1.34-9-3"/><path d="M3 5v14c0 1.66 4 3 9 3s9-1.34 9-3V5"/></svg></div>
-                          <div class="arch-node-title">PostgreSQL Vector DB</div>
-                          <div class="arch-node-desc">Neural Nodes,<br>Profiles & Auth Keys</div>
+                          <div class="arch-node-title">PostgreSQL</div>
+                          <div class="arch-node-desc">Operational state &amp; full-text<br>search · profiles · credentials</div>
                         </div>
                         <div class="arch-node">
                           <div class="arch-node-icon"><svg width="24" height="24" fill="none" stroke="currentColor" stroke-width="2" viewBox="0 0 24 24"><circle cx="12" cy="5" r="3"/><circle cx="5" cy="12" r="3"/><circle cx="19" cy="12" r="3"/><circle cx="12" cy="19" r="3"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg></div>
@@ -2532,7 +2533,7 @@
                         <span class="dot-separator">&middot;</span>
                         <span>Architecture</span>
                       </div>
-                      <div class="about-brand-meta">Autonomous Intelligence System &nbsp;&middot;&nbsp; v0.0.0</div>
+                      <div class="about-brand-meta">Autonomous Intelligence System &nbsp;&middot;&nbsp; <span id="about-version">…</span></div>
                     </div>
                   </div>
 
@@ -2579,7 +2580,7 @@
                         </div>
                         <div class="about-cap-item">
                           <span class="about-cap-emoji">💾</span>
-                          <span class="about-cap-text">Dual Memory: mem0 (short-term) + RAG (long-term)</span>
+                          <span class="about-cap-text">Memory: HTML-NN nodes with ChromaDB retrieval</span>
                         </div>
                         <div class="about-cap-item">
                           <span class="about-cap-emoji">🔁</span>

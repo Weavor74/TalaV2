@@ -95,19 +95,24 @@ async function invoke(channel, data) {
 
 const UIController = {
   init() {
-    // Inject version string from package if available, else leave default
-    const versionEls = document.querySelectorAll('#app-version, #status-version');
-    versionEls.forEach(el => {
-      // Version injected by main process via a python:rpc call during startup
-      invoke('python:rpc', { method: 'app.version' })
-        .then(result => {
-          if (result?.version) {
-            el.textContent = `v${result.version}`;
+    // #about-version is included deliberately. The About page hardcoded
+    // `v0.0.0` in a text node with no id, so the updater could not reach it --
+    // on the one page whose entire job is to say what the software is, the
+    // version was the single field that was wrong, and stale by 183 patch
+    // releases (UI-092).
+    //
+    // Asked once rather than once per element: the previous loop made the same
+    // RPC call for every match to get the same answer.
+    const versionEls = document.querySelectorAll(
+      '#app-version, #status-version, #about-version');
+    if (!versionEls.length) return;
 
-          }
-        })
-        .catch(() => { /* ignore, default text stays */ });
-    });
+    invoke('python:rpc', { method: 'app.version' })
+      .then(result => {
+        if (!result?.version) return;
+        versionEls.forEach(el => { el.textContent = `v${result.version}`; });
+      })
+      .catch(() => { /* the placeholder stays; a wrong version is worse */ });
   },
 };
 
@@ -8082,6 +8087,28 @@ const WebBrowser = {
     this._btnBack = qs('#btn-browser-back');
     this._btnForward = qs('#btn-browser-forward');
     this._btnRefresh = qs('#btn-browser-refresh');
+    this._status = qs('#browser-status');
+
+    // The badge was decoration: styled markup with no JavaScript anywhere in
+    // renderer/, so it read READY while a page was loading and while a page
+    // had failed (UI-017). A status indicator that cannot indicate anything is
+    // worse than none, because it is believed.
+    if (this._iframe && this._status) {
+      const say = (text, state) => {
+        this._status.textContent = text;
+        this._status.className = `browser-status-ready is-${state}`;
+      };
+      this._iframe.addEventListener('did-start-loading', () => say('LOADING', 'loading'));
+      this._iframe.addEventListener('did-stop-loading', () => say('READY', 'ready'));
+      this._iframe.addEventListener('did-fail-load', (event) => {
+        // -3 is ERR_ABORTED, which fires on ordinary navigation away from a
+        // page and is not a failure worth showing.
+        if (event.errorCode === -3) return;
+        say('FAILED', 'failed');
+        this._status.title = event.errorDescription || '';
+      });
+      this._iframe.addEventListener('crashed', () => say('CRASHED', 'failed'));
+    }
 
     if (this._btnBack) {
       this._btnBack.addEventListener('click', () => {

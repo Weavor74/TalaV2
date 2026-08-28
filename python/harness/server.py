@@ -7831,7 +7831,13 @@ async def handle_system_info(params: dict[str, Any], req_id: Any) -> str:
         "pydantic":         _pkg_version("pydantic"),
         "httpx":            _pkg_version("httpx"),
         "lxml":             _pkg_version("lxml"),
-        "ephem":            _pkg_version("ephem"),
+        # pyswisseph, not ephem (UI-066). The panel raised a red "not
+        # installed" for a library this project neither declares nor imports,
+        # while ignoring the one the astrology engine actually needs -- whose
+        # absence does not fail loudly but *biases* emotion labels, collapsing
+        # roughly half of them onto one value.
+        "pyswisseph":       _pkg_version("pyswisseph"),
+        "cryptography":     _pkg_version("cryptography"),
         "python-dotenv":    _pkg_version("python-dotenv"),
     }
 
@@ -8667,7 +8673,21 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
         errors_count = await db.fetchval("SELECT COUNT(*) FROM agent_log WHERE level = 'ERROR'") or 0
         warns_count = await db.fetchval("SELECT COUNT(*) FROM agent_log WHERE level IN ('WARN', 'WARNING')") or 0
         prompt_audits = await db.fetchval(
-            "SELECT COUNT(*) FROM agent_log WHERE message LIKE '%Guardrail%' OR message LIKE '%guardrail%'"
+            # Counted on the structured marker, not on the words in the
+            # message (UI-087). The old query was a LIKE over free text: it
+            # counted whatever happened to mention "guardrail" and missed every
+            # actual violation, because guardrails only anchored to the chain
+            # and never wrote here at all.
+            # Read through both shapes. Rows written before log_to_db stopped
+            # double-encoding hold a JSON *string* in a jsonb column, where
+            # trace->>'key' silently returns NULL; `#>> '{}'` unwraps those, and
+            # re-parsing is harmless for rows that were already objects. The
+            # alternative is a tile that counts only the recent half of the
+            # history and says nothing about the difference.
+            "SELECT COUNT(*) FROM agent_log WHERE "
+            "CASE WHEN jsonb_typeof(trace) = 'string' "
+            "     THEN (trace #>> '{}')::jsonb ->> 'event_type' "
+            "     ELSE trace ->> 'event_type' END = 'guardrail-violation'"
         ) or 0
         sessions = await db.fetchval("SELECT COUNT(DISTINCT session_id) FROM token_ledger") or 0
         turns = await db.fetchval("SELECT COUNT(*) FROM token_ledger") or 0

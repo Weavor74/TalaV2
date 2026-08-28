@@ -79,6 +79,37 @@ def _log_violation_to_ledger(violation_type: str, details: dict[str, Any]) -> No
     except Exception as e:
         logger.warning("Failed to anchor safety violation to blockchain: %s", e)
 
+    # Also written to the audit log, which is what the Guardrails panel counts.
+    #
+    # Violations were anchored to the chain and nowhere else, so the "PROMPT
+    # AUDITS" tile -- a LIKE '%guardrail%' over agent_log message text -- found
+    # nothing and read 0 no matter how much validation ran (UI-087). The marker
+    # goes in `trace`, a JSONB column, rather than in the message: counting a
+    # substring of free text is how the tile came to be wrong in the first
+    # place, and a message somebody rewords should not change a number.
+    try:
+        import asyncio
+
+        from python.harness.db import log_to_db
+
+        entry = log_to_db(
+            "WARNING",
+            f"Guardrail violation: {violation_type}",
+            {"event_type": "guardrail-violation",
+             "violation_type": violation_type,
+             "details": details,
+             "anchor_id": anchor_id},
+        )
+        try:
+            asyncio.get_running_loop()
+            asyncio.ensure_future(entry)
+        except RuntimeError:
+            asyncio.run(entry)
+    except Exception as e:
+        # A violation that was detected and acted on must not be undone by a
+        # failure to write it down.
+        logger.warning("Failed to record safety violation in the audit log: %s", e)
+
 
 def verify_luhn(card_number: str) -> bool:
     """Validate credit card number using Luhn algorithm to reduce false positives."""

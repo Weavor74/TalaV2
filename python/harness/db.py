@@ -1248,7 +1248,17 @@ async def log_to_db(
         # level; existing rows are migrated by scripts/normalise_log_levels.py.
         level = _LOG_LEVEL_ALIASES.get(str(level or "").strip().upper(),
                                        str(level or "INFO").strip().upper())
-        trace_json = json.dumps(trace or {})
+        # NOT json.dumps'd here. The connection codec set in
+        # _configure_connection already encodes every JSONB value with
+        # json.dumps, so encoding first stored a JSON *string* rather than an
+        # object: jsonb_typeof(trace) came back 'string' and every
+        # trace->>'key' silently returned NULL.
+        #
+        # That is not theoretical. The Guardrails panel's "PROMPT AUDITS" tile
+        # was rewritten to count trace->>'event_type' instead of grepping the
+        # message text (UI-087), and it read 0 for exactly this reason -- the
+        # same silent-zero the rewrite was meant to eliminate.
+        trace_payload = trace or {}
         pool = get_pool()
         async with pool.acquire() as conn:
             await conn.execute(
@@ -1258,7 +1268,7 @@ async def log_to_db(
                 """,
                 level,
                 message,
-                trace_json,
+                trace_payload,
                 tx_id,
             )
     except Exception as exc:  # noqa: BLE001

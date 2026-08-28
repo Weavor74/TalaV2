@@ -295,7 +295,18 @@ DuckDuckGo results URL as a side effect of searching. Tala has no way to send th
 browser to an arbitrary URL on purpose.
 
 ### UI-017 — `READY` badge is static decoration
-**Severity: low · Status: open**
+**Severity: low · Status: fixed (2026-08-28)**
+
+The badge reports the webview: `LOADING`, `READY`, `FAILED`, `CRASHED`, wired to
+`did-start-loading`, `did-stop-loading`, `did-fail-load` and `crashed`, with colour carrying the
+state. `ERR_ABORTED` (-3) is ignored, since it fires on ordinary navigation away from a page.
+
+It was styled markup with no JavaScript anywhere in `renderer/`, reading READY while a page was
+loading and while a page had failed. A status indicator that cannot indicate is worse than none,
+because it is believed.
+
+**Original finding.**
+
 
 `<span class="browser-status-ready">READY</span>` at
 [index.html:275](../renderer/index.html#L275) has no JS anywhere in `renderer/` — it is styled
@@ -1545,7 +1556,19 @@ All four sections save correctly into `profiles.config` under their own keys (`a
 handling.
 
 ### UI-053 — "The AI agent consults these mappings" is not true
-**Severity: high · Status: open**
+**Severity: high · Status: fixed (2026-08-28)**
+
+The panel no longer claims the agent consults these mappings, because it does not — and the vault
+work since this was filed made it *impossible*: `pii_registries` is a sealed field and
+`user_profile_lookup` refuses the `pii_vault` section at every visibility setting. The claim had
+gone from unimplemented to actively contradicted by design.
+
+The replacement says what is true: the values are encrypted at rest, no agent can read them, and
+they are kept for the user rather than for Tala. Asking somebody to enter paths to their personal
+records on a promise the system is built to break was the worst-shaped untruth in the audit.
+
+**Original finding.**
+
 
 The PII & Vault panel states ([index.html:789](../renderer/index.html#L789)):
 
@@ -2016,7 +2039,15 @@ to DuckDuckGo crawling, and this panel reports `ACTIVE` the entire time. The use
 anywhere in the app that would reveal the provider is dead.
 
 ### UI-065 — The panel states failover behaviour the implementation does not deliver
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-27) — closed by the UI-018 work**
+
+Already true by the time this batch reached it. The "Failover Routing" claim was only false because
+a non-200 fell off the end of the branch without raising; `search_manager.query_detailed` now logs
+the status, records it in `outcome.errors` with a reason, and `continue`s to the next provider. All
+three stated rules hold.
+
+**Original finding.**
+
 
 `SEARCH FAILOVER & FALLBACK RULES` makes three claims:
 
@@ -2041,7 +2072,19 @@ failure, **and** this panel's stated contract is what a user reasonably relies o
 Most of this panel is genuinely live (see D14). One entry is actively misleading.
 
 ### UI-066 — The panel monitors a package the project never uses, and ignores the one it depends on
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+The panel checks `pyswisseph` — declared in `pyproject.toml`, imported by the astrology engine as
+`swisseph`, and reporting `2.10.3.2` live. `ephem` is gone, along with the red alarm it raised for a
+library this project neither declares nor imports.
+
+That was the harmful half: a false alarm trains you to ignore the panel, while the dependency that
+*does* matter went unwatched — and its absence does not fail loudly, it **biases** emotion labels,
+collapsing roughly half of them onto one value. `cryptography` was added alongside it, since the
+vault and every chain signature depend on it.
+
+**Original finding.**
+
 
 `PYTHON PACKAGES` shows **`EPHEM — not installed`** in red. That reads as a missing dependency for
 the astrology subsystem. It is not.
@@ -2619,7 +2662,14 @@ The second sentence — *"Sockets are isolated to secure client-only handshakes"
 enough to verify and was not confirmed either way.
 
 ### UI-081 — "Authenticated shell tasks attempt credentials in priority order" is unsupported
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+The rule now describes what consumes the ordering — search and git providers, by `credential_id`
+join — and says explicitly that shell tasks do not: they strip credentials out of the subprocess
+environment, which is the opposite of attempting them in order.
+
+**Original finding.**
+
 
 The stated invariant *"Priority Routing — Authenticated shell tasks attempt credentials in
 descending order of user-defined priority"* does not match the shell implementation. `shell.py` and
@@ -2824,7 +2874,29 @@ Same shape as UI-038 (vault) and UI-060 (workflows): the data exists, the RPC ex
 not.
 
 ### UI-087 — "PROMPT AUDITS" is a substring grep, not an audit count
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+Two bugs, and the second was mine.
+
+**The tile counted a substring.** `message LIKE '%guardrail%'` over `agent_log` — free text, not
+records. Worse, `GuardrailsManager` anchored violations to the chain and wrote nothing to
+`agent_log` at all, so the tile read `0` regardless of how much validation ran. It now counts a
+structured marker, `trace->>'event_type' = 'guardrail-violation'`, and `_log_violation_to_ledger`
+writes one. A message somebody rewords no longer changes a number.
+
+**And then it still read zero.** `log_to_db` called `json.dumps(trace)` before passing it to a
+column whose connection codec *already* encodes with `json.dumps` — so `agent_log.trace` held a JSON
+**string**, `jsonb_typeof` returned `'string'`, and every `trace->>'key'` silently returned NULL.
+The replacement query would have shipped as a quieter version of exactly the bug it was fixing. Root
+cause fixed in `log_to_db`; the tile reads through both shapes so history written before the fix
+still counts.
+
+This is the `tasks.payload` double-encoding pattern in a second column. **Any JSONB column written
+through this codec is suspect**: if a call site encodes before passing, `->` and `->>` against it
+fail silently rather than erroring.
+
+**Original finding.**
+
 
 The `PROMPT AUDITS 0` tile is computed as
 ([server.py:8073](../python/harness/server.py#L8073)):
@@ -2879,7 +2951,15 @@ diagram that is tolerable; for a proposal it is the difference between describin
 describing an intention.
 
 ### UI-089 — "PostgreSQL Vector DB" is not a vector database
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+Relabelled **PostgreSQL — operational state & full-text search · profiles · credentials**. There is
+no pgvector and no vector column type; Postgres provides `tsvector`, which is full-text search and a
+different thing from embeddings. Every embedding lives in ChromaDB, which the diagram already draws
+as its own box, so the old label handed ChromaDB's job to PostgreSQL.
+
+**Original finding.**
+
 
 There is **no pgvector** — no `CREATE EXTENSION vector`, no vector column type anywhere in
 [db.py](../python/harness/db.py). What PostgreSQL provides is `tsvector`
@@ -2903,7 +2983,18 @@ absence of that third box is arguably the diagram's largest omission, since the 
 project's defining idea.
 
 ### UI-090 — The diagram is static markup and cannot drift
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28) — as labelling, not as a generator**
+
+Retitled **Architecture Overview**, with a note that it is hand-maintained and not derived from the
+code. It was titled a *Data Flow Map* while carrying undirected, unlabelled edges — no reader could
+tell what calls what, in which direction.
+
+Deriving it from the codebase is a real build and was not attempted. What is fixed is the part that
+made it dangerous: it claimed to be something it could not be, so it could only fall out of date
+silently. It now says so.
+
+**Original finding.**
+
 
 The component graph is hardcoded in `index.html`
 ([index.html:2208](../renderer/index.html#L2208)); `renderer.js` only shows/hides the panel. Nothing
@@ -2972,7 +3063,16 @@ mixture, so the panel looks diagnostic while telling you nothing. It also underc
 logging ask directly: a health surface that cannot change cannot support self-diagnosis.
 
 ### UI-092 — The About page reports `v0.0.0`
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+The version sits in `<span id="about-version">` and the updater's selector includes it, so the About
+page shows the running version instead of a hardcoded `v0.0.0` stale by 183 patch releases.
+
+The updater also asked once instead of once per element — it made the same RPC call for every match
+to get the same answer.
+
+**Original finding.**
+
 
 `index.html:2349` hardcodes the version into a text node:
 
@@ -2991,7 +3091,17 @@ Related and lower severity: `FOUNDED 2023` is presumably intentional, but `© 20
 Architecture` in the footer is three years stale as of this audit.
 
 ### UI-093 — Two Core System Capabilities are not currently true
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+Now reads **Memory: HTML-NN nodes with ChromaDB retrieval**.
+
+`mem0` *is* installed since this was filed, which is not the same as used: nothing constructs
+`Mem0ReadOnlyAdapter` in any live path, and the adapter blocks writes by design, so "mem0
+(short-term)" was still untrue — for a different reason than when it was written. A test asserts
+nothing constructs it, so the claim can come back if that changes.
+
+**Original finding.**
+
 
 Since capabilities is the one section that grows, its accuracy is the thing to keep correct.
 
@@ -3663,7 +3773,18 @@ Priority ordering and the failover rule should come out, and a per-database cont
 in.
 
 ### UI-111 — Remote storage is optional and general-purpose
-**Severity: medium · Status: specified · Source: Q-41, corrected**
+**Severity: medium · Status: fixed (2026-08-28) · Source: Q-41, corrected**
+
+The panel describes storage as optional and general-purpose — text, images, audio, anything, with
+remote HTML-NN as one common use — matching Steven's correction.
+
+**A second claim on the same panel turned out to be false.** *"Bidirectional Sync — Tala propagates
+changes to active storage providers in the background"* describes nothing that exists:
+`sync_manager` records session events for `memory.py`, and nothing walks storage providers on a
+timer. Replaced with what actually happens — storage is read and written on request.
+
+**Original finding.**
+
 
 > **Steven:** *"Not required. As well as not only. TALA can store text, image, audio or anything in
 > the remote storage. A common use may be remote html-nn."*
@@ -3721,7 +3842,13 @@ So lockdown composes three existing mechanisms rather than needing a new one:
 All three are live code. Lockdown is a coordinator over them, not new enforcement.
 
 ### UI-113 — Tala does not use git at all; the panel is the user's version control
-**Severity: medium · Status: specified · Source: Q-39, Q-66, corrected**
+**Severity: medium · Status: fixed (2026-08-28) · Source: Q-39, Q-66, corrected**
+
+The git panel says whose version control it is: the user's own, for their code and content, and
+*"Tala does not use git for herself"* — her updates come from the website, not a repository.
+
+**Original finding.**
+
 
 > **Steven:** *"The GIT panel should stay. But Tala does not use GIT for herself."*
 
