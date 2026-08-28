@@ -3370,7 +3370,43 @@ resolveDataRoot() exactly, or the app, the harness, and this sandbox end up look
 directories."*
 
 ### UI-097 — MCP server discovery is Windows-only and fails silently elsewhere
-**Severity: high · Status: open · Raised by Steven, 2026-08-23**
+**Severity: high · Status: fixed (2026-08-28) · Raised by Steven, 2026-08-23**
+
+Discovery is a per-platform table now, not a Windows one with the syntax repaired — because the
+locations genuinely differ, and repairing `%APPDATA%` into `$APPDATA` would have produced a path
+that resolves on POSIX and points nowhere.
+
+| | Windows | macOS | Linux |
+|---|---|---|---|
+| config base | `%APPDATA%` | `~/Library/Application Support` | `$XDG_CONFIG_HOME` or `~/.config` |
+| Claude Desktop, VS Code | under that base | under that base | under that base |
+| Claude Code, Cursor, Windsurf | `~` on every platform — no per-OS entry needed | | |
+| project files | relative to the working directory | | |
+
+Locations are expressed as path *fragments* joined by `pathlib`, so the separator is whatever the
+running platform uses and no entry can contain one. A test asserts that: a backslash inside a
+fragment is one filename component on POSIX and would never exist.
+
+**The invisible half mattered more than the broken half.** Finding zero servers looked exactly like
+having zero servers installed, so `Scan for servers` appeared to work and always came back empty.
+The result now carries `looked_in` — every location, whether or not a file was there — and the panel
+distinguishes *"no config files from other MCP clients were found; nothing went wrong"* from
+*"found N config files, none listed a server"*, with the list of paths behind a disclosure.
+
+**A path the user types is expanded either way.** `os.path.expandvars` understands `%VAR%` on
+Windows and `$VAR` on POSIX, never both, so a path pasted from the machine somebody came from would
+silently fail to resolve — which is exactly what carrying a portable install between machines
+involves.
+
+Verified: on this machine the scan reports all eight locations, resolves three real config files and
+finds two servers. Simulated against `darwin` and `linux` with a substituted home directory, no
+resolved component contains `%`, `$` or a separator, and `XDG_CONFIG_HOME` is honoured. 18 tests.
+
+A sweep for the same pattern elsewhere in the live tree found nothing — the data-root hardcoding
+Steven originally raised had already been fixed, and this was the remaining instance.
+
+**Original finding.**
+
 
 Steven's concern — *"%APPDATA% is specific to windows and may not work on linux or mac"* — is
 correct, and the place it actually bites is the **newly-shipped MCP discovery** feature

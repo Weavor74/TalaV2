@@ -14921,8 +14921,31 @@ const MCPServerRegistryManager = {
       this._discoveredCache = found;
       this._discovered.hidden = false;
 
+      // Where the scan looked, whether or not anything was there.
+      //
+      // "Nothing found" used to be indistinguishable from "could not look",
+      // and on Linux and macOS it was the second: seven of the eight config
+      // locations were written in Windows syntax and could never match, so
+      // this button appeared to work and always came back empty (UI-097).
+      const lookedIn = (res && res.looked_in) || [];
+      const checked = lookedIn.length;
+      const present = lookedIn.filter(l => l.exists).length;
+      const where = lookedIn.length
+        ? `<details style="margin-top: var(--space-2); font-size: 0.72rem; color: var(--text-muted);">
+             <summary style="cursor: pointer;">Looked in ${checked} location(s) on ${escapeHtml(res.platform || 'this machine')} — ${present} had a config file</summary>
+             <div style="margin-top: 4px; font-family: var(--font-mono);">
+               ${lookedIn.map(l => `<div>${l.exists ? '·' : '&nbsp;'} ${escapeHtml(l.source)} — ${escapeHtml(l.path)}</div>`).join('')}
+             </div>
+           </details>`
+        : '';
+
       if (found.length === 0) {
-        this._discoveredList.innerHTML = `<div style="font-size: 0.8rem; color: var(--text-muted);">No MCP servers found in the config files of other clients on this machine.</div>`;
+        this._discoveredList.innerHTML =
+          `<div style="font-size: 0.8rem; color: var(--text-muted);">` +
+          (present === 0
+            ? `No config files from other MCP clients were found on this machine. Nothing to adopt — and nothing went wrong.`
+            : `Found ${present} config file(s), but none listed an MCP server.`) +
+          `</div>${where}`;
         return;
       }
 
@@ -14937,7 +14960,7 @@ const MCPServerRegistryManager = {
           ${d.already_registered
             ? '<span style="font-size: 0.7rem; color: var(--text-muted);">already added</span>'
             : `<button class="btn btn-secondary" data-adopt="${i}" style="font-size: 0.7rem; padding: 3px 10px;">Adopt</button>`}
-        </div>`).join('');
+        </div>`).join('') + where;
     } catch (err) {
       this._discoveredList.innerHTML = `<div style="font-size: 0.8rem; color: #ff6b6b;">Scan failed: ${escapeHtml(err.message || String(err))}</div>`;
       this._discovered.hidden = false;

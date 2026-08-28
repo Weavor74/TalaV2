@@ -233,16 +233,87 @@ async def register_mcp_tools() -> dict[str, Any]:
 #: Where MCP clients keep their server definitions. Two layouts occur in the
 #: wild and both are handled: ``mcpServers`` at the root, and Claude Code's
 #: per-project ``projects.<path>.mcpServers``.
-_DISCOVERY_LOCATIONS: tuple[tuple[str, str], ...] = (
-    ("Claude Desktop", r"%APPDATA%\Claude\claude_desktop_config.json"),
-    ("Claude Code", r"%USERPROFILE%\.claude.json"),
-    ("Cursor (global)", r"%USERPROFILE%\.cursor\mcp.json"),
-    ("Windsurf", r"%USERPROFILE%\.codeium\windsurf\mcp_config.json"),
-    ("VS Code", r"%APPDATA%\Code\User\settings.json"),
-    ("project", ".mcp.json"),
-    ("project (VS Code)", r".vscode\mcp.json"),
-    ("project (Cursor)", r".cursor\mcp.json"),
+# ── where other tools keep their MCP configuration ───────────────────────────
+#
+# This was a single Windows table: five entries written with ``%APPDATA%`` /
+# ``%USERPROFILE%`` and two with backslash separators, expanded through
+# ``os.path.expandvars``. On POSIX that expands ``$VAR`` and ``${VAR}`` only —
+# ``%APPDATA%`` passes through untouched and becomes a literal first path
+# component, while backslashes are ordinary filename characters. So seven of the
+# eight locations could never match on Linux or macOS (UI-097).
+#
+# The failure was invisible, which is the worse half: finding zero servers looks
+# exactly like having zero servers installed, so "Scan for servers" appeared to
+# work and always came back empty.
+#
+# Locations are expressed as path *fragments* against a named base, so pathlib
+# joins them with the right separator and the per-OS differences live in one
+# table. Claude Desktop and VS Code genuinely differ per platform; the rest sit
+# under the home directory everywhere.
+
+def _config_base() -> "Path":
+    """
+    Where this OS keeps per-user application configuration.
+
+    Windows uses ``%APPDATA%``; macOS uses ``~/Library/Application Support``;
+    everything else follows the XDG default of ``~/.config``. ``XDG_CONFIG_HOME``
+    is honoured where it applies, since a user who sets it means it.
+    """
+    import os
+    import sys
+    from pathlib import Path
+
+    if sys.platform == "win32":
+        appdata = os.environ.get("APPDATA")
+        return Path(appdata) if appdata else Path.home() / "AppData" / "Roaming"
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support"
+    return Path(os.environ.get("XDG_CONFIG_HOME") or (Path.home() / ".config"))
+
+
+#: (label, base, *fragments). ``base`` is "config", "home" or "cwd".
+_DISCOVERY_LOCATIONS: tuple[tuple, ...] = (
+    ("Claude Desktop", "config", "Claude", "claude_desktop_config.json"),
+    ("Claude Code", "home", ".claude.json"),
+    ("Cursor (global)", "home", ".cursor", "mcp.json"),
+    ("Windsurf", "home", ".codeium", "windsurf", "mcp_config.json"),
+    ("VS Code", "config", "Code", "User", "settings.json"),
+    ("project", "cwd", ".mcp.json"),
+    ("project (VS Code)", "cwd", ".vscode", "mcp.json"),
+    ("project (Cursor)", "cwd", ".cursor", "mcp.json"),
 )
+
+
+def _resolve_location(base: str, fragments: tuple) -> "Path":
+    from pathlib import Path
+
+    roots = {"config": _config_base, "home": Path.home, "cwd": Path.cwd}
+    return roots[base]().joinpath(*fragments)
+
+
+def _expand_supplied(raw: str) -> "Path":
+    """
+    A path a user typed, expanded whichever way they wrote it.
+
+    ``os.path.expandvars`` understands ``%VAR%`` on Windows and ``$VAR`` on
+    POSIX, never both — so a Windows-shaped path pasted on Linux, or the
+    reverse, silently fails to resolve. Someone moving a portable install
+    between machines will do exactly that.
+    """
+    import os
+    import re
+    from pathlib import Path
+
+    text = str(raw or "")
+    text = re.sub(r"%([A-Za-z_][A-Za-z0-9_]*)%",
+                  lambda m: os.environ.get(m.group(1), m.group(0)), text)
+    text = os.path.expandvars(text)
+    # A backslash is a separator on Windows and a filename character on POSIX.
+    # A path written with backslashes is far more likely to be a Windows path
+    # than a POSIX filename containing them.
+    if os.sep == "/" and "\\" in text and "/" not in text:
+        text = text.replace("\\", "/")
+    return Path(text).expanduser()
 
 
 def _collect_server_blocks(data: Any) -> list[tuple[str, dict]]:
@@ -280,6 +351,7 @@ def discover_mcp_servers(extra_paths: list[str] | None = None) -> dict[str, Any]
     """
     import json as _json
     import os as _os
+    import sys as _sys
     from pathlib import Path as _Path
 
     from python.harness.mcp_manager import mcp_manager
@@ -289,13 +361,29 @@ def discover_mcp_servers(extra_paths: list[str] | None = None) -> dict[str, Any]
     scanned: list[str] = []
     unreadable: dict[str, str] = {}
 
-    candidates = list(_DISCOVERY_LOCATIONS)
+    candidates: list[tuple[str, "_Path"]] = []
+    for label, base, *fragments in _DISCOVERY_LOCATIONS:
+        try:
+            candidates.append((label, _resolve_location(base, tuple(fragments))))
+        except Exception as exc:
+            # A base that cannot be resolved (no home directory, say) is worth
+            # reporting rather than dropping: it is a location that was not
+            # looked at, and the whole point here is that "nothing found" must
+            # not hide "could not look".
+            unreadable[f"{label} (unresolved)"] = str(exc)
     for extra in (extra_paths or []):
-        candidates.append(("supplied", str(extra)))
+        candidates.append(("supplied", _expand_supplied(str(extra))))
 
-    for label, raw_path in candidates:
-        path = _Path(_os.path.expandvars(raw_path)).expanduser()
-        if not path.is_file():
+    # Where discovery looked, whether or not anything was there. Finding zero
+    # servers used to look identical to having zero servers installed, and on
+    # Linux and macOS it was neither -- seven of eight paths could not match
+    # (UI-097). A caller can now tell the two apart.
+    looked_in: list[dict[str, Any]] = []
+
+    for label, path in candidates:
+        exists = path.is_file()
+        looked_in.append({"source": label, "path": str(path), "exists": exists})
+        if not exists:
             continue
         scanned.append(str(path))
         try:
@@ -323,8 +411,9 @@ def discover_mcp_servers(extra_paths: list[str] | None = None) -> dict[str, Any]
 
     new = [d for d in discovered if not d["already_registered"]]
     log.info(
-        "MCP discovery: %d server(s) across %d config file(s), %d not yet registered",
-        len(discovered), len(scanned), len(new),
+        "MCP discovery on %s: %d server(s) across %d of %d config location(s), "
+        "%d not yet registered",
+        _sys.platform, len(discovered), len(scanned), len(looked_in), len(new),
     )
     return {
         "success": True,
@@ -332,5 +421,7 @@ def discover_mcp_servers(extra_paths: list[str] | None = None) -> dict[str, Any]
         "new_count": len(new),
         "total_count": len(discovered),
         "files_scanned": scanned,
+        "looked_in": looked_in,
+        "platform": _sys.platform,
         "unreadable": unreadable,
     }
