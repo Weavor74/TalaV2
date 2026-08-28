@@ -11884,6 +11884,177 @@ def is_local_only_artifact(name: str) -> bool:
     return bool(parts & set(NEVER_LEAVES_DIRS))
 
 
+async def handle_git_repo_op(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``git.repo_op`` — status, pull, push or fetch on a repository in the workspace.
+
+    The panel promised clone, push and pull; none existed (UI-067). These act
+    on the *user's* repositories, per Steven: "the GIT panel should stay. But
+    Tala does not use GIT for herself." The harness versions itself through
+    safe_code_bridges and its snapshots, and the two must not be conflated --
+    that confusion is how an auto-rollback once deleted 427 tracked files.
+    """
+    from python.harness import git_ops
+
+    operation = str(params.get("op") or "status").strip().lower()
+    repo = str(params.get("repo") or "").strip()
+    if not repo:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'repo' is required")
+
+    try:
+        path = git_ops.resolve_path(repo)
+        if not (path / ".git").exists():
+            return _err(
+                req_id, JsonRpcError.INVALID_PARAMS,
+                f"{repo} is not a git repository in the workspace.",
+            )
+
+        args = {
+            "status": ["status", "--short", "--branch"],
+            "pull": ["pull", "--ff-only"],
+            "push": ["push"],
+            "fetch": ["fetch", "--all"],
+            "log": ["log", "--oneline", "-20"],
+        }.get(operation)
+        if args is None:
+            return _err(
+                req_id, JsonRpcError.INVALID_PARAMS,
+                f"Unknown git operation {operation!r}. "
+                f"Expected status, pull, push, fetch or log.",
+            )
+
+        provider = None
+        if operation in ("pull", "push", "fetch"):
+            remote = await git_ops.run_git(["remote", "get-url", "origin"], cwd=path)
+            if remote["success"] and remote["stdout"]:
+                candidates = await git_ops.providers_for(remote["stdout"])
+                provider = candidates[0] if candidates else None
+
+        result = await git_ops.run_git(args, cwd=path, provider=provider)
+        result["repo"] = repo
+        result["provider"] = provider["name"] if provider else None
+        if not result["success"]:
+            await db.log_to_db(
+                "WARNING",
+                f"git {operation} failed in {repo}: {result['stderr'][:300]}",
+                {"repo": repo, "op": operation, "returncode": result["returncode"]},
+            )
+        return _ok(req_id, result)
+    except git_ops.GitError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("git.repo_op error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_git_clone(params: dict[str, Any], req_id: Any) -> str:
+    """``git.clone`` — clone a repository into the user's workspace."""
+    from python.harness import git_ops
+
+    try:
+        result = await git_ops.clone(
+            str(params.get("url") or ""),
+            str(params.get("directory") or ""),
+        )
+        await db.log_to_db(
+            "INFO" if result["success"] else "WARNING",
+            f"git clone {'succeeded' if result['success'] else 'failed'}: "
+            f"{result.get('path', '')}",
+            {"provider": result.get("provider"), "returncode": result["returncode"]},
+        )
+        return _ok(req_id, result)
+    except git_ops.GitError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("git.clone error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_git_list_repos(params: dict[str, Any], req_id: Any) -> str:
+    """``git.list_repos`` — what is in the repository workspace."""
+    from python.harness import git_ops
+
+    try:
+        root = git_ops.workspace_root()
+        root.mkdir(parents=True, exist_ok=True)
+        repos = [
+            {"name": child.name, "path": str(child)}
+            for child in sorted(root.iterdir())
+            if child.is_dir() and (child / ".git").exists()
+        ]
+        available, where = git_ops.git_available()
+        return _ok(req_id, {
+            "repos": repos, "count": len(repos), "workspace": str(root),
+            "git_available": available, "git_path": where,
+        })
+    except Exception as exc:
+        logger.exception("git.list_repos error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_git_test_provider(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``git.test_provider`` — check a provider's credential against its endpoint.
+
+    Uses ls-remote rather than an API call: it proves the credential works for
+    the operation the panel actually promises, which an API token check does
+    not necessarily do.
+    """
+    from python.harness import git_ops
+
+    provider_id = str(params.get("id") or "").strip()
+    repo_url = str(params.get("url") or "").strip()
+    if not provider_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+
+    try:
+        from python.harness.credential_crypto import decrypt_config
+
+        row = await db.fetchrow(
+            "SELECT p.id, p.name, p.endpoint, p.username, p.api_key, p.credential_id, "
+            "c.config AS cred_config FROM git_providers p "
+            "LEFT JOIN auth_credentials c ON p.credential_id = c.id WHERE p.id = $1",
+            provider_id,
+        )
+        if not row:
+            return _ok(req_id, {"state": "failed", "detail": "No such provider."})
+
+        api_key = row["api_key"]
+        if row["credential_id"] and row["cred_config"]:
+            cfg = decrypt_config(row["cred_config"]) or {}
+            api_key = cfg.get("api_key") or cfg.get("token") or api_key
+
+        available, where = git_ops.git_available()
+        if not available:
+            return _ok(req_id, {"state": "failed", "detail": f"git is not available: {where}"})
+
+        target = repo_url or row["endpoint"]
+        if not target:
+            return _ok(req_id, {
+                "state": "failed",
+                "detail": "No endpoint configured, and no URL given to test against.",
+            })
+
+        provider = {"name": row["name"], "username": row["username"], "api_key": api_key}
+        # fetch --dry-run rather than an API token check: it proves the
+        # credential works for the operation the panel actually promises,
+        # which a token endpoint does not necessarily do.
+        result = await git_ops.run_git(
+            ["fetch", "--dry-run", target], provider=provider, timeout=30)
+
+        if result["success"]:
+            return _ok(req_id, {"state": "ok", "detail": f"Reached {target}."})
+        return _ok(req_id, {
+            "state": "failed",
+            "detail": result["stderr"][:400] or f"git exited {result['returncode']}",
+        })
+    except git_ops.GitError as exc:
+        return _ok(req_id, {"state": "failed", "detail": str(exc)})
+    except Exception as exc:
+        logger.exception("git.test_provider error")
+        return _ok(req_id, {"state": "failed", "detail": f"{type(exc).__name__}: {exc}"})
+
+
 async def handle_storage_capabilities(params: dict[str, Any], req_id: Any) -> str:
     """
     ``storage.capabilities`` — which provider types can actually be used.
@@ -12622,6 +12793,10 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "git.repo_op": handle_git_repo_op,
+    "git.clone": handle_git_clone,
+    "git.list_repos": handle_git_list_repos,
+    "git.test_provider": handle_git_test_provider,
     "storage.capabilities": handle_storage_capabilities,
     "storage.test_provider": handle_storage_test_provider,
     "storage.backup_nodes": handle_storage_backup_nodes,

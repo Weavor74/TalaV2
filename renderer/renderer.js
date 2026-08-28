@@ -11514,7 +11514,12 @@ const MissionControl = {
       if (result && result.ok) {
         if (this._console) {
           const statusOutput = result.stdout ? result.stdout.trim() : 'Working tree clean';
-          this._console.innerHTML = `=== GIT WORKSPACE STATUS ===\n${statusOutput}`;
+          // Named accurately: git:status runs against Tala's own checkout, not
+          // the user's repositories. Steven, on why it exists at all: "I may
+          // have connected it to check if it worked." The user's repos live in
+          // the git panel and go through git.repo_op.
+          this._console.innerHTML =
+            `=== TALA CHECKOUT STATUS (development) ===\n${statusOutput}`;
         }
       }
     } catch (err) {

@@ -1826,7 +1826,30 @@ available."*
 effect on anything.
 
 ### UI-067 — Git providers are configured but never used for any git operation
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+> **Fixed.** `git.clone`, `git.repo_op` (status / pull / push / fetch / log), `git.list_repos`
+> and `git.test_provider`. Providers are matched **by host**, so a GitHub token is never
+> offered to a GitLab remote, and highest priority wins — which is what the panel always
+> claimed.
+>
+> **Correction to this finding.** It recorded git as entirely unused. One thing did work: a
+> `git:status` IPC — but pointed at *Tala's own checkout*, which sat against Steven's rule
+> that *"Tala does not use GIT for herself."* Asked about it he said *"I may have connected
+> it to check if it worked"* — leftover verification, not a design decision. It stays, now
+> labelled `TALA CHECKOUT STATUS (development)` rather than `GIT WORKSPACE STATUS`, which
+> implied it was the user's.
+>
+> **The credential handling is the part that took the care.** Three obvious approaches each
+> leak it: the remote URL writes it into `.git/config` in clear and permanently; 
+> `-c http.extraHeader` puts it in `argv` where any process listing shows it; a credential
+> helper has to be written to disk. Git 2.31+ reads config from environment variables, which
+> are in none of those places. Verified: a token used for a real fetch appears nowhere in the
+> entire `.git` directory.
+>
+> Commands are allow-listed — a general "run git with these arguments" call is a shell — and
+> absolute paths are **refused** rather than quietly relativised, because a rule that
+> reinterprets its input is one nobody can reason about.
 
 The panel states: *"Higher priority providers are used first for **clone, push, and pull**
 operations."*
