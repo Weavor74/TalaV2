@@ -519,6 +519,34 @@ _DDL_STATEMENTS: list[str] = [
         $$;
     """),
     # ------------------------------------------------------------------
+    # access_grants — the one grant model (UI-062, UI-101, UI-118)
+    #
+    # Steven's rule is "by invite only": identity and access are separate, a
+    # grant is per resource, and nothing is permitted by default. The owner is
+    # implicit and unrestricted and has no rows here -- the absence of a row
+    # for the owner is the point, not an omission.
+    #
+    # constraints carries the rest of what he specified: "that agent can only
+    # access a certain search API, on a certain port, at a single allocated
+    # time" -- ports, hosts, hours and an expiry.
+    # ------------------------------------------------------------------
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS access_grants (
+            id             TEXT        PRIMARY KEY,
+            principal_kind TEXT        NOT NULL,
+            principal_id   TEXT        NOT NULL,
+            resource       TEXT        NOT NULL,
+            permission     TEXT        NOT NULL DEFAULT 'read',
+            constraints    JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            granted_by     TEXT        NOT NULL DEFAULT 'owner',
+            note           TEXT        NOT NULL DEFAULT '',
+            granted_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            UNIQUE (principal_kind, principal_id, resource, permission)
+        );
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_access_grants_lookup
+            ON access_grants(principal_kind, principal_id, resource);
+    """),
+
     # app_settings — small, single-purpose settings that must not be lost
     # inside a larger blob.
     #

@@ -29,58 +29,74 @@ class AuthorizationGate:
     """
 
     def __init__(self) -> None:
-        # Mock storage of approved actions for testing / automated verification
+        # Pre-approved signatures: a signed intent from the owner for one
+        # specific action.
         self._approved_actions: set[str] = set()
+        # Why the last refusal happened. A denial a caller cannot explain is
+        # the same problem as a silent failure.
+        self.last_reason: str = ""
 
     def register_pre_approval(self, action_signature: str) -> None:
         """Register pre-approved signature token."""
         self._approved_actions.add(action_signature)
 
-    async def request_authorization(self, action_type: str, resource: str, risk_class: str) -> bool:
+    async def request_authorization(
+        self,
+        action_type: str,
+        resource: str,
+        risk_class: str,
+        principal: "Principal | None" = None,
+        context: dict | None = None,
+    ) -> bool:
         """
-        Request execution authorization.
-        High-risk actions require pre-approval tokens or signed blockchain assertions.
+        Whether this action is permitted, for this principal, on this resource.
+
+        This gate had no callers anywhere (UI-103), which is why the
+        ``priority = 1`` bug it used to carry was latent rather than active:
+        nothing was being wrongly authorised because nothing asked. It now
+        resolves against the grant model in ``python.harness.access``, which is
+        the model Steven specified -- by invitation, per resource, default
+        deny, and with the agent a principal like any peer (Q-63: "An agent,
+        should be assigned just like a peer").
+
+        The old ``auth_credentials WHERE priority = 1`` lookup is gone. Any
+        credential that happened to sort first authorised any action, which was
+        never the intent and is not recoverable by tightening the query.
+
+        Defaults to the *agent* principal when none is given. There is no
+        "locally initiated" exemption: whoever asked, the agent is the actor.
         """
-        # Emergency halt block
+        from python.harness.access import AGENT, Principal, check
+
         if RevocationHalt.is_halted():
-            log.critical("AuthorizationGate: Blocked action due to active emergency halt.")
+            log.critical("AuthorizationGate: blocked -- emergency halt is active.")
             return False
 
-        # Low-risk actions are auto-authorized
-        if risk_class == "low":
-            return True
+        if principal is None:
+            principal = Principal(AGENT, "default")
 
+        # A pre-approval is a signed intent from the owner for one action, and
+        # still cannot survive the halt above.
         action_signature = f"{action_type}:{resource}"
         if action_signature in self._approved_actions:
-            log.info("AuthorizationGate: Action %s is pre-authorized.", action_signature)
+            log.info("AuthorizationGate: %s is pre-authorized.", action_signature)
             return True
 
-        # Critical actions require ledger verification or database approval
-        if risk_class in ("high", "critical"):
-            # Check database for signed authorization tokens
-            db_available = False
-            try:
-                db.get_pool()
-                db_available = True
-            except RuntimeError:
-                pass
+        # Low risk auto-allows only for the owner or a principal that already
+        # holds a grant; it is not a bypass for anyone who asks.
+        decision = await check(principal, resource, action_type, context)
+        if decision.allowed:
+            return True
 
-            if db_available:
-                try:
-                    # Query if a valid auth credential signature exists
-                    query = "SELECT id FROM auth_credentials WHERE name = $1 AND priority = 1"
-                    row = await db.fetchrow(query, action_signature)
-                    if row:
-                        log.info("AuthorizationGate: Signature found in database credentials for %s", action_signature)
-                        return True
-                except Exception as exc:
-                    log.warning("Database authorization query failed: %s", exc)
+        if risk_class == "low" and principal.is_owner:
+            return True
 
-            log.warning("AuthorizationGate: Access blocked. Action %s is not authorized.", action_signature)
-            return False
-
-        # Medium risk defaults to True in developer/automated test mode if not blocked
-        return True
+        log.warning(
+            "AuthorizationGate: refused %s on %s for %s -- %s",
+            action_type, resource, principal, decision.reason,
+        )
+        self.last_reason = decision.reason
+        return False
 
 
 class RevocationHalt:

@@ -11759,6 +11759,116 @@ async def handle_database_test_provider(params: dict[str, Any], req_id: Any) -> 
         return _ok(req_id, {"state": "failed", "detail": f"{type(exc).__name__}: {exc}"})
 
 
+def _principal_from(params: dict[str, Any]):
+    from python.harness.access import Principal
+    return Principal(
+        str(params.get("principal_kind") or "peer").strip().lower(),
+        str(params.get("principal_id") or "").strip(),
+    )
+
+
+async def handle_access_grant(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``access.grant`` — invite a principal to one resource.
+
+    Steven's rule: "permissions are by invite only ... I have to invite her to
+    access. This does not mean I have to invite her to be a contact. Just to
+    access a file." So a grant names a resource, not a person's whole
+    relationship, and nothing is permitted without one.
+    """
+    from python.harness import access
+
+    try:
+        principal = _principal_from(params)
+        result = await access.grant(
+            principal,
+            resource=str(params.get("resource") or ""),
+            permission=str(params.get("permission") or "read"),
+            constraints=params.get("constraints") or {},
+            note=str(params.get("note") or ""),
+        )
+        await db.log_to_db(
+            "INFO",
+            f"Access granted: {result['principal']} may {result['permission']} "
+            f"{result['resource']}",
+            {"grant": result},
+        )
+        return _ok(req_id, {"success": True, **result})
+    except ValueError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("access.grant error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_access_revoke(params: dict[str, Any], req_id: Any) -> str:
+    """``access.revoke`` — withdraw a grant."""
+    from python.harness import access
+
+    try:
+        principal = _principal_from(params)
+        result = await access.revoke(
+            principal,
+            resource=str(params.get("resource") or ""),
+            permission=str(params.get("permission") or ""),
+        )
+        await db.log_to_db(
+            "INFO",
+            f"Access revoked: {result['principal']} on {result['resource']}",
+            {"revoke": result},
+        )
+        return _ok(req_id, {"success": True, **result})
+    except Exception as exc:
+        logger.exception("access.revoke error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_access_list(params: dict[str, Any], req_id: Any) -> str:
+    """``access.list`` — every grant, or one principal's."""
+    from python.harness import access
+
+    try:
+        principal = _principal_from(params) if params.get("principal_id") else None
+        grants = await access.list_grants(principal)
+        return _ok(req_id, {"grants": grants, "count": len(grants)})
+    except Exception as exc:
+        logger.exception("access.list error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_access_check(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``access.check`` — would this be permitted, and why or why not.
+
+    Exposed so a refusal can be explained rather than merely observed. Every
+    access denial in this codebase is something somebody will have to debug.
+    """
+    from python.harness import access
+
+    try:
+        principal = _principal_from(params)
+        decision = await access.check(
+            principal,
+            resource=str(params.get("resource") or ""),
+            permission=str(params.get("permission") or "read"),
+            context=params.get("context") or {},
+        )
+        return _ok(req_id, {
+            "allowed": decision.allowed,
+            "reason": decision.reason,
+            "principal": decision.principal,
+            "resource": decision.resource,
+            "permission": decision.permission,
+            "grant_id": decision.grant_id,
+            "constraints": decision.constraints,
+        })
+    except ValueError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except Exception as exc:
+        logger.exception("access.check error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_database_capabilities(params: dict[str, Any], req_id: Any) -> str:
     """
     ``database.capabilities`` — which database kinds this install can reach.
@@ -12817,6 +12927,10 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "access.grant": handle_access_grant,
+    "access.revoke": handle_access_revoke,
+    "access.list": handle_access_list,
+    "access.check": handle_access_check,
     "database.capabilities": handle_database_capabilities,
     "git.repo_op": handle_git_repo_op,
     "git.clone": handle_git_clone,

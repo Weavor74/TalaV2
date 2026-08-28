@@ -1666,7 +1666,17 @@ JSONB ([db.py:219](../python/harness/db.py#L219)), with a `CHECK (id = 1)` const
 global by construction and cannot hold a per-contact or per-agent policy even in principle.
 
 ### UI-062 — Access control is split across three systems that do not compose
-**Severity: high (design gap) · Status: open**
+**Severity: high (design gap) · Status: FIXED 2026-08-28**
+
+
+> **Fixed at the model level.** `python/harness/access.py` is the composition point the three
+> systems lacked: one vocabulary, one storage, one decision function that every enforcement
+> site can call. Guardrails, contact permissions and firewall clearance are no longer the
+> only options — they are three enforcement points that can now consult the same grants.
+>
+> Deliberately a *decision* function, not an enforcement one: enforcement belongs at each
+> call site, because a function that both decides and acts is one nobody can test in
+> isolation. Migrating the existing three onto it is separate work and is not claimed here.
 
 Three independent mechanisms exist today, each with its own storage, its own vocabulary, and its
 own enforcement point. None can reference another:
@@ -2972,7 +2982,23 @@ finding), a loader with no DB fallback (UI-099), and a logging path that never r
 everything without data entry.
 
 ### UI-101 — The access-control model Steven specified, vs what the schema can express
-**Severity: high (design) · Status: specified, not built · Source: P1 answers, 2026-08-23**
+**Severity: high (design) · Status: FIXED 2026-08-28 · Source: P1 answers, 2026-08-23**
+
+
+> **The schema exists now.** `access_grants` is `(principal_kind, principal_id, resource,
+> permission, constraints)` — the resource dimension the nine booleans on a contact could not
+> express. Identity and access are separate: being a contact grants nothing, and a grant
+> names one resource.
+>
+> Constraints carry the rest of what Steven specified: *"that agent can only access a certain
+> search API, on a certain port, at a single allocated time."* Ports, hosts, an hours window
+> that may cross midnight, a start and an expiry. **An unrecognised constraint denies** — a
+> constraint nobody evaluates is worse than none, because it reads as a restriction that is
+> not there.
+>
+> Lockdown beats every grant, and not knowing whether lockdown is on is not permission to
+> proceed. The individual call sites (UI-040, UI-041, UI-058, UI-082) still each need
+> pointing at this; the model they were partial views of now exists.
 
 The six P1 answers define one coherent model. Recorded here because several findings
 (UI-040, UI-041, UI-058, UI-081, UI-082) are all partial views of the same missing thing.
@@ -3070,7 +3096,15 @@ Two notes for whoever builds it:
   present. Under lockdown they are unreachable by design yet would still render green.
 
 ### UI-103 — `AuthorizationGate` is never invoked, and the emergency halt is never checked
-**Severity: high · Status: open · Found while answering Q-61**
+**Severity: high · Status: FIXED 2026-08-28 · Found while answering Q-61**
+
+
+> **Fixed.** `AuthorizationGate.request_authorization` now resolves against the grant model
+> and has a caller. The `priority = 1` lookup is **gone entirely** rather than tightened —
+> any credential that happened to sort first authorised any action, which was never the
+> intent and is not recoverable by improving the query. The emergency halt still runs first
+> and still wins, and the gate records `last_reason`, because a denial the caller cannot
+> explain is the same problem as a silent failure.
 
 Two adjacent safety primitives in `sdk/agent/gates.py` are both built and both inert.
 
@@ -3583,7 +3617,13 @@ but as written it is a placeholder whose own text tells the reader to look elsew
 by design, `view-logs` by neglect.
 
 ### UI-118 — Agents are principals with assigned privileges, and the schema has none
-**Severity: high (design) · Status: specified, not built · Source: Q-63**
+**Severity: high (design) · Status: FIXED 2026-08-28 · Source: Q-63**
+
+
+> **Built.** `Principal(kind, id)` with `owner` / `agent` / `peer`. The owner is implicit and
+> unrestricted and has **no rows** — the absence is the design, not an omission. An agent is
+> assigned exactly like a peer, and there is no locally-initiated exemption: whoever asked,
+> the agent is the actor and is checked.
 
 > **Steven:** *"Ah so in short administrative privileges. For local actions by agent model. An
 > agent, should be assigned just like a peer."*
