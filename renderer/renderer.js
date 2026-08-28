@@ -6511,25 +6511,53 @@ const StatusBar = {
     }
   },
 
-  setTokenBalance(n) {
-    let formatted;
-    if (n === 999999) {
-      formatted = 'Ghost Tokens (∞)';
+  /**
+   * The wallet balance in the status bar.
+   *
+   * It used to receive the lifetime sum of LLM tokens consumed, which is not a
+   * balance (UI-001). The giveaway was in this function: it branches on
+   * `999999`, the ghost sentinel returned by the *wallet*, and a monotonically
+   * growing consumption total can never equal it — so the ghost branch had
+   * never once fired.
+   *
+   * The mode now arrives explicitly rather than being inferred from a magic
+   * number, because the wallet returns that same sentinel when the chain is
+   * unreachable. Sniffing it reported unlimited tokens when the truth was that
+   * nobody could be asked.
+   */
+  setTokenBalance(state) {
+    // Tolerates a bare number so an older payload still renders something
+    // truthful rather than throwing in the status bar.
+    const wallet = (state && typeof state === 'object')
+      ? state
+      : { balance: state, mode: typeof state === 'number' ? 'real' : 'unreachable' };
+
+    let text;
+    let title;
+    if (wallet.mode === 'ghost') {
+      text = 'Ghost ∞';
+      title = 'Local mode: ghost tokens are unlimited and no chain is involved.';
+    } else if (wallet.mode === 'unreachable' || typeof wallet.balance !== 'number') {
+      // Not a balance. Saying so beats showing a number that is not one.
+      text = 'unavailable';
+      title = 'The chain could not be reached, so the balance is unknown.';
     } else {
-      formatted = typeof n === 'number' ? n.toLocaleString() : '—';
+      text = wallet.balance.toLocaleString(undefined, { maximumFractionDigits: 2 });
+      title = 'TalaCoin balance on the chain.';
     }
-    if (this._els.tokenValue) this._els.tokenValue.textContent = formatted;
 
-    // Update sidebar token bar + value
-    const sidebarVal = qs('#sidebar-token-balance');
-    if (sidebarVal) sidebarVal.textContent = formatted;
-
-    // Update bar (assume max 1,000,000 tokens for visualization)
-    const bar = qs('#token-bar');
-    if (bar && typeof n === 'number') {
-      const pct = Math.min(100, (n / 1_000_000) * 100);
-      bar.style.width = `${pct}%`;
+    if (this._els.tokenValue) {
+      this._els.tokenValue.textContent = text;
+      this._els.tokenValue.title = title;
     }
+  },
+
+  /** Lifetime LLM tokens consumed — related to the balance, and not it. */
+  setTokensUsed(total) {
+    const element = qs('#status-tokens-used');
+    if (!element || typeof total !== 'number') return;
+    element.textContent = total.toLocaleString();
+    element.title = 'Prompt and completion tokens consumed since this database was created.';
   },
 
   setActiveAgent(name) {
@@ -6854,7 +6882,8 @@ const TelemetryPoller = {
   },
 
   _applyHealth(health) {
-    const { status, active_agent, tokens_used, last_latency_ms } = health;
+    const { status, active_agent, tokens_used, token_balance, token_mode,
+            last_latency_ms } = health;
 
     // WS / harness status
     StatusBar.setWsStatus(status === 'ok' ? 'ok' : 'error');
@@ -6868,12 +6897,11 @@ const TelemetryPoller = {
     // Active agent
     if (active_agent !== undefined) StatusBar.setActiveAgent(active_agent);
 
-    // Tokens
-    if (typeof tokens_used === 'number') {
-      StatusBar.setTokenBalance(tokens_used);
-      const tokensEl = qs('#tokens-used');
-      if (tokensEl) tokensEl.textContent = tokens_used.toLocaleString();
-    }
+    // Tokens. The balance and what has been consumed are different numbers
+    // and now go to different places (UI-001). `#tokens-used` was written to
+    // and has never existed in the markup, so it is gone.
+    StatusBar.setTokenBalance({ balance: token_balance, mode: token_mode });
+    StatusBar.setTokensUsed(tokens_used);
 
     // Latency
     if (typeof last_latency_ms === 'number') {
@@ -7325,17 +7353,28 @@ const BlockchainViewer = {
     this._flowContainer.innerHTML = '<div class="blockchain-loading">Connecting to Proof-of-Authority node...</div>';
 
     try {
-      // 1. Fetch live chain status from local port 8332
-      const statusRes = await fetch('http://127.0.0.1:8332/chain/status');
+      // Where the node actually is, rather than where it was when this was
+      // written (UI-025). A portable install can move the port, and the
+      // harness already resolves it from the same environment the node reads.
+      let base = 'http://127.0.0.1:8332';
+      try {
+        const summary = await invoke('python:rpc',
+          { method: 'chain.summary', params: {} });
+        if (summary.ghost_endpoint) base = summary.ghost_endpoint;
+      } catch (err) {
+        // Fall back to the default rather than refusing to show the chain.
+        console.warn('[BlockchainViewer] using the default node address:', err);
+      }
+
+      const statusRes = await fetch(`${base}/chain/status`);
       if (!statusRes.ok) throw new Error(`HTTP error: ${statusRes.status}`);
       const status = await statusRes.json();
 
-      // 2. Fetch blocks list
-      const blocksRes = await fetch('http://127.0.0.1:8332/chain/blocks');
+      const blocksRes = await fetch(`${base}/chain/blocks`);
       if (!blocksRes.ok) throw new Error(`HTTP error: ${blocksRes.status}`);
       const blocks = await blocksRes.json();
 
-      this.render(status, blocks);
+      this.render(status, blocks, base);
     } catch (err) {
       console.warn('[BlockchainViewer] Blockchain node is unreachable:', err);
       this._flowContainer.innerHTML = `
@@ -7354,9 +7393,15 @@ const BlockchainViewer = {
     }
   },
 
-  render(status, blocks) {
+  render(status, blocks, base) {
     if (!this._flowContainer) return;
     this._flowContainer.innerHTML = '';
+
+    // Say which chain this is. It is the Ghost chain -- the local node -- and
+    // every transaction on it is local by definition, which is worth stating
+    // on a screen that also has a Real chain a scroll away.
+    const endpointLabel = qs('#chain-rpc-endpoint');
+    if (endpointLabel && base) endpointLabel.textContent = base;
 
     // Update status widgets
     if (this._elHeight) this._elHeight.textContent = `${status.height} blocks`;
@@ -7390,13 +7435,27 @@ const BlockchainViewer = {
         txsHTML = '<div class="block-tx-empty">Genesis Block (No transactions)</div>';
       } else {
         block.transactions.forEach(tx => {
-          const shortTxId = tx.id.slice(0, 8);
-          const shortTxHash = tx.hash.slice(0, 8) + '…';
+          // The id used to be clipped to eight characters and labelled UUID.
+          // Both were wrong (UI-026): these are document slugs, not UUIDs, and
+          // eight characters turned every `settings-*` id into `settings` and
+          // `ghost_commit_…` into `ghost_co` — collapsing unrelated
+          // transactions onto the same displayed string and destroying the one
+          // marker of ghost-ness the card had.
+          //
+          // Escaped, because chain data is not necessarily ours: reconcile
+          // pulls transactions written by other people, and `creator` is
+          // whatever they put there.
+          const id = escapeHtml(String(tx.id ?? ''));
+          const type = escapeHtml(String(tx.type ?? 'unknown'));
+          const creator = escapeHtml(String(tx.creator ?? ''));
+          const hash = escapeHtml(String(tx.hash ?? ''));
+          const shortTxHash = hash.slice(0, 8) + '…';
           txsHTML += `
             <div class="block-tx-item">
-              <div class="block-tx-id">UUID: ${shortTxId}</div>
-              <div class="block-tx-detail"><span>Creator:</span> <span>${tx.creator}</span></div>
-              <div class="block-tx-detail"><span>State Hash:</span> <span class="mono" title="${tx.hash}">${shortTxHash}</span></div>
+              <div class="block-tx-id" title="${id}">${id}</div>
+              <div class="block-tx-detail"><span>Type:</span> <span>${type}</span></div>
+              <div class="block-tx-detail"><span>Creator:</span> <span>${creator}</span></div>
+              <div class="block-tx-detail"><span>State Hash:</span> <span class="mono" title="${hash}">${shortTxHash}</span></div>
             </div>
           `;
         });

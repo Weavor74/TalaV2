@@ -508,6 +508,45 @@ async def get_wallet_balance() -> float:
         return _GHOST_BALANCE  # Ghost tokens as graceful fallback
 
 
+async def wallet_state() -> dict[str, Any]:
+    """
+    The wallet balance, and which of three situations produced it.
+
+    ``get_wallet_balance()`` returns the ghost sentinel both when tokens really
+    are unlimited *and* when the chain could not be reached, so a caller cannot
+    tell "you have infinite local tokens" from "nobody could ask". The status
+    bar reported the first while the second was true. These are separated here:
+
+    ``ghost``        local mode, tokens are unlimited and no chain is involved.
+    ``real``         a balance read from the chain.
+    ``unreachable``  the chain should have answered and did not. Not a balance.
+    """
+    mode = await _get_system_connection_mode()
+    if mode != "vps":
+        return {"balance": _GHOST_BALANCE, "mode": "ghost", "unlimited": True}
+
+    wallet_address = os.environ.get("TALA_WALLET_ADDRESS", "local-client")
+    chain_port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
+    chain_host = os.environ.get("TALA_CHAIN_BIND_HOST", "127.0.0.1")
+    base_url = f"http://{chain_host}:{chain_port}"
+    loop = asyncio.get_running_loop()
+
+    def read_balance() -> float:
+        req = urllib.request.Request(
+            f"{base_url}/chain/wallet/{wallet_address}/balance")
+        with urllib.request.urlopen(req, timeout=5) as response:
+            data = json.loads(response.read().decode("utf-8"))
+            return float(data.get("balance", 0.0))
+
+    try:
+        return {"balance": await loop.run_in_executor(None, read_balance),
+                "mode": "real", "unlimited": False}
+    except Exception as exc:
+        logger.warning("Could not read the wallet balance: %s", exc)
+        return {"balance": None, "mode": "unreachable", "unlimited": False,
+                "reason": f"{type(exc).__name__}: {exc}"}
+
+
 async def top_up_wallet(amount: float, caller: str = "system") -> float:
     """
     Mint new TalaCoins on the blockchain (operator top-up).

@@ -406,7 +406,8 @@
           <div class="blockchain-status-card">
             <div class="status-item"><span class="status-label">Height:</span> <span id="chain-height" class="mono">—</span></div>
             <div class="status-item"><span class="status-label">Validity:</span> <span id="chain-validity" class="valid-glow">—</span></div>
-            <div class="status-item"><span class="status-label">RPC Endpoint:</span> <code>http://127.0.0.1:8332</code></div>
+            <div class="status-item"><span class="status-label">Chain:</span> <span>Ghost — local only</span></div>
+            <div class="status-item"><span class="status-label">RPC Endpoint:</span> <code id="chain-rpc-endpoint">resolving…</code></div>
           </div>
 
           <!-- Ghost and Real, side by side. The two chains are separate by
@@ -3283,8 +3284,18 @@
       <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true">
         <path d="M8 0a8 8 0 100 16A8 8 0 008 0zm.5 11.5h-1v-4h1v4zm0-5h-1v-1h1v1z"/>
       </svg>
-      <span>Tokens:</span>
+      <span>Balance:</span>
       <span id="status-token-value" class="mono">—</span>
+    </div>
+
+    <!-- Lifetime LLM consumption. Kept, but no longer wearing the balance's
+         label: the two were one number, and it was the wrong one. -->
+    <div class="status-item" id="status-usage" title="Tokens consumed since this database was created">
+      <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12" aria-hidden="true">
+        <path d="M2 13h2V7H2v6zm4 0h2V3H6v10zm4 0h2V9h-2v4zm4 0h2V5h-2v8z"/>
+      </svg>
+      <span>Used:</span>
+      <span id="status-tokens-used" class="mono">—</span>
     </div>
 
     <!-- Active agent -->

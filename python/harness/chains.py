@@ -629,6 +629,10 @@ async def summary() -> dict[str, Any]:
         "real": {"total": 0, "pending": 0, "mine": 0, "from_peers": 0,
                  "by_type": {}},
         "endpoint": await real_endpoint(),
+        # Where the local chain actually is. The viewer used to hardcode
+        # 127.0.0.1:8332, which is only right until somebody moves the port --
+        # and a portable install is precisely the case where they do (UI-025).
+        "ghost_endpoint": await ghost_endpoint(),
     }
     try:
         rows = await db.fetch(

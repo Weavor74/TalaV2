@@ -84,7 +84,29 @@ INFERENCE panel however many screenshots it takes.
 ## A. Confirmed defects
 
 ### UI-001 — Status bar "Tokens" shows consumption, not wallet balance
-**Severity: high · Status: needs-decision**
+**Severity: high · Status: fixed (2026-08-28) — resolved as (a)**
+
+Fixed the way the finding recommended, since it matches the stated intent: the status bar shows the
+wallet balance, and consumption keeps its own place rather than being deleted.
+
+`harness.health` now returns three fields where it returned one — `token_balance`, `token_mode`
+(`ghost` / `real` / `unreachable`) and `tokens_used`. The status bar reads the balance and is
+labelled **Balance**; consumption sits beside it as **Used**.
+
+**A second conflation underneath, found while fixing this.** `get_wallet_balance()` returns the
+ghost sentinel *both* when tokens really are unlimited **and** when the chain could not be reached,
+so "you have infinite tokens" and "nobody could be asked" were the same answer. Had UI-001 been
+fixed by pointing the display at that function, the status bar would have cheerfully reported
+unlimited tokens every time the chain was down. `wallet_state()` separates the three cases, and
+`unreachable` carries no balance at all — an unknown balance is not a balance.
+
+The renderer no longer infers the mode from the magic number either; it is sent explicitly.
+
+Live check: `used=8,488,269` (the reference screenshot's figure, now correctly labelled),
+`balance=999999.0`, `mode=ghost`.
+
+**Original finding.**
+
 
 The status bar number (`8,488,269` in the reference screenshot) comes from
 `harness.health` at [server.py:3651](../python/harness/server.py#L3651):
@@ -117,14 +139,30 @@ Two independent signals that this is a wiring bug rather than a naming quibble:
 Recommendation on file: **(a)**, because it matches both stated intent and the dead ∞ branch.
 
 ### UI-002 — `Ghost Tokens (∞)` branch is unreachable
-**Severity: medium · Status: open · Blocked by UI-001**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+Resolved by UI-001(a), as predicted. The branch fired on `n === 999999` while being fed a lifetime
+consumption total, which is why it had never once run. The mode now arrives as a field rather than
+being sniffed from a sentinel, so "unlimited" is reachable — and, more to the point, it can no
+longer be shown when the real situation is that the chain is unreachable.
+
+**Original finding.**
+
 
 [renderer.js:6036](../renderer/renderer.js#L6036). Fires only when the value is exactly
 `999999`. Fed a monotonically growing lifetime sum, it can realistically never trigger.
 Resolves automatically under UI-001(a); becomes dead code to delete under UI-001(b).
 
 ### UI-003 — Sidebar token bar hardcodes a 1,000,000 maximum
-**Severity: low · Status: open · Blocked by UI-001**
+**Severity: low · Status: fixed (2026-08-28) — the finding was understated**
+
+Not a miscalibrated bar: **there is no bar**. `#token-bar` and `#sidebar-token-balance` are written
+to on every health tick and appear nowhere in `index.html`, so the 1,000,000 maximum was scaling an
+element that does not exist. Along with `#tokens-used`, that is three selectors quietly writing into
+nothing. All three are gone; consumption now has a real element.
+
+**Original finding.**
+
 
 [renderer.js:6047](../renderer/renderer.js#L6047) scales the bar against an assumed max of
 1,000,000. The observed value is 8,488,269 — 8.5× over — so the bar is pinned at full and
@@ -570,7 +608,19 @@ commits, 15 `behavioral-learning`, 15 `non-critical-event`.
 > capability exists and has never been exercised on this chain.
 
 ### UI-027 — `python/ledger/` is a dead second chain implementation
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+`python/ledger/` is deleted — four modules, no callers, a strict subset of the Node server's
+endpoints, and pointed at the same port. Q-14 had already resolved this as safe.
+
+Two loose ends went with it: a commented-out block in `server.py` that used to start it as a second
+chain server on 8332, and `test_ledger_chain_features` in `tests/test_trust.py`. The other test in
+that file covers `TrustRegistry`, which *is* live (`server.py` applies it to contacts), so it stays —
+worth checking rather than assuming, since deleting a test alongside its subject is right and
+deleting one that happens to sit next to it is not.
+
+**Original finding.**
+
 
 There are two complete chain servers in this repo, both targeting port 8332:
 
@@ -595,7 +645,16 @@ transaction type is `html_nn_anchor`, which is closer to a Real-Chain anchoring 
 live Node chain's `node-create`.
 
 ### UI-025 — The renderer hardcodes the local node address
-**Severity: medium · Status: open**
+**Severity: medium · Status: fixed (2026-08-28)**
+
+`BlockchainViewer.load()` asks `chain.summary` for `ghost_endpoint`, which the harness resolves from
+the same `TALA_CHAIN_BIND_HOST` / `TALA_CHAIN_BIND_PORT` the node itself reads. The literal survives
+only as a fallback when the harness cannot be reached, so a moved port shows the chain rather than an
+offline message. The panel also now states which chain it is showing — Ghost, local only — which is
+worth saying on a screen that has a Real chain a scroll away.
+
+**Original finding.**
+
 
 `BlockchainViewer.load()` fetches two fixed URLs
 ([renderer.js:6439](../renderer/renderer.js#L6439)):
@@ -620,7 +679,18 @@ suggests a remote chain host was anticipated. Any remote endpoint outside those 
 blocked by CSP — worth knowing before designing the Real Chain view.
 
 ### UI-026 — Transaction id truncation destroys the only ghost marker that exists
-**Severity: low · Status: open**
+**Severity: low · Status: fixed (2026-08-28)**
+
+The card shows the full transaction id, with the value also in the `title` attribute, and the label
+is `Type` / `Creator` / `State Hash` rather than the inaccurate `UUID`. Transaction type is now shown
+too, which is what actually distinguishes a `node-create` from a `payment` or a `key-revocation`.
+
+**And the values are escaped.** They were interpolated straight into `innerHTML`, which was survivable
+while every transaction was written by this machine and is not now: reconcile pulls transactions
+written by other people, and `creator` is whatever they put in it.
+
+**Original finding.**
+
 
 The block card renders `tx.id.slice(0, 8)` as `UUID:`. Consequences:
 

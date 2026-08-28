@@ -3810,6 +3810,15 @@ async def handle_harness_health(params: dict[str, Any], req_id: Any) -> str:
     """
     ``harness.health`` — Return server health and status info.
     """
+    # Two different numbers that were previously one (UI-001). The status bar
+    # is labelled "Tokens" and reads a *balance*: its display has a branch for
+    # the ghost sentinel returned by the wallet, which is a wallet function. It
+    # was being fed the lifetime sum of LLM tokens consumed instead — a
+    # monotonically growing number that can never equal the sentinel, which is
+    # why the ghost branch had never once fired.
+    #
+    # Both are reported now. Consumption is still worth knowing; it is just not
+    # a balance.
     try:
         row = await db.fetchrow(
             "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total FROM token_ledger"
@@ -3817,6 +3826,15 @@ async def handle_harness_health(params: dict[str, Any], req_id: Any) -> str:
         tokens_used = int(row["total"]) if row else 0
     except Exception:
         tokens_used = 0
+
+    try:
+        from python.harness.token_counter import wallet_state
+
+        wallet = await wallet_state()
+    except Exception as exc:
+        logger.debug("harness.health: could not read the wallet (%s)", exc)
+        wallet = {"balance": None, "mode": "unreachable", "unlimited": False,
+                  "reason": str(exc)}
 
     active_agent = "Tala Engine"
     try:
@@ -3833,7 +3851,10 @@ async def handle_harness_health(params: dict[str, Any], req_id: Any) -> str:
     return _ok(req_id, {
         "status": "ok",
         "active_agent": active_agent,
-        "tokens_used": tokens_used,
+        "tokens_used": tokens_used,          # lifetime LLM consumption
+        "token_balance": wallet["balance"],  # what the wallet holds
+        "token_mode": wallet["mode"],        # ghost | real | unreachable
+        "token_unlimited": wallet["unlimited"],
         "last_latency_ms": 1,
     })
 
@@ -14327,19 +14348,9 @@ async def _startup_background() -> None:
     # is launched immediately after the WS server binds, independently of DB init.
     # We still initialise the DB-side status here in case the model became ready.
 
-    # 2.5. Start the local Ledger Server
-    # (Disabled: Tala Local Chain is now run via Node.js in blockchain/src/app.js on port 8332)
-    # try:
-    #     def _start_ledger():
-    #         try:
-    #             from python.ledger.server import run_server
-    #             run_server()
-    #         except Exception as e:
-    #             logger.error("Failed to start Ledger server: %s", e)
-    #     loop.run_in_executor(None, _start_ledger)
-    #     logger.info("Local Ledger Server task dispatched to background thread.")
-    # except Exception as exc:
-    #     logger.warning("Could not dispatch Ledger Server task: %s", exc)
+    # The local chain runs as a Node process (blockchain/src/app.js, port 8332).
+    # A commented-out block here used to start a second, Python chain server on
+    # the same port; that implementation is gone (UI-027).
 
     # 3. Print initial wallet balance for operator awareness
     try:
