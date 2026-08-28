@@ -164,6 +164,32 @@ class StorageError(RuntimeError):
     """A storage operation failed, with a reason fit to show a person."""
 
 
+async def assert_reachable(provider: dict[str, Any]) -> None:
+    """
+    Check a remote storage target against the network guard.
+
+    A local folder target is not a network connection and is not checked --
+    backing a portable install up to a second drive must keep working with the
+    strictest network rules in place.
+    """
+    kind = normalise_kind(provider.get("provider_type"))
+    if kind == "folder":
+        return
+
+    creds = provider.get("credentials") or {}
+    target = str(creds.get("endpoint") or creds.get("host") or "").strip()
+    if not target:
+        return
+
+    from python.harness.network_guard import NetworkBlocked, assert_may_reach
+    from python.harness.access import AGENT, Principal
+    try:
+        await assert_may_reach(
+            target, Principal(AGENT, "default"), purpose=f"storage:{kind}")
+    except NetworkBlocked as exc:
+        raise StorageError(str(exc)) from exc
+
+
 def get_client(provider: dict[str, Any]):
     """
     A client for one configured provider, or a refusal that says why.

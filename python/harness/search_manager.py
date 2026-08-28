@@ -338,6 +338,27 @@ class SearchManager:
             )
 
             try:
+                # The harness half of the guardrails (UI-061, UI-063). Opt-in:
+                # with no rules configured this permits everything, exactly as
+                # before. Refused here rather than inside _call so a blocked
+                # provider is reported like any other failed provider instead
+                # of raising through the whole search.
+                from python.harness.network_guard import check as net_check
+                from python.harness.access import AGENT, Principal
+
+                permitted = await net_check(
+                    endpoint, Principal(AGENT, "default"), purpose=f"search:{name}")
+                if not permitted.allowed:
+                    logger.warning(
+                        "Search provider '%s' blocked by the network guard: %s",
+                        name, permitted.reason,
+                    )
+                    outcome.errors.append({
+                        "provider": name,
+                        "reason": f"blocked by network guardrails ({permitted.matched})",
+                    })
+                    continue
+
                 response = await cls._call(kind, endpoint, api_key, query)
 
                 if response.status_code != 200:

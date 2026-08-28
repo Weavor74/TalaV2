@@ -140,6 +140,20 @@ async def run_git(
     if not available:
         raise GitError(f"git is not available: {where}")
 
+    # A remote URL among the arguments is an outbound connection, so it goes
+    # through the same guard as everything else (UI-063). Local operations --
+    # status, log -- carry no URL and are unaffected.
+    for argument in args[1:]:
+        if "://" in str(argument):
+            from python.harness.network_guard import NetworkBlocked, assert_may_reach
+            from python.harness.access import AGENT, Principal
+            try:
+                await assert_may_reach(
+                    str(argument), Principal(AGENT, "default"),
+                    purpose=f"git {args[0]}")
+            except NetworkBlocked as exc:
+                raise GitError(str(exc)) from exc
+
     import os
     env = dict(os.environ)
     env.update(_auth_env(provider))

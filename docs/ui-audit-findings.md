@@ -1659,7 +1659,22 @@ search API, on a certain port, at a single allocated time."*
 pattern (see D12). The gap is one of scope, and it is architectural rather than a bug.
 
 ### UI-061 — Guardrails govern text only, not the harness
-**Severity: high (design gap) · Status: open**
+**Severity: high (design gap) · Status: FIXED 2026-08-28**
+
+> **Fixed.** `network_guard.py` is the harness half Steven asked for: *"This isnt just about
+> what the agent can talk about. This is about the entire harness."* Rules live in the same
+> `guardrails_config` row, so the panel that claims to own guardrails owns all of them.
+>
+> **Opt-in.** With no rules configured every outbound connection is permitted exactly as
+> before — the same principle as storage and databases: the option exists without being
+> imposed. A firewall that switches itself on and starts denying traffic nobody asked it to
+> deny is not a feature.
+>
+> Wired into the outbound paths rather than left as another uncalled gate: search providers
+> (reported as a provider failure, not raised through the search), git remotes (local
+> operations carry no URL and are unaffected), and storage (a local folder is not a network
+> connection, so backing a portable install up to a second drive survives the strictest
+> rules).
 
 `GuardrailsManager` operates on exactly two things: an inbound prompt string and an outbound
 response string. Every rule in the panel — toxicity threshold, PII redaction fields, SQL-injection
@@ -1702,7 +1717,21 @@ subject, an object, and constraints. No such object exists; the three systems ab
 subject-and-object, and only for peer-facing data reads.
 
 ### UI-063 — No port or time-window access control exists anywhere
-**Severity: high (design gap) · Status: open**
+**Severity: high (design gap) · Status: FIXED 2026-08-28**
+
+> **Fixed.** Ports and time windows are enforced in two places that meet: a rule may name
+> ports directly, and a **grant** carries ports, hosts, an hours window and an expiry.
+> Steven's example works end to end — an agent granted a search API on port 443 reaches it
+> there, is refused on 8080, and is refused once the grant expires.
+>
+> Three deliberate orderings: **deny beats allow**, because a blocklist an allowlist can
+> override is not a blocklist; **loopback stays reachable** unless explicitly denied, because
+> cutting the machine off from its own local model turns a security setting into a broken app
+> and that traffic never leaves the box; and a rule naming ports **does not match a
+> connection whose port is unknown**, because assuming it would defeat the rule.
+>
+> The USB preset now blocks outbound traffic outright — it was the one preset whose name was
+> a promise (UI-044) and it now keeps it.
 
 Searches across `python/` and `sdk/` for `allowed_ports`, `port_policy`, `port_access` return
 **zero** results. There is no notion of restricting anything to a port.

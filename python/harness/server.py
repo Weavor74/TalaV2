@@ -11789,6 +11789,129 @@ def _principal_from(params: dict[str, Any]):
     )
 
 
+async def handle_guardrails_get_network(params: dict[str, Any], req_id: Any) -> str:
+    """``guardrails.get_network`` — the harness-level network rules."""
+    try:
+        from python.harness.network_guard import DEFAULT_RULES, load_rules
+        rules = await load_rules()
+        return _ok(req_id, {
+            "network": rules,
+            "defaults": DEFAULT_RULES,
+            "note": (
+                "Opt-in. With rules disabled, every outbound connection is "
+                "permitted exactly as before. The USB environment preset "
+                "blocks outbound traffic regardless of these rules."
+            ),
+        })
+    except Exception as exc:
+        logger.exception("guardrails.get_network error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_guardrails_set_network(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``guardrails.set_network`` — firewall rules and port access.
+
+    Steven's scope for this panel: "This isnt just about what the agent can
+    talk about. This is about the entire harness. Gaurdrails should be able to
+    address firewall rules, and port access."
+
+    Stored inside the existing guardrails row rather than a new table, so the
+    panel that claims to own guardrails actually owns all of them.
+    """
+    import json as _json
+
+    network = params.get("network")
+    if not isinstance(network, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'network' must be an object")
+
+    default = str(network.get("default", "allow")).lower()
+    if default not in ("allow", "deny"):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'default' must be 'allow' or 'deny'")
+
+    for key in ("allow", "deny"):
+        entries = network.get(key)
+        if entries is None:
+            continue
+        if not isinstance(entries, list):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        f"'{key}' must be a list of rules")
+        for rule in entries:
+            if not isinstance(rule, dict) or not rule.get("host"):
+                return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                            f"every {key} rule needs a 'host'")
+            ports = rule.get("ports")
+            if ports is not None:
+                if not isinstance(ports, list):
+                    return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                                "'ports' must be a list")
+                try:
+                    [int(port) for port in ports]
+                except (TypeError, ValueError):
+                    return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                                "'ports' must all be numbers")
+
+    try:
+        row = await db.fetchrow("SELECT rules FROM guardrails_config WHERE id = 1")
+        stored = row["rules"] if row else {}
+        if isinstance(stored, str):
+            stored = _json.loads(stored)
+        stored = stored if isinstance(stored, dict) else {}
+        stored["network"] = {
+            "enabled": bool(network.get("enabled", False)),
+            "default": default,
+            "allow": network.get("allow") or [],
+            "deny": network.get("deny") or [],
+        }
+        await db.execute(
+            "UPDATE guardrails_config SET rules = $1::jsonb, updated_at = NOW() "
+            "WHERE id = 1",
+            _json.dumps(stored), caller="guardrails.set_network",
+        )
+        await db.log_to_db(
+            "INFO",
+            f"Network guardrails updated: "
+            f"{'enabled' if stored['network']['enabled'] else 'disabled'}, "
+            f"default {default}, {len(stored['network']['allow'])} allow / "
+            f"{len(stored['network']['deny'])} deny rule(s)",
+            {"network": stored["network"]},
+        )
+        return _ok(req_id, {"success": True, "network": stored["network"]})
+    except Exception as exc:
+        logger.exception("guardrails.set_network error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_network_check(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``network.check`` — would this connection be permitted, and why.
+
+    So a blocked connection can be explained rather than merely observed.
+    """
+    target = str(params.get("target") or "").strip()
+    if not target:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'target' is required")
+    try:
+        from python.harness.access import AGENT, Principal
+        from python.harness.network_guard import check
+
+        principal = Principal(
+            str(params.get("principal_kind") or AGENT),
+            str(params.get("principal_id") or "default"),
+        )
+        decision = await check(target, principal, str(params.get("purpose") or ""))
+        return _ok(req_id, {
+            "allowed": decision.allowed, "reason": decision.reason,
+            "host": decision.host, "port": decision.port,
+            "matched": decision.matched, "constraints": decision.constraints,
+        })
+    except Exception as exc:
+        logger.exception("network.check error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_access_grant(params: dict[str, Any], req_id: Any) -> str:
     """
     ``access.grant`` — invite a principal to one resource.
@@ -12969,6 +13092,9 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "guardrails.get_network": handle_guardrails_get_network,
+    "guardrails.set_network": handle_guardrails_set_network,
+    "network.check": handle_network_check,
     "access.grant": handle_access_grant,
     "access.revoke": handle_access_revoke,
     "access.list": handle_access_list,
