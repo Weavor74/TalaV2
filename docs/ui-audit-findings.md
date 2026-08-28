@@ -1530,6 +1530,11 @@ used by your own agent.**
 > is withheld, so adding a profile section cannot silently publish it. Doing this as a
 > per-section lookup rather than retrieval is what gave the setting somewhere to be
 > enforced at all.
+>
+> **Migrated 2026-08-28.** The visibility setting is now the *fallback*, not the only rule:
+> an explicit grant to a named agent opens one section without changing the global setting
+> for everyone, and lockdown overrides both. A grant to one agent does not open it to
+> another — an agent is a principal, not a category.
 
 Preferences & Privacy offers six visibility selectors — Core Identity, About Biography, Work &
 Roles, Skills, Projects, Connections Graph — under the heading *"Configure access control
@@ -2396,7 +2401,14 @@ that side effect.
 cannot fire.
 
 ### UI-082 — Clearance enforcement is inert: no node declares a clearance
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-28**
+
+> **Fixed by composition.** A peer node read now consults `access_grants` first: an explicit
+> invitation to a named node supersedes both the contact's `nodes` flag and the firewall
+> clearance level, and lockdown short-circuits ahead of either. The clearance machinery is
+> untouched and still governs any peer who was not invited — the finding was that clearance
+> was the *only* mechanism and nothing could override it, not that it was wrong.
+
 
 The enforcement code is real and correct
 ([server.py:5124](../python/harness/server.py#L5124)):

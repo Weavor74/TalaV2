@@ -434,3 +434,59 @@ async def list_grants(principal: Principal | None = None) -> list[dict[str, Any]
             "note": row["note"],
         })
     return out
+
+
+async def resolve(
+    principal: Principal,
+    resource: str,
+    permission: str,
+    fallback_allowed: bool,
+    fallback_reason: str,
+    context: dict[str, Any] | None = None,
+) -> Decision:
+    """
+    Compose an explicit grant with a subsystem's own rule.
+
+    This is how the three existing access systems join the model without being
+    torn out. Steven's ordering, exactly:
+
+        "If you give a contact premissions it superseeds other settings, unless
+        a lockdown is initiated, then no access anywhere"
+
+    So: lockdown denies; the owner is unrestricted; an explicit grant wins over
+    whatever the subsystem would have said; and with no grant, the subsystem's
+    own rule stands. A per-section privacy setting, a skill's shared scope and a
+    firewall clearance level all keep working exactly as they did for anyone who
+    was never granted anything.
+
+    The alternative -- replacing each subsystem's rule with grants -- would have
+    meant every existing setting silently becoming "deny" the moment this
+    shipped. Composition means nothing changes for a user who never opens the
+    new panel.
+    """
+    decision = await check(principal, resource, permission, context)
+
+    # Only lockdown is final. A failed *grant* lookup is not: in this model a
+    # grant can only widen access -- it supersedes a subsystem's deny with an
+    # allow, and never the reverse -- so being unable to read the table can
+    # only make the outcome more restrictive, never less. Treating it as a hard
+    # deny would take a user's own "public" profile section away because of a
+    # database hiccup, which is a worse failure and not a safer one.
+    #
+    # Lockdown is the opposite: it exists to remove access, so not knowing
+    # whether it is engaged must deny.
+    if not decision.allowed and (
+        "lockdown" in decision.reason
+        or "could not determine" in decision.reason
+    ):
+        return decision
+
+    if decision.allowed:
+        return decision
+
+    # No grant. The subsystem decides, and says so in its own words.
+    return Decision(
+        fallback_allowed,
+        fallback_reason,
+        str(principal), resource, permission,
+    )

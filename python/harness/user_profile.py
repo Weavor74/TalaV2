@@ -232,7 +232,7 @@ async def system_prompt_line() -> str:
     )
 
 
-async def lookup(section: str) -> dict[str, Any]:
+async def lookup(section: str, actor: str = "default") -> dict[str, Any]:
     """
     Read one section of the user's profile, subject to its visibility.
 
@@ -240,6 +240,10 @@ async def lookup(section: str) -> dict[str, Any]:
     returns ``allowed: False`` and says why rather than returning empty data,
     because "you have no skills recorded" and "you may not read their skills"
     must not look the same to the caller.
+
+    *actor* names the agent asking, so a grant can be made to one agent rather
+    than to every agent at once -- Steven's model treats an agent as a
+    principal assigned like a peer (Q-63).
     """
     requested = str(section or "").strip().lower()
 
@@ -277,17 +281,32 @@ async def lookup(section: str) -> dict[str, Any]:
         }
 
     vis = visibility_of(config, requested)
-    if vis not in AGENT_READABLE:
-        log.info(
-            "user_profile: withheld %r from the agent (visibility=%s)", requested, vis
-        )
+
+    # The visibility setting is the subsystem's own rule; an explicit grant
+    # supersedes it, and lockdown overrides both (UI-058, UI-101). Composed
+    # rather than replaced: a user who never opens the access panel keeps
+    # exactly the behaviour their privacy dropdowns describe.
+    from python.harness.access import AGENT, Principal, resolve
+
+    decision = await resolve(
+        Principal(AGENT, actor or "default"),
+        resource=f"profile:{requested}",
+        permission="read",
+        fallback_allowed=vis in AGENT_READABLE,
+        fallback_reason=(
+            f"visibility is '{vis}'"
+            if vis in AGENT_READABLE else
+            f"The user has set {requested} to '{vis}', which does not include "
+            f"this agent. They can change it in Settings › User Profile › "
+            f"Preferences & Privacy, or grant access to this section directly."
+        ),
+    )
+
+    if not decision.allowed:
+        log.info("user_profile: withheld %r -- %s", requested, decision.reason)
         return {
             "section": requested, "allowed": False, "data": None, "visibility": vis,
-            "reason": (
-                f"The user has set {requested} to '{vis}', which does not include "
-                f"this agent. They can change it in Settings › User Profile › "
-                f"Preferences & Privacy."
-            ),
+            "reason": decision.reason,
         }
 
     data = config.get(requested)

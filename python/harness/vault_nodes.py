@@ -461,10 +461,25 @@ async def assert_may_read(doc_id: str, reason: str = "") -> None:
     if not row or str(row["type"]).lower() != "remote":
         return
 
+    # The document's own grant, or an access_grants entry for it. Both are
+    # "the owner said yes to this document"; keeping the document-local one
+    # avoids breaking vaults written before the model existed (UI-101).
     if get_grants(doc_id).get("remote_inference"):
         log.warning(
             "vault: %s read while the remote provider %r is active, under an "
             "explicit grant.", doc_id, row["name"],
+        )
+        return
+
+    from python.harness.access import AGENT, Principal, check as access_check
+
+    granted = await access_check(
+        Principal(AGENT, "default"), f"vault:{doc_id}", "read_remote"
+    )
+    if granted.allowed:
+        log.warning(
+            "vault: %s read while the remote provider %r is active, under an "
+            "access grant.", doc_id, row["name"],
         )
         return
 

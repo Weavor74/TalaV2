@@ -5281,6 +5281,28 @@ def _firewall_allows_node_name(access_rights: dict[str, Any] | None, node_names:
 
 
 async def _peer_can_resolve_node_reference(contact: dict[str, Any], node_names: set[str]) -> tuple[bool, str | None]:
+    # An explicit grant to this peer for these nodes supersedes both the
+    # contact's `nodes` flag and the firewall clearance below (UI-082,
+    # UI-101). Checked first so an invitation actually means something; the
+    # existing clearance machinery is untouched for anyone not invited.
+    from python.harness.access import PEER, Principal, check as access_check
+
+    who = str(contact.get("username") or contact.get("wallet_address") or "").lstrip("@").lower()
+    if who and node_names:
+        decisions = [
+            await access_check(Principal(PEER, who), f"node:{name}", "read")
+            for name in sorted(node_names)
+        ]
+        # Lockdown removes access from everyone but the owner, whatever any
+        # grant or clearance level says, so it short-circuits before the
+        # existing machinery runs.
+        if any("lockdown" in d.reason for d in decisions if not d.allowed):
+            return False, "lockdown_engaged"
+        # Every requested node individually invited: the clearance path below
+        # is for peers who were not.
+        if all(d.allowed for d in decisions):
+            return True, None
+
     permissions = contact.get("permissions") or {}
     if not permissions.get("nodes"):
         return False, "contact_nodes_permission_disabled"
@@ -12765,7 +12787,8 @@ async def handle_p2p_marketplace_search(params: dict[str, Any], req_id: Any) -> 
     caller_username = str(contact.get("username") or "").lstrip("@").lower()
     caller_wallet = str(contact.get("wallet_address") or "").lower()
 
-    def _may_have(meta: dict[str, Any]) -> bool:
+    def _scope_permits(meta: dict[str, Any]) -> bool:
+        """The skill's own declared scope -- the subsystem rule."""
         scope = str(meta.get("shared") or meta.get("visibility") or "").strip().lower()
         if scope == "global":
             return True
@@ -12776,6 +12799,25 @@ async def handle_p2p_marketplace_search(params: dict[str, Any], req_id: Any) -> 
             named = {str(n).strip().lstrip("@").lower() for n in named if str(n).strip()}
             return bool(named & {caller_username, caller_wallet})
         return False
+
+    async def _may_have(meta: dict[str, Any]) -> bool:
+        """
+        Scope, composed with any explicit grant to this caller.
+
+        An owner who invites one contact to one skill should not have to edit
+        that skill's YAML to do it (UI-040, UI-101).
+        """
+        from python.harness.access import PEER, Principal, resolve
+
+        name = str(meta.get("name") or "")
+        decision = await resolve(
+            Principal(PEER, caller_username or caller_wallet),
+            resource=f"skill:{name}",
+            permission="read",
+            fallback_allowed=_scope_permits(meta),
+            fallback_reason=f"skill scope is {meta.get('shared') or 'unset'}",
+        )
+        return decision.allowed
 
     items: list[dict[str, Any]] = []
     withheld = 0
@@ -12793,7 +12835,7 @@ async def handle_p2p_marketplace_search(params: dict[str, Any], req_id: Any) -> 
             description = str(data.get("description", ""))
             if query and query not in name.lower() and query not in description.lower():
                 continue
-            if not _may_have(data):
+            if not await _may_have(data):
                 withheld += 1
                 continue
             items.append({
