@@ -213,6 +213,74 @@ _DDL_STATEMENTS: list[str] = [
         ON CONFLICT (id) DO NOTHING;
     """),
     # ------------------------------------------------------------------
+    # crews — the organisation, as Steven defines it
+    # ------------------------------------------------------------------
+    #
+    # > "Crews are considered employees... Treat it like a business or a
+    # > military or a guild. It is an organization piece." (Q-28)
+    # >
+    # > "There could be 200 crew members broken into teams of 5, and each team
+    # > will report to their respective department." (Q-29)
+    #
+    # A crew is an *entity*, which is what was missing. `agents.crew_type`
+    # already existed and is a **category** -- two agents both labelled
+    # "Business" share a classification, not a crew (UI-050) -- so it stays as
+    # the classification it is, and membership becomes a real foreign key.
+    #
+    # The distinction from a swarm is control flow, not headcount: a crew is a
+    # structured hierarchy running a deterministic process defined upfront,
+    # where a swarm is a decentralised mesh whose handoffs emerge at runtime.
+    # Nothing here routes emergently, and nothing should.
+    #
+    # parent_crew_id gives the second level: teams sit inside departments. One
+    # self-referencing column rather than separate team and department tables,
+    # because "teams of 5 reporting to departments" is a tree and a tree with
+    # two hardcoded levels stops being one the moment somebody adds a third.
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS crews (
+            id             TEXT        PRIMARY KEY,
+            name           TEXT        NOT NULL,
+            kind           TEXT        NOT NULL DEFAULT 'team',
+            parent_crew_id TEXT        REFERENCES crews(id) ON DELETE SET NULL,
+            purpose        TEXT        NOT NULL DEFAULT '',
+            description    TEXT        NOT NULL DEFAULT '',
+            created_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at     TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_crews_parent
+            ON crews(parent_crew_id);
+    """),
+
+    # The two columns that make hierarchy expressible at all (UI-049). A grep
+    # for parent_id, manager_id, reports_to and supervisor across this file
+    # previously returned nothing, so "one boss and many subordinates" could
+    # not be written down, let alone acted on.
+    #
+    # ON DELETE SET NULL on reports_to rather than CASCADE: a manager leaving
+    # must not delete their reports. Re-pointing them is a decision with an
+    # obvious right answer (their manager's manager) and it is made explicitly
+    # in crews.py, not silently by a foreign key.
+    textwrap.dedent("""        DO $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM information_schema.columns
+                WHERE table_name = 'agents' AND column_name = 'crew_id'
+            ) THEN
+                ALTER TABLE agents ADD COLUMN crew_id TEXT
+                    REFERENCES crews(id) ON DELETE SET NULL;
+                ALTER TABLE agents ADD COLUMN reports_to TEXT
+                    REFERENCES agents(id) ON DELETE SET NULL;
+            END IF;
+        END $$;
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_agents_crew
+            ON agents(crew_id);
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_agents_reports_to
+            ON agents(reports_to);
+    """),
+
+    # ------------------------------------------------------------------
     # guardrails_config — safety configuration presets (Milestone 18)
     # ------------------------------------------------------------------
     textwrap.dedent("""\

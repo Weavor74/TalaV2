@@ -4964,6 +4964,8 @@ const AgentManager = {
     this._typeSelect = qs('#agent-type-select');
     this._roleInput = qs('#agent-role-input');
     this._crewTypeSelect = qs('#agent-crew-type-select');
+    this._crewSelect = qs('#agent-crew-select');
+    this._reportsToSelect = qs('#agent-reports-to-select');
     this._systemPromptInput = qs('#agent-system-prompt');
     this._birthdateInput = qs('#agent-birthdate-input');
     this._backgroundInput = qs('#agent-background-input');
@@ -5153,6 +5155,52 @@ const AgentManager = {
     }
   },
 
+  /**
+   * Fill the crew and manager pickers.
+   *
+   * A crew is an entity now, so a picker can point at one — `crew_type` is a
+   * category and two agents sharing it are not colleagues (UI-050).
+   *
+   * The agent being edited is left out of its own manager list: reporting to
+   * yourself is refused by the harness, and offering it invites the refusal.
+   */
+  async loadCrewOptions(currentAgentId) {
+    if (this._crewSelect) {
+      try {
+        const result = await invoke('python:rpc',
+          { method: 'crew.list', params: {} });
+        const chosen = this._crewSelect.value;
+        this._crewSelect.innerHTML = '<option value="">— not in a crew —</option>';
+        for (const crew of result.crews || []) {
+          const option = document.createElement('option');
+          option.value = crew.id;
+          option.textContent = crew.kind === 'department'
+            ? `${crew.name} (department, ${crew.members})`
+            : `${crew.name} (${crew.members})`;
+          this._crewSelect.appendChild(option);
+        }
+        this._crewSelect.value = chosen;
+      } catch (err) {
+        console.warn('[AgentManager] could not read crews:', err);
+      }
+    }
+
+    if (this._reportsToSelect) {
+      const chosen = this._reportsToSelect.value;
+      this._reportsToSelect.innerHTML =
+        '<option value="">— nobody (top of the line) —</option>';
+      for (const agent of this._agents || []) {
+        if (agent.id === currentAgentId) continue;
+        const option = document.createElement('option');
+        option.value = agent.id;
+        option.textContent = agent.role
+          ? `${agent.name} — ${agent.role}` : agent.name;
+        this._reportsToSelect.appendChild(option);
+      }
+      this._reportsToSelect.value = chosen;
+    }
+  },
+
   editAgent(agent) {
     if (!this._form) return;
     
@@ -5161,6 +5209,10 @@ const AgentManager = {
     this._typeSelect.value = agent.type;
     this._roleInput.value = agent.role || '';
     this._crewTypeSelect.value = agent.crew_type || 'business';
+    this.loadCrewOptions(agent.id).then(() => {
+      if (this._crewSelect) this._crewSelect.value = agent.crew_id || '';
+      if (this._reportsToSelect) this._reportsToSelect.value = agent.reports_to || '';
+    });
     
     this._systemPromptInput.value = agent.config ? (agent.config.system_prompt || '') : '';
     
@@ -5228,6 +5280,11 @@ const AgentManager = {
     const type = this._typeSelect.value;
     const role = type === 'crew' ? this._roleInput.value : '';
     const crewType = type === 'crew' ? this._crewTypeSelect.value : '';
+    // Sent for crew agents only. A standalone agent has no place in an
+    // organisation, and clearing the fields is the honest thing to store.
+    const crewId = type === 'crew' && this._crewSelect ? this._crewSelect.value : '';
+    const reportsTo = type === 'crew' && this._reportsToSelect
+      ? this._reportsToSelect.value : '';
     const systemPrompt = this._systemPromptInput.value;
     const birthdate = this._birthdateInput ? this._birthdateInput.value : '';
     const backgroundFile = this._backgroundInput ? this._backgroundInput.value : '';
@@ -5249,18 +5306,34 @@ const AgentManager = {
           type,
           role,
           crew_type: crewType,
+          crew_id: crewId,
+          reports_to: reportsTo,
           config
         }
       });
       
       if (result && result.success) {
         IPCLog.append('info', `Saved persona: "${name}"`);
+        const note = qs('#agent-crew-note');
+        if (note) note.style.color = 'var(--text-muted)';
         this.resetForm();
         await this.load();
       }
     } catch (err) {
       console.error('Failed to save agent:', err);
-      IPCLog.append('error', `Failed to save persona: ${err.message}`);
+      const message = err?.message || String(err);
+      // A refused reporting loop is a rejected *structure*, not a rejected
+      // persona, and the harness says which. Reporting it as a failed save
+      // would contradict the message it comes with.
+      const structural = message.includes('place in the organisation');
+      const note = qs('#agent-crew-note');
+      if (structural && note) {
+        note.textContent = message;
+        note.style.color = 'var(--status-error)';
+      }
+      IPCLog.append('error', structural
+        ? `Persona saved, but not its place in the organisation: ${message}`
+        : `Failed to save persona: ${message}`);
     }
   }
 };

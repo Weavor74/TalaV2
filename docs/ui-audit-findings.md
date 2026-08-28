@@ -1362,7 +1362,25 @@ id, name, type, role, crew_type, is_active, config, created_at, updated_at
 ```
 
 ### UI-049 — There is no way to express hierarchy
-**Severity: high · Status: open · Steven's ask #1**
+**Severity: high · Status: fixed (2026-08-28) · Steven's ask #1**
+
+`agents` gains `reports_to` (self-referencing) and `crew_id`. A grep for `parent_id`, `manager_id`,
+`reports_to` and `supervisor` used to return nothing, so "one boss and many subordinates" could not
+be written down.
+
+`crews.chain_of_command()` walks up, `subordinates()` walks down, `owns()` answers whether one agent
+is anywhere above another at any depth — a department head who cannot touch anything two levels down
+is not a department head.
+
+**Loops are refused rather than tolerated.** A `reports_to` cycle makes every upward walk run
+forever, so work would *stop*, not misroute. `set_membership` refuses to create one — self-reporting,
+two-step and longer — and the walks are bounded and cycle-aware anyway, because a row written by hand
+or by an older version is not covered by that check. `find_cycles()` reports any that exist and
+repairs none: which link to break is the owner's decision, and guessing would silently restructure
+their organisation.
+
+**Original finding.**
+
 
 No `parent_id`, no `manager_id`, no `reports_to`, no `supervisor` — nothing in the schema expresses
 a tree. A grep for all four across `db.py` returns zero.
@@ -1372,7 +1390,22 @@ So "one boss and many subordinates" cannot be represented. `role` is free text
 `Boss` and `Worker` are siblings as far as the system is concerned.
 
 ### UI-050 — `crew_type` is a category, not a crew
-**Severity: high · Status: open · Steven's ask #2**
+**Severity: high · Status: fixed (2026-08-28) · Steven's ask #2**
+
+There is a `crews` table now, so a picker has something to point at. `kind` is `team` or
+`department` and `parent_crew_id` nests them — one self-referencing column rather than separate
+team and department tables, because "teams of 5 reporting to departments" is a tree, and a tree with
+two hardcoded levels stops being one the moment somebody adds a third.
+
+`crew_type` stays exactly as it is, as the *classification* it always was, and the form now labels
+it "a classification, not a membership" beside the crew picker that carries the actual membership.
+
+Disbanding releases members rather than deleting them, and lifts sub-crews to the disbanded crew's
+own parent — disbanding a department must not delete the people in it, and `ON DELETE SET NULL`
+alone would have left its teams pointing at nothing.
+
+**Original finding.**
+
 
 `CREW CATEGORY` writes to `agents.crew_type`, and its values are classifications
 (`Business (Corporate, Financial, Analytics)`, etc.) — **not the identity of a specific crew**.
@@ -1385,7 +1418,33 @@ Steven's instinct is right, and the gap is one level deeper than the UI: it need
 before it can need a picker.
 
 ### UI-051 — The crew fields are write-only; nothing consumes them
-**Severity: high · Status: open**
+**Severity: high · Status: fixed (2026-08-28)**
+
+The whole point of this batch. `crew.assign` writes `tasks.assigned_agent_id` — the column the
+executors actually read, the same one `task.assign` and the topology engine write — so putting an
+agent in a crew now changes where work goes rather than a chip on a card.
+
+| Call | What it does |
+|---|---|
+| `crew.assign(task, crew, role)` | routes work into a crew, preferring a member whose role matches |
+| `crew.escalate(task, reason)` | sends it one step up the reporting line |
+| `crews.owns(manager, agent)` | the ownership half of reporting, at any depth |
+
+Selection is **deterministic**, which is the definition rather than an implementation choice: a
+matching role first, then any active member, in a stable order. A test asserts the module contains
+no `random`, `choice` or `shuffle` — agents negotiating who takes the work would make this a swarm.
+
+Escalation moves one step per call. Going straight to the top would skip whoever is most likely to
+be able to help, and looping to the top inside one call would hide where it actually got stuck. Each
+escalation is written to the audit log, since work climbing the organisation is exactly what somebody
+will later need explained.
+
+Edge cases that could have been silent: an empty crew refuses the work rather than dropping it, and
+a crew whose members are *all* inactive takes it and says so — refusing would lose the task, and
+accepting quietly would leave nobody wondering why nothing moves.
+
+**Original finding.**
+
 
 `crew_type` and `type='crew'` are persisted and read back **for display only**:
 
@@ -3335,7 +3394,36 @@ mechanisms exist, neither functional. Worth deciding whether lockdown reuses one
 other should be removed rather than left as a safety control that does nothing.
 
 ### UI-104 — Crews are an org structure, not a swarm front-end; and the naming already conflicts
-**Severity: high (design) · Status: specified, not built · Source: P2 answers, 2026-08-23**
+**Severity: high (design) · Status: built (2026-08-28) · Source: P2 answers, 2026-08-23**
+
+**Steven refined the taxonomy on 2026-08-28, and the refinement changes the answer.** The earlier
+entry below has the axis as headcount — "many agents one job" versus "many jobs many agents". It is
+not. It is **control flow**:
+
+| | Crew | Swarm |
+|---|---|---|
+| topology | structured — linear pipelines or explicit manager/worker trees | decentralised mesh — peer-to-peer routing, event-driven graphs |
+| control flow | **deterministic**, defined upfront | **emergent** — agents trigger handoffs as conditions evolve |
+| roles | deep personas, backstories, fixed responsibilities | narrow utility functions, tool interfaces |
+| best for | predictable multi-stage pipelines, document generation | open-ended exploration, dynamic dispatch |
+
+Under that definition the naming conflict resolves differently than Q-64 assumed. `Code Repair Swarm`
+— a fixed five-role DAG defined upfront and executed deterministically — is unambiguously a **crew**.
+And nothing in the codebase routes emergently, so the real swarm is **not misnamed, it is unbuilt**.
+The fan-out work of 2026-08-21 made the engine branch; the nodes still carry roles fixed in advance.
+
+**What was built.** The organisation itself: crews as entities, teams inside departments, reporting
+lines, and the two things a hierarchy is *for* — routing work into a crew and escalating it upward
+(UI-049, UI-050, UI-051). It is deliberately deterministic throughout, which is what makes it a crew
+engine rather than a swarm one.
+
+**Still open.** The existing topology engine keeps the name `swarm` in its module, RPC family and
+UI, while being crew-shaped by this definition. Renaming it is vocabulary churn across working,
+tested code and was not attempted here; it is recorded so the mismatch is deliberate rather than
+forgotten. A genuine swarm — emergent handoffs — remains unbuilt.
+
+**Original finding.**
+
 
 > **Steven (Q-28):** *"Crews are considered employees... Treat it like a business or a military or a
 > guild. It is an organization piece. Completely separate from swarms. **Swarms are many agents

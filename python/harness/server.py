@@ -4718,7 +4718,12 @@ async def handle_agent_get_agents(params: dict[str, Any], req_id: Any) -> str:
     ``agent.get_agents`` — Retrieve all configured agents sorted by created_at.
     """
     try:
-        rows = await db.fetch("SELECT id, name, type, role, crew_type, is_active, config FROM agents ORDER BY created_at ASC")
+        # crew_id and reports_to alongside crew_type, which is a *category*
+        # and not a membership (UI-050): two agents labelled "Business" share
+        # a classification, not a colleague.
+        rows = await db.fetch(
+            "SELECT id, name, type, role, crew_type, crew_id, reports_to, "
+            "is_active, config FROM agents ORDER BY created_at ASC")
         agents = []
         for r in rows:
             cfg = r["config"]
@@ -4731,6 +4736,8 @@ async def handle_agent_get_agents(params: dict[str, Any], req_id: Any) -> str:
                 "type": r["type"],
                 "role": r["role"],
                 "crew_type": r["crew_type"],
+                "crew_id": r["crew_id"] or "",
+                "reports_to": r["reports_to"] or "",
                 "is_active": r["is_active"],
                 "config": cfg,
             })
@@ -4784,13 +4791,32 @@ async def handle_agent_save_agent(params: dict[str, Any], req_id: Any) -> str:
             config_json,
             caller="agent.save_agent RPC"
         )
+        # Membership goes through crews.set_membership rather than being
+        # written inline: it is the only path that refuses a reporting loop,
+        # and a loop makes every walk up the line run forever.
+        membership: dict[str, Any] = {}
+        if "crew_id" in params or "reports_to" in params:
+            from python.harness.crews import CrewError, set_membership
+            try:
+                membership = await set_membership(
+                    agent_id,
+                    str(params.get("crew_id") or ""),
+                    str(params.get("reports_to") or ""),
+                )
+            except CrewError as exc:
+                # The agent itself saved; only the structural part was refused,
+                # and saying which beats a bare failure.
+                return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                            f"the agent was saved, but its place in the "
+                            f"organisation was not: {exc}")
+
         try:
             from python.harness.settings_nn import save_agent_persona_node, update_settings_agent_node
             await save_agent_persona_node(agent_id, name, role, config)
             await update_settings_agent_node()
         except Exception as exc:
             logger.warning("Failed to update agent settings or persona node: %s", exc)
-        return _ok(req_id, {"success": True, "id": agent_id})
+        return _ok(req_id, {"success": True, "id": agent_id, **membership})
     except Exception as exc:
         logger.exception("agent.save_agent error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
@@ -9927,6 +9953,198 @@ async def handle_task_create_worktree(params: dict[str, Any], req_id: Any) -> st
         logger.exception("task.create_worktree error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
+async def handle_crew_list(params: dict[str, Any], req_id: Any) -> str:
+    """``crew.list`` — every crew, with its headcount."""
+    try:
+        from python.harness import crews
+
+        return _ok(req_id, {"crews": await crews.listing()})
+    except Exception as exc:
+        logger.exception("crew.list error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_create(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``crew.create`` — a team, or a department to hold teams.
+
+    A crew is an entity. ``agents.crew_type`` is a *category* — two agents
+    labelled "Business" share a classification, not a colleague (UI-050) — and
+    it stays as the classification it is.
+    """
+    try:
+        from python.harness import crews
+
+        return _ok(req_id, await crews.create(
+            str(params.get("name") or ""),
+            str(params.get("kind") or crews.TEAM),
+            str(params.get("parent_crew_id") or ""),
+            str(params.get("purpose") or ""),
+            str(params.get("description") or ""),
+        ))
+    except Exception as exc:
+        from python.harness.crews import CrewError
+
+        if isinstance(exc, CrewError):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+        logger.exception("crew.create error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_update(params: dict[str, Any], req_id: Any) -> str:
+    """``crew.update`` — rename a crew, move it, or change what it is for."""
+    crew_id = str(params.get("crew_id") or "").strip()
+    if not crew_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'crew_id' is required")
+    try:
+        from python.harness import crews
+
+        fields = {key: params[key] for key in
+                  ("name", "kind", "parent_crew_id", "purpose", "description")
+                  if key in params}
+        return _ok(req_id, await crews.update(crew_id, **fields))
+    except Exception as exc:
+        from python.harness.crews import CrewError
+
+        if isinstance(exc, CrewError):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+        logger.exception("crew.update error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_delete(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``crew.delete`` — disband a crew.
+
+    Members are released, not deleted, and sub-crews are lifted to this crew's
+    own parent. Disbanding a department does not delete the people in it.
+    """
+    crew_id = str(params.get("crew_id") or "").strip()
+    if not crew_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'crew_id' is required")
+    try:
+        from python.harness import crews
+
+        result = await crews.delete(crew_id)
+        await db.log_to_db(
+            "INFO",
+            f"Crew {crew_id} disbanded: {result['released']} member(s) "
+            f"released, {result['lifted']} sub-crew(s) lifted",
+        )
+        return _ok(req_id, result)
+    except Exception as exc:
+        from python.harness.crews import CrewError
+
+        if isinstance(exc, CrewError):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+        logger.exception("crew.delete error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_set_membership(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``crew.set_membership`` — put an agent in a crew and under a manager.
+
+    Refuses a reporting loop rather than storing one: a cycle makes every walk
+    up the line run forever, so work would stop rather than misroute.
+    """
+    agent_id = str(params.get("agent_id") or "").strip()
+    if not agent_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'agent_id' is required")
+    try:
+        from python.harness import crews
+
+        return _ok(req_id, await crews.set_membership(
+            agent_id,
+            str(params.get("crew_id") or ""),
+            str(params.get("reports_to") or ""),
+        ))
+    except Exception as exc:
+        from python.harness.crews import CrewError
+
+        if isinstance(exc, CrewError):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+        logger.exception("crew.set_membership error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_chart(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``crew.chart`` — the whole organisation, for drawing.
+
+    Reports any reporting cycles it finds rather than repairing them: which
+    link to break is the owner's decision, and guessing would silently
+    restructure their organisation.
+    """
+    try:
+        from python.harness import crews
+
+        return _ok(req_id, await crews.chart())
+    except Exception as exc:
+        logger.exception("crew.chart error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_assign(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``crew.assign`` — route a task into a crew.
+
+    The consumer the crew fields never had (UI-051): it writes
+    ``tasks.assigned_agent_id``, which is what the executors read. Marking an
+    agent as crew previously changed a chip on a card and nothing else.
+    """
+    task_id = str(params.get("task_id") or "").strip()
+    crew_id = str(params.get("crew_id") or "").strip()
+    if not (task_id and crew_id):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'task_id' and 'crew_id' are required")
+    try:
+        from python.harness import crews
+
+        result = await crews.assign(task_id, crew_id,
+                                    str(params.get("role") or ""))
+        if not result["active"]:
+            await db.log_to_db(
+                "WARNING",
+                f"Task {task_id} assigned to {result['assigned_to']}, who is "
+                f"not active — every member of that crew is inactive",
+            )
+        return _ok(req_id, result)
+    except Exception as exc:
+        from python.harness.crews import CrewError
+
+        if isinstance(exc, CrewError):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+        logger.exception("crew.assign error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_escalate(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``crew.escalate`` — send a task up the reporting line.
+
+    Reporting is both ownership and upward work routing; this is the upward
+    half, and the reason a hierarchy is worth having rather than drawing. One
+    step per call: escalating straight to the top would skip whoever is most
+    likely to be able to help.
+    """
+    task_id = str(params.get("task_id") or "").strip()
+    if not task_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'task_id' is required")
+    try:
+        from python.harness import crews
+
+        return _ok(req_id, await crews.escalate(
+            task_id, str(params.get("reason") or "")))
+    except Exception as exc:
+        from python.harness.crews import CrewError
+
+        if isinstance(exc, CrewError):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+        logger.exception("crew.escalate error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_swarm_workers_active(params: dict[str, Any], req_id: Any) -> str:
     try:
         records = await db.fetch("SELECT id, name, role, config FROM agents WHERE is_active = TRUE")
@@ -13700,6 +13918,14 @@ _HANDLERS: dict[str, Any] = {
     "swarm.topology.list": handle_swarm_topology_list,
     "swarm.topology.create": handle_swarm_topology_create,
     "swarm.topology.delete": handle_swarm_topology_delete,
+    "crew.list": handle_crew_list,
+    "crew.create": handle_crew_create,
+    "crew.update": handle_crew_update,
+    "crew.delete": handle_crew_delete,
+    "crew.set_membership": handle_crew_set_membership,
+    "crew.chart": handle_crew_chart,
+    "crew.assign": handle_crew_assign,
+    "crew.escalate": handle_crew_escalate,
     "swarm.start": handle_swarm_start,
     "swarm.pause": handle_swarm_pause,
     "swarm.resume": handle_swarm_resume,

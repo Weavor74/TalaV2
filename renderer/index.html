@@ -707,13 +707,36 @@
                             <label for="agent-role-input" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Workforce Role</label>
                             <input type="text" id="agent-role-input" placeholder="e.g. Developer, Finance, Auditor" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
                           </div>
-                          <div class="form-group">
-                            <label for="agent-crew-type-select" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Crew Category</label>
+                          <div class="form-group" style="margin-bottom: var(--space-2);">
+                            <label for="agent-crew-type-select" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Crew Category <span style="color: var(--text-muted); font-weight: 400;">— a classification, not a membership</span></label>
                             <select id="agent-crew-type-select" style="width: 100%; padding: var(--space-2); background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
                               <option value="business" selected>Business (Corporate, Financial, Analytics)</option>
                               <option value="military">Military (Tactical, Guardrails, Strict Constraints)</option>
                               <option value="guild">Guild (Developer, Creative, Specialized Craft)</option>
                             </select>
+                          </div>
+
+                          <!-- The membership the category was mistaken for. Two
+                               agents sharing a category are not colleagues; a
+                               crew is an entity and this points at one. -->
+                          <div class="form-group" style="margin-bottom: var(--space-2);">
+                            <label for="agent-crew-select" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Crew</label>
+                            <select id="agent-crew-select" style="width: 100%; padding: var(--space-2); background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
+                              <option value="">— not in a crew —</option>
+                            </select>
+                          </div>
+
+                          <!-- Reporting is both ownership and upward work
+                               routing, so this field is what makes escalation
+                               possible at all. -->
+                          <div class="form-group">
+                            <label for="agent-reports-to-select" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Reports to</label>
+                            <select id="agent-reports-to-select" style="width: 100%; padding: var(--space-2); background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
+                              <option value="">— nobody (top of the line) —</option>
+                            </select>
+                            <p id="agent-crew-note" style="font-size: 0.7rem; color: var(--text-muted); margin: 4px 0 0;">
+                              A loop is refused: if the chosen manager already reports to this agent, the save is rejected rather than stored.
+                            </p>
                           </div>
                         </div>
 
