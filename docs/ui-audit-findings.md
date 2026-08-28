@@ -1209,7 +1209,27 @@ holding that secret can enroll. But the local user's checkboxes are still not au
 holder of the secret sets its own rights, and the UI gives no indication this has happened.
 
 ### UI-042 — Marketplace payloads are "verified" against a hardcoded placeholder key
-**Severity: medium · Status: open**
+**Severity: high · Status: open — re-verified 2026-08-28, worse than filed**
+
+Raised from medium. This is not a placeholder key awaiting a real one — **there is no verification
+at all**:
+
+```python
+public_key = item.get("public_key")
+if not public_key:
+    return _err(..., "item missing cryptographic signature")
+logger.info("Verifying marketplace payload against public key %s...", public_key)
+...
+yaml.dump(item.get("payload", {}), f)      # written to skills/
+```
+
+The check is `public_key` is truthy. Nothing is verified against it. The log line announces a
+verification that does not happen, and the payload is written into `skills/` regardless — so a
+downloaded skill arrives on disk with a security control's log entry behind it and no security
+control.
+
+**Original finding.**
+
 
 Every item returned by `p2p.marketplace_search` carries:
 
@@ -1566,7 +1586,17 @@ plus `preferences` — so what is authored here is what gets shared to peers the
 that correspondence in view while auditing each one.
 
 ### UI-052 — Three indicators of connection state on one screen, three levels of truth
-**Severity: medium · Status: open**
+**Severity: medium · Status: retracted (2026-08-28) — fixed by other work**
+
+Two of the three disagreeing indicators became truthful without anyone addressing this entry. The
+`LOCAL (SYSTEM)` selector now calls `environment.set` and is real rather than a class toggle
+(UI-044); the `Network Isolated` badge is gone, along with the hardcoded flag behind it (UI-039).
+The `Chain Connection` readout was always real.
+
+The inconsistency this described no longer exists.
+
+**Original finding.**
+
 
 The USER PROFILE panel makes an existing inconsistency visible in a single viewport. Three
 controls express roughly the same concept and disagree in reliability:
@@ -2538,7 +2568,18 @@ shows "No MCP servers registered" — so with an empty list there is nothing to 
 remove looked absent.
 
 ### UI-078 — Plugin permission gating is asserted but unverified
-**Severity: medium · Status: open — needs verification**
+**Severity: high · Status: open — re-verified 2026-08-28, worse than filed**
+
+Raised from medium, and no longer "needs verification": it has been verified, and there is nothing
+there. `python/harness/mcp_manager.py` contains **zero** occurrences of the word "permission". The
+panel's claim that *"Plugin permissions remain gated by manifest declarations and gateway policy
+before tools can run"* has no implementation behind it anywhere in the MCP path.
+
+The Test MCP Provider card declares `fs:read` and `shell:execute` — read the filesystem and run
+commands. A manifest declaring those is, today, a description rather than a request.
+
+**Original finding.**
+
 
 The panel states *"Plugin permissions remain gated by manifest declarations and gateway policy
 before tools can run."* The Test MCP Provider card declares `fs:read` and `shell:execute` — the two
@@ -2586,7 +2627,51 @@ longer supported by the checkpoint evidence cited here.
 ## A24b. **Audit-wide caveat** — performed against a stale checkout
 
 ### UI-094 — Findings were gathered 8 commits behind `origin/main`
-**Severity: high (methodological) · Status: open**
+**Severity: high (methodological) · Status: discharged (2026-08-28)**
+
+Every open finding has now been re-checked against the current tree, one claim at a time. The drift
+was much larger than this entry described — it was written about 8 commits, and roughly forty have
+landed since, most of them from acting on this document.
+
+**Result: 17 of 23 still stand, 2 are stale, 2 turned out worse than filed, and 3 were never
+defects.**
+
+| Verdict | Findings |
+|---|---|
+| **stands** | UI-021, UI-022, UI-030, UI-031, UI-032, UI-033, UI-043, UI-048, UI-075, UI-077, UI-084, UI-096, UI-097, UI-117, UI-120 |
+| **stands, and is worse than filed** | UI-042, UI-078 |
+| **stale — retracted** | UI-052, UI-098 |
+| **not defects** | UI-076 (design judgement), UI-088 (proposal method), UI-121 (scoping) |
+
+**How the stale ones went stale.** Both were closed by work done elsewhere in this document rather
+than by anyone addressing them: UI-098's APPDATA comments went with the portability fix, and two of
+UI-052's three disagreeing indicators became truthful when the environment presets (UI-044) and the
+network-isolation badge (UI-039) were fixed. Neither was noticed at the time.
+
+**The browser cluster is the cautionary case.** UI-016 and UI-119 were both acted on as open, and
+both had already been built — `ui_navigate`, `ui_describe`, `ui_click` and `ui_reload` shipped as
+UI-007, and ten browser and UI tools were registered. Half an hour went into re-deriving a decision
+that had already been made and implemented. Checking first is cheaper than that.
+
+**What re-verification is worth.** Two findings were *understated*, and both are false security
+claims — the kind that reads as reassurance:
+
+* **UI-042** logs `"Verifying marketplace payload against public key %s..."` and then verifies
+  nothing at all: it checks the key is a non-empty string and writes the downloaded payload to
+  `skills/`. A log line shaped like a security control, with no control behind it.
+* **UI-078** claims plugin permissions are *"gated by manifest declarations and gateway policy"*.
+  `mcp_manager.py` contains **zero** occurrences of the word "permission". The Test MCP Provider
+  card declares `fs:read` and `shell:execute` — the two most consequential permissions a plugin
+  could hold — against no gate whatsoever.
+
+Both are now raised to high.
+
+**Method, for next time.** Findings that name a specific artefact — a line, a query, a call count —
+re-check mechanically in seconds. Findings phrased as judgements do not. The mechanical ones are
+worth more than their severity suggests, because they can be re-run rather than re-argued.
+
+**Original finding.**
+
 
 The entire audit above was performed against a working tree that was 8 commits behind the remote.
 Those commits have since been pulled. They touched code this audit examined:
@@ -3254,7 +3339,13 @@ The correct paths also differ per OS — Claude Desktop is
 per-platform table, not just syntax repair.
 
 ### UI-098 — Two comments describe an APPDATA fallback that was deliberately removed
-**Severity: low · Status: open**
+**Severity: low · Status: retracted (2026-08-28) — fixed by other work**
+
+No APPDATA mention remains anywhere in `electron/`. The comments went with the portability fix that
+moved the data root to the install directory.
+
+**Original finding.**
+
 
 The portable resolver is correct (UI-095), but two comments in `server.py` describe the *old*
 behaviour as if it were current:
