@@ -1851,16 +1851,25 @@
                 <div class="inference-fallback-info" style="margin-top: var(--space-5);">
                   <div class="fallback-info-header">
                     <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm1 13H7v-2h2v2zm0-4H7V3h2v6z"/></svg>
-                    DATABASE ROUTING & REPLICATION LAWS
+                    ABOUT THESE CONNECTIONS
                   </div>
+                  <!-- Was "DATABASE ROUTING & REPLICATION LAWS", claiming
+                       Priority Order and Automatic Failover (UI-072). Neither
+                       existed, and neither is the feature: there is one pool
+                       from one DSN, so failover had nowhere to live. Steven:
+                       "It does not need to be used. You can have 0 databases
+                       or 1000 databases. How you use them is up to the user
+                       not to the develouper." So the panel now describes what
+                       it is rather than asserting a policy nobody implemented
+                       and nobody asked for. -->
                   <div class="fallback-rules-list">
                     <div class="fallback-rule-item">
-                      <span class="fallback-rule-bullet fallback-bullet-token" style="background: rgba(0, 242, 254, 0.1); color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3);">P</span>
-                      <div class="fallback-rule-text"><strong>Priority Order</strong> — DB connections are queried in the sequence defined. Drag or use arrows to modify their execution hierarchy.</div>
+                      <span class="fallback-rule-bullet fallback-bullet-token" style="background: rgba(0, 242, 254, 0.1); color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3);">i</span>
+                      <div class="fallback-rule-text"><strong>Optional</strong> — Tala's own storage does not use these. Add none, one, or a hundred; they are yours to use however you like.</div>
                     </div>
                     <div class="fallback-rule-item">
-                      <span class="fallback-rule-bullet fallback-bullet-error" style="background: rgba(250, 82, 82, 0.1); color: #fa5252; border: 1px solid rgba(250, 82, 82, 0.3);">!</span>
-                      <div class="fallback-rule-text"><strong>Automatic Failover</strong> — If the primary replica database goes offline, operations automatically reroute to the next healthy standby provider.</div>
+                      <span class="fallback-rule-bullet fallback-bullet-token" style="background: rgba(0, 242, 254, 0.1); color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3);">?</span>
+                      <div class="fallback-rule-text"><strong>Test before trusting</strong> — A saved connection is not a working one. Use TEST to open a real connection; the badge stays CONFIGURED until something is measured.</div>
                     </div>
                   </div>
                 </div>

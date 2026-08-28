@@ -55,6 +55,14 @@ dropbox = ["dropbox>=11.36"]
 gdrive = ["google-api-python-client>=2.120"]
 onedrive = ["msal>=1.28"]
 
+# User databases, same rule: optional. Postgres and SQLite need nothing --
+# asyncpg is already here because Tala's own store is Postgres, and sqlite3 is
+# in the standard library.
+mysql = ["aiomysql>=0.2"]
+mongodb = ["pymongo>=4.6"]
+mssql = ["aioodbc>=0.5"]
+oracle = ["oracledb>=2.0"]
+
 test = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0"

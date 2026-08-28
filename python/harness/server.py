@@ -11722,12 +11722,19 @@ async def handle_database_test_provider(params: dict[str, Any], req_id: Any) -> 
     The panel rendered a fixed ONLINE (UI-073) while the SYSTEM panel two tabs
     away performed a genuine PostgreSQL health check. The signal existed; this
     panel simply did not use it.
+
+    Routed through database_clients so the driver question -- is this kind even
+    supported in this install -- is answered in one place rather than inline
+    here, the way storage does it.
     """
     provider_id = str(params.get("id") or "").strip()
     if not provider_id:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
 
     try:
+        from python.harness.credential_crypto import decrypt_value
+        from python.harness.database_clients import DatabaseError, probe
+
         row = await db.fetchrow(
             "SELECT id, name, endpoint, username, password, database "
             "FROM database_providers WHERE id = $1", provider_id,
@@ -11735,33 +11742,50 @@ async def handle_database_test_provider(params: dict[str, Any], req_id: Any) -> 
         if not row:
             return _ok(req_id, {"state": "failed", "detail": "No such provider."})
 
-        from python.harness.credential_crypto import decrypt_value
-        password = decrypt_value(row["password"] or "")
-        endpoint = row["endpoint"] or ""
-        if not endpoint:
-            return _ok(req_id, {"state": "failed", "detail": "No endpoint configured."})
-
-        import asyncpg
-        dsn = endpoint
-        if not dsn.startswith(("postgres://", "postgresql://")):
-            host, _, port = endpoint.partition(":")
-            dsn = (
-                f"postgresql://{row['username'] or ''}:{password}@"
-                f"{host}:{port or 5432}/{row['database'] or ''}"
-            )
-        conn = await asyncpg.connect(dsn=dsn, timeout=8)
-        try:
-            version = await conn.fetchval("SELECT version()")
-        finally:
-            await conn.close()
-        return _ok(req_id, {
-            "state": "ok",
-            "detail": f"Connected. {str(version or '')[:60]}",
+        detail = await probe({
+            "name": row["name"],
+            "endpoint": row["endpoint"],
+            "username": row["username"],
+            "password": decrypt_value(row["password"] or ""),
+            "database": row["database"],
         })
-    except Exception as exc:
+        return _ok(req_id, {"state": "ok", "detail": detail})
+    except DatabaseError as exc:
         # The reason matters more than the fact: "password authentication
         # failed" and "connection refused" need different responses.
+        return _ok(req_id, {"state": "failed", "detail": str(exc)})
+    except Exception as exc:
+        logger.exception("database.test_provider error")
         return _ok(req_id, {"state": "failed", "detail": f"{type(exc).__name__}: {exc}"})
+
+
+async def handle_database_capabilities(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``database.capabilities`` — which database kinds this install can reach.
+
+    Steven: "You can have 0 databases or 1000 databases. How you use them is up
+    to the user not to the develouper." So the panel offers the option and says
+    honestly which kinds are usable now and what the others need, rather than
+    accepting a connection string for a driver that does not exist.
+    """
+    try:
+        from python.harness.database_clients import capabilities
+        caps = capabilities()
+        return _ok(req_id, {
+            "capabilities": caps,
+            "available": [c["kind"] for c in caps if c["available"]],
+            "needs_install": [
+                {"kind": c["kind"], "extra": c["install_extra"], "reason": c["reason"]}
+                for c in caps if not c["available"]
+            ],
+            "note": (
+                "These are the user's own databases. Tala's own storage is a "
+                "separate connection and is not affected by anything here."
+            ),
+        })
+    except Exception as exc:
+        logger.exception("database.capabilities error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
 async def handle_system_architecture_contract(params: dict[str, Any], req_id: Any) -> str:
@@ -12793,6 +12817,7 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "database.capabilities": handle_database_capabilities,
     "git.repo_op": handle_git_repo_op,
     "git.clone": handle_git_clone,
     "git.list_repos": handle_git_list_repos,

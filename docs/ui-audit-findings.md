@@ -2003,7 +2003,21 @@ The form accepts arbitrary connections (Postgres, MySQL, SQLite, MongoDB by labe
 with git and storage, nothing consumes them.
 
 ### UI-071 — Database providers are never used; the real connection bypasses them
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-28**
+
+
+> **Fixed as a capability, not a policy.** Steven: *"It does not need to be used. You can
+> have 0 databases or 1000 databases. How you use them is up to the user not to the
+> develouper."* So `database_clients.py` does what git and storage do — connect, prove the
+> connection is real, get out of the way.
+>
+> Postgres and SQLite need nothing extra (asyncpg is already here because Tala's own store is
+> Postgres; sqlite3 is stdlib). MySQL, MongoDB, SQL Server and Oracle are declared extras
+> that name their package. `database.test_provider` opens a real connection — verified
+> against the live PostgreSQL 17.10 and a real SQLite file.
+>
+> Deliberately separate from `settings.DB_URL`: a user database going away must not be able
+> to stop the app, and a test asserts the module never touches the harness pool.
 
 `database_providers` appears in six places — schema, `locked` migration, a settings-node label, the
 get, the save, and an HTML-NN table row ([settings_nn.py:546](../python/harness/settings_nn.py#L546)).
@@ -2022,7 +2036,14 @@ _pool = await asyncio.wait_for(asyncpg.create_pool(dsn=db_url, min_size=2, max_s
 real connection; editing or deleting it would not change what the app connects to.
 
 ### UI-072 — "Automatic Failover" is architecturally impossible as built
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-28**
+
+
+> **Fixed by removing the claim.** Steven: *"But remove the panel claim."* There is one pool
+> from one DSN, so failover had nowhere to live — the honest fix was deleting the assertion,
+> not building replication nobody asked for. `DATABASE ROUTING & REPLICATION LAWS` with
+> *Priority Order* and *Automatic Failover* is gone; the panel now says the connections are
+> optional and that a saved connection is not a working one until tested.
 
 The panel states: *"Automatic Failover — If the primary replica database goes offline, operations
 automatically reroute to the next healthy standby provider."*
@@ -3283,7 +3304,16 @@ Lockdown and the LOCAL preset land on the same restriction by different routes �
 whether lockdown simply *is* a forced LOCAL preset, or stays a separate orthogonal switch.
 
 ### UI-110 — Multi-database is content partitioning, not failover
-**Severity: medium · Status: specified · Source: Q-42**
+**Severity: medium · Status: FIXED 2026-08-28 · Source: Q-42**
+
+
+> **Closed, and not by building it.** This recorded that Steven wanted content partitioning
+> — coding data in one database, conversation in another — and read that as the feature to
+> implement. His later clarification makes clear that was an example of a *use*, not a
+> specification: *"How you use them is up to the user not to the develouper."*
+>
+> Building partitioning into the harness would have replaced one imposed policy with another.
+> The connections are provided and proven; what each one is for is the user's decision.
 
 > **Steven:** *"The multi database is used for things like, I store all my info on coding on this DB
 > and all my info on conversation on this DB."*
