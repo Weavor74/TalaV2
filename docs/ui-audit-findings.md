@@ -465,9 +465,9 @@ is the moment the gap is worth closing. `origin` separates what this machine wro
 back off the chain — otherwise "everything on the Real chain" and "everything I put on the Real
 chain" are the same query and they are not the same question.
 
-**It pulls; it never pushes — see UI-124.** The Node server's `POST /chain/reconcile` overwrites
-the receiving chain whenever the incoming one is as long or longer, which is data loss on a chain
-several people write to.
+**It pulls; it never pushes.** The Node server's `POST /chain/reconcile` used to overwrite the
+receiving chain whenever the incoming one was as long or longer; that is fixed in UI-124, and
+reconcile still pulls, since a pull is what reading the chain back requires.
 
 **Verified here, not taken on trust.** [`chain_verify.py`](../python/harness/chain_verify.py)
 recomputes block hashes, checks the `previousHash` links and verifies Ed25519 signatures, byte-for-byte
@@ -3886,37 +3886,101 @@ Same family as UI-033, where `Manage Workers in Settings` targets a `data-tab` s
 not exist. Both are cross-view navigation attempts that silently no-op — which is the argument for
 `ui.navigate` existing as one real function rather than being re-improvised at each call site.
 
-### UI-124 — `POST /chain/reconcile` destroys blocks on a shared chain
-**Severity: high · Status: open (avoided, not fixed) · Found: 2026-08-28**
+### UI-124 — `POST /chain/reconcile` destroyed blocks, including the local Ghost chain
+**Severity: critical · Status: fixed (2026-08-28)**
 
-The Node server's reconcile endpoint ([blockchain/src/app.js:835](../blockchain/src/app.js#L835))
-takes a whole chain, validates it, and then:
+Filed the day before as a shared-chain hazard. It was worse than that: **there was a live caller
+pointing it at the local Ghost chain**, and only the remote chain being down stopped it firing.
+
+#### The endpoint
+
+[blockchain/src/app.js](../blockchain/src/app.js) accepted any valid incoming chain of equal or
+greater height and assigned it over the top:
 
 ```js
 if (tempLedger.chain.length < talaLedger.chain.length) { /* 409 */ }
 talaLedger.chain = tempLedger.chain;   // otherwise: overwrite
 ```
 
-Longest-chain-wins whole-chain replacement. Between one machine and its own backup that is a sane
-rule. On the shared Real chain — which by Steven's answer is *one chain everybody appends to* — it
-is data loss:
+Longest-chain-wins whole-chain replacement. Sound between one machine and its own backup; data loss
+on a chain more than one party writes to. Two peers who each append while the other is offline both
+pass the height check, and whichever writes second discards the other's blocks — silently, since a
+discarded block leaves no trace: the node simply holds a different chain than it did, and it
+verifies. The transactions that vanish are by definition external ones, which are exactly what a
+shared chain exists to record.
 
-> Two peers each append a block while the other is offline. Both now hold a chain at least as long
-> as the other's, so both pass the height check. Whichever pushes second overwrites the first one's
-> block. Nothing reports it, because a discarded block leaves no trace — the receiving node simply
-> has a different chain than it did a moment ago, and it verifies.
+#### The caller
 
-The transaction that vanishes is by definition an *external* one: a payment, a peer's skill, an AUTH
-transaction. Those are the transactions the Real chain exists to record.
+`ghost_persistence.pre_flight_reconciliation()` runs on **every goal execution**
+([goal_engine.py:540](../sdk/agent/goal_engine.py#L540)) and from
+[mcp_manager.py:181](../python/harness/mcp_manager.py#L181). When the local chain was shorter than
+the remote one it fetched the remote blocks and POSTed them into the *local* node — replacing the
+complete local history, the "everything this machine did" record, with a remote chain. Same shape as
+the auto-rollback that destroyed the repo.
 
-**Avoided for now.** `chains.reconcile()` pulls with `GET /chain/blocks` and never calls this
-endpoint, so nothing in the harness can trigger the overwrite. The endpoint itself is unchanged and
-still reachable by anyone holding the admin secret.
+Three things kept it from happening. The remote at `talacore.app` was unreachable (502s and
+timeouts throughout testing; `/chain/status` never once answered). `check_hash()` had to report
+`major` first. And the local chain happened to be taller. None of those is a safeguard.
 
-**The fix is a merge, not a longer chain.** Blocks would need to be reconciled by content — accept
-blocks not already held, order them, and rebuild — rather than by swapping one chain for another.
-That is a change to the Node consensus rule and is out of scope for a Python-side reconcile, so it
-is recorded rather than attempted.
+Worse, the fetch ran with `check_hostname = False` and `verify_mode = CERT_NONE`, so anything on the
+path could answer as the remote chain — and what came back was chain data headed straight into the
+local node.
+
+#### The fix
+
+**The endpoint merges instead of replacing.** Merging is at the transaction level, because a block
+cannot be moved: its hash covers its own index and `previousHash`, and its signature covers the
+hash, so re-siting somebody else's block invalidates their signature. Blocks both sides share are
+kept exactly as they are; only the divergent tail is rebuilt.
+
+| Outcome | When | What happens |
+|---|---|---|
+| `behind` | the incoming chain extends ours and we hold nothing it lacks | its blocks are appended untouched — hashes and signatures intact |
+| `up-to-date` | it holds nothing we do not | nothing changes, including when it is *shorter* (previously a 409) |
+| `merged` | both sides appended after the fork | both sets of transactions are unioned, ordered deterministically, re-mined from the fork point |
+
+Re-mining changes the hashes of divergent blocks — unavoidable, since two blocks cannot occupy one
+index — but no transaction is dropped, which is the property the overwrite lacked. A chain with a
+different genesis is refused as a conflict: that is a different chain, not a fork, and merging it
+would fabricate a history that never happened.
+
+**Transaction identity is a fingerprint of the whole transaction.** Not the `id`, which is a
+document identity — 2,748 local transactions carry 185 distinct ids, `settings-workflows` accounting
+for 174. Not the `hash` either, which covers content and repeats on re-anchor (683 distinct across
+the same 2,748). Nothing the chain assigns is unique.
+
+**Deterministic ordering** by `(timestamp, fingerprint)` so two nodes merging the same pair converge
+rather than diverging further with every reconcile. Tested by merging A-then-B and B-then-A and
+comparing every block hash.
+
+**The caller no longer writes to a chain at all.** `pre_flight_reconciliation()` now reconciles the
+shared chain through `chains.reconcile()`, which pulls, verifies, and writes only Real rows. Its
+premise was wrong as well as its mechanism: Ghost and Real are two chains split by audience, not two
+copies of one chain, so Ghost is *expected* to be taller and the difference is the design rather
+than a conflict.
+
+**`check_hash()` asks a question that can be answered wrongly.** It compared the local chain's
+height and hash against the remote's and called any difference `major` — which post-split is every
+single run, blocking the task and triggering the sync that did the damage. It now reports `major`
+only when the local chain is reachable and fails its own validity check.
+
+**TLS verification restored**, and `talacore.app` is no longer hardcoded — a portable offline-first
+install should not carry one external domain as an implicit dependency, least of all one whose
+response is fed into the local chain.
+
+#### Verification
+
+12 tests in [`blockchain/test/merge.test.js`](../blockchain/test/merge.test.js) drive the **real
+server over HTTP** against a scratch data directory, so the route, admin gate, chain verification
+and merge all run as they actually do — including a tampered chain, a foreign genesis, an
+idempotent re-merge, and the order-independence check. `node --test blockchain/test/merge.test.js`.
+7 tests cover the Python side. Full Python suite green.
+
+#### Still open
+
+The merge trusts any self-consistent signature: `isValid()` verifies a block against whatever
+`public_key` the block itself carries, so a peer can sign with any key it likes. Authenticating
+*which* keys may write to a shared chain is a separate piece of work and is not attempted here.
 
 ---
 

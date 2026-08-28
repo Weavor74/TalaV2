@@ -560,14 +560,18 @@ async def web_search(query: str, search_provider_id: str | None = None) -> list[
 async def sync_blockchain(task_id: str | None = None) -> str:
     """
     NAME
-           sync_blockchain - Synchronize local Ghost blockchain to remote VPS
-           
+           sync_blockchain - reconcile the shared chain when something is off
+
     SYNOPSIS
            result = await sync_blockchain(task_id)
-           
+
     DESCRIPTION
-           Checks for block divergence. Blocks execution unless divergence is detected
-           and the active task requires persistence impacted by the drift.
+           Refuses unless the local chain is unreachable or fails its own
+           validity check, and the active task actually depends on persistence.
+
+           It does not synchronise Ghost to anything. Ghost is local and
+           complete and is never pushed anywhere or overwritten; what gets
+           reconciled is the shared Real chain (UI-124).
     """
     from sdk.agent.ghost_persistence import check_hash, pre_flight_reconciliation
     

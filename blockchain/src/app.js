@@ -21,7 +21,12 @@ const path = require('path');
 
 const BIND_HOST = process.env.TALA_CHAIN_BIND_HOST || '127.0.0.1';
 const PORT = Number(process.env.TALA_CHAIN_BIND_PORT || process.env.TALA_CHAIN_PORT || 8332);
-const DATA_DIR = path.join(__dirname, '..', 'data');
+// Overridable so the chain can be exercised against a scratch directory
+// rather than the live ledger. Defaults to the real one, so nothing changes
+// unless a caller deliberately points it elsewhere.
+const DATA_DIR = process.env.TALA_CHAIN_DATA_DIR
+  ? path.resolve(process.env.TALA_CHAIN_DATA_DIR)
+  : path.join(__dirname, '..', 'data');
 const CHAIN_FILE = path.join(DATA_DIR, 'chain.json');
 const KEYS_FILE = path.join(DATA_DIR, 'poa_keys.json');
 const PEERS_FILE = path.join(DATA_DIR, 'peers.json');
@@ -350,6 +355,159 @@ class Blockchain {
     this.pendingTransactions = [];
     console.log(`[Chain] Block mined and signed: ${newBlock.index} | Hash: ${newBlock.hash}`);
     this.saveChain();
+  }
+
+  // ── Merging two chains without losing anything ────────────────────────
+  //
+  // This replaced a longest-chain-wins whole-chain overwrite (UI-124). That
+  // rule is sound between one machine and its own backup and is data loss on a
+  // chain more than one party writes to: two peers who each append while the
+  // other is offline both hold a chain at least as long as the other's, so both
+  // pass a height check, and whichever writes second discards the first one's
+  // blocks. Nothing notices afterwards, because a discarded block leaves no
+  // trace -- the receiving node simply holds a different chain than it did, and
+  // it verifies. The transactions that vanish are by definition the external
+  // ones, which are the transactions a shared chain exists to record.
+  //
+  // Merging happens at the transaction level, not the block level, because a
+  // block cannot be moved: its hash covers its own index and previousHash, and
+  // its signature covers the hash. Re-siting somebody else's block invalidates
+  // their signature. So blocks that both sides share are kept exactly as they
+  // are, and only the divergent tail is rebuilt from the union of both sides'
+  // transactions.
+
+  // What makes two transactions the same transaction.
+  //
+  // Not the id: that is a *document* identity which repeats every time the
+  // document changes -- across the 2,748 local transactions there are 185
+  // distinct ids, and settings-workflows alone accounts for 174 of them.
+  // Not the hash either, which covers content and so repeats whenever the same
+  // content is re-anchored (683 distinct across the same 2,748). Nothing the
+  // chain assigns is unique, so identity is a fingerprint of the whole
+  // transaction: two that serialise identically are the same transaction by
+  // any definition that matters.
+  static fingerprint(tx) {
+    return crypto.createHash('sha256').update(JSON.stringify({
+      id: tx.id, type: tx.type, hash: tx.hash, creator: tx.creator,
+      counterparty: tx.counterparty, timestamp: tx.timestamp,
+      document: tx.document ?? null, metadata: tx.metadata ?? null,
+      signature: tx.signature ?? null, public_key: tx.public_key ?? null,
+    })).digest('hex');
+  }
+
+  // The last position at which the two chains still agree.
+  forkPoint(incoming) {
+    let k = 0;
+    while (k < this.chain.length && k < incoming.length
+           && this.chain[k].hash === incoming[k].hash) {
+      k++;
+    }
+    return k;
+  }
+
+  /**
+   * Merge an incoming chain into this one. Returns a report of what happened.
+   *
+   * Three outcomes, and only the third rewrites anything:
+   *
+   *   behind      — the incoming chain extends ours and we have nothing it
+   *                 lacks, so its blocks are appended exactly as they are,
+   *                 hashes and signatures intact. The ordinary case.
+   *   up-to-date  — it holds nothing we do not.
+   *   merged      — both sides appended after the fork. Their transactions and
+   *                 ours are unioned, ordered deterministically so that two
+   *                 nodes performing this merge arrive at the same chain, and
+   *                 re-mined from the fork point.
+   *
+   * Re-mining changes the hashes of the divergent blocks, which is unavoidable:
+   * two different blocks cannot occupy one index. No transaction is dropped,
+   * which is the property that matters and the one the overwrite lacked.
+   */
+  merge(incoming) {
+    if (!incoming.length) {
+      return { outcome: 'up-to-date', height: this.chain.length,
+               learned: 0, kept: 0 };
+    }
+
+    // A chain with a different genesis is a different chain, not a fork of
+    // this one. Merging them would fabricate a history that never existed.
+    if (this.chain.length && incoming[0].hash !== this.chain[0].hash) {
+      const error = new Error('The incoming chain has a different genesis block');
+      error.conflict = true;
+      throw error;
+    }
+
+    const k = this.forkPoint(incoming);
+    const ourTail = this.chain.slice(k);
+    const theirTail = incoming.slice(k);
+
+    if (!theirTail.length) {
+      return { outcome: 'up-to-date', height: this.chain.length,
+               learned: 0, kept: ourTail.length };
+    }
+
+    if (!ourTail.length) {
+      // Fast-forward. Their blocks already carry the right index and
+      // previousHash, so they are appended untouched and every signature
+      // survives -- the strongest form of lossless there is.
+      for (const block of theirTail) {
+        this.chain.push(block);
+      }
+      this.recalculateBalances();
+      this.saveChain();
+      const learned = theirTail.reduce((n, b) => n + b.transactions.length, 0);
+      console.log(`[Reconcile] Fast-forwarded to height ${this.chain.length} ` +
+                  `(+${theirTail.length} block(s), ${learned} transaction(s))`);
+      return { outcome: 'behind', height: this.chain.length,
+               learned, kept: 0, forkPoint: k };
+    }
+
+    // Genuine divergence: both sides wrote after the fork. Keep everything.
+    const seen = new Set();
+    const union = [];
+    for (const block of [...ourTail, ...theirTail]) {
+      for (const tx of block.transactions) {
+        const print = Blockchain.fingerprint(tx);
+        if (seen.has(print)) continue;
+        seen.add(print);
+        union.push(tx);
+      }
+    }
+
+    // Deterministic order, so two nodes merging the same pair of chains
+    // produce the same chain rather than diverging further. Timestamp first
+    // because it is the one meaningful ordering; the fingerprint breaks ties
+    // without reference to which side a transaction arrived from.
+    union.sort((a, b) => {
+      const ta = Number(a.timestamp) || 0;
+      const tb = Number(b.timestamp) || 0;
+      if (ta !== tb) return ta - tb;
+      return Blockchain.fingerprint(a).localeCompare(Blockchain.fingerprint(b));
+    });
+
+    const ourCount = ourTail.reduce((n, b) => n + b.transactions.length, 0);
+    const theirCount = theirTail.reduce((n, b) => n + b.transactions.length, 0);
+
+    this.chain = this.chain.slice(0, k);
+    for (const tx of union) {
+      const block = new Block(this.chain.length, this.getLatestBlock().hash,
+                              Number(tx.timestamp) || Date.now(), [tx]);
+      block.mineBlock(this.difficulty);
+      block.signBlock(poaPrivateKey, poaPublicKey);
+      this.chain.push(block);
+    }
+
+    this.recalculateBalances();
+    this.saveChain();
+    console.log(`[Reconcile] Merged at fork ${k}: ${ourCount} local and ` +
+                `${theirCount} incoming transaction(s) -> ${union.length} kept, ` +
+                `height ${this.chain.length}`);
+    return {
+      outcome: 'merged', height: this.chain.length, forkPoint: k,
+      learned: union.length - ourCount, kept: ourCount,
+      transactions: union.length,
+      dropped: 0,
+    };
   }
 
   findTransactionById(txId) {
@@ -864,28 +1022,31 @@ const server = http.createServer((req, res) => {
           return;
         }
 
-        // Check consensus / height rule:
-        // Accept the valid chain if it has a greater or equal height
-        if (tempLedger.chain.length < talaLedger.chain.length) {
-          res.writeHead(409, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ 
-            error: `Conflict: Incoming chain height (${tempLedger.chain.length}) is shorter than VPS height (${talaLedger.chain.length})` 
-          }));
+        // Merge rather than replace (UI-124).
+        //
+        // This used to accept the incoming chain whenever it was as long or
+        // longer and assign it over the top: talaLedger.chain = tempLedger.chain.
+        // A shorter incoming chain was refused with a 409 and a longer one
+        // silently discarded every block this node held that the sender did
+        // not. Height is not a measure of whose blocks matter.
+        let report;
+        try {
+          report = talaLedger.merge(tempLedger.chain);
+        } catch (mergeErr) {
+          res.writeHead(mergeErr.conflict ? 409 : 500, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({ error: mergeErr.message }));
           return;
         }
 
-        // Valid and height is sufficient — overwrite and recalculate balances
-        talaLedger.chain = tempLedger.chain;
-        talaLedger.recalculateBalances();
-        talaLedger.saveChain();
-
-        console.log(`[Reconcile] Chain successfully synchronized to height ${talaLedger.chain.length}`);
-
         res.writeHead(200, { 'Content-Type': 'application/json' });
-        res.end(JSON.stringify({ 
-          success: true, 
-          height: talaLedger.chain.length, 
-          latestBlockHash: talaLedger.getLatestBlock().hash 
+        res.end(JSON.stringify({
+          success: true,
+          outcome: report.outcome,          // behind | up-to-date | merged
+          height: talaLedger.chain.length,
+          forkPoint: report.forkPoint,
+          learned: report.learned,          // transactions gained from the sender
+          kept: report.kept,                // ours that a replacement would have destroyed
+          latestBlockHash: talaLedger.getLatestBlock().hash,
         }));
       } catch (err) {
         res.writeHead(500, { 'Content-Type': 'application/json' });

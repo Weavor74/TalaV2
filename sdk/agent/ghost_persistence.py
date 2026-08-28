@@ -155,23 +155,26 @@ def get_local_status() -> dict[str, Any]:
         return {"error": str(exc)}
 
 def _get_json(url: str) -> Any:
-    import urllib.request
     import json
     import ssl
+    import urllib.request
+
+    # Certificates are verified. This previously set check_hostname = False and
+    # verify_mode = CERT_NONE, which means anything on the path could answer as
+    # the remote chain -- and what comes back is chain data that was then fed
+    # straight into the local node. An unverified transport carrying blocks is
+    # not a transport problem, it is a chain-integrity problem.
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     req = urllib.request.Request(url, headers={"User-Agent": "TalaClient/1.0"})
     with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
 
 def _post_json(url: str, payload: dict, extra_headers: dict[str, str] | None = None) -> Any:
-    import urllib.request
     import json
     import ssl
+    import urllib.request
+
     ctx = ssl.create_default_context()
-    ctx.check_hostname = False
-    ctx.verify_mode = ssl.CERT_NONE
     data = json.dumps(payload).encode("utf-8")
     headers = {"Content-Type": "application/json", "User-Agent": "TalaClient/1.0"}
     if extra_headers:
@@ -205,144 +208,154 @@ def _local_chain_admin_headers() -> dict[str, str]:
 def get_remote_status() -> dict[str, Any]:
     """
     NAME
-           get_remote_status - Query remote blockchain status
-           
+           get_remote_status - status of the configured shared chain
+
     SYNOPSIS
            status = get_remote_status()
-           
+
     DESCRIPTION
-           Hits the remote main blockchain status endpoint at https://talacore.app/chain/status.
+           Reads TALA_REAL_CHAIN_ENDPOINT, falling back to nothing. This used
+           to hardcode https://talacore.app, which made a single external
+           domain an implicit dependency of a portable, offline-first install
+           -- and the blocks it returned were fed into the local chain.
+
+           An install with no shared chain configured is not in an error state,
+           so the absence of an endpoint is reported as such rather than as a
+           failure.
     """
+    endpoint = os.environ.get("TALA_REAL_CHAIN_ENDPOINT", "").strip()
+    if not endpoint:
+        return {"error": "no shared chain endpoint is configured"}
     try:
-        return _get_json("https://talacore.app/chain/status")
+        return _get_json(f"{endpoint.rstrip('/')}/chain/status")
     except Exception as exc:
         return {"error": str(exc)}
+
 
 async def pre_flight_reconciliation() -> bool:
     """
     NAME
-           pre_flight_reconciliation - Offline-first pre-flight block reconciliation
-           
+           pre_flight_reconciliation - bring the shared chain up to date before a run
+
     SYNOPSIS
            success = await pre_flight_reconciliation()
-           
+
     DESCRIPTION
-           Compares local Ghost Blockchain and remote Main Blockchain status.
-           If diverged, pulls or pushes block updates to sync local and remote states.
+           Reconciles the *shared* chain, and leaves the local Ghost chain
+           alone.
+
+           This used to compare the local Ghost chain's height against the
+           remote chain's and, when the local one was shorter, fetch the remote
+           blocks and POST them into the local node -- which under the old
+           overwrite rule replaced the entire local history with a remote one
+           (UI-124). It ran on every goal execution. Only the remote chain
+           being unreachable kept it from firing.
+
+           The premise was wrong as well as the mechanism. Ghost and Real are
+           two chains split by audience, not two copies of one chain: Ghost
+           holds everything this machine did and Real holds only what involved
+           somebody else, so Ghost is *expected* to be taller and the
+           difference between them is the design rather than a conflict to
+           resolve. The else-branch of the old code half-recognised this and
+           declined to push; the pull direction was never reconsidered.
+
+           So there is nothing here to reconcile between them. What genuinely
+           needs reconciling is the shared chain against its own index, and
+           chains.reconcile() does that: it pulls, verifies what it pulled,
+           writes only Real rows, and cannot touch Ghost.
+
+    RETURN VALUE
+           True when the local chain is reachable and any shared-chain
+           reconcile either succeeded or was not applicable. False when the
+           local chain cannot be reached, since that is what a caller checking
+           this before a run wants to know.
     """
     import asyncio
+
     from python.harness.db import log_to_db
 
-    log.info("GhostPersistence: Initiating pre-flight reconciliation check.")
-    
-    # Run status fetches in threads to keep loop non-blocking
+    log.info("GhostPersistence: pre-flight check.")
+
     local_status = await asyncio.to_thread(get_local_status)
-    remote_status = await asyncio.to_thread(get_remote_status)
-
     if "error" in local_status:
-        log.warning("GhostPersistence: Local blockchain unreachable: %s", local_status["error"])
-        return False
-    if "error" in remote_status:
-        log.warning("GhostPersistence: Remote blockchain unreachable: %s", remote_status["error"])
+        log.warning("GhostPersistence: local chain unreachable: %s",
+                    local_status["error"])
         return False
 
-    local_height = local_status.get("height")
-    local_hash = local_status.get("latestBlockHash")
-    remote_height = remote_status.get("height")
-    remote_hash = remote_status.get("latestBlockHash")
+    log.info("GhostPersistence: local Ghost chain at height %s.",
+             local_status.get("height"))
 
-    diverged = (local_height != remote_height) or (local_hash != remote_hash)
+    # The shared chain, if one is configured. An install that never goes online
+    # has no endpoint and nothing to reconcile, which is an ordinary state and
+    # not a failure.
+    try:
+        from python.harness import chains
 
-    if diverged:
-        conflict_msg = (
-            f"Conflict-Event: Pre-flight state divergence. "
-            f"Local hash: {local_hash} (height {local_height}), "
-            f"Remote hash: {remote_hash} (height {remote_height})."
-        )
-        log.warning("GhostPersistence: %s", conflict_msg)
-
-        # Log conflict warning to local DB
-        try:
-            await log_to_db(
-                level="WARNING",
-                message=conflict_msg,
-                trace={
-                    "event_type": "Conflict-Event",
-                    "trigger": "pre_flight_reconciliation",
-                    "local": {"height": local_height, "hash": local_hash},
-                    "remote": {"height": remote_height, "hash": remote_hash},
-                }
-            )
-        except Exception as db_exc:
-            log.warning("GhostPersistence: Failed to log conflict to database: %s", db_exc)
-
-        # Reconcile local and remote chains using high-level HTTP reconcile APIs
-        try:
-            if local_height < remote_height:
-                # Local chain is lagging — perform PULL sync
-                log.info("GhostPersistence: Local chain is lagging. Fetching remote blocks from https://talacore.app...")
-                remote_blocks = await asyncio.to_thread(_get_json, "https://talacore.app/chain/blocks")
-                
-                log.info("GhostPersistence: Reconciling remote blocks into local node...")
-                result = await asyncio.to_thread(
-                    _post_json,
-                    "http://127.0.0.1:8332/chain/reconcile",
-                    {"chain": remote_blocks},
-                    _local_chain_admin_headers(),
-                )
-                log.info("GhostPersistence: Pull reconciliation successful: %s", result)
-            else:
-                # Local (ghost) chain height >= remote — this is NOT a
-                # conflict to resolve by pushing. The ghost chain holds every
-                # local transaction (private, never shared) while the remote
-                # chain holds only publicly-anchored transactions, so ghost
-                # will routinely be "ahead" by design. Pushing the full local
-                # chain here would leak private ghost history onto the
-                # shared remote ledger. Intentionally a no-op until the two
-                # chains are properly separated (ghost selectively publishes
-                # specific anchors to remote; remote never receives or pulls
-                # ghost's raw history).
-                log.info(
-                    "GhostPersistence: Local ghost chain height (%s) >= remote (%s) — "
-                    "not pushing; ghost chain is private and is never synced to the remote chain.",
-                    local_height, remote_height,
-                )
+        if not await chains.real_endpoint():
+            log.info("GhostPersistence: no shared chain configured; "
+                     "nothing to reconcile.")
             return True
-        except Exception as sync_exc:
-            log.error("GhostPersistence: Reconciliation HTTP exchange failed: %s", sync_exc)
-            return False
-    else:
-        log.info("GhostPersistence: Pre-flight check passed. Blockchain states are synchronized.")
+
+        result = await chains.reconcile()
+        if not result.get("reconciled"):
+            log.warning("GhostPersistence: could not reconcile the shared "
+                        "chain: %s", result.get("reason"))
+            try:
+                await log_to_db(
+                    level="WARNING",
+                    message=(f"Shared chain reconcile failed: "
+                             f"{result.get('reason', 'unknown')}"),
+                    trace={"event_type": "reconcile-failed", "result": result},
+                )
+            except Exception as db_exc:
+                log.warning("GhostPersistence: could not log that: %s", db_exc)
+            # The local chain is fine and the run can proceed; only the shared
+            # chain is out of date.
+            return True
+
+        if result.get("learned") or result.get("confirmed"):
+            log.info("GhostPersistence: reconciled the shared chain — "
+                     "%s learned from peers, %s of ours confirmed.",
+                     result.get("learned"), result.get("confirmed"))
         return True
+    except Exception as exc:
+        log.error("GhostPersistence: shared chain reconcile failed: %s", exc)
+        return True
+
 
 def check_hash() -> str:
     """
     NAME
-           check_hash - Perform a lightweight consensus check
-           
+           check_hash - a cheap health check on the local chain
+
     SYNOPSIS
            divergence_type = check_hash()
-           
+
     DESCRIPTION
-           Compares local and remote chain heights and hashes. Returns:
-           - 'none' if in sync.
-           - 'minor' if heartbeat missed or unreachable.
-           - 'major' if heights/hashes mismatch.
-     """
+           Returns:
+           - 'none'  the local chain is reachable and reports itself valid.
+           - 'minor' the local chain is unreachable. Nothing is wrong with it
+                     as far as anybody can tell; it simply cannot be asked.
+           - 'major' the local chain is reachable and does *not* verify. That
+                     is the one condition worth pausing a task for.
+
+           This used to compare the local chain's height and latest hash
+           against the remote chain's and report any difference as 'major'.
+           That premise does not survive the Ghost/Real split: they are two
+           chains divided by audience, not two copies of one chain. Ghost holds
+           everything this machine did, Real holds only what involved somebody
+           else, so they differ permanently and by design. Every goal run would
+           have reported a major divergence, blocked the task and triggered a
+           sync -- and the sync it triggered was the one that overwrote the
+           local chain (UI-124).
+
+           Reachability of the shared chain is not this function's business.
+           An install that never goes online is not diverged.
+    """
     local_status = get_local_status()
-    remote_status = get_remote_status()
 
     if "error" in local_status:
         return "minor"
-    if "error" in remote_status:
-        return "minor"
-
-    local_height = local_status.get("height")
-    local_hash = local_status.get("latestBlockHash")
-    remote_height = remote_status.get("height")
-    remote_hash = remote_status.get("latestBlockHash")
-
-    if local_height != remote_height or local_hash != remote_hash:
+    if local_status.get("isValid") is False:
         return "major"
-
     return "none"

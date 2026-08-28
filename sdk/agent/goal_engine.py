@@ -515,17 +515,17 @@ class GoalEngine:
 
                 divergence = await asyncio.to_thread(check_hash)
                 if divergence == "minor":
-                    log.info("GoalEngine: Minor divergence detected (unreachable/missed heartbeat). Continuing with Ghost chain primary.")
+                    log.info("GoalEngine: The local chain could not be reached. Continuing with Ghost chain primary.")
                     await log_to_db(
                         level="WARNING",
-                        message="Minor Divergence: Remote node missed heartbeat. Ghost chain remains primary.",
+                        message="Minor Divergence: the local chain could not be reached. Ghost chain remains primary.",
                         trace={"event_type": "Minor-Divergence", "status": "unreachable"}
                     )
                 elif divergence == "major":
-                    log.warning("GoalEngine: Major divergence detected (height/hash mismatch). Pausing task and triggering Automatic Sync Bridge.")
+                    log.warning("GoalEngine: The local chain does not verify. Pausing the task and reconciling.")
                     await log_to_db(
                         level="WARNING",
-                        message="Major Divergence: Height/hash mismatch detected. Triggering Automatic Sync.",
+                        message="Major Divergence: the local chain failed its own validity check.",
                         trace={"event_type": "Major-Divergence"}
                     )
                     # Pause active task
@@ -536,7 +536,9 @@ class GoalEngine:
                         reason="Paused for Sync"
                     )
                     
-                    # Execute sync_blockchain.py (Local -> Remote overwrite)
+                    # Reconcile the shared chain. This is no longer an
+                    # overwrite in either direction: it pulls, and the local
+                    # Ghost chain is never written by it (UI-124).
                     sync_success = await pre_flight_reconciliation()
                     
                     # Resume agent task (unblock regardless of remote VPS status to maintain offline-first execution)
