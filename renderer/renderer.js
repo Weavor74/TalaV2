@@ -6914,6 +6914,8 @@ const BlockchainViewer = {
     if (flush) flush.addEventListener('click', () => this.flush());
     const reconcile = qs('#btn-chain-reconcile');
     if (reconcile) reconcile.addEventListener('click', () => this.reconcile());
+    const permit = qs('#btn-chain-add-signer');
+    if (permit) permit.addEventListener('click', () => this.addSigner());
   },
 
   /**
@@ -6924,6 +6926,7 @@ const BlockchainViewer = {
    * between them was invisible because it was never recorded (UI-023).
    */
   async loadSplit() {
+    this.loadSigners();
     const ghostCount = qs('#chain-ghost-count');
     const realCount = qs('#chain-real-count');
     if (!ghostCount || !realCount) return;
@@ -7008,6 +7011,102 @@ const BlockchainViewer = {
     note.style.color = kind === 'error' ? 'var(--status-error)'
                      : kind === 'success' ? 'var(--status-ok)'
                      : 'var(--text-muted)';
+  },
+
+  /** Who may sign a block on the shared chain. */
+  async loadSigners() {
+    const list = qs('#chain-signers');
+    if (!list) return;
+    try {
+      const result = await invoke('python:rpc',
+        { method: 'chain.authorities', params: {} });
+      list.innerHTML = '';
+      if (!result.authorities.length) {
+        const empty = document.createElement('span');
+        empty.className = 'chain-card-empty';
+        empty.textContent = 'none — reconcile will refuse to import';
+        list.appendChild(empty);
+        return;
+      }
+      for (const fingerprint of result.authorities) {
+        const chip = document.createElement('span');
+        chip.className = 'chain-signer mono';
+        chip.textContent = fingerprint;
+        const remove = document.createElement('button');
+        remove.className = 'chain-signer-remove';
+        remove.textContent = '×';
+        remove.title = `Stop accepting blocks signed by ${fingerprint}`;
+        remove.addEventListener('click', () => this.removeSigner(fingerprint));
+        chip.appendChild(remove);
+        list.appendChild(chip);
+      }
+    } catch (err) {
+      list.textContent = `Could not read the signer list: ${err?.message || err}`;
+    }
+  },
+
+  _saySigner(message, kind) {
+    const note = qs('#chain-signer-note');
+    if (!note) return;
+    note.textContent = message;
+    note.style.color = kind === 'error' ? 'var(--status-error)'
+                     : kind === 'success' ? 'var(--status-ok)'
+                     : 'var(--text-muted)';
+  },
+
+  async addSigner() {
+    const field = qs('#chain-signer-key');
+    if (!field) return;
+    const entered = field.value.trim();
+    if (!entered) return;
+
+    try {
+      // A full PEM is turned into its fingerprint; anything else is taken as
+      // one already, so a peer can hand over either form.
+      let fingerprint = entered;
+      if (entered.includes('BEGIN PUBLIC KEY')) {
+        const resolved = await invoke('python:rpc',
+          { method: 'chain.fingerprint', params: { public_key: entered } });
+        fingerprint = resolved.fingerprint;
+      }
+
+      const current = await invoke('python:rpc',
+        { method: 'chain.authorities', params: {} });
+      if (current.authorities.includes(fingerprint)) {
+        this._saySigner(`${fingerprint} is already permitted.`, 'info');
+        return;
+      }
+
+      await invoke('python:rpc', {
+        method: 'chain.set_authorities',
+        params: { authorities: [...current.authorities, fingerprint] },
+      });
+      field.value = '';
+      await this.loadSigners();
+      this._saySigner(`${fingerprint} may now sign blocks on the shared chain.`,
+                      'success');
+    } catch (err) {
+      this._saySigner(`Could not permit that key: ${err?.message || err}`, 'error');
+    }
+  },
+
+  async removeSigner(fingerprint) {
+    try {
+      const current = await invoke('python:rpc',
+        { method: 'chain.authorities', params: {} });
+      await invoke('python:rpc', {
+        method: 'chain.set_authorities',
+        params: { authorities: current.authorities.filter(f => f !== fingerprint) },
+      });
+      await this.loadSigners();
+      // Blocks it already signed stay on the chain: removing them would be the
+      // whole-chain rewrite the merge exists to avoid.
+      this._saySigner(
+        `${fingerprint} can no longer sign. What it already signed stays on the chain.`,
+        'success');
+    } catch (err) {
+      this._saySigner(`Could not remove that key: ${err?.message || err}`, 'error');
+    }
   },
 
   async saveEndpoint() {

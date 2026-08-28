@@ -448,6 +448,25 @@
                   transactions wait here until one is.
                 </p>
               </div>
+              <!-- Who may sign. Verifying a block against the key the block
+                   itself carries proves only that it is self-consistent, so
+                   the signer has to be one you have named. -->
+              <div class="chain-card-endpoint">
+                <label for="chain-signer-key">Permitted signers</label>
+                <div class="chain-card-signers" id="chain-signers">
+                  <span class="chain-card-empty">none — reconcile will refuse to import</span>
+                </div>
+                <div class="chain-endpoint-row">
+                  <input type="text" id="chain-signer-key" class="input mono"
+                         placeholder="paste a peer's public key, or a fingerprint" />
+                  <button class="btn btn-secondary" id="btn-chain-add-signer">Permit</button>
+                </div>
+                <p class="chain-card-note" id="chain-signer-note">
+                  A block signed by a key that is not listed is refused. Naming
+                  nobody is not the same as permitting everybody: with an empty
+                  list, reconcile refuses rather than importing from strangers.
+                </p>
+              </div>
             </div>
           </div>
           <div class="blockchain-chain-container" id="blockchain-chain-flow">

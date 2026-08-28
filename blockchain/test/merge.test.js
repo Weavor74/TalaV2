@@ -138,6 +138,19 @@ before(async () => {
   dataDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tala-chain-'));
   await start();
   adminSecret = fs.readFileSync(path.join(dataDir, 'admin_secret.txt'), 'utf8').trim();
+
+  // The chains these tests build are signed by KEY, so KEY has to be a
+  // permitted signer -- exactly as a real peer would have to be. Without this
+  // every merge test fails on the signer check, which is the check working.
+  await fetch(`${BASE}/chain/authorities`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json',
+               'x-tala-chain-secret': adminSecret },
+    body: JSON.stringify({
+      public_key: KEY.publicKey.export({ type: 'spki', format: 'pem' }),
+      label: 'the test peer',
+    }),
+  });
 });
 
 after(async () => {
@@ -326,4 +339,171 @@ test('reconcile still requires the admin secret', async () => {
   });
   assert.ok(response.status === 401 || response.status === 403,
             `expected an auth refusal, got ${response.status}`);
+});
+
+// ── who may sign ─────────────────────────────────────────────────────────────
+//
+// Verifying a signature against the public key the block itself carries proves
+// only internal consistency: anyone can generate a key, sign with it, and
+// produce a block that verifies. And a block carrying no signature at all used
+// to skip the check entirely, so forging one was a matter of *deleting* its
+// signature.
+
+/** A one-block chain on top of `genesis`, signed by an arbitrary key. */
+function signedBy(keyPair, genesis, txId) {
+  const block = {
+    index: 1, previousHash: genesis.hash, timestamp: 1756000011000,
+    transactions: [transaction(txId)], nonce: 0,
+  };
+  block.hash = blockHash(block);
+  block.signature = crypto.sign(null, Buffer.from(block.hash),
+                                keyPair.privateKey).toString('hex');
+  block.public_key = keyPair.publicKey.export({ type: 'spki', format: 'pem' });
+  return [genesis, block];
+}
+
+async function authorities(method = 'GET', body, suffix = '') {
+  const response = await fetch(`${BASE}/chain/authorities${suffix}`, {
+    method,
+    headers: { 'Content-Type': 'application/json',
+               'x-tala-chain-secret': adminSecret },
+    ...(body ? { body: JSON.stringify(body) } : {}),
+  });
+  let parsed = {};
+  try { parsed = await response.json(); } catch { /* empty */ }
+  return { status: response.status, body: parsed };
+}
+
+test('the node seeds itself as a signer and nothing else', async () => {
+  // A fresh node must trust its own key or it would reject the blocks it signs
+  // itself, and it must trust nothing further, since who else may write is the
+  // owner's decision.
+  const seeded = JSON.parse(
+    fs.readFileSync(path.join(dataDir, 'authorities.json'), 'utf8'));
+  const bootstrapped = seeded.authorities.filter(
+    entry => entry.added_by === 'bootstrap');
+
+  assert.equal(bootstrapped.length, 1, 'exactly one key was seeded');
+
+  const { body } = await authorities();
+  const self = body.authorities.find(entry => entry.is_self);
+  assert.ok(self, 'the node knows its own key');
+  assert.equal(self.added_by, 'bootstrap');
+
+  // And its own chain verifies as a result.
+  const { body: status } = await get('/chain/status');
+  assert.equal(status.isValid, true);
+});
+
+test('a chain signed by a stranger is refused', async () => {
+  const stranger = crypto.generateKeyPairSync('ed25519');
+  const { body: ours } = await get('/chain/blocks');
+  const genesis = ours[0];
+
+  const block = {
+    index: 1, previousHash: genesis.hash, timestamp: 1756000009000,
+    transactions: [transaction('theirs')], nonce: 0,
+  };
+  block.hash = blockHash(block);
+  block.signature = crypto.sign(null, Buffer.from(block.hash),
+                                stranger.privateKey).toString('hex');
+  block.public_key = stranger.publicKey.export({ type: 'spki', format: 'pem' });
+
+  const { status, body } = await reconcile([genesis, block]);
+
+  assert.equal(status, 400);
+  assert.match(body.reason, /not a permitted signer/);
+});
+
+test('deleting a signature no longer forges a block', async () => {
+  // The hole underneath the other one: an unsigned block skipped verification
+  // altogether, so any forged block passed by declining to name a signer.
+  const { body: ours } = await get('/chain/blocks');
+  const genesis = ours[0];
+
+  const block = {
+    index: 1, previousHash: genesis.hash, timestamp: 1756000009000,
+    transactions: [transaction('forged')], nonce: 0,
+  };
+  block.hash = blockHash(block);
+  block.signature = null;
+  block.public_key = null;
+
+  const { status, body } = await reconcile([genesis, block]);
+
+  assert.equal(status, 400);
+  assert.match(body.reason, /not signed/);
+});
+
+test('a permitted signer is accepted', async () => {
+  // A fresh key, so this exercises admitting a signer rather than finding one
+  // already admitted.
+  const newcomer = crypto.generateKeyPairSync('ed25519');
+  const pem = newcomer.publicKey.export({ type: 'spki', format: 'pem' });
+  const { body: base } = await get('/chain/blocks');
+  const genesis = base[0];
+
+  const refused = await reconcile(signedBy(newcomer, genesis, 'before-admission'));
+  assert.equal(refused.status, 400, 'refused before admission');
+
+  const added = await authorities('POST', { public_key: pem, label: 'a peer' });
+  assert.equal(added.status, 200);
+  assert.equal(added.body.added, true);
+
+  await reset([genesis]);
+  const { status, body } = await reconcile(
+    signedBy(newcomer, genesis, 'after-admission'));
+
+  assert.equal(status, 200, 'accepted once admitted');
+  assert.equal(body.outcome, 'behind');
+});
+
+test('admitting the same key twice is not an error', async () => {
+  const pem = KEY.publicKey.export({ type: 'spki', format: 'pem' });
+
+  const { status, body } = await authorities('POST', { public_key: pem });
+
+  assert.equal(status, 200);
+  assert.equal(body.added, false);
+  assert.match(body.reason, /already/);
+});
+
+test('a key that cannot verify anything is refused', async () => {
+  const { status, body } = await authorities('POST', { public_key: 'not a key' });
+
+  assert.equal(status, 400);
+  assert.match(body.error, /not a usable public key/i);
+});
+
+test('withdrawing permission stops future writes', async () => {
+  const pem = KEY.publicKey.export({ type: 'spki', format: 'pem' });
+  const print = crypto.createHash('sha256')
+    .update(pem.replace(/\s+/g, '')).digest('hex').slice(0, 16);
+
+  const removed = await authorities('DELETE', undefined, `/${print}`);
+  assert.equal(removed.status, 200);
+
+  const { body: base } = await get('/chain/blocks');
+  await reset([base[0]]);
+  const { status } = await reconcile(
+    chainFrom(base[0], [[transaction('after-withdrawal')]]));
+
+  assert.equal(status, 400);
+});
+
+test('this node cannot remove its own key', async () => {
+  // It signs its own blocks; without its key it would reject its own chain.
+  const { body: listed } = await authorities();
+  const self = listed.authorities.find(entry => entry.is_self);
+
+  const { status, body } = await authorities('DELETE', undefined, `/${self.fingerprint}`);
+
+  assert.equal(status, 409);
+  assert.match(body.error, /own key/i);
+});
+
+test('the authority list is admin-gated', async () => {
+  // Which parties a node trusts is not for an anonymous caller to survey.
+  const response = await fetch(`${BASE}/chain/authorities`);
+  assert.ok(response.status === 401 || response.status === 403);
 });

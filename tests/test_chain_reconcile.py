@@ -226,6 +226,13 @@ def shared(monkeypatch):
         marked.append((entry_id, remote_id))
     monkeypatch.setattr(chains, "_mark_written", mark)
 
+    # The chains these tests build are signed by KEY, so KEY has to be a
+    # permitted signer -- exactly as a real peer would have to be. Tests about
+    # the signer check itself override this.
+    async def permitted():
+        return {chain_verify.fingerprint(PUBLIC_PEM)}
+    monkeypatch.setattr(chains, "authorities", permitted)
+
     return {"state": state, "rows": rows, "indexed": indexed, "marked": marked}
 
 
@@ -406,3 +413,152 @@ def test_reconnecting_reads_back_as_well_as_writing():
               if isinstance(node, ast.Call)
               and isinstance(node.func, ast.Attribute)}
     assert {"flush", "reconcile"} <= called
+
+
+# -- who may sign -------------------------------------------------------------
+#
+# Verifying a signature against the public key the block itself carries proves
+# only internal consistency: anyone can generate a key, sign with it, and
+# produce a block that verifies. And a block carrying no signature at all used
+# to skip the check entirely, so forging one was a matter of *deleting* its
+# signature.
+
+OUR_PRINT = chain_verify.fingerprint(PUBLIC_PEM)
+
+
+def test_the_fingerprint_survives_reformatting():
+    """A PEM that has been through JSON, a text field or a different line
+    ending must still resolve to the same signer, or a key pasted into the
+    settings panel silently stops matching the blocks it signed."""
+    assert chain_verify.fingerprint(PUBLIC_PEM.replace("\n", "\r\n")) == OUR_PRINT
+    assert chain_verify.fingerprint(f"  {PUBLIC_PEM}  ") == OUR_PRINT
+    assert chain_verify.fingerprint(PUBLIC_PEM.replace("\n", "")) == OUR_PRINT
+
+
+def test_the_fingerprint_matches_the_node_implementation():
+    """The two sides must agree about which key is which, or a chain one
+    accepts the other refuses."""
+    import re
+    from pathlib import Path
+
+    source = (Path(__file__).resolve().parents[1] / "blockchain" / "src" / "app.js"
+              ).read_text(encoding="utf-8")
+    body = re.search(r"function keyFingerprint\(publicKeyPem\) \{(.*?)\n\}",
+                     source, re.S)
+    assert body, "keyFingerprint is not where it was"
+    # same normalisation, same hash, same truncation
+    assert r"replace(/\s+/g, '')" in body.group(1)
+    assert "sha256" in body.group(1)
+    assert "slice(0, 16)" in body.group(1)
+
+
+def test_an_unknown_signer_is_refused():
+    stranger = Ed25519PrivateKey.generate()
+    blocks = make_chain([[make_transaction("genesis")], [make_transaction("t1")]])
+    blocks[1]["signature"] = stranger.sign(blocks[1]["hash"].encode()).hex()
+    blocks[1]["public_key"] = stranger.public_key().public_bytes(
+        Encoding.PEM, PublicFormat.SubjectPublicKeyInfo).decode()
+
+    verdict = chain_verify.verify(blocks, authorities={OUR_PRINT})
+
+    assert not verdict.valid
+    assert any("not a permitted signer" in problem for problem in verdict.problems)
+
+
+def test_a_permitted_signer_is_accepted():
+    blocks = make_chain([[make_transaction("genesis")], [make_transaction("t1")]])
+
+    assert chain_verify.verify(blocks, authorities={OUR_PRINT})
+
+
+def test_deleting_a_signature_no_longer_forges_a_block():
+    """The hole underneath the other one: an unsigned block skipped the check
+    altogether, so a forged block passed by declining to name a signer."""
+    blocks = make_chain([[make_transaction("genesis")], [make_transaction("t1")]])
+    blocks[1]["signature"] = None
+    blocks[1]["public_key"] = None
+
+    verdict = chain_verify.verify(blocks, authorities={OUR_PRINT})
+
+    assert not verdict.valid
+    assert any("is not signed" in problem for problem in verdict.problems)
+
+
+def test_genesis_may_be_unsigned():
+    """It is unsigned on this chain by construction; requiring a signature
+    there would reject every chain in existence."""
+    blocks = make_chain([[make_transaction("genesis")], [make_transaction("t1")]])
+    assert blocks[0]["signature"] is None
+
+    assert chain_verify.verify(blocks, authorities={OUR_PRINT})
+
+
+def test_signers_are_only_checked_when_asked():
+    """Looking at a chain and deciding whether to import it are different
+    questions with different answers."""
+    blocks = make_chain([[make_transaction("genesis")], [make_transaction("t1")]])
+    blocks[1]["signature"] = None
+    blocks[1]["public_key"] = None
+
+    assert chain_verify.verify(blocks).valid
+    assert not chain_verify.verify(blocks, authorities={OUR_PRINT}).valid
+
+
+@pytest.mark.asyncio
+async def test_reconcile_refuses_when_no_signers_are_configured(shared, monkeypatch):
+    """Importing from unknown signers because nobody answered the question is
+    exactly what the check exists to prevent."""
+    async def none():
+        return set()
+    monkeypatch.setattr(chains, "authorities", none)
+
+    shared["state"]["blocks"] = make_chain([[make_transaction("genesis")],
+                                            [make_transaction("t1")]])
+
+    result = await chains.reconcile()
+
+    assert not result["reconciled"]
+    assert "no permitted signers" in result["reason"]
+    assert shared["indexed"] == []
+    # and it says whose keys it saw, so the list can actually be filled in
+    assert result["signers_seen"] == [OUR_PRINT]
+
+
+@pytest.mark.asyncio
+async def test_reconcile_refuses_a_chain_from_an_unknown_signer(shared, monkeypatch):
+    async def configured():
+        return {"0000000000000000"}
+    monkeypatch.setattr(chains, "authorities", configured)
+
+    shared["state"]["blocks"] = make_chain([[make_transaction("genesis")],
+                                            [make_transaction("t1")]])
+
+    result = await chains.reconcile()
+
+    assert not result["reconciled"]
+    assert any("not a permitted signer" in problem
+               for problem in result["problems"])
+    assert shared["indexed"] == []
+
+
+@pytest.mark.asyncio
+async def test_reconcile_accepts_a_chain_from_a_permitted_signer(shared, monkeypatch):
+    async def configured():
+        return {OUR_PRINT}
+    monkeypatch.setattr(chains, "authorities", configured)
+
+    shared["state"]["blocks"] = make_chain([[make_transaction("genesis")],
+                                            [make_transaction("t1")]])
+
+    result = await chains.reconcile()
+
+    assert result["reconciled"]
+    assert result["learned"] == 2
+
+
+def test_the_authority_rpcs_exist():
+    from python.harness.server import _HANDLERS
+
+    for method in ("chain.authorities", "chain.set_authorities",
+                   "chain.fingerprint"):
+        assert method in _HANDLERS

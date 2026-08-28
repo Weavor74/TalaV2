@@ -30,6 +30,7 @@ const DATA_DIR = process.env.TALA_CHAIN_DATA_DIR
 const CHAIN_FILE = path.join(DATA_DIR, 'chain.json');
 const KEYS_FILE = path.join(DATA_DIR, 'poa_keys.json');
 const PEERS_FILE = path.join(DATA_DIR, 'peers.json');
+const AUTHORITIES_FILE = path.join(DATA_DIR, 'authorities.json');
 const ADMIN_SECRET_FILE = path.join(DATA_DIR, 'admin_secret.txt');
 
 // Ensure data directory exists
@@ -89,6 +90,142 @@ if (fs.existsSync(KEYS_FILE)) {
   fs.writeFileSync(KEYS_FILE, JSON.stringify({ privateKey, publicKey }, null, 2), 'utf8');
   console.log('[Tala Chain] Generated new Ed25519 PoA key pair.');
 }
+
+// ---------------------------------------------------------------------------
+// Who may sign a block
+// ---------------------------------------------------------------------------
+//
+// Verifying a signature against the public key the block itself carries proves
+// only that the block is internally consistent -- anyone can generate a key,
+// sign with it, and produce a block that verifies. That is no bar at all on a
+// chain other people write to, so signatures are checked against an explicit
+// set of permitted signers.
+//
+// The set is seeded with this node's own key and nothing else. Additions are
+// deliberate, admin-gated, and made by the owner: on a chain whose whole point
+// is recording what happened between parties, who may write is exactly the
+// decision that should not have a default.
+
+function keyFingerprint(publicKeyPem) {
+  // Whitespace-insensitive, so a PEM that has been through JSON, a text field
+  // or a different line ending still resolves to the same signer.
+  const normalised = String(publicKeyPem || '').replace(/\s+/g, '');
+  return crypto.createHash('sha256').update(normalised).digest('hex').slice(0, 16);
+}
+
+class AuthoritySet {
+  constructor() {
+    this.authorities = [];
+    this.load();
+  }
+
+  load() {
+    try {
+      if (fs.existsSync(AUTHORITIES_FILE)) {
+        const payload = JSON.parse(fs.readFileSync(AUTHORITIES_FILE, 'utf8'));
+        this.authorities = Array.isArray(payload.authorities) ? payload.authorities : [];
+      }
+    } catch (err) {
+      // Refusing to start would be worse than starting closed: an unreadable
+      // file leaves the set empty, and an empty set trusts nobody, which the
+      // seeding below then corrects with this node's own key.
+      console.error(`[Authorities] Could not read ${AUTHORITIES_FILE}: ${err.message}`);
+      this.authorities = [];
+    }
+    this.seedSelf();
+  }
+
+  // This node signs its own blocks, so it must be able to verify them. Without
+  // this a fresh install would reject every block it had just written.
+  seedSelf() {
+    if (!poaPublicKey) return;
+    if (this.has(poaPublicKey)) return;
+    this.authorities.push({
+      public_key: poaPublicKey,
+      fingerprint: keyFingerprint(poaPublicKey),
+      label: 'this node',
+      added_at: new Date().toISOString(),
+      added_by: 'bootstrap',
+    });
+    this.save();
+    console.log(`[Authorities] Seeded with this node's own key (${keyFingerprint(poaPublicKey)}).`);
+  }
+
+  save() {
+    try {
+      fs.writeFileSync(AUTHORITIES_FILE,
+        JSON.stringify({ version: 1, authorities: this.authorities }, null, 2), 'utf8');
+    } catch (err) {
+      console.error(`[Authorities] Could not save: ${err.message}`);
+    }
+  }
+
+  has(publicKeyPem) {
+    const print = keyFingerprint(publicKeyPem);
+    return this.authorities.some(entry => entry.fingerprint === print);
+  }
+
+  list() {
+    // The public keys are not secret, but they are not needed for a listing
+    // either; the fingerprint is what an operator works with.
+    return this.authorities.map(entry => ({
+      fingerprint: entry.fingerprint,
+      label: entry.label || '',
+      added_at: entry.added_at || '',
+      added_by: entry.added_by || '',
+      is_self: entry.fingerprint === keyFingerprint(poaPublicKey),
+    }));
+  }
+
+  add(publicKeyPem, label = '') {
+    const pem = String(publicKeyPem || '').trim();
+    if (!pem) throw new Error('A public key is required');
+
+    // Only a key that can actually verify a signature is any use, and a
+    // malformed one accepted now becomes a block rejected later for reasons
+    // nobody can trace back to here.
+    try {
+      crypto.createPublicKey(pem);
+    } catch (err) {
+      throw new Error(`Not a usable public key: ${err.message}`);
+    }
+
+    if (this.has(pem)) {
+      return { added: false, fingerprint: keyFingerprint(pem), reason: 'already an authority' };
+    }
+    this.authorities.push({
+      public_key: pem,
+      fingerprint: keyFingerprint(pem),
+      label: String(label || ''),
+      added_at: new Date().toISOString(),
+      added_by: 'admin',
+    });
+    this.save();
+    console.log(`[Authorities] Added ${keyFingerprint(pem)}${label ? ` (${label})` : ''}.`);
+    return { added: true, fingerprint: keyFingerprint(pem) };
+  }
+
+  remove(fingerprint) {
+    const print = String(fingerprint || '').trim();
+    if (print === keyFingerprint(poaPublicKey)) {
+      // Removing it would leave the node unable to verify the blocks it signs
+      // itself, so the whole chain would stop validating on the next check.
+      const error = new Error("This node's own key cannot be removed");
+      error.conflict = true;
+      throw error;
+    }
+    const before = this.authorities.length;
+    this.authorities = this.authorities.filter(entry => entry.fingerprint !== print);
+    if (this.authorities.length === before) {
+      return { removed: false, reason: 'not an authority' };
+    }
+    this.save();
+    console.log(`[Authorities] Removed ${print}.`);
+    return { removed: true, fingerprint: print };
+  }
+}
+
+const authoritySet = new AuthoritySet();
 
 // Local admin secret — required on every state-mutating administrative route
 // (chain reconcile, treasury mint). Auto-generated on first run and persisted
@@ -528,27 +665,73 @@ class Blockchain {
     return null;
   }
 
+  /**
+   * Whether this chain holds together.
+   *
+   * Three checks, and the last two both changed when key authentication went
+   * in:
+   *
+   *   contents  — every block's hash is the hash of its own contents.
+   *   linkage   — every block's previousHash is the block before it.
+   *   signature — every block after genesis is signed, and signed by a key
+   *               this node recognises as permitted to sign.
+   *
+   * The signature check used to read `if (current.signature &&
+   * current.public_key)`, which skipped verification entirely for a block
+   * carrying neither. Forging a block was therefore a matter of *deleting*
+   * its signature. That is the more serious of the two holes here, because
+   * authenticating keys is pointless while a block can decline to name one.
+   *
+   * And verification was against the public key the block itself carried,
+   * which proves only internal consistency: anyone can generate a key, sign
+   * with it, and produce a block that verifies. On a chain other people write
+   * to that is no bar at all, so the signer must be in the authority set.
+   *
+   * `reason` is filled in on failure, so a chain that is refused can say which
+   * block and why rather than merely being refused.
+   */
   isValid() {
+    this.invalidReason = '';
+
     for (let i = 1; i < this.chain.length; i++) {
       const current = this.chain[i];
       const previous = this.chain[i - 1];
 
-      if (current.hash !== current.calculateHash()) return false;
-      if (current.previousHash !== previous.hash) return false;
+      if (current.hash !== current.calculateHash()) {
+        this.invalidReason = `block ${current.index}: contents do not match its hash`;
+        return false;
+      }
+      if (current.previousHash !== previous.hash) {
+        this.invalidReason = `block ${current.index}: does not link to the block before it`;
+        return false;
+      }
 
-      // Verify signature if present
-      if (current.signature && current.public_key) {
-        try {
-          const isValidSig = crypto.verify(
-            null,
-            Buffer.from(current.hash),
-            current.public_key,
-            Buffer.from(current.signature, 'hex')
-          );
-          if (!isValidSig) return false;
-        } catch (e) {
+      if (!current.signature || !current.public_key) {
+        this.invalidReason = `block ${current.index}: is not signed`;
+        return false;
+      }
+
+      if (!authoritySet.has(current.public_key)) {
+        this.invalidReason =
+          `block ${current.index}: signed by ${keyFingerprint(current.public_key)}, ` +
+          `which is not a permitted signer`;
+        return false;
+      }
+
+      try {
+        const ok = crypto.verify(
+          null,
+          Buffer.from(current.hash),
+          current.public_key,
+          Buffer.from(current.signature, 'hex')
+        );
+        if (!ok) {
+          this.invalidReason = `block ${current.index}: signature does not verify`;
           return false;
         }
+      } catch (e) {
+        this.invalidReason = `block ${current.index}: signature could not be checked (${e.message})`;
+        return false;
       }
     }
     return true;
@@ -990,6 +1173,67 @@ const server = http.createServer((req, res) => {
     return;
   }
   
+  // Route: GET /chain/authorities
+  //
+  // Who may sign a block on this chain. Admin-gated: the list of parties a
+  // node trusts is not something an anonymous caller should be able to survey.
+  if (url.pathname === '/chain/authorities' && req.method === 'GET') {
+    if (!requireAdminSecret(req, res)) return;
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      authorities: authoritySet.list(),
+      count: authoritySet.authorities.length,
+      note: 'A block signed by a key not listed here is refused.',
+    }));
+    return;
+  }
+
+  // Route: POST /chain/authorities
+  //
+  // Permit another party to sign blocks on this chain. Deliberate and
+  // admin-gated by design: on a chain whose purpose is recording what happened
+  // between parties, who may write is exactly the decision that should not
+  // have a default.
+  if (url.pathname === '/chain/authorities' && req.method === 'POST') {
+    if (!requireAdminSecret(req, res)) return;
+    readRequestBody(req).then(body => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const result = authoritySet.add(payload.public_key, payload.label);
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ success: true, ...result }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    }).catch(err => {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Unable to read request body' }));
+    });
+    return;
+  }
+
+  // Route: DELETE /chain/authorities/:fingerprint
+  //
+  // Withdrawing permission does not retroactively invalidate what that signer
+  // already wrote -- those blocks are in the chain and removing them would be
+  // the whole-chain rewrite this endpoint exists to avoid. It stops them
+  // signing anything further, and any chain they offer from here on is
+  // refused.
+  const authorityMatch = url.pathname.match(/^\/chain\/authorities\/([^/]+)$/);
+  if (authorityMatch && req.method === 'DELETE') {
+    if (!requireAdminSecret(req, res)) return;
+    try {
+      const result = authoritySet.remove(decodeURIComponent(authorityMatch[1]));
+      res.writeHead(result.removed ? 200 : 404, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ success: result.removed, ...result }));
+    } catch (err) {
+      res.writeHead(err.conflict ? 409 : 400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message }));
+    }
+    return;
+  }
+
   // Route: POST /chain/reconcile
   if (url.pathname === '/chain/reconcile' && req.method === 'POST') {
     if (!requireAdminSecret(req, res)) return;
@@ -1015,10 +1259,17 @@ const server = http.createServer((req, res) => {
           return block;
         });
 
-        // Validate the incoming chain structure, hashes, and signatures
+        // Validate the incoming chain: contents, linkage, and a signature from
+        // a permitted signer on every block after genesis. A chain carrying a
+        // block signed by a key this node does not recognise is refused whole
+        // -- importing the blocks it *does* recognise would be a partial
+        // import, and a chain with holes in it is not a chain.
         if (!tempLedger.isValid()) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'Pushed blockchain is invalid (failed verification)' }));
+          res.end(JSON.stringify({
+            error: 'The incoming chain failed verification',
+            reason: tempLedger.invalidReason || '',
+          }));
           return;
         }
 

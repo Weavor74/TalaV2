@@ -3976,11 +3976,63 @@ and merge all run as they actually do — including a tampered chain, a foreign 
 idempotent re-merge, and the order-independence check. `node --test blockchain/test/merge.test.js`.
 7 tests cover the Python side. Full Python suite green.
 
+#### Key authentication (2026-08-28)
+
+Closed in the same pass, and it uncovered a worse hole than the one it was meant to close.
+
+**Any key was as good as any other.** `isValid()` verified each block against the `public_key` the
+block itself carried, which proves only internal consistency: generate a key, sign with it, and the
+block verifies. No bar at all on a chain other people write to.
+
+**And a block could decline to name a signer.** The check read:
+
+```js
+if (current.signature && current.public_key) { /* verify */ }
+```
+
+A block carrying neither skipped verification entirely, so **forging a block was a matter of
+deleting its signature**. This is the more serious of the two, and it makes the first one moot —
+authenticating keys is pointless while a block can refuse to have one. Both are now required on
+every block after genesis (genesis is unsigned on this chain by construction).
+
+**The authority set** lives in `blockchain/data/authorities.json`, seeded on first run with this
+node's own key and nothing else. That is not a placeholder default: on a chain whose purpose is
+recording what happened between parties, who may write is exactly the decision that should not have
+one. Managed through `GET`/`POST /chain/authorities` and `DELETE /chain/authorities/:fingerprint`,
+all admin-gated — which parties a node trusts is not for an anonymous caller to survey. This node's
+own key cannot be removed; without it the node would reject the blocks it signs itself.
+
+The existing 2,748 blocks are all signed by one key — this node's — so seeding covers the whole
+history. Verified: still valid with that signer permitted, refused with none.
+
+**Withdrawing permission is not retroactive.** Blocks a former signer already wrote stay on the
+chain; removing them would be the whole-chain rewrite this endpoint exists to avoid. It stops them
+signing anything further.
+
+**Both sides agree.** `chain_verify.verify()` takes an `authorities` set, and `fingerprint()` matches
+`keyFingerprint()` in the Node server byte for byte, whitespace-normalised so a PEM that has been
+through JSON or a text field still resolves to the same signer. A test asserts the two
+implementations stay in step.
+
+**An empty list refuses rather than permits.** `chains.reconcile()` will not import when no signers
+are configured — importing from unknown signers because nobody answered the question is precisely
+what the check exists to prevent — and it reports the fingerprints it saw, so the list can be filled
+in. `chain.authorities`, `chain.set_authorities` and `chain.fingerprint` are the RPCs; the Blockchain
+view manages them as chips and accepts either a pasted PEM or a fingerprint.
+
+**A bug this caught in passing:** `chain.set_endpoint` wrote `{"endpoint": ...}` over the whole
+`real_chain` settings row, dropping the signer list stored beside it — silently turning the check
+off. Same shape as UI-056, one save overwriting a whole config object, which is the reason
+`app_settings` exists at all. Found by an end-to-end run, not by the unit tests; now merges, and
+regression-tested.
+
+21 Node tests and 41 Python; full suite 1241 passed. The live chain is untouched.
+
 #### Still open
 
-The merge trusts any self-consistent signature: `isValid()` verifies a block against whatever
-`public_key` the block itself carries, so a peer can sign with any key it likes. Authenticating
-*which* keys may write to a shared chain is a separate piece of work and is not attempted here.
+Nothing distributes keys. Admitting a peer means obtaining their public key out of band and pasting
+it in. There is also no revocation beyond this node's own list: removing a signer here does not tell
+any other node to stop accepting them.
 
 ---
 

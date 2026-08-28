@@ -6393,3 +6393,37 @@ button:focus:not(:focus-visible) {
   color: var(--text-secondary);
   font-variant-numeric: tabular-nums;
 }
+
+/* Permitted signers. Chips rather than a list: the set is normally small, and
+   what matters is seeing at a glance that it is not empty. */
+.chain-card-signers {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  font-size: 0.75rem;
+}
+
+.chain-signer {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 6px 2px 8px;
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  color: var(--text-secondary);
+}
+
+.chain-signer-remove {
+  background: none;
+  border: 0;
+  padding: 0 2px;
+  cursor: pointer;
+  color: var(--text-muted);
+  font-size: 0.9rem;
+  line-height: 1;
+}
+
+.chain-signer-remove:hover,
+.chain-signer-remove:focus-visible {
+  color: var(--status-error);
+}

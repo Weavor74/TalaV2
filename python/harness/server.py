@@ -11789,6 +11789,100 @@ def _principal_from(params: dict[str, Any]):
     )
 
 
+async def handle_chain_authorities(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.authorities`` — who may sign a block on the shared chain.
+
+    Verifying a signature against the public key the block itself carries
+    proves only that the block is internally consistent: anyone can generate a
+    key, sign with it, and produce a block that verifies. On a chain other
+    people write to that is no bar at all, so signers are checked against this
+    list.
+    """
+    try:
+        from python.harness import chains
+
+        permitted = sorted(await chains.authorities())
+        return _ok(req_id, {
+            "authorities": permitted,
+            "count": len(permitted),
+            "note": (
+                "Fingerprints of the keys permitted to sign blocks on the "
+                "shared chain. With none listed, reconcile refuses to import "
+                "rather than importing from unknown signers."
+                if not permitted else
+                "A block signed by a key not listed here is refused."
+            ),
+        })
+    except Exception as exc:
+        logger.exception("chain.authorities error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_set_authorities(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.set_authorities`` — replace the permitted-signer list.
+
+    Deliberate and owner-driven by design. On a chain whose purpose is
+    recording what happened between parties, who may write is exactly the
+    decision that should not have a default.
+    """
+    listed = params.get("authorities")
+    if not isinstance(listed, list):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'authorities' must be a list of fingerprints")
+    for item in listed:
+        text = str(item or "").strip()
+        if not text or len(text) > 128:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        "each authority must be a non-empty fingerprint")
+
+    try:
+        from python.harness import chains
+
+        permitted = await chains.set_authorities(listed)
+        await db.log_to_db(
+            "INFO",
+            f"Shared chain signers set: {len(permitted)} permitted",
+            {"authorities": sorted(permitted)},
+        )
+        return _ok(req_id, {"success": True, "authorities": sorted(permitted)})
+    except Exception as exc:
+        logger.exception("chain.set_authorities error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_fingerprint(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.fingerprint`` — the handle for a public key.
+
+    So a key someone sends you can be turned into the short form the authority
+    list uses, without pasting a PEM into a settings field and hoping the line
+    endings survive.
+    """
+    public_key = str(params.get("public_key") or "").strip()
+    if not public_key:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'public_key' is required")
+    try:
+        from cryptography.hazmat.primitives.serialization import load_pem_public_key
+
+        from python.harness.chain_verify import fingerprint
+
+        try:
+            load_pem_public_key(public_key.encode("utf-8"))
+        except Exception as exc:
+            # A malformed key accepted now becomes a block refused later for
+            # reasons nobody can trace back to here.
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        f"not a usable public key: {exc}")
+
+        return _ok(req_id, {"fingerprint": fingerprint(public_key)})
+    except Exception as exc:
+        logger.exception("chain.fingerprint error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_chain_reconcile(params: dict[str, Any], req_id: Any) -> str:
     """
     ``chain.reconcile`` — read the shared chain back.
@@ -11853,9 +11947,15 @@ async def handle_chain_verify(params: dict[str, Any], req_id: Any) -> str:
             return _err(req_id, JsonRpcError.INTERNAL_ERROR,
                         f"HTTP {response.status_code} from {endpoint}")
 
-        verdict = chain_verify.verify(response.json())
+        # Enforce the permitted-signer list when asked, so "would this chain
+        # be imported" and "is this chain internally consistent" can be asked
+        # separately -- they are different questions with different answers.
+        permitted = (await chains.authorities()
+                     if params.get("check_signers") else None)
+        verdict = chain_verify.verify(response.json(), authorities=permitted)
         return _ok(req_id, {
             "endpoint": endpoint, "valid": verdict.valid,
+            "checked_signers": permitted is not None,
             "height": verdict.height, "signed": verdict.signed,
             "unsigned": verdict.unsigned, "problems": verdict.problems,
         })
@@ -11978,12 +12078,23 @@ async def handle_chain_set_endpoint(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INVALID_PARAMS,
                     "'endpoint' must be an http:// or https:// URL")
     try:
+        # Merge, do not replace. Writing {"endpoint": ...} over the row drops
+        # the permitted-signer list stored beside it, which is the same shape
+        # as UI-056 -- one save overwriting a whole config object -- and the
+        # reason app_settings exists at all. Losing it silently turns the
+        # signer check off.
+        from python.harness.chains import _unwrap
+
+        row = await db.fetchrow(
+            "SELECT value FROM app_settings WHERE key = 'real_chain'")
+        stored = _unwrap(row["value"]) if row else {}
+        stored["endpoint"] = endpoint
         await db.execute(
             "INSERT INTO app_settings (key, value, updated_at) "
             "VALUES ('real_chain', $1::jsonb, NOW()) "
             "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "
             "updated_at = NOW()",
-            _json.dumps({"endpoint": endpoint}),
+            _json.dumps(stored),
             caller="chain.set_endpoint",
         )
         await db.log_to_db(
@@ -13304,6 +13415,9 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "chain.authorities": handle_chain_authorities,
+    "chain.set_authorities": handle_chain_set_authorities,
+    "chain.fingerprint": handle_chain_fingerprint,
     "chain.reconcile": handle_chain_reconcile,
     "chain.verify": handle_chain_verify,
     "chain.summary": handle_chain_summary,

@@ -488,3 +488,38 @@ async def test_an_insert_that_wrote_nothing_is_not_reported_as_written(monkeypat
 
     result = await chains.index("real", {"id": "t1", "type": "payment"})
     assert result["written"] is True
+
+
+@pytest.mark.asyncio
+async def test_setting_the_endpoint_keeps_the_permitted_signers(monkeypatch):
+    """
+    Both live in the ``real_chain`` settings row, and writing
+    ``{"endpoint": ...}`` over it drops the signer list — silently turning the
+    signer check off. Same shape as UI-056, one save overwriting a whole config
+    object, which is the reason ``app_settings`` exists.
+    """
+    from python.harness import db, server
+
+    stored = {"value": json.dumps({"endpoint": "https://old.example",
+                                   "authorities": ["abc123"]})}
+    written = {}
+
+    async def fetchrow(query, *args):
+        return stored
+
+    async def execute(query, *args, caller=""):
+        written.update(json.loads(args[0]))
+        return "INSERT 0 1"
+
+    async def log(*a, **k):
+        return None
+
+    monkeypatch.setattr(db, "fetchrow", fetchrow)
+    monkeypatch.setattr(db, "execute", execute)
+    monkeypatch.setattr(db, "log_to_db", log)
+
+    await server._HANDLERS["chain.set_endpoint"](
+        {"endpoint": "https://new.example"}, 1)
+
+    assert written["endpoint"] == "https://new.example"
+    assert written["authorities"] == ["abc123"], "the signer list survived"

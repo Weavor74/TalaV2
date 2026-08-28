@@ -28,6 +28,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import re
 import logging
 from dataclasses import dataclass, field
 from typing import Any
@@ -72,6 +73,19 @@ def block_hash(block: dict[str, Any]) -> str:
     ).hexdigest()
 
 
+def fingerprint(public_key_pem: str) -> str:
+    """
+    A short, stable handle for a signer.
+
+    Whitespace-insensitive, so a PEM that has been through JSON, a text field
+    or a different line ending still resolves to the same signer. Must match
+    ``keyFingerprint`` in ``blockchain/src/app.js`` exactly, or the two sides
+    would disagree about which keys are permitted.
+    """
+    normalised = re.sub(r"\s+", "", str(public_key_pem or ""))
+    return hashlib.sha256(normalised.encode("utf-8")).hexdigest()[:16]
+
+
 def _signature_ok(block: dict[str, Any]) -> bool:
     from cryptography.hazmat.primitives.serialization import load_pem_public_key
 
@@ -82,9 +96,24 @@ def _signature_ok(block: dict[str, Any]) -> bool:
     return True
 
 
-def verify(blocks: list[dict[str, Any]], limit: int = 20) -> Verdict:
+def verify(blocks: list[dict[str, Any]], limit: int = 20,
+           authorities: set[str] | None = None) -> Verdict:
     """
     Verify a chain end to end.
+
+    ``authorities`` is a set of permitted signer fingerprints. When given,
+    every block after genesis must be signed, and signed by one of them.
+
+    Both halves of that matter. Verifying a signature against the public key
+    the block itself carries proves only internal consistency -- anyone can
+    generate a key, sign with it, and produce a block that verifies -- so an
+    unauthenticated signer is no bar on a chain other people write to. And a
+    block carrying no signature at all used to skip the check entirely, which
+    made forging one a matter of *deleting* its signature.
+
+    Passing ``None`` checks structure and self-consistency only. That is the
+    right default for looking at a chain, and the wrong one for deciding
+    whether to import it.
 
     Reports up to ``limit`` problems rather than the first one. A chain that
     fails is rejected whole -- there is no partial import, because a chain with
@@ -123,17 +152,28 @@ def verify(blocks: list[dict[str, Any]], limit: int = 20) -> Verdict:
                     )
 
         if block.get("signature") and block.get("public_key"):
-            try:
-                _signature_ok(block)
-                signed += 1
-            except Exception as exc:
-                signed += 1
+            signed += 1
+            if authorities is not None and fingerprint(block["public_key"]) not in authorities:
                 problems.append(
-                    f"block {block.get('index', position)}: signature does not "
-                    f"verify ({type(exc).__name__})"
+                    f"block {block.get('index', position)}: signed by "
+                    f"{fingerprint(block['public_key'])}, which is not a "
+                    f"permitted signer"
                 )
+            else:
+                try:
+                    _signature_ok(block)
+                except Exception as exc:
+                    problems.append(
+                        f"block {block.get('index', position)}: signature does "
+                        f"not verify ({type(exc).__name__})"
+                    )
         else:
             unsigned += 1
+            # Genesis is unsigned on this chain by construction. Any other
+            # unsigned block is a block that declined to say who wrote it.
+            if authorities is not None and position:
+                problems.append(
+                    f"block {block.get('index', position)}: is not signed")
 
         if len(problems) >= limit:
             problems.append("… stopping; the chain is already unusable")

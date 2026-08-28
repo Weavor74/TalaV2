@@ -442,6 +442,48 @@ async def real_endpoint() -> str:
     return ""
 
 
+async def authorities() -> set[str]:
+    """
+    The signers permitted to write to the shared chain, as fingerprints.
+
+    Empty means no restriction *has been configured*, which is not the same as
+    no restriction being wanted, so :func:`reconcile` treats the two cases
+    differently rather than quietly importing anything on an unconfigured
+    install.
+    """
+    from python.harness import db
+
+    try:
+        row = await db.fetchrow(
+            "SELECT value FROM app_settings WHERE key = 'real_chain'")
+        if row and row["value"]:
+            listed = _unwrap(row["value"]).get("authorities") or []
+            return {str(item).strip() for item in listed if str(item).strip()}
+    except Exception as exc:
+        log.debug("chain: could not read the authority list (%s)", exc)
+    return set()
+
+
+async def set_authorities(fingerprints: list[str]) -> set[str]:
+    """Replace the permitted-signer list."""
+    from python.harness import db
+
+    cleaned = sorted({str(item).strip() for item in fingerprints
+                      if str(item).strip()})
+    stored = _unwrap((await db.fetchrow(
+        "SELECT value FROM app_settings WHERE key = 'real_chain'")
+        or {"value": "{}"})["value"])
+    stored["authorities"] = cleaned
+    await db.execute(
+        "INSERT INTO app_settings (key, value, updated_at) "
+        "VALUES ('real_chain', $1::jsonb, NOW()) "
+        "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "
+        "updated_at = NOW()",
+        json.dumps(stored), caller="chains.set_authorities",
+    )
+    return set(cleaned)
+
+
 async def flush() -> dict[str, Any]:
     """
     Write every queued Real transaction, oldest first.
@@ -585,7 +627,24 @@ async def reconcile(endpoint: str = "") -> dict[str, Any]:
 
     from python.harness import chain_verify
 
-    verdict = chain_verify.verify(blocks)
+    # Who may sign. An empty list means nobody has said yet, and importing a
+    # chain from unknown signers because the question was never answered is
+    # precisely the failure this check exists to prevent -- so the pull is
+    # refused with an explanation rather than performed permissively.
+    permitted = await authorities()
+    if not permitted:
+        signers = sorted({chain_verify.fingerprint(block.get("public_key"))
+                          for block in blocks
+                          if isinstance(block, dict) and block.get("public_key")})
+        return {
+            "reconciled": False,
+            "reason": ("no permitted signers are configured for the shared "
+                       "chain, so there is nothing to check its blocks against"),
+            "signers_seen": signers,
+            "height": len(blocks) if isinstance(blocks, list) else 0,
+        }
+
+    verdict = chain_verify.verify(blocks, authorities=permitted)
     if not verdict.valid:
         # Say which blocks and why. A shared chain that stops verifying is
         # either corrupted or being tampered with, and "reconcile failed" is
