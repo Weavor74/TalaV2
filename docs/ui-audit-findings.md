@@ -4028,11 +4028,60 @@ regression-tested.
 
 21 Node tests and 41 Python; full suite 1241 passed. The live chain is untouched.
 
+#### Key distribution (2026-08-28)
+
+The hard part is not fetching a key. It is knowing the key is theirs. There is no certificate
+authority here, no web of trust, and no channel this system controls that an attacker in the middle
+would not also control — so anything that fetches a key and admits it is not distribution, it is the
+signature-trusting defect moved one layer out. Fetching and trusting are therefore separate acts,
+and [`chain_keys.py`](../python/harness/chain_keys.py) never performs the second one.
+
+| Step | What it establishes | What it does not |
+|---|---|---|
+| `GET /chain/identity` | the key a node says it signs with | that the node is who it claims |
+| `POST /chain/prove` | whoever answers at that address holds the private key | who they are |
+| fingerprint compared out of band | that the key belongs to the person you think | — |
+| `chain.trust_key` | admission, as a deliberate act by the owner | — |
+
+Proof of possession stops a directory advertising somebody else's key and having it admitted on
+their behalf. It says nothing about identity, which no amount of network traffic can settle. The
+fingerprint is what makes the out-of-band step usable: sixteen hex characters is short enough to
+read down a phone line and long enough that nobody can produce a second key matching it.
+
+**A trap in the obvious design, and why the prefix is not decoration.** A proof endpoint that signs
+caller-supplied bytes with the block-signing key is a **forgery oracle**. Block signatures are made
+over `block.hash` — a bare 64-character hex string — so an attacker builds a malicious block,
+submits its hash as the "nonce", and walks away with a validly signed block from your node. The
+signature is therefore made over `tala-proof-of-possession:v1:` + the nonce, which can never be a
+bare block hash. A test does exactly this attack and confirms the result is unusable as a block
+signature while remaining a valid proof.
+
+The proof also checks that the nonce came back unchanged (a substituted one is a replay, which
+proves nothing about who is answering now) and that the key signed with is the key advertised. The
+advertised fingerprint is **recomputed, not believed** — a node that misreports its own would
+otherwise get an out-of-band comparison to succeed against a key it will not sign with.
+
+**Possession is evidence, not a gate.** A key handed over in person has no network proof and may be
+perfectly trustworthy, so an unproven key can still be trusted; what matters is that the absence is
+recorded rather than glossed over. Keys pasted directly are marked `possession not tested`.
+
+`chain_key_offers` holds what has been obtained and what was decided. Refusing is kept rather than
+deleted — a key that was offered and refused is worth still knowing about when it turns up again —
+and withdrawing a trusted key is not retroactive: blocks it already signed stay on the chain.
+
+`GET /chain/identity` is the one chain route deliberately **not** admin-gated. A public key is
+public, and a key nobody can fetch cannot be distributed at all.
+
+Verified end to end against a second chain node: published, fetched, challenged, recorded as
+offered, its chain refused, trusted, its chain accepted, withdrawn, refused again. 26 Node tests and
+25 Python.
+
 #### Still open
 
-Nothing distributes keys. Admitting a peer means obtaining their public key out of band and pasting
-it in. There is also no revocation beyond this node's own list: removing a signer here does not tell
-any other node to stop accepting them.
+Revocation is local. Removing a signer here does not tell any other node to stop accepting them, so
+a key that turns out to be compromised has to be withdrawn on every install separately. Peers can
+advertise a `signing_key` in the directory, but nothing consumes the directory to *suggest* keys
+yet — obtaining one means having the peer's node URL.
 
 ---
 

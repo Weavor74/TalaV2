@@ -458,13 +458,35 @@
                 </div>
                 <div class="chain-endpoint-row">
                   <input type="text" id="chain-signer-key" class="input mono"
-                         placeholder="paste a peer's public key, or a fingerprint" />
-                  <button class="btn btn-secondary" id="btn-chain-add-signer">Permit</button>
+                         placeholder="a peer's node URL, or their public key" />
+                  <button class="btn btn-secondary" id="btn-chain-add-signer">Obtain</button>
                 </div>
                 <p class="chain-card-note" id="chain-signer-note">
                   A block signed by a key that is not listed is refused. Naming
                   nobody is not the same as permitting everybody: with an empty
                   list, reconcile refuses rather than importing from strangers.
+                </p>
+              </div>
+
+              <!-- Obtaining a key and trusting it are separate acts. Nothing on
+                   the network can tell you a key belongs to who it claims; only
+                   comparing the fingerprint with them, over something neither
+                   node controls, can do that. -->
+              <div class="chain-card-endpoint" id="chain-offers-section" hidden>
+                <label>Obtained, awaiting your decision</label>
+                <ul class="chain-offers" id="chain-offers"></ul>
+                <p class="chain-card-note">
+                  Read the fingerprint back to its owner — on a call, in person,
+                  anywhere that is not this connection — before you trust it.
+                </p>
+              </div>
+
+              <div class="chain-card-endpoint">
+                <label>Your own signing key</label>
+                <div class="chain-identity" id="chain-identity">—</div>
+                <p class="chain-card-note">
+                  Give this fingerprint to a peer so they can check the key they
+                  obtain from you is the one you sign with.
                 </p>
               </div>
             </div>

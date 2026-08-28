@@ -106,6 +106,11 @@ if (fs.existsSync(KEYS_FILE)) {
 // is recording what happened between parties, who may write is exactly the
 // decision that should not have a default.
 
+// Domain separation for proof-of-possession signatures. Anything signed with
+// this prefix cannot be mistaken for a block signature, which is made over a
+// bare 64-character hex hash. See POST /chain/prove.
+const POP_PREFIX = 'tala-proof-of-possession:v1:';
+
 function keyFingerprint(publicKeyPem) {
   // Whitespace-insensitive, so a PEM that has been through JSON, a text field
   // or a different line ending still resolves to the same signer.
@@ -774,6 +779,10 @@ class PeerDirectory {
       network: String(peer.network || peer.network_name || 'tala').trim() || 'tala',
       status: String(peer.status || existing?.status || 'online').trim() || 'online',
       discoverable: peer.discoverable === undefined ? true : Boolean(peer.discoverable),
+      // The key this peer says it signs blocks with. Advertised, not trusted:
+      // a directory entry is a claim by whoever wrote it, and admitting a
+      // signer is a decision the receiving owner makes deliberately.
+      signing_key: String(peer.signing_key || existing?.signing_key || '').trim(),
       capabilities: Array.isArray(peer.capabilities) ? peer.capabilities : [],
       metadata: peer.metadata && typeof peer.metadata === 'object' ? peer.metadata : {},
       last_seen: peer.last_seen || existing?.last_seen || now,
@@ -1173,6 +1182,78 @@ const server = http.createServer((req, res) => {
     return;
   }
   
+  // Route: GET /chain/identity
+  //
+  // This node's signing key, so a peer can obtain it and decide whether to
+  // admit it. Deliberately not admin-gated: a public key is public, and a key
+  // nobody can fetch cannot be distributed at all. It carries no claim about
+  // *who* this node is -- that is what the fingerprint comparison over a
+  // channel neither node controls is for.
+  if (url.pathname === '/chain/identity' && req.method === 'GET') {
+    res.writeHead(200, { 'Content-Type': 'application/json' });
+    res.end(JSON.stringify({
+      public_key: poaPublicKey,
+      fingerprint: keyFingerprint(poaPublicKey),
+      note: 'Compare this fingerprint out of band before admitting it as a signer.',
+    }));
+    return;
+  }
+
+  // Route: POST /chain/prove
+  //
+  // Proof of possession: the caller supplies a nonce it chose, and this node
+  // signs it, demonstrating that whoever answers here actually holds the
+  // private key for the advertised public key. Without it a directory entry
+  // could advertise somebody else's key and have it admitted on their behalf.
+  //
+  // ─── the trap this avoids ───
+  //
+  // Signing caller-supplied bytes with the block-signing key is a forgery
+  // oracle. Block signatures are made over `block.hash`, a bare 64-character
+  // hex string, so an attacker who can get arbitrary input signed computes a
+  // malicious block, submits its hash as the "nonce", and walks away with a
+  // validly signed block from this node.
+  //
+  // So the signature is over a domain-separated message -- a fixed prefix the
+  // signer chooses, plus the nonce -- which can never be a bare block hash.
+  // The prefix is not decoration; it is the whole reason this route is safe.
+  if (url.pathname === '/chain/prove' && req.method === 'POST') {
+    readRequestBody(req).then(body => {
+      try {
+        const payload = JSON.parse(body || '{}');
+        const nonce = String(payload.nonce || '').trim();
+
+        // A nonce is a random challenge, so it has no business being long or
+        // containing anything but hex. Constraining it keeps the signed
+        // message shape predictable.
+        if (!/^[0-9a-f]{32,128}$/i.test(nonce)) {
+          res.writeHead(400, { 'Content-Type': 'application/json' });
+          res.end(JSON.stringify({
+            error: 'nonce must be 32-128 hexadecimal characters',
+          }));
+          return;
+        }
+
+        const message = `${POP_PREFIX}${nonce}`;
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+          nonce,
+          prefix: POP_PREFIX,
+          public_key: poaPublicKey,
+          fingerprint: keyFingerprint(poaPublicKey),
+          signature: crypto.sign(null, Buffer.from(message), poaPrivateKey).toString('hex'),
+        }));
+      } catch (err) {
+        res.writeHead(400, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({ error: err.message }));
+      }
+    }).catch(err => {
+      res.writeHead(400, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Unable to read request body' }));
+    });
+    return;
+  }
+
   // Route: GET /chain/authorities
   //
   // Who may sign a block on this chain. Admin-gated: the list of parties a

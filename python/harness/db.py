@@ -634,6 +634,33 @@ _DDL_STATEMENTS: list[str] = [
             ON chain_ledger(occurred_at) WHERE pending;
     """),
 
+    # chain_key_offers — keys that have been obtained but not yet trusted.
+    #
+    # Fetching a key and trusting it are two different acts, and collapsing
+    # them is how key distribution turns into "admit whatever the network
+    # says". A key arrives here; it becomes an authority only when the owner
+    # says so, having compared the fingerprint over a channel neither node
+    # controls.
+    #
+    # proven records whether the holder demonstrated possession of the private
+    # key by signing a nonce we chose. That stops a directory advertising
+    # somebody else's key -- it does not establish *identity*, which no amount
+    # of network traffic can, and which is what the fingerprint comparison is
+    # for. Both facts are recorded because they answer different questions.
+    # ------------------------------------------------------------------
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS chain_key_offers (
+            fingerprint TEXT        PRIMARY KEY,
+            public_key  TEXT        NOT NULL,
+            label       TEXT        NOT NULL DEFAULT '',
+            source      TEXT        NOT NULL DEFAULT '',
+            proven      BOOLEAN     NOT NULL DEFAULT FALSE,
+            status      TEXT        NOT NULL DEFAULT 'offered',
+            note        TEXT        NOT NULL DEFAULT '',
+            offered_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            decided_at  TIMESTAMPTZ
+        );
+    """),
+
     # app_settings — small, single-purpose settings that must not be lost
     # inside a larger blob.
     #

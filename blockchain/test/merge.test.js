@@ -507,3 +507,114 @@ test('the authority list is admin-gated', async () => {
   const response = await fetch(`${BASE}/chain/authorities`);
   assert.ok(response.status === 401 || response.status === 403);
 });
+
+// ── handing a key over ───────────────────────────────────────────────────────
+
+test('the node publishes its own signing key', async () => {
+  // A key nobody can fetch cannot be distributed, so this one route is
+  // deliberately not admin-gated: a public key is public.
+  const response = await fetch(`${BASE}/chain/identity`);
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.match(body.public_key, /BEGIN PUBLIC KEY/);
+  assert.match(body.fingerprint, /^[0-9a-f]{16}$/);
+
+  // and it is the key the node actually signs with
+  const { body: listed } = await authorities();
+  const self = listed.authorities.find(entry => entry.is_self);
+  assert.equal(self.fingerprint, body.fingerprint);
+});
+
+test('the node proves it holds the private key', async () => {
+  const nonce = crypto.randomBytes(32).toString('hex');
+  const response = await fetch(`${BASE}/chain/prove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.nonce, nonce);
+
+  const ok = crypto.verify(
+    null,
+    Buffer.from(`${body.prefix}${nonce}`),
+    body.public_key,
+    Buffer.from(body.signature, 'hex'),
+  );
+  assert.equal(ok, true);
+});
+
+test('the proof endpoint cannot be used to forge a block', async () => {
+  // The trap this design avoids. Block signatures are made over a bare
+  // 64-character hex hash, so a signing oracle over unprefixed input would
+  // hand an attacker a valid block signature: build a malicious block, submit
+  // its hash as the nonce, attach what comes back.
+  const { body: ours } = await get('/chain/blocks');
+  const genesis = ours[0];
+
+  const forged = {
+    index: 1, previousHash: genesis.hash, timestamp: 1756000012000,
+    transactions: [transaction('forged-via-oracle')], nonce: 0,
+  };
+  forged.hash = blockHash(forged);
+
+  // The block hash is valid hex of an accepted length, so the route answers.
+  const response = await fetch(`${BASE}/chain/prove`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ nonce: forged.hash }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200, 'the oracle answered');
+
+  // But it signed a prefixed message, so the signature is not a block
+  // signature and the forged block does not verify.
+  forged.signature = body.signature;
+  forged.public_key = body.public_key;
+
+  const asBlockSignature = crypto.verify(
+    null, Buffer.from(forged.hash), forged.public_key,
+    Buffer.from(forged.signature, 'hex'));
+  assert.equal(asBlockSignature, false, 'the signature is not over the bare hash');
+
+  await reset([genesis]);
+  const { status } = await reconcile([genesis, forged]);
+  assert.equal(status, 400, 'and the chain is refused');
+});
+
+test('a nonce that is not a nonce is refused', async () => {
+  for (const nonce of ['', 'short', 'nonsense!', 'a'.repeat(200)]) {
+    const response = await fetch(`${BASE}/chain/prove`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ nonce }),
+    });
+    assert.equal(response.status, 400, `refused: ${nonce.slice(0, 12)}`);
+  }
+});
+
+test('a peer may advertise a signing key without it being trusted', async () => {
+  const newcomer = crypto.generateKeyPairSync('ed25519');
+  const pem = newcomer.publicKey.export({ type: 'spki', format: 'pem' });
+
+  const registered = await fetch(`${BASE}/chain/peers/register`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      username: '@advertiser', wallet_address: 'w-advertiser',
+      endpoint_url: 'http://127.0.0.1:9999', signing_key: pem,
+    }),
+  });
+  assert.ok(registered.status < 400);
+
+  // Advertised is not admitted: a directory entry is a claim by whoever wrote
+  // it, and the receiving owner decides.
+  const { body: listed } = await authorities();
+  const print = crypto.createHash('sha256')
+    .update(pem.replace(/\s+/g, '')).digest('hex').slice(0, 16);
+  assert.ok(!listed.authorities.some(entry => entry.fingerprint === print),
+            'advertising a key did not admit it');
+});

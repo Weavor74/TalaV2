@@ -6927,6 +6927,8 @@ const BlockchainViewer = {
    */
   async loadSplit() {
     this.loadSigners();
+    this.loadOffers();
+    this.loadIdentity();
     const ghostCount = qs('#chain-ghost-count');
     const realCount = qs('#chain-real-count');
     if (!ghostCount || !realCount) return;
@@ -7054,59 +7056,159 @@ const BlockchainViewer = {
                      : 'var(--text-muted)';
   },
 
+  /**
+   * Obtain a key. Never trust one.
+   *
+   * A node URL is fetched and challenged; a pasted PEM is recorded as handed
+   * over. Either way it lands in the offers list, because nothing on the
+   * network can tell you a key belongs to who it claims — only comparing the
+   * fingerprint with them, over something neither node controls, can do that.
+   */
   async addSigner() {
     const field = qs('#chain-signer-key');
     if (!field) return;
     const entered = field.value.trim();
     if (!entered) return;
 
-    try {
-      // A full PEM is turned into its fingerprint; anything else is taken as
-      // one already, so a peer can hand over either form.
-      let fingerprint = entered;
-      if (entered.includes('BEGIN PUBLIC KEY')) {
-        const resolved = await invoke('python:rpc',
-          { method: 'chain.fingerprint', params: { public_key: entered } });
-        fingerprint = resolved.fingerprint;
-      }
+    const looksLikeEndpoint = /^https?:\/\//i.test(entered);
+    this._saySigner(looksLikeEndpoint
+      ? 'Asking that node for its key…' : 'Recording that key…', 'info');
 
-      const current = await invoke('python:rpc',
-        { method: 'chain.authorities', params: {} });
-      if (current.authorities.includes(fingerprint)) {
-        this._saySigner(`${fingerprint} is already permitted.`, 'info');
+    try {
+      const result = looksLikeEndpoint
+        ? await invoke('python:rpc', {
+            method: 'chain.fetch_key', params: { endpoint: entered } })
+        : await invoke('python:rpc', {
+            method: 'chain.offer_key', params: { public_key: entered } });
+
+      if (looksLikeEndpoint && !result.fetched) {
+        this._saySigner(`Could not obtain a key: ${result.reason}`, 'error');
         return;
       }
-
-      await invoke('python:rpc', {
-        method: 'chain.set_authorities',
-        params: { authorities: [...current.authorities, fingerprint] },
-      });
       field.value = '';
-      await this.loadSigners();
-      this._saySigner(`${fingerprint} may now sign blocks on the shared chain.`,
-                      'success');
+      await this.loadOffers();
+      this._saySigner(
+        `${result.fingerprint} obtained` +
+        `${result.proven ? ', and it proved it holds the private key' : ''}. ` +
+        `Check that fingerprint with its owner before trusting it.`,
+        'success');
     } catch (err) {
-      this._saySigner(`Could not permit that key: ${err?.message || err}`, 'error');
+      this._saySigner(`Could not obtain that key: ${err?.message || err}`, 'error');
     }
   },
 
-  async removeSigner(fingerprint) {
+  /** Keys obtained but not yet decided about. */
+  async loadOffers() {
+    const section = qs('#chain-offers-section');
+    const list = qs('#chain-offers');
+    if (!section || !list) return;
+
     try {
-      const current = await invoke('python:rpc',
-        { method: 'chain.authorities', params: {} });
-      await invoke('python:rpc', {
-        method: 'chain.set_authorities',
-        params: { authorities: current.authorities.filter(f => f !== fingerprint) },
-      });
-      await this.loadSigners();
-      // Blocks it already signed stay on the chain: removing them would be the
-      // whole-chain rewrite the merge exists to avoid.
-      this._saySigner(
-        `${fingerprint} can no longer sign. What it already signed stays on the chain.`,
-        'success');
+      const result = await invoke('python:rpc', {
+        method: 'chain.key_offers', params: { status: 'offered' } });
+      list.innerHTML = '';
+      section.hidden = !result.offers.length;
+
+      for (const entry of result.offers) {
+        const row = document.createElement('li');
+        row.className = 'chain-offer';
+
+        const head = document.createElement('div');
+        head.className = 'chain-offer-head';
+        const print = document.createElement('span');
+        print.className = 'chain-offer-print mono';
+        print.textContent = entry.fingerprint;
+        head.appendChild(print);
+        if (entry.label) {
+          const label = document.createElement('span');
+          label.className = 'chain-offer-label';
+          label.textContent = entry.label;
+          head.appendChild(label);
+        }
+        // Whether they proved possession is evidence, not a verdict — a key
+        // handed over in person has no network proof and may be perfectly
+        // trustworthy. Showing it plainly beats implying it settles anything.
+        const proof = document.createElement('span');
+        proof.className =
+          `chain-offer-proof ${entry.proven ? 'is-proven' : 'is-unproven'}`;
+        proof.textContent = entry.proven
+          ? 'possession proved' : 'possession not proved';
+        proof.title = entry.note || '';
+        head.appendChild(proof);
+        row.appendChild(head);
+
+        const source = document.createElement('div');
+        source.className = 'chain-offer-source';
+        source.textContent = entry.source || '';
+        row.appendChild(source);
+
+        const actions = document.createElement('div');
+        actions.className = 'chain-offer-actions';
+        const trust = document.createElement('button');
+        trust.className = 'btn btn-secondary';
+        trust.textContent = 'Trust';
+        trust.addEventListener('click', () => this.trustKey(entry.fingerprint));
+        const refuse = document.createElement('button');
+        refuse.className = 'btn btn-ghost';
+        refuse.textContent = 'Refuse';
+        refuse.addEventListener('click', () => this.rejectKey(entry.fingerprint));
+        actions.append(trust, refuse);
+        row.appendChild(actions);
+
+        list.appendChild(row);
+      }
     } catch (err) {
-      this._saySigner(`Could not remove that key: ${err?.message || err}`, 'error');
+      section.hidden = false;
+      list.textContent = `Could not read the obtained keys: ${err?.message || err}`;
     }
+  },
+
+  /** This node's own key, to hand to a peer. */
+  async loadIdentity() {
+    const element = qs('#chain-identity');
+    if (!element) return;
+    try {
+      const result = await invoke('python:rpc',
+        { method: 'chain.identity', params: {} });
+      element.textContent = result.available
+        ? result.fingerprint
+        : `unavailable — ${result.reason}`;
+      element.className = result.available
+        ? 'chain-identity mono' : 'chain-identity';
+    } catch (err) {
+      element.textContent = `unavailable — ${err?.message || err}`;
+    }
+  },
+
+  async trustKey(fingerprint) {
+    try {
+      await invoke('python:rpc',
+        { method: 'chain.trust_key', params: { fingerprint } });
+      await Promise.all([this.loadOffers(), this.loadSigners()]);
+      this._saySigner(`${fingerprint} may now sign blocks on the shared chain.`,
+                      'success');
+    } catch (err) {
+      this._saySigner(`Could not trust that key: ${err?.message || err}`, 'error');
+    }
+  },
+
+  async rejectKey(fingerprint) {
+    try {
+      const result = await invoke('python:rpc',
+        { method: 'chain.reject_key', params: { fingerprint } });
+      await Promise.all([this.loadOffers(), this.loadSigners()]);
+      this._saySigner(result.was_trusted
+        ? `${fingerprint} can no longer sign. ${result.note}`
+        : `${fingerprint} refused.`, 'success');
+    } catch (err) {
+      this._saySigner(`Could not refuse that key: ${err?.message || err}`, 'error');
+    }
+  },
+
+  /** Withdrawing goes through the same path as refusing, so the record of what
+   *  was decided about a key stays in one place. */
+  async removeSigner(fingerprint) {
+    return this.rejectKey(fingerprint);
   },
 
   async saveEndpoint() {

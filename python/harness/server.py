@@ -11789,6 +11789,123 @@ def _principal_from(params: dict[str, Any]):
     )
 
 
+async def handle_chain_identity(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.identity`` — this node's own signing key, to hand to a peer.
+
+    The fingerprint is the part that matters: it is short enough to read down a
+    phone line and long enough that nobody can produce a second key matching
+    it, which is what makes the out-of-band comparison worth doing.
+    """
+    try:
+        from python.harness import chain_keys
+
+        return _ok(req_id, await chain_keys.identity())
+    except Exception as exc:
+        logger.exception("chain.identity error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_fetch_key(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.fetch_key`` — obtain a peer's signing key and test possession.
+
+    Records an offer. It does not trust anything: a key that arrived over the
+    network is a claim, and admitting it is the owner's deliberate act after
+    comparing the fingerprint through a channel neither node controls.
+    """
+    endpoint = str(params.get("endpoint") or "").strip()
+    if not endpoint:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'endpoint' is required")
+    try:
+        from python.harness import chain_keys
+
+        result = await chain_keys.fetch(endpoint, str(params.get("label") or ""))
+        if result.get("fetched") and not result.get("proven"):
+            await db.log_to_db(
+                "WARNING",
+                f"Obtained a signing key from {endpoint} that did not prove "
+                f"possession: {result.get('note', '')}",
+                {"fingerprint": result.get("fingerprint", "")},
+            )
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("chain.fetch_key error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_offer_key(params: dict[str, Any], req_id: Any) -> str:
+    """``chain.offer_key`` — record a key handed over directly."""
+    try:
+        from python.harness import chain_keys
+
+        result = await chain_keys.offer(
+            str(params.get("public_key") or ""),
+            str(params.get("label") or ""),
+            str(params.get("source") or "pasted"),
+        )
+        if not result.get("offered"):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        result.get("reason", "that key could not be used"))
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("chain.offer_key error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_key_offers(params: dict[str, Any], req_id: Any) -> str:
+    """``chain.key_offers`` — keys obtained, and what was decided about each."""
+    try:
+        from python.harness import chain_keys
+
+        listed = await chain_keys.offers(str(params.get("status") or ""))
+        return _ok(req_id, {
+            "offers": listed,
+            "note": (
+                "Fetching a key and trusting it are separate. Compare a "
+                "fingerprint with its owner over a channel neither of you "
+                "controls before admitting it."
+            ),
+        })
+    except Exception as exc:
+        logger.exception("chain.key_offers error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_trust_key(params: dict[str, Any], req_id: Any) -> str:
+    """``chain.trust_key`` — admit an offered key as a permitted signer."""
+    fingerprint = str(params.get("fingerprint") or "").strip()
+    if not fingerprint:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'fingerprint' is required")
+    try:
+        from python.harness import chain_keys
+
+        result = await chain_keys.trust(fingerprint)
+        if not result.get("trusted"):
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        result.get("reason", "that key could not be trusted"))
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("chain.trust_key error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_reject_key(params: dict[str, Any], req_id: Any) -> str:
+    """``chain.reject_key`` — refuse a key, or withdraw one already trusted."""
+    fingerprint = str(params.get("fingerprint") or "").strip()
+    if not fingerprint:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'fingerprint' is required")
+    try:
+        from python.harness import chain_keys
+
+        return _ok(req_id, await chain_keys.reject(fingerprint))
+    except Exception as exc:
+        logger.exception("chain.reject_key error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_chain_authorities(params: dict[str, Any], req_id: Any) -> str:
     """
     ``chain.authorities`` — who may sign a block on the shared chain.
@@ -13415,6 +13532,12 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "chain.identity": handle_chain_identity,
+    "chain.fetch_key": handle_chain_fetch_key,
+    "chain.offer_key": handle_chain_offer_key,
+    "chain.key_offers": handle_chain_key_offers,
+    "chain.trust_key": handle_chain_trust_key,
+    "chain.reject_key": handle_chain_reject_key,
     "chain.authorities": handle_chain_authorities,
     "chain.set_authorities": handle_chain_set_authorities,
     "chain.fingerprint": handle_chain_fingerprint,

@@ -6427,3 +6427,74 @@ button:focus:not(:focus-visible) {
 .chain-signer-remove:focus-visible {
   color: var(--status-error);
 }
+
+/* Keys obtained but not yet decided about. The fingerprint is the thing the
+   reader has to compare against what their peer tells them, so it gets the
+   weight; whether possession was proved is shown plainly beside it rather than
+   dressed up as a verdict. */
+.chain-offers {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chain-offer {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--space-2) var(--space-3);
+  border: 1px solid var(--glass-border);
+  border-left: 3px solid #f0a552;
+  border-radius: var(--radius-sm);
+  background: rgba(240, 165, 82, 0.05);
+}
+
+.chain-offer-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: var(--space-2);
+}
+
+.chain-offer-print {
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  letter-spacing: 0.04em;
+}
+
+.chain-offer-label { font-size: 0.78rem; color: var(--text-secondary); }
+
+.chain-offer-proof {
+  font-size: 0.68rem;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+  padding: 1px 7px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+}
+
+.chain-offer-proof.is-proven { color: #34d399; }
+.chain-offer-proof.is-unproven { color: var(--text-muted); }
+
+.chain-offer-source {
+  font-size: 0.72rem;
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+.chain-offer-actions {
+  display: flex;
+  gap: var(--space-2);
+  margin-top: 2px;
+}
+
+.chain-identity {
+  font-size: 0.9rem;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--text-primary);
+}
