@@ -446,3 +446,45 @@ def test_something_drains_the_queue_on_reconnect():
                and isinstance(node.func, ast.Attribute)
                and node.func.attr == "flush"
                for node in ast.walk(tree))
+
+
+# -- the key ------------------------------------------------------------------
+
+def test_the_ledger_is_keyed_on_the_chain_as_well_as_the_entry():
+    """
+    An external event is written to both chains and keeps one entry id across
+    them, which is what makes a Ghost row and its Real counterpart recognisable
+    as the same event. A key on entry_id alone therefore lets the first write
+    swallow the second, and ``ON CONFLICT DO NOTHING`` discards it silently.
+
+    That is not hypothetical: reconcile reported learning four transactions
+    from a peer and wrote none of them, because the backfill already held those
+    entry ids as Ghost.
+    """
+    from python.harness import db
+
+    creates = [statement for statement in db._DDL_STATEMENTS
+               if "CREATE TABLE IF NOT EXISTS chain_ledger" in statement]
+    assert len(creates) == 1, "chain_ledger is not created by exactly one migration"
+    assert "PRIMARY KEY (chain, entry_id)" in creates[0]
+
+
+@pytest.mark.asyncio
+async def test_an_insert_that_wrote_nothing_is_not_reported_as_written(monkeypatch):
+    """DO NOTHING is a successful statement that wrote no row."""
+    from python.harness import db
+
+    async def duplicate(query, *args, caller=""):
+        return "INSERT 0 0"
+    monkeypatch.setattr(db, "execute", duplicate)
+
+    result = await chains.index("real", {"id": "t1", "type": "payment"})
+    assert result["written"] is False
+    assert result["duplicate"] is True
+
+    async def fresh(query, *args, caller=""):
+        return "INSERT 0 1"
+    monkeypatch.setattr(db, "execute", fresh)
+
+    result = await chains.index("real", {"id": "t1", "type": "payment"})
+    assert result["written"] is True

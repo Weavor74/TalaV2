@@ -109,7 +109,7 @@ async def main(apply: bool) -> int:
                 "INSERT INTO chain_ledger (entry_id, tx_id, chain, type, "
                 "counterparty, document, metadata, occurred_at, pending) "
                 "VALUES ($1, $2, 'ghost', $3, $4, $5, $6::jsonb, $7, FALSE) "
-                "ON CONFLICT (entry_id) DO NOTHING",
+                "ON CONFLICT (chain, entry_id) DO NOTHING",
                 entry_id, tx_id, kind, counterparty, document_ref,
                 json.dumps({"backfilled": True}), occurred,
                 caller="backfill_chain_ledger",

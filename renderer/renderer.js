@@ -6912,6 +6912,8 @@ const BlockchainViewer = {
     if (save) save.addEventListener('click', () => this.saveEndpoint());
     const flush = qs('#btn-chain-flush');
     if (flush) flush.addEventListener('click', () => this.flush());
+    const reconcile = qs('#btn-chain-reconcile');
+    if (reconcile) reconcile.addEventListener('click', () => this.reconcile());
   },
 
   /**
@@ -6967,6 +6969,14 @@ const BlockchainViewer = {
     kinds('#chain-ghost-kinds', ghost.by_type);
     kinds('#chain-real-kinds', real.by_type);
 
+    const origins = qs('#chain-real-origins');
+    if (origins) {
+      const mine = real.mine || 0;
+      const peers = real.from_peers || 0;
+      origins.hidden = (mine + peers) === 0;
+      origins.textContent = `${mine} written from here · ${peers} from other peers`;
+    }
+
     const queue = qs('#chain-real-queue');
     if (queue) {
       const pending = real.pending || 0;
@@ -7014,6 +7024,35 @@ const BlockchainViewer = {
         : 'Endpoint saved.', 'success');
     } catch (err) {
       this._say(`Could not save the endpoint: ${err?.message || err}`, 'error');
+    }
+  },
+
+  /**
+   * Pull the shared chain and index what other peers appended.
+   *
+   * Writing to a shared chain and never reading it back leaves this install
+   * knowing only what it sent. Read-only locally: nothing a peer sends can
+   * add to, alter or remove Ghost.
+   */
+  async reconcile() {
+    this._say('Reading the shared chain…', 'info');
+    try {
+      const result = await invoke('python:rpc', { method: 'chain.reconcile', params: {} });
+      await this.loadSplit();
+      if (!result.reconciled) {
+        const problems = (result.problems || []).slice(0, 2).join('; ');
+        this._say(`Could not read the shared chain: ${result.reason}` +
+                  (problems ? ` — ${problems}` : ''), 'error');
+        return;
+      }
+      const parts = [`${result.height} block(s) on the shared chain`];
+      if (result.learned) parts.push(`${result.learned} learned from peers`);
+      if (result.confirmed) parts.push(`${result.confirmed} of ours confirmed`);
+      if (result.still_pending) parts.push(`${result.still_pending} still queued`);
+      this._say(parts.join(' — ') + '.',
+                result.still_pending ? 'info' : 'success');
+    } catch (err) {
+      this._say(`Could not read the shared chain: ${err?.message || err}`, 'error');
     }
   },
 

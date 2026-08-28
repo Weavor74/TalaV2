@@ -218,6 +218,7 @@ async def index(
     transaction: dict[str, Any],
     pending: bool = False,
     entry_id: str = "",
+    origin: str = "local",
 ) -> dict[str, Any]:
     """
     Record which chain a transaction belongs to.
@@ -230,6 +231,11 @@ async def index(
     ``document`` is stored as a reference, never as content: a document body
     on the Real chain would be readable by everyone on it.
 
+    ``origin`` separates what this machine did from what reconcile pulled back
+    off the shared chain. Without it "everything on the Real chain" and
+    "everything I put on the Real chain" are the same query, and they are not
+    the same question.
+
     ``entry_id`` makes the write idempotent for callers that can name the same
     event twice -- the backfill derives it from the block position. Left empty
     it is generated, because the transaction id cannot serve: it identifies the
@@ -238,13 +244,13 @@ async def index(
     from python.harness import db
 
     try:
-        await db.execute(
+        status = await db.execute(
             """
             INSERT INTO chain_ledger (entry_id, tx_id, chain, type,
                                       counterparty, document, metadata,
-                                      occurred_at, pending)
-            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
-            ON CONFLICT (entry_id) DO NOTHING
+                                      occurred_at, pending, origin)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10)
+            ON CONFLICT (chain, entry_id) DO NOTHING
             """,
             entry_id or f"e-{uuid.uuid4().hex}",
             transaction["id"], chain, transaction["type"],
@@ -253,9 +259,14 @@ async def index(
             json.dumps(transaction.get("metadata") or {}),
             _as_datetime(transaction.get("timestamp")),
             pending,
+            "peer" if origin == "peer" else "local",
             caller="chains.index",
         )
-        return {"written": True}
+        # DO NOTHING is a successful statement that wrote nothing, and
+        # reporting it as written is how reconcile came to say it had learned
+        # four transactions while writing none of them.
+        wrote = not str(status).endswith(" 0")
+        return {"written": wrote, "duplicate": not wrote}
     except Exception as exc:
         log.error("chain: could not index %s on the %s chain: %s",
                   transaction.get("id"), chain, exc)
@@ -411,7 +422,7 @@ async def _mark_written(entry_id: str, remote_id: str = "") -> None:
     try:
         await db.execute(
             "UPDATE chain_ledger SET pending = FALSE, remote_id = $2, "
-            "written_at = NOW() WHERE entry_id = $1",
+            "written_at = NOW() WHERE chain = 'real' AND entry_id = $1",
             entry_id, remote_id, caller="chains.flush",
         )
     except Exception as exc:
@@ -481,21 +492,181 @@ async def summary() -> dict[str, Any]:
 
     out = {
         "ghost": {"total": 0, "by_type": {}},
-        "real": {"total": 0, "pending": 0, "by_type": {}},
+        "real": {"total": 0, "pending": 0, "mine": 0, "from_peers": 0,
+                 "by_type": {}},
         "endpoint": await real_endpoint(),
     }
     try:
         rows = await db.fetch(
-            "SELECT chain, type, COUNT(*) n, "
+            "SELECT chain, type, origin, COUNT(*) n, "
             "COUNT(*) FILTER (WHERE pending) pending "
-            "FROM chain_ledger GROUP BY chain, type"
+            "FROM chain_ledger GROUP BY chain, type, origin"
         )
         for row in rows:
             chain = out.setdefault(row["chain"], {"total": 0, "by_type": {}})
             chain["total"] += row["n"]
-            chain["by_type"][row["type"]] = row["n"]
+            chain["by_type"][row["type"]] = (
+                chain["by_type"].get(row["type"], 0) + row["n"])
             if row["chain"] == REAL:
                 chain["pending"] = chain.get("pending", 0) + (row["pending"] or 0)
+                # Mine and theirs are different questions about the same chain.
+                key = "from_peers" if row["origin"] == "peer" else "mine"
+                chain[key] = chain.get(key, 0) + row["n"]
     except Exception as exc:
         out["error"] = str(exc)
     return out
+
+
+# ── reconcile ────────────────────────────────────────────────────────────────
+#
+# Writing to a shared chain and never reading it back leaves this install with
+# a record of what *it* put there and no idea what anyone else did. Reconcile
+# is the read-back.
+#
+# It pulls, and it deliberately does not use the Node server's own
+# ``POST /chain/reconcile``. That endpoint takes a whole chain and *overwrites*
+# the receiving node's chain whenever the incoming one is the same height or
+# longer. Between one machine and its own backup that is a sane
+# longest-chain-wins rule. On a chain several people write to it is data loss:
+# two peers who each append while the other is offline both hold a chain at
+# least as long as the other's, and whichever pushes second silently destroys
+# the first one's blocks. Nothing detects it afterwards, because the discarded
+# blocks leave no trace. So reconcile here never pushes a chain and never
+# overwrites anything.
+#
+# Three further limits, each deliberate:
+#
+# * **Ghost is never touched.** Nothing a peer sends can add to, alter or
+#   remove local history. Reconcile writes only Real rows.
+# * **The chain is verified here**, not taken on the sender's word.
+#   ``GET /chain/status`` reports an ``isValid`` that the node being asked
+#   computed about itself, which is worth nothing when the question is whether
+#   to trust that node.
+# * **All or nothing.** A chain that fails verification is rejected whole. A
+#   chain with the bad blocks skipped is not a chain.
+
+
+async def reconcile(endpoint: str = "") -> dict[str, Any]:
+    """
+    Pull the shared chain and index what is on it that is not indexed here.
+
+    Returns what changed: transactions newly learned from other peers, and
+    local transactions the shared chain confirms it accepted.
+    """
+    import httpx
+
+    endpoint = (endpoint or await real_endpoint()).strip()
+    if not endpoint:
+        return {"reconciled": False,
+                "reason": "no Real chain endpoint is configured"}
+
+    try:
+        from python.harness.access import AGENT, Principal
+        from python.harness.network_guard import check as net_check
+
+        permitted = await net_check(endpoint, Principal(AGENT, "default"),
+                                    purpose="real-chain-reconcile")
+        if not permitted.allowed:
+            return {"reconciled": False, "reason": permitted.reason}
+    except Exception as exc:
+        return {"reconciled": False,
+                "reason": f"guardrails unavailable: {exc}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(f"{endpoint.rstrip('/')}/chain/blocks")
+        if response.status_code >= 400:
+            return {"reconciled": False,
+                    "reason": f"HTTP {response.status_code}"}
+        blocks = response.json()
+    except Exception as exc:
+        return {"reconciled": False,
+                "reason": f"{type(exc).__name__}: {exc}"}
+
+    from python.harness import chain_verify
+
+    verdict = chain_verify.verify(blocks)
+    if not verdict.valid:
+        # Say which blocks and why. A shared chain that stops verifying is
+        # either corrupted or being tampered with, and "reconcile failed" is
+        # not enough to tell those apart.
+        log.error("chain: refused a shared chain that does not verify: %s",
+                  "; ".join(verdict.problems[:3]))
+        return {"reconciled": False, "reason": "the shared chain does not verify",
+                "problems": verdict.problems, "height": verdict.height}
+
+    return await _absorb(chain_verify.transactions_of(blocks), verdict)
+
+
+async def _absorb(transactions: list[dict[str, Any]],
+                  verdict: Any) -> dict[str, Any]:
+    """Index what the shared chain holds, without disturbing what is here."""
+    from python.harness import db
+
+    try:
+        rows = await db.fetch(
+            "SELECT entry_id, tx_id, pending FROM chain_ledger WHERE chain = 'real'")
+    except Exception as exc:
+        return {"reconciled": False, "reason": f"could not read the index: {exc}"}
+
+    known = {row["entry_id"] for row in rows}
+    # Ours are keyed "real-<tx id>" because we wrote them before they had a
+    # position on the chain; theirs arrive keyed by block position. Matching
+    # on the transaction id is what lets a round trip recognise itself.
+    mine_pending = {row["tx_id"]: row["entry_id"]
+                    for row in rows if row["pending"]}
+
+    learned = confirmed = 0
+    for transaction in transactions:
+        entry_id = transaction["_entry_id"]
+        tx_id = str(transaction.get("id") or "")
+        if not tx_id:
+            continue
+
+        # A pending transaction of ours that is on the chain was accepted --
+        # including when the POST succeeded and its response never arrived,
+        # which would otherwise leave it queued and resent forever.
+        if tx_id in mine_pending:
+            await _mark_written(mine_pending.pop(tx_id), entry_id)
+            confirmed += 1
+            continue
+
+        if entry_id in known:
+            continue
+
+        written = await index(
+            REAL,
+            {
+                "id": tx_id,
+                "type": str(transaction.get("type") or "unknown"),
+                "counterparty": str(transaction.get("counterparty") or ""),
+                "document_ref": str(transaction.get("hash") or "")[:512],
+                "metadata": {
+                    "block": transaction.get("_block_index"),
+                    "creator": str(transaction.get("creator") or ""),
+                },
+                "timestamp": _block_time(transaction.get("_block_timestamp")),
+            },
+            entry_id=entry_id,
+            origin="peer",
+        )
+        if written.get("written"):
+            learned += 1
+
+    log.info("chain: reconciled — %d learned from peers, %d confirmed as ours",
+             learned, confirmed)
+    return {
+        "reconciled": True,
+        "height": verdict.height,
+        "learned": learned,
+        "confirmed": confirmed,
+        "still_pending": len(mine_pending),
+    }
+
+
+def _block_time(raw: Any) -> datetime:
+    """A block timestamp, which the Node server writes in milliseconds."""
+    if isinstance(raw, (int, float)):
+        return datetime.fromtimestamp(
+            raw / 1000.0 if raw > 1e11 else raw, tz=timezone.utc)
+    return _as_datetime(raw)

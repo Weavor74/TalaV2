@@ -11789,6 +11789,81 @@ def _principal_from(params: dict[str, Any]):
     )
 
 
+async def handle_chain_reconcile(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.reconcile`` — read the shared chain back.
+
+    Writing to a shared chain and never reading it leaves this install knowing
+    only what it put there. This pulls what everyone else appended.
+
+    It never pushes. The Node server's own POST /chain/reconcile overwrites the
+    receiving chain whenever the incoming one is as long or longer, which is
+    fine between a machine and its backup and is data loss on a chain several
+    people write to.
+    """
+    try:
+        from python.harness import chains
+
+        result = await chains.reconcile(str(params.get("endpoint") or ""))
+        if not result.get("reconciled"):
+            await db.log_to_db(
+                "WARNING",
+                f"Could not reconcile with the shared chain: "
+                f"{result.get('reason', 'unknown')}",
+                {"problems": result.get("problems", [])},
+            )
+        elif result.get("learned") or result.get("confirmed"):
+            await db.log_to_db(
+                "INFO",
+                f"Reconciled with the shared chain: {result['learned']} "
+                f"transaction(s) learned from peers, {result['confirmed']} "
+                f"of ours confirmed",
+            )
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("chain.reconcile error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_verify(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.verify`` — check a chain here rather than taking its word.
+
+    ``GET /chain/status`` returns an ``isValid`` the node computed about
+    itself, which answers nothing when the question is whether to trust it.
+    Defaults to the local Ghost node so the same check works on both.
+    """
+    import httpx
+
+    try:
+        from python.harness import chain_verify, chains
+
+        which = str(params.get("chain") or "ghost").lower()
+        endpoint = str(params.get("endpoint") or "").strip()
+        if not endpoint:
+            endpoint = (await chains.real_endpoint() if which == "real"
+                        else await chains.ghost_endpoint())
+        if not endpoint:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        "no endpoint for that chain")
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            response = await client.get(f"{endpoint.rstrip('/')}/chain/blocks")
+        if response.status_code >= 400:
+            return _err(req_id, JsonRpcError.INTERNAL_ERROR,
+                        f"HTTP {response.status_code} from {endpoint}")
+
+        verdict = chain_verify.verify(response.json())
+        return _ok(req_id, {
+            "endpoint": endpoint, "valid": verdict.valid,
+            "height": verdict.height, "signed": verdict.signed,
+            "unsigned": verdict.unsigned, "problems": verdict.problems,
+        })
+    except Exception as exc:
+        logger.exception("chain.verify error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_chain_summary(params: dict[str, Any], req_id: Any) -> str:
     """
     ``chain.summary`` — the two chains, side by side.
@@ -11839,7 +11914,8 @@ async def handle_chain_transactions(params: dict[str, Any], req_id: Any) -> str:
 
         rows = await db.fetch(
             "SELECT entry_id, tx_id, type, counterparty, document, metadata, "
-            "occurred_at, pending, remote_id, written_at FROM chain_ledger "
+            "occurred_at, pending, remote_id, written_at, origin "
+            "FROM chain_ledger "
             "WHERE chain = $1 ORDER BY occurred_at DESC LIMIT $2",
             chain, limit,
         )
@@ -11853,6 +11929,7 @@ async def handle_chain_transactions(params: dict[str, Any], req_id: Any) -> str:
                 "metadata": _unwrap(row["metadata"]),
                 "occurred_at": row["occurred_at"].isoformat() if row["occurred_at"] else "",
                 "pending": row["pending"], "remote_id": row["remote_id"],
+                "origin": row["origin"],
                 "written_at": row["written_at"].isoformat() if row["written_at"] else "",
             } for row in rows],
         })
@@ -13227,6 +13304,8 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "chain.reconcile": handle_chain_reconcile,
+    "chain.verify": handle_chain_verify,
     "chain.summary": handle_chain_summary,
     "chain.transactions": handle_chain_transactions,
     "chain.flush": handle_chain_flush,
@@ -13921,6 +14000,11 @@ async def _real_chain_flush_loop() -> None:
                     f"Wrote {result['flushed']} queued transaction(s) to the "
                     f"Real chain on reconnect",
                 )
+                # Read back in the same pass. A flush leaves this install
+                # knowing what it sent and nothing about what anyone else
+                # appended in the meantime, and the reconnect is exactly the
+                # moment that gap is worth closing.
+                await chains.reconcile()
         except asyncio.CancelledError:
             raise
         except Exception as exc:

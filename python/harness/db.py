@@ -559,6 +559,13 @@ _DDL_STATEMENTS: list[str] = [
     # that record. It is an index over the chains, not a second copy of them:
     # the Ghost chain itself remains blockchain/data/chain.json.
     #
+    # The key is (chain, entry_id), not entry_id alone. One external event is
+    # written to both chains and keeps one entry id across them, so a global
+    # key means the Ghost row swallows the Real one and ON CONFLICT DO NOTHING
+    # discards it without a word. That is how it first behaved: reconcile
+    # reported learning four transactions and wrote none of them, because the
+    # backfill already held those entry ids as Ghost.
+    #
     # entry_id is synthetic and tx_id is not unique, which looks redundant and
     # is not. In the existing chain the transaction "id" is a *document*
     # identity: 2,748 transactions carry only 185 distinct ids, because
@@ -572,24 +579,30 @@ _DDL_STATEMENTS: list[str] = [
     # no connection is held here and written on reconnect, so the Real chain
     # stays complete rather than silently missing whatever happened offline.
     # ------------------------------------------------------------------
-    # The first cut of this table keyed on the transaction id, which turned
-    # out to be a document identity rather than a transaction identity and
-    # collapsed 2,748 entries into 185. Drop that shape so the corrected one
-    # below is created; the rows were an index that the backfill script
-    # rebuilds, so nothing is lost with them.
+    # Two earlier shapes of this table were wrong in the same way -- a key that
+    # merged rows which are not the same row. The first keyed on the
+    # transaction id, a document identity, and collapsed 2,748 entries into
+    # 185. The second keyed on entry_id alone and let a Ghost row swallow its
+    # Real counterpart. Drop anything not keyed on (chain, entry_id); the rows
+    # are an index the backfill rebuilds, so nothing is lost with them.
     textwrap.dedent("""        DO $$
         BEGIN
             IF EXISTS (SELECT 1 FROM information_schema.tables
                        WHERE table_name = 'chain_ledger')
-               AND NOT EXISTS (SELECT 1 FROM information_schema.columns
-                               WHERE table_name = 'chain_ledger'
-                                 AND column_name = 'entry_id') THEN
+               AND NOT EXISTS (
+                   SELECT 1
+                     FROM information_schema.key_column_usage k
+                     JOIN information_schema.table_constraints c
+                       ON c.constraint_name = k.constraint_name
+                    WHERE k.table_name = 'chain_ledger'
+                      AND c.constraint_type = 'PRIMARY KEY'
+                      AND k.column_name = 'chain') THEN
                 DROP TABLE chain_ledger;
             END IF;
         END $$;
     """),
     textwrap.dedent("""        CREATE TABLE IF NOT EXISTS chain_ledger (
-            entry_id     TEXT        PRIMARY KEY,
+            entry_id     TEXT        NOT NULL,
             tx_id        TEXT        NOT NULL,
             chain        TEXT        NOT NULL,
             type         TEXT        NOT NULL,
@@ -599,8 +612,17 @@ _DDL_STATEMENTS: list[str] = [
             occurred_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
             pending      BOOLEAN     NOT NULL DEFAULT FALSE,
             remote_id    TEXT        NOT NULL DEFAULT '',
-            written_at   TIMESTAMPTZ
+            written_at   TIMESTAMPTZ,
+            -- 'local' for what this machine did, 'peer' for what reconcile
+            -- pulled back from the shared chain. Without it "everything on the
+            -- Real chain" and "everything I put on the Real chain" are the
+            -- same query, and they are not the same question.
+            origin       TEXT        NOT NULL DEFAULT 'local',
+            PRIMARY KEY (chain, entry_id)
         );
+    """),
+    textwrap.dedent("""        ALTER TABLE chain_ledger
+            ADD COLUMN IF NOT EXISTS origin TEXT NOT NULL DEFAULT 'local';
     """),
     textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_chain_ledger_recent
             ON chain_ledger(chain, occurred_at DESC);

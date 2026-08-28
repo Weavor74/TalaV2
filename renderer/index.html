@@ -429,6 +429,9 @@
               </div>
               <div class="chain-card-count mono" id="chain-real-count">—</div>
               <p class="chain-card-note">Only interactions that involved somebody else. Visible to everyone on the chain.</p>
+              <!-- What this machine put there and what other peers did are
+                   different questions about the same chain. -->
+              <div class="chain-card-origins" id="chain-real-origins" hidden></div>
               <ul class="chain-card-kinds" id="chain-real-kinds"></ul>
               <div class="chain-card-queue" id="chain-real-queue" hidden></div>
               <div class="chain-card-endpoint">
@@ -438,6 +441,7 @@
                          placeholder="https://… (leave empty to stay local-only)" />
                   <button class="btn btn-secondary" id="btn-chain-endpoint-save">Save</button>
                   <button class="btn btn-ghost" id="btn-chain-flush">Send queued</button>
+                  <button class="btn btn-ghost" id="btn-chain-reconcile" title="Pull the shared chain and index what other peers appended">Read back</button>
                 </div>
                 <p class="chain-card-note" id="chain-endpoint-note">
                   With no endpoint set the Real chain is never used and external

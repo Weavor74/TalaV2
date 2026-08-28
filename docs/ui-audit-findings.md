@@ -457,9 +457,36 @@ rather than looking drained.
 Backfilled against the live database: 2,748 Ghost entries over 185 distinct documents, Real empty.
 38 tests in [`tests/test_chains.py`](../tests/test_chains.py).
 
-**Not done.** Nothing yet *reconciles* the shared chain — `/chain/reconcile` exists on the Node
-server and no caller uses it. Writing is one-directional: this install appends, and does not read
-back what other peers appended.
+**Reconcile (2026-08-28).** `chains.reconcile()` closes the read-back gap: it pulls
+`GET /chain/blocks` from the shared chain, verifies it here, indexes what other peers appended, and
+confirms our own queued transactions that the chain already holds. `chain.reconcile` and
+`chain.verify` are the RPCs; the reconnect loop reconciles in the same pass as the flush, since that
+is the moment the gap is worth closing. `origin` separates what this machine wrote from what came
+back off the chain — otherwise "everything on the Real chain" and "everything I put on the Real
+chain" are the same query and they are not the same question.
+
+**It pulls; it never pushes — see UI-124.** The Node server's `POST /chain/reconcile` overwrites
+the receiving chain whenever the incoming one is as long or longer, which is data loss on a chain
+several people write to.
+
+**Verified here, not taken on trust.** [`chain_verify.py`](../python/harness/chain_verify.py)
+recomputes block hashes, checks the `previousHash` links and verifies Ed25519 signatures, byte-for-byte
+compatible with `Blockchain.isValid()` in `blockchain/src/app.js` — a chain one accepts and the other
+rejects would be a split nobody could diagnose. `GET /chain/status` returns an `isValid` the node
+computed *about itself*, which answers nothing when the question is whether to trust that node.
+Checked against all 2,748 local blocks: 0 bad hashes, 0 broken links, 2,747 valid signatures and the
+unsigned genesis. A chain that fails is rejected whole — a chain with the bad blocks skipped is not
+a chain.
+
+**A third key mistake, same shape as the first two.** `entry_id` was the primary key on its own, but
+an external event is written to both chains and keeps one entry id across them — which is precisely
+what makes a Ghost row and its Real counterpart recognisable as the same event. So the Ghost row
+swallowed the Real one and `ON CONFLICT DO NOTHING` discarded it without a word: reconcile reported
+learning four transactions from a peer and wrote none of them. The key is now `(chain, entry_id)`,
+and `index()` no longer reports a zero-row insert as written. Both are regression-tested.
+
+**Still not done.** Reconcile pulls on reconnect and on demand, not on a schedule, so a long-running
+online session learns about peers when it next flushes rather than continuously.
 
 **Original finding.**
 
@@ -3858,6 +3885,40 @@ was meant to jump the user to Settings simply does nothing.
 Same family as UI-033, where `Manage Workers in Settings` targets a `data-tab` selector that does
 not exist. Both are cross-view navigation attempts that silently no-op — which is the argument for
 `ui.navigate` existing as one real function rather than being re-improvised at each call site.
+
+### UI-124 — `POST /chain/reconcile` destroys blocks on a shared chain
+**Severity: high · Status: open (avoided, not fixed) · Found: 2026-08-28**
+
+The Node server's reconcile endpoint ([blockchain/src/app.js:835](../blockchain/src/app.js#L835))
+takes a whole chain, validates it, and then:
+
+```js
+if (tempLedger.chain.length < talaLedger.chain.length) { /* 409 */ }
+talaLedger.chain = tempLedger.chain;   // otherwise: overwrite
+```
+
+Longest-chain-wins whole-chain replacement. Between one machine and its own backup that is a sane
+rule. On the shared Real chain — which by Steven's answer is *one chain everybody appends to* — it
+is data loss:
+
+> Two peers each append a block while the other is offline. Both now hold a chain at least as long
+> as the other's, so both pass the height check. Whichever pushes second overwrites the first one's
+> block. Nothing reports it, because a discarded block leaves no trace — the receiving node simply
+> has a different chain than it did a moment ago, and it verifies.
+
+The transaction that vanishes is by definition an *external* one: a payment, a peer's skill, an AUTH
+transaction. Those are the transactions the Real chain exists to record.
+
+**Avoided for now.** `chains.reconcile()` pulls with `GET /chain/blocks` and never calls this
+endpoint, so nothing in the harness can trigger the overwrite. The endpoint itself is unchanged and
+still reachable by anyone holding the admin secret.
+
+**The fix is a merge, not a longer chain.** Blocks would need to be reconciled by content — accept
+blocks not already held, order them, and rebuild — rather than by swapping one chain for another.
+That is a change to the Node consensus rule and is out of scope for a Python-side reconcile, so it
+is recorded rather than attempted.
+
+---
 
 ### UI-121 — Scope: Tala fixing her own code and UI
 **Severity: high (design) · Status: scoped, not built · Source: Steven, 2026-08-23**

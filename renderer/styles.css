@@ -6387,3 +6387,9 @@ button:focus:not(:focus-visible) {
   min-width: 0;
   font-size: 0.8rem;
 }
+
+.chain-card-origins {
+  font-size: 0.75rem;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
