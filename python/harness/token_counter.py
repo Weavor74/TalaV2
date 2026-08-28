@@ -428,6 +428,31 @@ async def count_and_check(
         )
         ledger_id = ledger_row["id"] if ledger_row else 0
 
+    # -- 5. Record which chain this belonged to ---------------------------
+    # Until now the answer existed only in the logger.debug line above and in
+    # the returned ghost_mode flag, neither of which is a record (UI-023). The
+    # classification is passed explicitly: paying for your own resources on
+    # your own machine is a payment that is not an external interaction, and
+    # this is the only place that knows the difference.
+    try:
+        from python.harness import chains
+        await chains.record(
+            "payment",
+            payload={
+                "session_id": session_id,
+                "tokens": total_tokens,
+                "cost": cost_tokens,
+                "model": model or "",
+                "ledger_id": ledger_id,
+            },
+            counterparty="" if use_ghost_tokens else (resource_owner or ""),
+            external=not use_ghost_tokens,
+        )
+    except Exception as exc:
+        # The tokens have already been spent and the local ledger already
+        # written; failing to note the chain must not undo that.
+        logger.warning("Could not record the token payment on a chain: %s", exc)
+
     elapsed_ms = (time.perf_counter() - t0) * 1000.0
 
     logger.info(

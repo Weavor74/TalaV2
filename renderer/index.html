@@ -408,6 +408,44 @@
             <div class="status-item"><span class="status-label">Validity:</span> <span id="chain-validity" class="valid-glow">—</span></div>
             <div class="status-item"><span class="status-label">RPC Endpoint:</span> <code>http://127.0.0.1:8332</code></div>
           </div>
+
+          <!-- Ghost and Real, side by side. The two chains are separate by
+               design and the difference between them was previously not
+               visible anywhere, because it was never recorded (UI-023). -->
+          <div class="chain-split" id="chain-split">
+            <div class="chain-card chain-card-ghost">
+              <div class="chain-card-head">
+                <span class="chain-card-name">Ghost chain</span>
+                <span class="chain-card-scope">local only</span>
+              </div>
+              <div class="chain-card-count mono" id="chain-ghost-count">—</div>
+              <p class="chain-card-note">Everything this machine did. Visible to nobody else.</p>
+              <ul class="chain-card-kinds" id="chain-ghost-kinds"></ul>
+            </div>
+            <div class="chain-card chain-card-real">
+              <div class="chain-card-head">
+                <span class="chain-card-name">Real chain</span>
+                <span class="chain-card-scope">shared</span>
+              </div>
+              <div class="chain-card-count mono" id="chain-real-count">—</div>
+              <p class="chain-card-note">Only interactions that involved somebody else. Visible to everyone on the chain.</p>
+              <ul class="chain-card-kinds" id="chain-real-kinds"></ul>
+              <div class="chain-card-queue" id="chain-real-queue" hidden></div>
+              <div class="chain-card-endpoint">
+                <label for="chain-real-endpoint">Shared chain endpoint</label>
+                <div class="chain-endpoint-row">
+                  <input type="text" id="chain-real-endpoint" class="input mono"
+                         placeholder="https://… (leave empty to stay local-only)" />
+                  <button class="btn btn-secondary" id="btn-chain-endpoint-save">Save</button>
+                  <button class="btn btn-ghost" id="btn-chain-flush">Send queued</button>
+                </div>
+                <p class="chain-card-note" id="chain-endpoint-note">
+                  With no endpoint set the Real chain is never used and external
+                  transactions wait here until one is.
+                </p>
+              </div>
+            </div>
+          </div>
           <div class="blockchain-chain-container" id="blockchain-chain-flow">
             <div class="blockchain-loading">Connecting to Proof-of-Authority node...</div>
           </div>

@@ -547,6 +547,71 @@ _DDL_STATEMENTS: list[str] = [
             ON access_grants(principal_kind, principal_id, resource);
     """),
 
+    # chain_ledger — which chain a transaction belongs to, and whether the
+    # Real chain has actually accepted it yet.
+    #
+    # Steven's split: "The Ghost chain is only viewable locally. The Real chain
+    # is viewable by all on the chain. They are meant to be separate."
+    #
+    # The distinction previously existed only as a value computed in
+    # token_counter and written to a logger.debug line (UI-023); nothing
+    # persisted it, so no transaction recorded which chain it was on. This is
+    # that record. It is an index over the chains, not a second copy of them:
+    # the Ghost chain itself remains blockchain/data/chain.json.
+    #
+    # entry_id is synthetic and tx_id is not unique, which looks redundant and
+    # is not. In the existing chain the transaction "id" is a *document*
+    # identity: 2,748 transactions carry only 185 distinct ids, because
+    # re-anchoring a node reuses the node's id -- settings-workflows alone
+    # appears 174 times. Keying on it collapsed 2,748 entries into 185 and lost
+    # the history. Only the block position is unique, so the key is synthetic
+    # and tx_id is kept as what it actually is: the thing the transaction is
+    # about, repeated legitimately every time that thing changes.
+    #
+    # pending is the offline queue. An external interaction that happens with
+    # no connection is held here and written on reconnect, so the Real chain
+    # stays complete rather than silently missing whatever happened offline.
+    # ------------------------------------------------------------------
+    # The first cut of this table keyed on the transaction id, which turned
+    # out to be a document identity rather than a transaction identity and
+    # collapsed 2,748 entries into 185. Drop that shape so the corrected one
+    # below is created; the rows were an index that the backfill script
+    # rebuilds, so nothing is lost with them.
+    textwrap.dedent("""        DO $$
+        BEGIN
+            IF EXISTS (SELECT 1 FROM information_schema.tables
+                       WHERE table_name = 'chain_ledger')
+               AND NOT EXISTS (SELECT 1 FROM information_schema.columns
+                               WHERE table_name = 'chain_ledger'
+                                 AND column_name = 'entry_id') THEN
+                DROP TABLE chain_ledger;
+            END IF;
+        END $$;
+    """),
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS chain_ledger (
+            entry_id     TEXT        PRIMARY KEY,
+            tx_id        TEXT        NOT NULL,
+            chain        TEXT        NOT NULL,
+            type         TEXT        NOT NULL,
+            counterparty TEXT        NOT NULL DEFAULT '',
+            document     TEXT        NOT NULL DEFAULT '',
+            metadata     JSONB       NOT NULL DEFAULT '{}'::jsonb,
+            occurred_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            pending      BOOLEAN     NOT NULL DEFAULT FALSE,
+            remote_id    TEXT        NOT NULL DEFAULT '',
+            written_at   TIMESTAMPTZ
+        );
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_chain_ledger_recent
+            ON chain_ledger(chain, occurred_at DESC);
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_chain_ledger_tx
+            ON chain_ledger(tx_id);
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_chain_ledger_pending
+            ON chain_ledger(occurred_at) WHERE pending;
+    """),
+
     # app_settings — small, single-purpose settings that must not be lost
     # inside a larger blob.
     #

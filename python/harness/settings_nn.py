@@ -906,6 +906,16 @@ async def delete_agent_persona_node(agent_id: str):
             )
             with urllib.request.urlopen(req, timeout=1.0) as response:
                 response.read()
+
+            # Deleting a persona on this machine is local activity. The
+            # "blockchain-ledger" counterparty names the chain, not a party,
+            # so this is Ghost and is never offered to the shared chain.
+            from python.harness import chains
+            chains.index_sync(
+                chains.GHOST, f"persona-{agent_id}", "node-delete",
+                counterparty="blockchain-ledger",
+                document_ref=f"persona-{agent_id}",
+            )
         except Exception as exc:
             logger.debug("Failed to anchor agent persona node deletion on blockchain: %s", exc)
 

@@ -6907,9 +6907,137 @@ const BlockchainViewer = {
     if (this._btnRefresh) {
       this._btnRefresh.addEventListener('click', () => this.load());
     }
+
+    const save = qs('#btn-chain-endpoint-save');
+    if (save) save.addEventListener('click', () => this.saveEndpoint());
+    const flush = qs('#btn-chain-flush');
+    if (flush) flush.addEventListener('click', () => this.flush());
+  },
+
+  /**
+   * Ghost and Real, side by side.
+   *
+   * The two chains are separate by design — Ghost is local and complete, Real
+   * is the subset that involved somebody else — and until now the difference
+   * between them was invisible because it was never recorded (UI-023).
+   */
+  async loadSplit() {
+    const ghostCount = qs('#chain-ghost-count');
+    const realCount = qs('#chain-real-count');
+    if (!ghostCount || !realCount) return;
+
+    let summary;
+    try {
+      summary = await invoke('python:rpc', { method: 'chain.summary', params: {} });
+    } catch (err) {
+      // Say so rather than leaving two dashes that read as "nothing yet".
+      ghostCount.textContent = realCount.textContent = '—';
+      this._say(`Could not read the chain index: ${err?.message || err}`, 'error');
+      return;
+    }
+
+    const kinds = (el, byType) => {
+      const list = qs(el);
+      if (!list) return;
+      list.innerHTML = '';
+      const entries = Object.entries(byType || {}).sort((a, b) => b[1] - a[1]);
+      if (!entries.length) {
+        const li = document.createElement('li');
+        li.className = 'chain-card-empty';
+        li.textContent = 'nothing recorded';
+        list.appendChild(li);
+        return;
+      }
+      for (const [kind, count] of entries) {
+        const li = document.createElement('li');
+        const name = document.createElement('span');
+        name.textContent = kind;
+        const n = document.createElement('span');
+        n.className = 'mono';
+        n.textContent = String(count);
+        li.append(name, n);
+        list.appendChild(li);
+      }
+    };
+
+    const ghost = summary.ghost || {};
+    const real = summary.real || {};
+    ghostCount.textContent = `${ghost.total || 0} transactions`;
+    realCount.textContent = `${real.total || 0} transactions`;
+    kinds('#chain-ghost-kinds', ghost.by_type);
+    kinds('#chain-real-kinds', real.by_type);
+
+    const queue = qs('#chain-real-queue');
+    if (queue) {
+      const pending = real.pending || 0;
+      queue.hidden = pending === 0;
+      queue.textContent = pending
+        ? `${pending} waiting to be written — they happened offline and are held ` +
+          `here until the shared chain is reachable.`
+        : '';
+    }
+
+    const endpoint = qs('#chain-real-endpoint');
+    if (endpoint && document.activeElement !== endpoint) {
+      endpoint.value = summary.endpoint || '';
+    }
+    const note = qs('#chain-endpoint-note');
+    if (note) {
+      note.textContent = summary.endpoint
+        ? `External transactions are written to ${summary.endpoint}.`
+        : 'With no endpoint set the Real chain is never used and external ' +
+          'transactions wait here until one is.';
+    }
+  },
+
+  /** Report into the panel, the way the other settings views do. */
+  _say(message, kind) {
+    const note = qs('#chain-endpoint-note');
+    if (!note) return;
+    note.textContent = message;
+    note.style.color = kind === 'error' ? 'var(--status-error)'
+                     : kind === 'success' ? 'var(--status-ok)'
+                     : 'var(--text-muted)';
+  },
+
+  async saveEndpoint() {
+    const field = qs('#chain-real-endpoint');
+    if (!field) return;
+    try {
+      const result = await invoke('python:rpc', {
+        method: 'chain.set_endpoint', params: { endpoint: field.value.trim() },
+      });
+      const flushed = result.flushed || {};
+      await this.loadSplit();
+      this._say(flushed.flushed
+        ? `Endpoint saved — ${flushed.flushed} queued transaction(s) written.`
+        : 'Endpoint saved.', 'success');
+    } catch (err) {
+      this._say(`Could not save the endpoint: ${err?.message || err}`, 'error');
+    }
+  },
+
+  async flush() {
+    try {
+      const result = await invoke('python:rpc', { method: 'chain.flush', params: {} });
+      await this.loadSplit();
+      if (result.error) {
+        // A queue that will not drain must say why, not look drained.
+        this._say(`Stopped with ${result.remaining} still queued: ${result.error}`,
+                  'error');
+      } else if (result.flushed) {
+        this._say(`Wrote ${result.flushed} transaction(s) to the shared chain.`,
+                  'success');
+      } else {
+        this._say('Nothing is queued.', 'info');
+      }
+    } catch (err) {
+      this._say(`Could not send the queue: ${err?.message || err}`, 'error');
+    }
   },
 
   async load() {
+    this.loadSplit();
     if (!this._flowContainer) return;
 
     this._flowContainer.innerHTML = '<div class="blockchain-loading">Connecting to Proof-of-Authority node...</div>';

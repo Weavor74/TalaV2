@@ -143,6 +143,23 @@ def canonicalize_and_anchor(node_id: str, content_html: str, state_data: dict, a
         raw_response = str(exc)
         logger.debug("Failed to anchor node '%s' on blockchain: %s", node_id, exc)
         
+    # Index it as Ghost. A node written on this machine is local document
+    # activity with nobody on the other end -- "blockchain-ledger" in the
+    # counterparty field names the chain itself, not a second party -- so it
+    # belongs to the local audit trail and never to the shared chain. This is
+    # the path that produced all 2,747 existing node-create transactions.
+    try:
+        from python.harness import chains
+        chains.index_sync(
+            chains.GHOST, chaincode_id or node_id, "node-create",
+            counterparty="blockchain-ledger", document_ref=node_id,
+            metadata={"anchoring_status": anchoring_status,
+                      "document_type": document_type},
+        )
+    except Exception as exc:
+        logger.debug("Could not index node '%s' on the Ghost chain: %s",
+                     node_id, exc)
+
     public_key = None
     try:
         if raw_response and anchoring_status == "anchored":

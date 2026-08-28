@@ -1,0 +1,501 @@
+"""
+chains.py — Ghost and Real are two chains, split by audience.
+
+Steven's design, in his words:
+
+    "The Ghost chain is only viewable locally. The Real chain is viewable by
+    all on the chain. They are meant to be separate." (Q-11)
+
+    "If the TALA harness never goes online... the Real chain never gets used.
+    If you connect with other users, use other skills, transact with AUTH or
+    online storage, it gets recorded by the Real chain." (Q-12)
+
+and, settling the four questions that were left open (2026-08-28):
+
+* **An external interaction while offline is queued and written on reconnect.**
+  Nothing is lost, so the Real chain stays a complete record of external
+  activity. The consequence is accepted deliberately: a queued transaction's
+  block position will not match the moment it happened, and its recorded
+  timestamp is the moment of the interaction rather than the moment of the
+  write.
+* **Ghost records everything.** It is the complete local audit trail -- local
+  activity plus a local copy of anything that also went to Real -- so "what did
+  this machine do" is answerable from one place, offline. Real is a strict
+  subset, not a sibling.
+* **The Real chain is one shared chain**, which is what "viewable by all on the
+  chain" means and what ``/chain/peers/register`` and ``/chain/reconcile``
+  already point at.
+* **The existing 2,748-block chain is the Ghost chain**, kept as it is. Its
+  2,747 ``node-create`` transactions are local document activity with no
+  external party -- Ghost by definition -- and the Real chain starts empty.
+
+The previous implementation had the distinction as a *connection mode*
+(UI-023): ``token_counter`` computed ``use_ghost_tokens`` and the only place
+the answer appeared was a ``logger.debug`` line. Nothing persisted it, so no
+transaction ever recorded which chain it belonged to.
+"""
+
+from __future__ import annotations
+
+import json
+import logging
+import uuid
+from datetime import datetime, timezone
+from typing import Any
+
+log = logging.getLogger(__name__)
+
+GHOST = "ghost"
+REAL = "real"
+
+#: What makes a transaction external, and therefore Real as well as Ghost.
+#: Steven's list: "connect with other users, use other skills, transact with
+#: AUTH or online storage".
+EXTERNAL_KINDS = frozenset({
+    "peer-contact",       # talking to another install
+    "peer-skill",         # using someone else's skill
+    "skill-shared",       # someone using yours
+    "auth-transaction",   # an AUTH-provider transaction
+    "remote-storage",     # online storage
+    "payment",            # value moving
+    "marketplace",        # buying or selling
+})
+
+#: Local-only activity. Recorded on Ghost and never sent anywhere. Checked
+#: before anything else, so a local transaction cannot be dragged onto the
+#: shared chain by a stray counterparty field.
+LOCAL_KINDS = frozenset({
+    "node-create", "node-update", "node-delete", "thought-state",
+    "behavioral-learning", "non-critical-event", "mint",
+})
+
+#: Counterparty values that name no actual second party.
+#:
+#: Every one of the 2,748 existing transactions carries one of these -- 2,747
+#: ``node-create`` rows against ``blockchain-ledger`` and the single ``mint``
+#: against ``tala-network``. They read like counterparties and are not: they
+#: are placeholders for "the chain itself", written by local document activity
+#: with nobody on the other end. Treating them as real would have published
+#: the entire local history to a chain everybody can read.
+PLACEHOLDER_COUNTERPARTIES = frozenset({
+    "blockchain-ledger", "tala-network", "tala-system",
+    "local-client", "@local-tala", "self",
+})
+
+
+def is_external(kind: str, counterparty: str | None = None) -> bool:
+    """
+    Whether this belongs on the Real chain as well as the Ghost chain.
+
+    Three passes, in order. A declared local kind is local whatever else it
+    carries. A declared external kind is external. Otherwise a real
+    counterparty -- one naming somebody, not the chain itself -- makes it
+    external, because a transaction with a second party in it is an external
+    interaction whatever it calls itself.
+
+    An unrecognised kind with no counterparty is local. The Real chain is for
+    interactions that demonstrably involved someone else, and guessing the
+    other way publishes private activity to a shared chain: the failure modes
+    are not symmetric.
+    """
+    kind = str(kind or "").strip().lower()
+    if kind in LOCAL_KINDS:
+        return False
+    if kind in EXTERNAL_KINDS:
+        return True
+
+    other = str(counterparty or "").strip()
+    return bool(other) and other.lower() not in PLACEHOLDER_COUNTERPARTIES
+
+
+def classify(kind: str, counterparty: str | None = None) -> list[str]:
+    """Which chains this transaction is written to. Ghost always."""
+    return [GHOST, REAL] if is_external(kind, counterparty) else [GHOST]
+
+
+async def record(
+    kind: str,
+    payload: dict[str, Any] | None = None,
+    counterparty: str = "",
+    document_ref: str = "",
+    external: bool | None = None,
+) -> dict[str, Any]:
+    """
+    Record one transaction on the chains it belongs to.
+
+    Always writes Ghost. If the transaction is external it is additionally
+    queued for Real, and flushed immediately when a connection is available.
+
+    ``external`` overrides the classification for callers that already know
+    the answer better than the kind does. ``token_counter`` is the case: a
+    payment is normally external, but paying yourself for your own resources
+    on your own machine is not, and only the caller knows which it was.
+    """
+    kind = str(kind or "").strip().lower()
+    if not kind:
+        raise ValueError("a transaction needs a kind")
+
+    if external is None:
+        external = is_external(kind, counterparty)
+    chains = [GHOST, REAL] if external else [GHOST]
+    tx_id = f"tx-{uuid.uuid4().hex[:16]}"
+    occurred = datetime.now(timezone.utc)
+
+    transaction = {
+        "id": tx_id,
+        "type": kind,
+        "counterparty": str(counterparty or ""),
+        # A reference, never content. A document body written to a chain
+        # everybody on it can read is a document published, whatever the
+        # intent was.
+        "document_ref": str(document_ref or ""),
+        "metadata": payload or {},
+        # The moment the interaction happened, not the moment it was written.
+        # A queued transaction is written later and this is the only record of
+        # when it actually occurred.
+        "timestamp": occurred.isoformat(),
+    }
+
+    ghost_result = await _write_ghost(transaction)
+
+    real_result: dict[str, Any] = {"written": False, "queued": False}
+    if REAL in chains:
+        real_result = await _write_or_queue_real(transaction)
+
+    log.info("chain: recorded %s on %s%s", kind, "+".join(chains),
+             " (queued for Real)" if real_result.get("queued") else "")
+
+    return {
+        "id": tx_id,
+        "chains": chains,
+        "ghost": ghost_result,
+        "real": real_result,
+        "external": REAL in chains,
+    }
+
+
+async def _write_ghost(transaction: dict[str, Any]) -> dict[str, Any]:
+    """
+    Append to the local chain, then index it.
+
+    The Ghost chain is not a new store: it is the chain that already exists at
+    ``blockchain/data/chain.json``, served by the local node, holding all 2,748
+    existing blocks. This posts to it exactly as ``anchor.py`` always has. The
+    ledger row is an *index* over it -- id, kind, chain, and whether Real has
+    accepted it -- and never a second copy of the document.
+
+    Never raises. Ghost is the local audit trail and a failure to reach the
+    local node must not stop the thing being recorded from having happened;
+    the index row is still written, so the event is not lost even when the
+    node is down.
+    """
+    posted = await _post(await ghost_endpoint(), transaction, guard=False)
+    indexed = await index(GHOST, transaction,
+                          entry_id=f"ghost-{transaction['id']}")
+    return {
+        "written": indexed.get("written", False),
+        "anchored": posted.get("written", False),
+        **({"error": posted["error"]} if posted.get("error") else {}),
+    }
+
+
+async def _write_or_queue_real(transaction: dict[str, Any]) -> dict[str, Any]:
+    """Write to the shared Real chain, or queue it for the next connection."""
+    entry_id = f"real-{transaction['id']}"
+    indexed = await index(REAL, transaction, pending=True, entry_id=entry_id)
+    if not indexed.get("written"):
+        return {"written": False, "queued": False, "error": indexed.get("error", "")}
+
+    sent = await _submit(transaction)
+    if sent.get("written"):
+        await _mark_written(entry_id, sent.get("remote_id", ""))
+        return {"written": True, "queued": False}
+    return {"written": False, "queued": True, "reason": sent.get("error", "")}
+
+
+async def index(
+    chain: str,
+    transaction: dict[str, Any],
+    pending: bool = False,
+    entry_id: str = "",
+) -> dict[str, Any]:
+    """
+    Record which chain a transaction belongs to.
+
+    Callers that anchor to the local node themselves -- ``anchor.py``,
+    ``settings_nn.py`` -- call this after their own POST rather than routing
+    through :func:`record`, so the index is complete without their
+    transactions being posted twice.
+
+    ``document`` is stored as a reference, never as content: a document body
+    on the Real chain would be readable by everyone on it.
+
+    ``entry_id`` makes the write idempotent for callers that can name the same
+    event twice -- the backfill derives it from the block position. Left empty
+    it is generated, because the transaction id cannot serve: it identifies the
+    *document*, and re-anchoring a node reuses it.
+    """
+    from python.harness import db
+
+    try:
+        await db.execute(
+            """
+            INSERT INTO chain_ledger (entry_id, tx_id, chain, type,
+                                      counterparty, document, metadata,
+                                      occurred_at, pending)
+            VALUES ($1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9)
+            ON CONFLICT (entry_id) DO NOTHING
+            """,
+            entry_id or f"e-{uuid.uuid4().hex}",
+            transaction["id"], chain, transaction["type"],
+            transaction.get("counterparty", ""),
+            str(transaction.get("document_ref") or "")[:512],
+            json.dumps(transaction.get("metadata") or {}),
+            _as_datetime(transaction.get("timestamp")),
+            pending,
+            caller="chains.index",
+        )
+        return {"written": True}
+    except Exception as exc:
+        log.error("chain: could not index %s on the %s chain: %s",
+                  transaction.get("id"), chain, exc)
+        return {"written": False, "error": str(exc)}
+
+
+def _unwrap(value: Any) -> dict[str, Any]:
+    """
+    Decode a JSONB column that may be encoded more than once.
+
+    Every JSONB column in this database holds a JSON *string* -- a jsonb codec
+    and ``json.dumps`` at the call sites each encode it once. A single
+    ``json.loads`` therefore returns a string rather than a dict, and the
+    caller reads an empty result from a row that was never empty.
+    """
+    for _ in range(3):
+        if isinstance(value, str):
+            try:
+                value = json.loads(value)
+            except (ValueError, TypeError):
+                return {}
+        else:
+            break
+    return value if isinstance(value, dict) else {}
+
+
+def _as_datetime(value: Any) -> datetime:
+    if isinstance(value, datetime):
+        return value
+    try:
+        return datetime.fromisoformat(str(value))
+    except (TypeError, ValueError):
+        return datetime.now(timezone.utc)
+
+
+def index_sync(chain: str, tx_id: str, kind: str, counterparty: str = "",
+               document_ref: str = "", metadata: dict[str, Any] | None = None,
+               pending: bool = False, entry_id: str = "") -> bool:
+    """
+    Index a transaction from synchronous code.
+
+    ``anchor.py`` and ``settings_nn.py`` anchor to the local node themselves,
+    from synchronous functions, and have done since long before this module
+    existed. Rewriting them to be async to reach :func:`record` would be a
+    large change to the busiest write path in the system for no behavioural
+    gain, so they keep their POST and call this afterwards.
+
+    Returns whether the row was written. Never raises: an unindexed anchor is
+    a gap in the record, but a failed index must not fail the anchor.
+    """
+    import asyncio
+
+    transaction = {
+        "id": tx_id, "type": kind, "counterparty": counterparty,
+        "document_ref": document_ref, "metadata": metadata or {},
+        "timestamp": datetime.now(timezone.utc).isoformat(),
+    }
+    try:
+        asyncio.get_running_loop()
+    except RuntimeError:
+        try:
+            return bool(asyncio.run(index(chain, transaction, pending,
+                                          entry_id)).get("written"))
+        except Exception as exc:
+            log.debug("chain: could not index %s: %s", tx_id, exc)
+            return False
+
+    # Already inside an event loop: schedule it rather than blocking the loop
+    # this is running on, which would deadlock.
+    try:
+        asyncio.ensure_future(index(chain, transaction, pending, entry_id))
+        return True
+    except Exception as exc:
+        log.debug("chain: could not schedule the index of %s: %s", tx_id, exc)
+        return False
+
+
+async def ghost_endpoint() -> str:
+    """The local chain node. Loopback by default, and configurable only so a
+    portable install can move its port -- never so Ghost points off-machine."""
+    import os
+    host = os.environ.get("TALA_CHAIN_BIND_HOST", "127.0.0.1")
+    port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
+    return f"http://{host}:{port}"
+
+
+async def _submit(transaction: dict[str, Any]) -> dict[str, Any]:
+    """POST one transaction to the shared chain."""
+    endpoint = await real_endpoint()
+    if not endpoint:
+        return {"written": False, "error": "no Real chain endpoint is configured"}
+    return await _post(endpoint, transaction, guard=True)
+
+
+async def _post(endpoint: str, transaction: dict[str, Any],
+                guard: bool = True) -> dict[str, Any]:
+    """
+    POST a transaction to a chain node.
+
+    ``guard`` runs the network guardrails first. The Real chain is an outbound
+    connection and is checked; the Ghost node is loopback, which the guard
+    exempts anyway, and checking it would make a firewall rule able to sever
+    the machine from its own audit trail.
+    """
+    import httpx
+
+    if not endpoint:
+        return {"written": False, "error": "no endpoint"}
+
+    if guard:
+        try:
+            from python.harness.access import AGENT, Principal
+            from python.harness.network_guard import check as net_check
+
+            permitted = await net_check(endpoint, Principal(AGENT, "default"),
+                                        purpose="real-chain")
+            if not permitted.allowed:
+                return {"written": False, "error": permitted.reason}
+        except Exception as exc:
+            # A guard that cannot be consulted must not silently permit the
+            # connection it exists to govern.
+            return {"written": False, "error": f"guardrails unavailable: {exc}"}
+
+    try:
+        async with httpx.AsyncClient(timeout=10.0) as client:
+            response = await client.post(f"{endpoint.rstrip('/')}/chain/tx",
+                                         json=transaction)
+        if response.status_code >= 400:
+            return {"written": False, "error": f"HTTP {response.status_code}"}
+        body: dict[str, Any] = {}
+        try:
+            body = response.json()
+        except Exception:
+            pass
+        remote = ""
+        for key in ("tx_id", "transaction_id", "hash", "id"):
+            if body.get(key):
+                remote = str(body[key])
+                break
+        return {"written": True, "remote_id": remote}
+    except Exception as exc:
+        return {"written": False, "error": f"{type(exc).__name__}: {exc}"}
+
+
+async def _mark_written(entry_id: str, remote_id: str = "") -> None:
+    """Clear one queued entry.
+
+    Addressed by entry_id rather than tx_id: a document anchored repeatedly
+    shares one tx_id across many entries, and marking by that would clear
+    queued transactions that were never actually sent.
+    """
+    from python.harness import db
+    try:
+        await db.execute(
+            "UPDATE chain_ledger SET pending = FALSE, remote_id = $2, "
+            "written_at = NOW() WHERE entry_id = $1",
+            entry_id, remote_id, caller="chains.flush",
+        )
+    except Exception as exc:
+        log.warning("chain: could not mark %s as written: %s", tx_id, exc)
+
+
+async def real_endpoint() -> str:
+    """The configured shared-chain endpoint, or empty if there is none."""
+    from python.harness import db
+    try:
+        row = await db.fetchrow(
+            "SELECT value FROM app_settings WHERE key = 'real_chain'")
+        if row and row["value"]:
+            return str(_unwrap(row["value"]).get("endpoint") or "")
+    except Exception as exc:
+        log.debug("chain: no Real endpoint configured (%s)", exc)
+    return ""
+
+
+async def flush() -> dict[str, Any]:
+    """
+    Write every queued Real transaction, oldest first.
+
+    Called on reconnect. Stops at the first failure rather than continuing:
+    if the chain is unreachable the rest will fail too, and hammering it with
+    a hundred doomed requests helps nobody.
+    """
+    from python.harness import db
+
+    try:
+        rows = await db.fetch(
+            "SELECT entry_id, tx_id, type, counterparty, document, metadata, "
+            "occurred_at FROM chain_ledger "
+            "WHERE chain = 'real' AND pending = TRUE ORDER BY occurred_at ASC"
+        )
+    except Exception as exc:
+        return {"flushed": 0, "remaining": 0, "error": str(exc)}
+
+    flushed = 0
+    for row in rows:
+        sent = await _submit({
+            "id": row["tx_id"], "type": row["type"],
+            "counterparty": row["counterparty"],
+            "document_ref": row["document"],
+            "metadata": _unwrap(row["metadata"]),
+            "timestamp": row["occurred_at"].isoformat() if row["occurred_at"] else "",
+        })
+        if not sent.get("written"):
+            return {"flushed": flushed, "remaining": len(rows) - flushed,
+                    "error": sent.get("error", "")}
+        await _mark_written(row["entry_id"], sent.get("remote_id", ""))
+        flushed += 1
+
+    if flushed:
+        log.info("chain: flushed %d queued Real transaction(s)", flushed)
+    return {"flushed": flushed, "remaining": 0}
+
+
+async def summary() -> dict[str, Any]:
+    """
+    Counts for both chains, so the difference between them is visible.
+
+    Steven asked for exactly this: "I think there should be a way to see the
+    diffrence in the two."
+    """
+    from python.harness import db
+
+    out = {
+        "ghost": {"total": 0, "by_type": {}},
+        "real": {"total": 0, "pending": 0, "by_type": {}},
+        "endpoint": await real_endpoint(),
+    }
+    try:
+        rows = await db.fetch(
+            "SELECT chain, type, COUNT(*) n, "
+            "COUNT(*) FILTER (WHERE pending) pending "
+            "FROM chain_ledger GROUP BY chain, type"
+        )
+        for row in rows:
+            chain = out.setdefault(row["chain"], {"total": 0, "by_type": {}})
+            chain["total"] += row["n"]
+            chain["by_type"][row["type"]] = row["n"]
+            if row["chain"] == REAL:
+                chain["pending"] = chain.get("pending", 0) + (row["pending"] or 0)
+    except Exception as exc:
+        out["error"] = str(exc)
+    return out

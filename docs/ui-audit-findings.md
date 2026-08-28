@@ -411,7 +411,59 @@ Evidence gathered from `blockchain/data/chain.json` (2,714 blocks), `blockchain/
 the data model, the node server, or the UI. What exists is a naming convention on transaction ids.
 
 ### UI-023 — Ghost/Real is a runtime mode that is never recorded anywhere
-**Severity: high · Status: open**
+**Severity: high · Status: fixed (2026-08-28)**
+
+Ghost and Real are now two chains split by audience, in
+[`python/harness/chains.py`](../python/harness/chains.py), with the four open questions answered by
+Steven and settled in code.
+
+**What goes where.** `is_external()` decides, in three passes: a declared local kind is local
+whatever else it carries; a declared external kind is external; otherwise a *real* counterparty
+makes it external. An unrecognised kind with nobody on the other end is Ghost, because the failure
+modes are not symmetric — a local transaction wrongly published cannot be unpublished.
+
+**The counterparty field is not the discriminator it looked like.** All 2,748 existing transactions
+carry one — 2,747 against `blockchain-ledger` and the genesis `mint` against `tala-network` — and
+every one is a placeholder naming *the chain itself*, not a second party. Reading them literally
+would have published the machine's entire local history to a chain everybody can read. They are
+listed in `PLACEHOLDER_COUNTERPARTIES` and classify as Ghost.
+
+**The transaction `id` is a document identity, not a transaction identity.** The first cut of
+`chain_ledger` keyed on it and silently collapsed 2,748 entries into 185 — `settings-workflows`
+alone appears 174 times, once per re-anchor. The table now uses a synthetic `entry_id` with `tx_id`
+kept as what it actually is.
+
+**The four answers, as built.**
+
+| Question | Answer | Where |
+|---|---|---|
+| An external interaction while offline | Queued locally, written on reconnect | `chain_ledger.pending`, `chains.flush()`, `server._real_chain_flush_loop()` |
+| Does Ghost mirror Real | Ghost records everything; Real is a strict subset | `record()` always writes Ghost |
+| One shared Real chain or per-peer | One shared chain | `chain.set_endpoint`, posting to the existing `/chain/tx` |
+| The existing 2,748 blocks | The Ghost chain, kept as-is; Real starts empty | `scripts/backfill_chain_ledger.py` |
+
+**The record now exists.** `token_counter` computed `use_ghost_tokens` and sent the answer to a
+`logger.debug` line; it now calls `chains.record(..., external=...)`, passing the classification
+explicitly because paying yourself for your own resources on your own machine is a payment that is
+not an external interaction and only that call site knows the difference. `anchor.py` — the path
+that wrote all 2,747 `node-create` transactions — and `settings_nn.py` index as Ghost via
+`index_sync()`, keeping their own POST rather than being rewritten async.
+
+**Visible.** `chain.summary` and the Blockchain view show the two chains side by side with a
+per-kind breakdown and the pending queue, answering Steven's *"I think there should be a way to see
+the diffrence in the two."* A flush that cannot connect reports how many are still queued and why,
+rather than looking drained.
+
+Backfilled against the live database: 2,748 Ghost entries over 185 distinct documents, Real empty.
+38 tests in [`tests/test_chains.py`](../tests/test_chains.py).
+
+**Not done.** Nothing yet *reconciles* the shared chain — `/chain/reconcile` exists on the Node
+server and no caller uses it. Writing is one-directional: this install appends, and does not read
+back what other peers appended.
+
+**Original finding.**
+
+**Severity: high · Status: was open**
 
 The Ghost/Real distinction **is implemented** — as a *connection mode*, not as a property of a
 transaction. There is a full `chain.*` RPC family
@@ -460,7 +512,16 @@ to the transaction schema), a UI change second. Building a Ghost/Real toggle on 
 schema would have nothing to filter on.
 
 ### UI-024 — No transaction has ever been written in Real mode
-**Severity: high · Status: open**
+**Severity: high · Status: fixed (2026-08-28)**
+
+Correct, and it stays correct until this install actually interacts with somebody else — which is
+the designed behaviour, not a defect. What was missing was the route: there was no Real chain to
+write to and no rule deciding what belonged on it. Both now exist (UI-023). An install that never
+goes online never writes a Real transaction, and one that does gets it written or queued.
+
+**Original finding.**
+
+**Severity: high · Status: was open**
 
 Every one of the 2,713 non-genesis transactions carries:
 
@@ -3206,7 +3267,16 @@ definition, the existing topologies are **crew-shaped, not swarm-shaped**: `Code
 in the code and in the model.
 
 ### UI-105 — Ghost and Real are two separate chains, split by audience
-**Severity: high (design) · Status: specified, not built · Source: Q-11, Q-12**
+**Severity: high (design) · Status: built (2026-08-28) · Source: Q-11, Q-12**
+
+Built as specified — see UI-023 for what shipped. Two corrections to this finding's own analysis
+surfaced during the build: the count is 2,748 blocks rather than 2,713, and the `counterparty` field
+that looked like a ready-made discriminator is a constant placeholder in every existing transaction.
+
+Q-14 is still open: `python/ledger/` (UI-027) remains in the tree.
+
+**Original finding.**
+
 
 > **Steven (Q-11):** *"The Ghost chain is only viewable locally. The Real chain is viewable by all on
 > the chain. They are meant to be separate."*

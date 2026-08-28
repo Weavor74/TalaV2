@@ -6256,3 +6256,134 @@ button:focus:not(:focus-visible) {
   background-color: var(--primary);
   transition: width 0.3s ease;
 }
+
+/* ── The two chains, side by side ─────────────────────────────────────────
+   Ghost is local and complete; Real is the subset that involved somebody
+   else. They are separate by design, so they are shown as two cards rather
+   than one list with a column — the point is the difference between them.
+   The Real card is the one that can leave the machine, so it carries the
+   warmer accent and Ghost stays cool and quiet. */
+
+.chain-split {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 320px), 1fr));
+  gap: var(--space-4);
+  margin-top: var(--space-4);
+}
+
+.chain-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  background: rgba(13, 17, 32, 0.45);
+  border: 1px solid var(--glass-border);
+  border-radius: var(--radius-md);
+  padding: var(--space-4);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+}
+
+.chain-card-ghost { border-left: 3px solid #64748b; }
+.chain-card-real  { border-left: 3px solid #f0a552; }
+
+.chain-card-head {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+
+.chain-card-name {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.chain-card-scope {
+  font-size: 0.68rem;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+  border: 1px solid var(--glass-border);
+  border-radius: 999px;
+  padding: 1px 8px;
+}
+
+.chain-card-real .chain-card-scope {
+  color: #f0a552;
+  border-color: rgba(240, 165, 82, 0.4);
+}
+
+.chain-card-count {
+  font-size: 1.4rem;
+  font-weight: 600;
+  color: var(--text-primary);
+  font-variant-numeric: tabular-nums;
+}
+
+.chain-card-note {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: var(--text-muted);
+  margin: 0;
+}
+
+.chain-card-kinds {
+  list-style: none;
+  margin: var(--space-2) 0 0;
+  padding: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  font-size: 0.78rem;
+  color: var(--text-secondary);
+}
+
+.chain-card-kinds li {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+  padding: 2px 0;
+  border-bottom: 1px solid rgba(148, 163, 184, 0.08);
+}
+
+.chain-card-kinds li .mono { font-variant-numeric: tabular-nums; }
+.chain-card-empty { color: var(--text-muted); font-style: italic; }
+
+.chain-card-queue {
+  font-size: 0.78rem;
+  line-height: 1.5;
+  color: #f0a552;
+  background: rgba(240, 165, 82, 0.08);
+  border: 1px solid rgba(240, 165, 82, 0.25);
+  border-radius: var(--radius-sm);
+  padding: var(--space-2) var(--space-3);
+}
+
+.chain-card-endpoint {
+  margin-top: var(--space-3);
+  padding-top: var(--space-3);
+  border-top: 1px solid var(--glass-border);
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+
+.chain-card-endpoint label {
+  font-size: 0.72rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--text-muted);
+}
+
+.chain-endpoint-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
+.chain-endpoint-row input {
+  flex: 1 1 200px;
+  min-width: 0;
+  font-size: 0.8rem;
+}

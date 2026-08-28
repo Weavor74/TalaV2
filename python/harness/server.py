@@ -11789,6 +11789,141 @@ def _principal_from(params: dict[str, Any]):
     )
 
 
+async def handle_chain_summary(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.summary`` — the two chains, side by side.
+
+    Steven asked for exactly this: "I think there should be a way to see the
+    diffrence in the two." Before this the difference was not visible because
+    it was not recorded: the Ghost/Real decision lived in a local variable in
+    token_counter and reached a logger.debug line (UI-023).
+    """
+    try:
+        from python.harness import chains
+
+        summary = await chains.summary()
+        summary["explanation"] = {
+            "ghost": (
+                "Everything this machine did. Local, complete, and visible to "
+                "nobody else."
+            ),
+            "real": (
+                "Only interactions that involved somebody else — another "
+                "install, another peer's skill, an AUTH transaction, online "
+                "storage, a payment. Shared with everyone on the chain."
+            ),
+            "pending": (
+                "External interactions that happened while offline. Held here "
+                "and written to the shared chain on reconnect."
+            ),
+        }
+        return _ok(req_id, summary)
+    except Exception as exc:
+        logger.exception("chain.summary error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_transactions(params: dict[str, Any], req_id: Any) -> str:
+    """``chain.transactions`` — recent entries from one chain."""
+    chain = str(params.get("chain") or "ghost").strip().lower()
+    if chain not in ("ghost", "real"):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'chain' must be 'ghost' or 'real'")
+    try:
+        limit = max(1, min(int(params.get("limit") or 100), 500))
+    except (TypeError, ValueError):
+        limit = 100
+
+    try:
+        from python.harness.chains import _unwrap
+
+        rows = await db.fetch(
+            "SELECT entry_id, tx_id, type, counterparty, document, metadata, "
+            "occurred_at, pending, remote_id, written_at FROM chain_ledger "
+            "WHERE chain = $1 ORDER BY occurred_at DESC LIMIT $2",
+            chain, limit,
+        )
+        return _ok(req_id, {
+            "chain": chain,
+            "transactions": [{
+                "entry_id": row["entry_id"], "id": row["tx_id"],
+                "type": row["type"],
+                "counterparty": row["counterparty"],
+                "document_ref": row["document"],
+                "metadata": _unwrap(row["metadata"]),
+                "occurred_at": row["occurred_at"].isoformat() if row["occurred_at"] else "",
+                "pending": row["pending"], "remote_id": row["remote_id"],
+                "written_at": row["written_at"].isoformat() if row["written_at"] else "",
+            } for row in rows],
+        })
+    except Exception as exc:
+        logger.exception("chain.transactions error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_flush(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.flush`` — write everything queued for the Real chain.
+
+    Called on reconnect, and available manually so a queue that will not drain
+    reports why rather than sitting there silently.
+    """
+    try:
+        from python.harness import chains
+
+        result = await chains.flush()
+        if result.get("error"):
+            await db.log_to_db(
+                "WARNING",
+                f"Real chain flush stopped with {result.get('remaining', 0)} "
+                f"transaction(s) still queued: {result['error']}",
+            )
+        return _ok(req_id, result)
+    except Exception as exc:
+        logger.exception("chain.flush error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_chain_set_endpoint(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.set_endpoint`` — where the shared Real chain lives.
+
+    One shared chain, per Steven's answer: everyone appends to a common chain,
+    which is what "viewable by all on the chain" requires. With no endpoint
+    configured the Real chain simply never gets used and external transactions
+    queue — which is the correct behaviour for an install that never goes
+    online, not an error.
+    """
+    import json as _json
+
+    endpoint = str(params.get("endpoint") or "").strip()
+    if endpoint and not endpoint.startswith(("http://", "https://")):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'endpoint' must be an http:// or https:// URL")
+    try:
+        await db.execute(
+            "INSERT INTO app_settings (key, value, updated_at) "
+            "VALUES ('real_chain', $1::jsonb, NOW()) "
+            "ON CONFLICT (key) DO UPDATE SET value = EXCLUDED.value, "
+            "updated_at = NOW()",
+            _json.dumps({"endpoint": endpoint}),
+            caller="chain.set_endpoint",
+        )
+        await db.log_to_db(
+            "INFO",
+            f"Real chain endpoint {'set to ' + endpoint if endpoint else 'cleared'}",
+        )
+        flushed = {}
+        if endpoint:
+            from python.harness import chains
+            flushed = await chains.flush()
+        return _ok(req_id, {"success": True, "endpoint": endpoint,
+                            "flushed": flushed})
+    except Exception as exc:
+        logger.exception("chain.set_endpoint error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_guardrails_get_network(params: dict[str, Any], req_id: Any) -> str:
     """``guardrails.get_network`` — the harness-level network rules."""
     try:
@@ -13092,6 +13227,10 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "chain.summary": handle_chain_summary,
+    "chain.transactions": handle_chain_transactions,
+    "chain.flush": handle_chain_flush,
+    "chain.set_endpoint": handle_chain_set_endpoint,
     "guardrails.get_network": handle_guardrails_get_network,
     "guardrails.set_network": handle_guardrails_set_network,
     "network.check": handle_network_check,
@@ -13746,6 +13885,48 @@ async def _startup() -> None:
     asyncio.create_task(_startup_background())
 
 
+async def _real_chain_flush_loop() -> None:
+    """
+    Drain the Real chain queue whenever a connection comes back.
+
+    An external interaction that happens offline is held locally and written on
+    reconnect, so the Real chain stays a complete record of external activity
+    rather than quietly missing whatever happened while the machine was away.
+    Something has to notice the reconnection, and nothing else does: this is
+    that something.
+
+    Deliberately dull. It polls, it only does work when there is a queue and an
+    endpoint, and it never logs when there is nothing to do -- an idle install
+    with no Real chain configured should be silent, not emit a line a minute
+    forever.
+    """
+    from python.harness import chains
+
+    while True:
+        await asyncio.sleep(60)
+        try:
+            pending = await db.fetchval(
+                "SELECT COUNT(*) FROM chain_ledger "
+                "WHERE chain = 'real' AND pending"
+            )
+            if not pending:
+                continue
+            if not await chains.real_endpoint():
+                continue
+
+            result = await chains.flush()
+            if result.get("flushed"):
+                await db.log_to_db(
+                    "INFO",
+                    f"Wrote {result['flushed']} queued transaction(s) to the "
+                    f"Real chain on reconnect",
+                )
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.debug("Real chain flush loop: %s", exc)
+
+
 async def _startup_background() -> None:
     """Perform slower non-critical hardware discovery, model caching verification, and provider auto-detection in background."""
     loop = asyncio.get_running_loop()
@@ -13888,6 +14069,7 @@ async def _startup_background() -> None:
     # when compiled modules (numpy/torch/etc.) are imported concurrently during startup.
     from python.harness.webrtc_manager import webrtc_manager
     webrtc_manager.set_message_handler(_handle_webrtc_message)
+    asyncio.create_task(_real_chain_flush_loop())
     asyncio.create_task(_monitor_parent_process())
     asyncio.create_task(_monitor_stdin())
 
