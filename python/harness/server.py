@@ -13729,11 +13729,27 @@ async def handle_p2p_marketplace_search(params: dict[str, Any], req_id: Any) -> 
             if not await _may_have(data):
                 withheld += 1
                 continue
+            # Signed with this node's chain identity. This field used to
+            # carry the literal string "local-node-pubkey-0xTALA" — a
+            # placeholder the download side then "verified" by checking it was
+            # not empty (UI-042).
+            try:
+                from sdk.agent.skill_signing import sign
+
+                signature = sign(data)
+            except Exception as exc:
+                # Serving a skill that cannot be signed hands the receiver
+                # something they must either refuse or trust blindly. Skipped,
+                # and said out loud.
+                logger.error("Not serving skill %r: it could not be signed: %s",
+                             name, exc)
+                continue
+
             items.append({
                 "name": name,
                 "description": description,
                 "payload": data,
-                "public_key": "local-node-pubkey-0xTALA",
+                **signature,
             })
 
     if withheld:
@@ -13745,32 +13761,79 @@ async def handle_p2p_marketplace_search(params: dict[str, Any], req_id: Any) -> 
 
 
 async def handle_marketplace_download(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``marketplace.download`` — install a skill somebody else published.
+
+    A downloaded skill is not data. It is a YAML file of ``steps`` with
+    ``action`` and ``args``, which the graph engine executes — so this is
+    executable capability arriving from another machine.
+
+    What this used to do: log ``"Verifying marketplace payload against public
+    key %s..."``, check the key was a non-empty string, and write the payload
+    into ``skills/``. Nothing was verified, and the key it checked was
+    ``"local-node-pubkey-0xTALA"`` — a placeholder the serving side had
+    hardcoded (UI-042). A log line shaped like a security control, with no
+    control behind it.
+
+    Two separate questions now, because conflating them is how "verified" came
+    to mean nothing here: *was this signed by the key it names*, and *is that
+    key one the owner has admitted*. A valid signature proves who wrote a
+    skill, not that you want to run it.
+    """
     item = params.get("item")
     if not item:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "item is required")
-        
-    public_key = item.get("public_key")
-    if not public_key:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "item missing cryptographic signature")
-        
-    logger.info("Verifying marketplace payload against public key %s...", public_key)
-    
-    import yaml
+
+    from sdk.agent.skill_signing import is_trusted_signer, verify
+
+    payload = item.get("payload", {})
+    name = str(item.get("name") or "")
+
+    signed, why = verify(payload, item)
+    if not signed:
+        await db.log_to_db(
+            "WARNING",
+            f"Refused a marketplace skill: {why}",
+            {"event_type": "marketplace-refused", "reason": why, "name": name},
+        )
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    f"This skill was not written to disk: {why}.")
+
+    trusted, who = await is_trusted_signer(str(item.get("public_key") or ""))
+    if not trusted:
+        await db.log_to_db(
+            "WARNING",
+            f"Refused a marketplace skill from an untrusted signer: {who}",
+            {"event_type": "marketplace-refused", "reason": who, "name": name},
+        )
+        return _err(
+            req_id, JsonRpcError.INVALID_PARAMS,
+            f"This skill is correctly signed, but {who}. Admit that key as a "
+            f"permitted signer if you mean to trust what it publishes.")
+
     import uuid
     from pathlib import Path
+
+    import yaml
+
     skills_dir = Path("skills")
     skills_dir.mkdir(exist_ok=True)
-    
-    skill_id = f"downloaded_{uuid.uuid4().hex[:8]}"
-    file_path = skills_dir / f"{skill_id}.yaml"
-    
+    file_path = skills_dir / f"downloaded_{uuid.uuid4().hex[:8]}.yaml"
+
     try:
-        with open(file_path, "w", encoding="utf-8") as f:
-            yaml.dump(item.get("payload", {}), f)
-    except Exception as e:
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(e))
-        
-    return _ok(req_id, {"success": True, "saved_to": str(file_path)})
+        with open(file_path, "w", encoding="utf-8") as fh:
+            yaml.dump(payload, fh)
+    except Exception as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    await db.log_to_db(
+        "INFO",
+        f"Installed a marketplace skill signed by {who}: {file_path.name}",
+        {"event_type": "marketplace-installed", "signer": who,
+         "file": str(file_path)},
+    )
+    return _ok(req_id, {"success": True, "saved_to": str(file_path),
+                        "signer": who, "verified": why})
 
 _HANDLERS: dict[str, Any] = {
     "task.status": handle_task_status,

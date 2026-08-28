@@ -74,6 +74,50 @@ def _make_caller(server_name: str, tool_name: str):
     async def _call(**kwargs: Any) -> dict[str, Any]:
         from python.harness.mcp_manager import mcp_manager
 
+        # The check that actually protects anything.
+        #
+        # ToolRegistry gates on the bridge's manifest, whose permissions are the
+        # *union* of every configured server's. That is right for letting a
+        # legitimate call through and wrong as the only check: one server
+        # declaring shell:execute would lend it to every other server on the
+        # bridge. So the individual server is checked here, against what it
+        # alone asked for.
+        #
+        # A server that declares nothing gets nothing. An MCP server is somebody
+        # else's process, and no declaration is not a request for everything.
+        try:
+            from sdk.gateway.permissions import (
+                PermissionDeniedError,
+                enforce_tool_permissions,
+            )
+            from sdk.gateway.plugins import mcp_server_permissions
+
+            declared = mcp_server_permissions().get(server_name, [])
+            enforce_tool_permissions(
+                {"id": f"mcp:{server_name}", "permissions": declared},
+                tool_name,
+                kwargs,
+            )
+        except PermissionDeniedError as exc:
+            log.warning("MCP tool %s__%s refused: %s", server_name, tool_name, exc)
+            return {
+                "success": False,
+                "error": (
+                    f"{exc}. The MCP server {server_name!r} has not declared "
+                    f"this capability; add it to that server's permissions if "
+                    f"you intend to grant it."
+                ),
+            }
+        except Exception as exc:
+            # A gate that cannot be consulted must not permit what it exists to
+            # govern.
+            log.error("Could not check MCP permissions for %s__%s: %s",
+                      server_name, tool_name, exc)
+            return {
+                "success": False,
+                "error": f"MCP permission check unavailable: {exc}",
+            }
+
         try:
             return await mcp_manager.call_tool(server_name, tool_name, kwargs)
         except Exception as exc:

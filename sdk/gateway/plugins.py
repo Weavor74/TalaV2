@@ -74,7 +74,7 @@ def scan_plugins_directory(plugins_dir: str = None) -> List[Dict[str, Any]]:
     results = []
     if not os.path.exists(plugins_dir):
         log.warning(f"Plugins directory not found: {plugins_dir}")
-        return results
+        return [mcp_bridge_manifest()]
         
     seen_ids = set()
         
@@ -112,4 +112,80 @@ def scan_plugins_directory(plugins_dir: str = None) -> List[Dict[str, Any]]:
                         "trust_level": "untrusted",
                         "runtime_status": "crashed"
                     })
+    # The bridge is a plugin without a directory: its tools come from
+    # servers configured at runtime, so there is no plugin.json to scan.
+    # Without it here, run_tool refuses every MCP tool for a missing
+    # manifest — which is exactly what it had been doing.
+    results.append(mcp_bridge_manifest())
     return results
+
+# ── MCP servers are plugins too ─────────────────────────────────────────────
+#
+# `run_tool` looks a tool's plugin_id up among the manifests scanned from
+# plugins/. The bridge registers everything under "mcp-bridge", which has no
+# directory and therefore no manifest, so every MCP tool was refused with
+# "manifest not found" — not ungated but *dead*. MCP was made "actually usable"
+# in 2c58af1 and the gateway has been refusing every call since.
+#
+# The manifest is derived rather than shipped as a file, because it has to
+# reflect the servers actually configured: a fixed declaration would either
+# over-grant (every server gets shell:execute) or under-grant (a legitimate
+# server refused).
+
+MCP_BRIDGE_ID = "mcp-bridge"
+
+
+def mcp_server_permissions() -> Dict[str, List[str]]:
+    """
+    What each configured MCP server declares it needs.
+
+    Read from the runtime registry rather than a manifest file, since MCP
+    servers are configured while the app runs and cannot be known when a
+    manifest is written.
+
+    **A server that declares nothing gets nothing.** An MCP server is somebody
+    else's process, and the absence of a declaration is not a request for
+    everything.
+    """
+    try:
+        from python.harness.mcp_manager import mcp_manager
+
+        servers = mcp_manager.list_servers()
+    except Exception as exc:
+        log.debug("Could not read MCP server permissions: %s", exc)
+        return {}
+
+    out: Dict[str, List[str]] = {}
+    for server in servers or []:
+        if not isinstance(server, dict):
+            continue
+        name = str(server.get("name") or server.get("id") or "").strip()
+        if not name:
+            continue
+        declared = server.get("permissions")
+        out[name] = ([p for p in declared if p in ALLOWED_PERMISSIONS]
+                     if isinstance(declared, list) else [])
+    return out
+
+
+def mcp_bridge_manifest() -> Dict[str, Any]:
+    """
+    A manifest for the bridge, so its tools are gated rather than refused.
+
+    Its permissions are the union of what the configured servers declare, which
+    is what lets a legitimate call past the registry-level gate. The check that
+    matters is the per-call one in the bridge, which tests the *individual*
+    server rather than the union — otherwise one server declaring
+    ``shell:execute`` would lend it to every other.
+    """
+    per_server = mcp_server_permissions()
+    return {
+        "id": MCP_BRIDGE_ID,
+        "name": "MCP Bridge",
+        "version": "1.0.0",
+        "entrypoint": "internal",
+        "trust_level": "standard",
+        "permissions": sorted({p for perms in per_server.values() for p in perms}),
+        "tools": [],
+        "mcp_servers": sorted(per_server),
+    }

@@ -1209,7 +1209,40 @@ holding that secret can enroll. But the local user's checkboxes are still not au
 holder of the secret sets its own rights, and the UI gives no indication this has happened.
 
 ### UI-042 — Marketplace payloads are "verified" against a hardcoded placeholder key
-**Severity: high · Status: open — re-verified 2026-08-28, worse than filed**
+**Severity: high · Status: fixed (2026-08-28)**
+
+Marketplace items are signed on the way out and verified on the way in, using the chain identity
+that now exists rather than a parallel one — so a publisher already admitted as a chain signer is
+the same publisher trusted for skills, with one fingerprint to compare out of band.
+
+**Two questions, kept apart.** Conflating them is how "verified" came to mean nothing here:
+
+| Question | Answered by |
+|---|---|
+| was this signed by the key it names? | `skill_signing.verify` |
+| is that key one you have admitted? | `skill_signing.is_trusted_signer` |
+
+A valid signature proves who wrote a skill, not that you want to run it. Either failing refuses the
+download, and the refusal says which — a skill that is correctly signed by a stranger gets a
+different message from one whose payload was swapped.
+
+**Signed over `tala-skill:v1:` + the payload digest.** Block signatures are made over a bare
+64-character hex hash, so signing unprefixed input hands out valid block signatures to anyone who
+submits one. The digest sorts keys, so a payload that survives a round trip through YAML in a
+different order still verifies — a check that cries tamper for reasons that are not tampering stops
+being read.
+
+**A bug the tests caught.** `is_trusted_signer` first used `chains.authorities()`, which
+*deliberately* includes withdrawn and self-retired signers so their chain history stays valid.
+Publishing is a future act, so it uses `active_authorities()`: revoking a key must not leave it able
+to install code. Regression-tested.
+
+The serving side signs rather than sending `"local-node-pubkey-0xTALA"`, and refuses to serve a
+skill it cannot sign — handing somebody something they must either refuse or trust blindly is worse
+than not offering it.
+
+**Original finding.**
+
 
 Raised from medium. This is not a placeholder key awaiting a real one — **there is no verification
 at all**:
@@ -2568,7 +2601,37 @@ shows "No MCP servers registered" — so with an empty list there is nothing to 
 remove looked absent.
 
 ### UI-078 — Plugin permission gating is asserted but unverified
-**Severity: high · Status: open — re-verified 2026-08-28, worse than filed**
+**Severity: high · Status: fixed (2026-08-28) — and it pointed two ways at once**
+
+The gate was real. `enforce_tool_permissions` runs in `ToolRegistry.run_tool` and denies a bare
+`write_file` correctly. My earlier note that `mcp_manager.py` contains no mention of "permission"
+was true and was the wrong file to look in. What was wrong is stranger than either reading:
+
+**Every MCP tool was refused.** The bridge registers under `plugin_id = "mcp-bridge"`, no manifest
+by that id exists, and `run_tool` returns *"Authorization required: Plugin 'mcp-bridge' manifest not
+found."* MCP was not ungated — it was **dead**. It was made "actually usable" in `2c58af1` and the
+gateway has refused every call since.
+
+**And had a manifest existed, the gate would have permitted everything.** Permissions are mapped
+from the tool name, and MCP tools arrive as `mcp_<server>_<tool>`, so `mcp_files_write_file` matched
+no rule while `write_file` was denied. The one source of tools that comes from outside this
+codebase was the one the mapping could not see.
+
+**Both fixed, and the second check is the one that matters.** `underlying_tool_name` strips the
+prefix so a tool is judged by what it does. The bridge gets a manifest derived from the servers
+actually configured, since a fixed declaration would either over-grant or refuse legitimate servers.
+And each call is checked *again* in `_make_caller` against its **own** server's declaration — the
+registry-level check tests the union, and a union would let one server declaring `shell:execute`
+lend it to every other server on the bridge.
+
+A server that declares nothing gets nothing. An MCP server is somebody else's process, and the
+absence of a declaration is not a request for everything. A gate that cannot be consulted refuses
+rather than permits.
+
+The panel now describes the gate that exists rather than asserting one.
+
+**Original finding.**
+
 
 Raised from medium, and no longer "needs verification": it has been verified, and there is nothing
 there. `python/harness/mcp_manager.py` contains **zero** occurrences of the word "permission". The
