@@ -11884,6 +11884,142 @@ def is_local_only_artifact(name: str) -> bool:
     return bool(parts & set(NEVER_LEAVES_DIRS))
 
 
+async def handle_storage_capabilities(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``storage.capabilities`` — which provider types can actually be used.
+
+    Steven: "A user may never install or consume any of the
+    storage/git/database providers but they should have the option too." The
+    option has to be real or absent, not offered and hollow: the panel accepted
+    credentials for nine backends, none of which had a client (UI-068).
+    """
+    try:
+        from python.harness.storage_clients import capabilities
+        caps = capabilities()
+        return _ok(req_id, {
+            "capabilities": caps,
+            "available": [c["kind"] for c in caps if c["available"]],
+            "needs_install": [
+                {"kind": c["kind"], "extra": c["install_extra"], "reason": c["reason"]}
+                for c in caps if not c["available"]
+            ],
+        })
+    except Exception as exc:
+        logger.exception("storage.capabilities error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_storage_test_provider(params: dict[str, Any], req_id: Any) -> str:
+    """``storage.test_provider`` — actually reach the configured destination."""
+    provider_id = str(params.get("id") or "").strip()
+    if not provider_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+
+    try:
+        from python.harness.credential_crypto import decrypt_config
+        from python.harness.storage_clients import StorageError, get_client
+
+        row = await db.fetchrow(
+            "SELECT id, name, provider_type, credentials FROM storage_providers "
+            "WHERE id = $1", provider_id,
+        )
+        if not row:
+            return _ok(req_id, {"state": "failed", "detail": "No such provider."})
+
+        provider = {
+            "provider_type": row["provider_type"],
+            "credentials": decrypt_config(row["credentials"]) or {},
+        }
+        detail = get_client(provider).probe()
+        return _ok(req_id, {"state": "ok", "detail": detail})
+    except StorageError as exc:
+        return _ok(req_id, {"state": "failed", "detail": str(exc)})
+    except Exception as exc:
+        logger.exception("storage.test_provider error")
+        return _ok(req_id, {"state": "failed", "detail": f"{type(exc).__name__}: {exc}"})
+
+
+async def handle_storage_backup_nodes(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``storage.backup_nodes`` — copy the node store to a configured provider.
+
+    This is what makes the panel non-dead (UI-069): storage_providers appeared
+    in six places, every one of them storage or display, so both stated rules
+    on the panel were false.
+
+    The vault is excluded and so is the Chroma index, per Steven's rule that
+    the vault never leaves the install -- and the index holds unsealed vault
+    bodies, so syncing it would export the vault by the back door.
+    """
+    provider_id = str(params.get("id") or "").strip()
+    if not provider_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    dry_run = bool(params.get("dry_run", False))
+
+    try:
+        from python.harness.credential_crypto import decrypt_config
+        from python.harness.storage_clients import StorageError, get_client
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+
+        row = await db.fetchrow(
+            "SELECT id, name, provider_type, credentials FROM storage_providers "
+            "WHERE id = $1", provider_id,
+        )
+        if not row:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, "No such provider.")
+
+        nodes_dir = resolve_active_nodes_dir()
+        candidates = sorted(nodes_dir.glob("*.html"))
+        sendable, withheld = [], []
+        for path in candidates:
+            (withheld if is_local_only_artifact(path.name) else sendable).append(path)
+
+        if dry_run:
+            return _ok(req_id, {
+                "success": True, "dry_run": True,
+                "would_send": len(sendable), "withheld": len(withheld),
+                "withheld_names": [p.name for p in withheld][:20],
+                "provider": row["name"],
+            })
+
+        client = get_client({
+            "provider_type": row["provider_type"],
+            "credentials": decrypt_config(row["credentials"]) or {},
+        })
+        client.probe()
+
+        from datetime import datetime, timezone
+        stamp = datetime.now(timezone.utc).strftime("%Y%m%dT%H%M%SZ")
+        sent, failed = 0, []
+        for path in sendable:
+            try:
+                client.put(f"tala-nodes/{stamp}/{path.name}", path.read_bytes())
+                sent += 1
+            except Exception as exc:
+                failed.append({"name": path.name, "error": str(exc)[:200]})
+
+        await db.log_to_db(
+            "INFO" if not failed else "WARNING",
+            f"Node backup to {row['name']}: {sent} sent, {len(failed)} failed, "
+            f"{len(withheld)} withheld as local-only.",
+            {"provider": row["name"], "sent": sent,
+             "failed": len(failed), "withheld": len(withheld)},
+        )
+        return _ok(req_id, {
+            "success": not failed,
+            "provider": row["name"],
+            "sent": sent,
+            "withheld": len(withheld),
+            "failed": failed[:20],
+            "destination": f"tala-nodes/{stamp}/",
+        })
+    except StorageError as exc:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    except Exception as exc:
+        logger.exception("storage.backup_nodes error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_environment_get(params: dict[str, Any], req_id: Any) -> str:
     """``environment.get`` — the current preset, lockdown, and what they permit."""
     try:
@@ -12486,6 +12622,9 @@ _HANDLERS: dict[str, Any] = {
     "database.test_provider": handle_database_test_provider,
     "system.architecture_contract": handle_system_architecture_contract,
     "task.prune": handle_task_prune,
+    "storage.capabilities": handle_storage_capabilities,
+    "storage.test_provider": handle_storage_test_provider,
+    "storage.backup_nodes": handle_storage_backup_nodes,
     "environment.get": handle_environment_get,
     "environment.set": handle_environment_set,
     "vault.grant": handle_vault_grant,

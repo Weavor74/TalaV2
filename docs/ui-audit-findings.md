@@ -1886,7 +1886,22 @@ type of storage possible."*
 backend can actually be reached — there is no client for any of them.
 
 ### UI-068 — No storage client library exists for any provider type
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed, reframed by Steven:** *"A user may never install or consume any of the
+> storage/git/database providers but they should have the option too."* The problem was
+> never that nine types were offered — it was that none could work and nothing said so.
+>
+> **Three now work with no new dependency**: a local or network folder (`pathlib`), FTP/FTPS
+> (`ftplib`), and WebDAV (`httpx`, already a dependency). For a portable install the folder
+> target is the useful one — backing the stick up to a NAS or a second drive.
+>
+> The other six are declared as optional extras in `pyproject.toml` and **name the exact
+> install command** when unavailable. They are deliberately *not* implemented against an
+> absent library: an adapter written blind and never run is the kind of thing this audit
+> keeps finding. Nothing heavy ships by default, so a user who never touches storage carries
+> no extra weight.
 
 The panel offers nine provider types. The codebase contains **no library capable of talking to any
 of them**. Searching `python/` and `sdk/` for every relevant client returns zero results:
@@ -1904,7 +1919,17 @@ None are declared in `pyproject.toml` either. This is a step beyond the git pane
 at least the `git` binary exists on the host — here there is no mechanism at all.
 
 ### UI-069 — Storage providers are configured but never consumed
-**Severity: high · Status: open**
+**Severity: high · Status: FIXED 2026-08-23**
+
+
+> **Fixed.** `storage.backup_nodes` copies the node store to a configured provider, with a
+> dry run, and `storage.test_provider` actually reaches the destination rather than showing
+> a hardcoded badge. Verified end to end against a real folder target.
+>
+> **The vault is withheld**, and so is the Chroma index — it holds unsealed vault bodies, so
+> syncing it would export the vault by the back door. The strongest check in the suite is
+> that a known vault secret appears nowhere in the entire backup tree. A partly failed backup
+> reports `success: false` with the per-file errors rather than a count that looks complete.
 
 `storage_providers` appears in six places, all storage or display:
 

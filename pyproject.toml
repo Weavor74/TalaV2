@@ -41,6 +41,20 @@ dependencies = [
 ]
 
 [project.optional-dependencies]
+# Storage backends are optional by design. Steven: "A user may never install or
+# consume any of the storage/git/database providers but they should have the
+# option too." Nothing here ships by default -- a portable install carries no
+# cloud SDK it will not use -- and the panel names the exact extra to install
+# for a backend that is not present.
+#
+# folder, ftp and webdav need nothing: pathlib, ftplib and httpx cover them.
+s3 = ["boto3>=1.34"]
+sftp = ["paramiko>=3.4"]
+azure = ["azure-storage-blob>=12.19"]
+dropbox = ["dropbox>=11.36"]
+gdrive = ["google-api-python-client>=2.120"]
+onedrive = ["msal>=1.28"]
+
 test = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0"
