@@ -553,7 +553,6 @@
               <button class="settings-sub-tab" data-panel="git">.GIT</button>
               <button class="settings-sub-tab" data-panel="storage">STORAGE</button>
               <button class="settings-sub-tab" data-panel="database">DATABASE</button>
-              <button class="settings-sub-tab" data-panel="runtime">RUNTIME</button>
               <button class="settings-sub-tab" data-panel="plugins">PLUGINS</button>
               <button class="settings-sub-tab" data-panel="auth">AUTH</button>
               <button class="settings-sub-tab" data-panel="firewall">FIREWALL</button>
@@ -1983,43 +1982,6 @@
                     <div class="fallback-rule-item">
                       <span class="fallback-rule-bullet fallback-bullet-token" style="background: rgba(0, 242, 254, 0.1); color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3);">?</span>
                       <div class="fallback-rule-text"><strong>Test before trusting</strong> — A saved connection is not a working one. Use TEST to open a real connection; the badge stays CONFIGURED until something is measured.</div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <!-- ══ RUNTIME ════════════════════════════════════════════ -->
-              <div class="settings-panel" id="settings-panel-runtime" hidden>
-                <div class="panel-toolbar">
-                  <div class="panel-toolbar-info">
-                    <h2 class="panel-heading">Remote HTML-NN Instances</h2>
-                    <p class="panel-subheading">Add, remove, and prioritize remote HTML-NN node instances to expand your neural knowledge loop. Top prioritized instances are queried first during node retrieval and graph propagation.</p>
-                  </div>
-                  <button class="btn btn-primary" id="btn-add-runtime-instance">+ Add Remote Instance</button>
-                </div>
-
-                <!-- Instance priority chain — populated by RuntimeInstanceManager -->
-                <div class="provider-list" id="runtime-instance-list">
-                  <div class="provider-list-empty" id="runtime-instance-list-empty">
-                    <div class="provider-list-empty-icon">🌐</div>
-                    <div class="provider-list-empty-text">No remote HTML-NN instances configured. Click <strong>+ Add Remote Instance</strong> to mount remote knowledge nodes.</div>
-                  </div>
-                </div>
-
-                <!-- Info card -->
-                <div class="inference-fallback-info" style="margin-top: var(--space-5);">
-                  <div class="fallback-info-header">
-                    <svg viewBox="0 0 16 16" fill="currentColor" width="13" height="13"><path d="M8 0C3.58 0 0 3.58 0 8s3.58 8 8 8 8-3.58 8-8-3.58-8-8-8zm1 13H7v-2h2v2zm0-4H7V3h2v6z"/></svg>
-                    KNOWLEDGE SHARING & PROPAGATION RULES
-                  </div>
-                  <div class="fallback-rules-list">
-                    <div class="fallback-rule-item">
-                      <span class="fallback-rule-bullet fallback-bullet-token" style="background: rgba(0, 242, 254, 0.1); color: #00f2fe; border: 1px solid rgba(0, 242, 254, 0.3);">P</span>
-                      <div class="fallback-rule-text"><strong>Priority Routing</strong> — Search query propagation queries remote instances in priority sequence. Reprioritize via drag-and-drop or action arrows.</div>
-                    </div>
-                    <div class="fallback-rule-item">
-                      <span class="fallback-rule-bullet fallback-bullet-error" style="background: rgba(250, 82, 82, 0.1); color: #fa5252; border: 1px solid rgba(250, 82, 82, 0.3);">!</span>
-                      <div class="fallback-rule-text"><strong>Fault Tolerant Failover</strong> — If a primary remote node is down, the system automatically falls back to secondary remote servers, keeping knowledge searches uninterrupted.</div>
                     </div>
                   </div>
                 </div>
@@ -3870,37 +3832,6 @@
       </div>
     </div>
   </div>
-  <!-- 🌐 Add Remote Instance Modal 🌐 -->
-  <div id="modal-add-runtime-instance" class="modal-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="modal-runtime-instance-title">
-    <div class="modal-card" style="max-width: 480px;">
-      <div class="modal-header">
-        <h2 class="modal-title" id="modal-runtime-instance-title">Add Remote Instance</h2>
-        <button class="modal-close-btn" id="btn-modal-runtime-instance-close" aria-label="Close">&times;</button>
-      </div>
-      <div class="modal-body">
-        <div class="form-group">
-          <label class="form-label" for="rt-inst-name">Common Name <span class="required-star">*</span></label>
-          <input type="text" id="rt-inst-name" class="form-input" placeholder="e.g. Europe Node, Secondary Lab NN">
-          <div class="form-hint">Friendly name for this remote HTML-NN node.</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="rt-inst-url">Remote URL <span class="required-star">*</span></label>
-          <input type="url" id="rt-inst-url" class="form-input" placeholder="https://europe-node.tala.ai or http://192.168.1.50:8765">
-          <div class="form-hint">Connection endpoint URL for the remote HTML-NN instance.</div>
-        </div>
-        <div class="form-group">
-          <label class="form-label" for="rt-inst-apikey">Access Token / API Key</label>
-          <input type="password" id="rt-inst-apikey" class="form-input" placeholder="tala_tok_••••••••">
-          <div class="form-hint">Security credential token if authentication is enabled on the remote node.</div>
-        </div>
-      </div>
-      <div class="modal-footer">
-        <button class="btn btn-secondary" id="btn-modal-runtime-instance-cancel">Cancel</button>
-        <button class="btn btn-primary"  id="btn-modal-runtime-instance-save">Add Instance</button>
-      </div>
-    </div>
-  </div>
-
   <!-- 🔑 Add Auth Credential Modal 🔑 -->
   <div id="modal-add-auth-credential" class="modal-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="modal-auth-credential-title">
     <div class="modal-card auth-modal-card">

@@ -579,42 +579,6 @@ async def update_settings_database_node():
     except Exception as exc:
         logger.exception("Failed to update settings-database node: %s", exc)
 
-async def update_settings_runtime_node():
-    try:
-        rows = await db.fetch("SELECT id, name, url, priority, locked FROM runtime_instances ORDER BY priority ASC")
-        instances = []
-        for r in rows:
-            instances.append({
-                "id": r["id"],
-                "name": r["name"],
-                "url": r["url"],
-                "priority": r["priority"],
-                "locked": r["locked"]
-            })
-            
-        html_lines = [
-            "<h2>Runtime Instances</h2>",
-            "<p>Configured remote HTML-NN node servers and active peer instances.</p>",
-            "<table>",
-            "<thead><tr><th>Name</th><th>URL</th><th>Priority</th><th>Forced</th></tr></thead>",
-            "<tbody>"
-        ]
-        for i in instances:
-            forced_str = "Yes" if i["locked"] else "No"
-            html_lines.append(f"<tr><td>{i['name']}</td><td><code>{i['url']}</code></td><td>{i['priority']}</td><td>{forced_str}</td></tr>")
-        if not instances:
-            html_lines.append("<tr><td colspan='4'>No remote runtime instances configured.</td></tr>")
-        html_lines.append("</tbody></table>")
-        
-        state_data = {
-            "title": "Runtime Settings",
-            "tags": ["private", "settings", "runtime"],
-            "instances": instances
-        }
-        await save_settings_node("settings-runtime", "Runtime Settings", "\n".join(html_lines), state_data)
-    except Exception as exc:
-        logger.exception("Failed to update settings-runtime node: %s", exc)
-
 async def update_settings_auth_node():
     try:
         rows = await db.fetch("SELECT id, name, auth_type, priority, locked FROM auth_credentials ORDER BY priority ASC")
@@ -749,7 +713,6 @@ async def sync_settings_to_nodes():
     await update_settings_git_node()
     await update_settings_storage_node()
     await update_settings_database_node()
-    await update_settings_runtime_node()
     await update_settings_auth_node()
     await update_settings_firewall_node()
     await update_settings_code_registry_node()

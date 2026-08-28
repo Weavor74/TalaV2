@@ -373,20 +373,33 @@ _DDL_STATEMENTS: list[str] = [
             updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
         );
     """),
-    # ------------------------------------------------------------------
-    # runtime_instances — remote HTML-NN nodes/instances
-    # ------------------------------------------------------------------
-    textwrap.dedent("""\
-        CREATE TABLE IF NOT EXISTS runtime_instances (
-            id          TEXT        PRIMARY KEY,
-            name        TEXT        NOT NULL,
-            url         TEXT        NOT NULL,
-            api_key     TEXT        NOT NULL DEFAULT '',
-            priority    INTEGER     NOT NULL,
-            locked      BOOLEAN     NOT NULL DEFAULT FALSE,
-            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
-        );
+    # runtime_instances — removed 2026-08-28 (UI-075, UI-076).
+    #
+    # A Common Name, a URL and a bearer token, with no identity and no
+    # permission model in either direction — and nothing ever dereferenced a
+    # row. It was listed, saved, labelled and counted, and that was all.
+    #
+    # Contacts reaches another install's nodes already, whether that install is
+    # yours or a friend's, with a username, a wallet address, a shared secret,
+    # HMAC-signed packets and a permission check on both sides. A peer is a
+    # peer; two paths to the same place, one of them weaker, is one too many.
+    #
+    # Dropped only when empty. An install that somehow has rows keeps them and
+    # its table, because deleting somebody's configuration to tidy up a schema
+    # is not a trade this project makes.
+    textwrap.dedent("""        DO $$
+        BEGIN
+            -- Nested, not ANDed. PL/pgSQL evaluates a boolean expression as a
+            -- single SQL query, so "table exists AND SELECT 1 FROM it" plans
+            -- the inner SELECT even when the table does not exist -- which
+            -- raises on every fresh install, where it never existed at all.
+            IF EXISTS (SELECT 1 FROM information_schema.tables
+                       WHERE table_name = 'runtime_instances') THEN
+                IF NOT EXISTS (SELECT 1 FROM runtime_instances) THEN
+                    DROP TABLE runtime_instances;
+                END IF;
+            END IF;
+        END $$;
     """),
     # ------------------------------------------------------------------
     # auth_credentials — credentials for various protocols (Milestone 25)
@@ -1374,7 +1387,6 @@ async def _run_migrations() -> None:
             await conn.execute("ALTER TABLE git_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
             await conn.execute("ALTER TABLE storage_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
             await conn.execute("ALTER TABLE database_providers ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
-            await conn.execute("ALTER TABLE runtime_instances ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
             await conn.execute("ALTER TABLE auth_credentials ADD COLUMN IF NOT EXISTS locked BOOLEAN NOT NULL DEFAULT FALSE;")
             await conn.execute("ALTER TABLE search_providers ADD COLUMN IF NOT EXISTS credential_id TEXT;")
             await conn.execute("ALTER TABLE git_providers ADD COLUMN IF NOT EXISTS credential_id TEXT;")

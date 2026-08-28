@@ -83,7 +83,6 @@ from python.harness.settings_nn import (
     update_settings_git_node,
     update_settings_storage_node,
     update_settings_database_node,
-    update_settings_runtime_node,
     update_settings_auth_node,
     update_settings_firewall_node,
 )
@@ -1918,7 +1917,6 @@ async def handle_inference_generate(
                                         ("git_providers", "Git Providers"),
                                         ("storage_providers", "Storage Providers"),
                                         ("database_providers", "Database Providers"),
-                                        ("runtime_instances", "Runtime Instances"),
                                         ("auth_credentials", "Auth Credentials"),
                                         ("firewall_contacts", "Firewall Contacts"),
                                     ]:
@@ -8358,80 +8356,6 @@ def _merge_redacted_auth_config(incoming: Any, existing: dict[str, Any]) -> dict
     return merged
 
 
-async def handle_runtime_get_instances(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``runtime.get_instances`` — Retrieve all configured remote HTML-NN instances sorted by priority.
-    """
-    try:
-        rows = await db.fetch(
-            "SELECT id, name, url, api_key, priority, locked "
-            "FROM runtime_instances ORDER BY priority ASC"
-        )
-        instances = []
-        for r in rows:
-            api_key = r["api_key"] or ""
-            instances.append({
-                "id":       r["id"],
-                "name":     r["name"],
-                "url":      r["url"],
-                "api_key":  "***" if api_key else "",
-                "has_auth": bool(api_key),
-                "priority": r["priority"],
-                "locked":   r["locked"],
-            })
-        return _ok(req_id, {"instances": instances})
-    except Exception as exc:
-        logger.exception("runtime.get_instances error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_runtime_save_instances(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``runtime.save_instances`` — Persist remote HTML-NN instance list (replaces entire table).
-    """
-    instances = params.get("instances")
-    if instances is None or not isinstance(instances, list):
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'instances' (list) is required")
-
-    try:
-        existing_rows = await db.fetch("SELECT id, api_key FROM runtime_instances")
-        existing_keys = {r["id"]: r["api_key"] for r in existing_rows}
-        pool = db.get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                await conn.execute("DELETE FROM runtime_instances")
-                for idx, inst in enumerate(instances):
-                    inst_id = str(inst.get("id", "")).strip()
-                    name = str(inst.get("name", "")).strip()
-                    url = str(inst.get("url", "")).strip()
-                    if not inst_id or not name or not url:
-                        return _err(req_id, JsonRpcError.INVALID_PARAMS, "runtime instances require id, name, and url")
-                    raw_api_key = str(inst.get("api_key", "") or "")
-                    api_key = existing_keys.get(inst_id, "") if raw_api_key == "***" else raw_api_key
-                    locked = bool(inst.get("locked", False))
-                    await conn.execute(
-                        """
-                        INSERT INTO runtime_instances
-                          (id, name, url, api_key, priority, locked, created_at, updated_at)
-                        VALUES ($1, $2, $3, $4, $5, $6, NOW(), NOW())
-                        """,
-                        inst_id,
-                        name,
-                        url,
-                        api_key,
-                        idx + 1,
-                        locked,
-                    )
-        try:
-            await update_settings_runtime_node()
-        except Exception as exc:
-            logger.warning("Failed to update runtime settings node: %s", exc)
-        return _ok(req_id, {"success": True})
-    except Exception as exc:
-        logger.exception("runtime.save_instances error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
 async def handle_auth_get_credentials(params: dict[str, Any], req_id: Any) -> str:
     """
     ``auth.get_credentials`` — Retrieve all configured credentials sorted by priority.
@@ -10395,21 +10319,18 @@ async def handle_gateway_status(params: dict[str, Any], req_id: Any) -> str:
     db_ok = False
     auth_credentials_count = 0
     trusted_contacts_count = 0
-    remote_instances_count = 0
-    authenticated_remote_instances = 0
     try:
         await db.fetchval("SELECT 1")
         db_ok = True
         auth_credentials_count = int(await db.fetchval("SELECT COUNT(*) FROM auth_credentials") or 0)
         trusted_contacts_count = int(await db.fetchval("SELECT COUNT(*) FROM firewall_contacts") or 0)
-        remote_instances_count = int(await db.fetchval("SELECT COUNT(*) FROM runtime_instances") or 0)
-        authenticated_remote_instances = int(
-            await db.fetchval("SELECT COUNT(*) FROM runtime_instances WHERE COALESCE(api_key, '') <> ''") or 0
-        )
     except Exception:
         pass
 
-    auth_ready = db_ok and (auth_credentials_count > 0 or trusted_contacts_count > 0 or authenticated_remote_instances > 0)
+    # Was also satisfied by a row carrying an api_key in a table nothing ever
+    # read (UI-075). Readiness now rests on credentials and trusted contacts,
+    # both of which are consumed.
+    auth_ready = db_ok and (auth_credentials_count > 0 or trusted_contacts_count > 0)
         
     return _ok(req_id, {
         "status": "online",
@@ -10417,8 +10338,6 @@ async def handle_gateway_status(params: dict[str, Any], req_id: Any) -> str:
         "auth_ready": auth_ready,
         "auth_credentials_count": auth_credentials_count,
         "trusted_contacts_count": trusted_contacts_count,
-        "remote_instances_count": remote_instances_count,
-        "authenticated_remote_instances": authenticated_remote_instances,
         "mcp_servers_tracked": len(get_process_status()),
         "processes": get_process_status()
     })
@@ -13896,8 +13815,6 @@ _HANDLERS: dict[str, Any] = {
     "storage.save_providers": handle_storage_save_providers,
     "database.get_providers":  handle_database_get_providers,
     "database.save_providers": handle_database_save_providers,
-    "runtime.get_instances":  handle_runtime_get_instances,
-    "runtime.save_instances": handle_runtime_save_instances,
     "auth.get_credentials":  handle_auth_get_credentials,
     "auth.save_credentials": handle_auth_save_credentials,
     "firewall.get_contacts":  handle_firewall_get_contacts,

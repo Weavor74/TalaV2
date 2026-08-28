@@ -2525,7 +2525,23 @@ permission-gated. This panel is a second, parallel mechanism for the same thing 
 identity nor permissions, and nothing consumes it.
 
 ### UI-075 — Remote instances are never queried; node retrieval is local-only
-**Severity: high · Status: open**
+**Severity: high · Status: fixed (2026-08-28) — removed**
+
+Both stated rules were false and neither has been made true, because the panel is gone. Steven's
+call when asked whether this was his own fleet or other people's: **delete it — a peer is a peer.**
+
+Contacts already reaches another install's HTML-NN nodes, and works whether that install is yours or
+a friend's. `runtime_instances` was never dereferenced: listed, saved, labelled, and *counted* into
+an `auth_ready` boolean. That count is gone too — a row in a table nothing reads is not readiness.
+
+Removed: the panel and its modal, the `RUNTIME` sub-tab, `RuntimeInstanceManager` (173 lines), both
+RPCs, the settings-node section, and the table.
+
+**The table is dropped only when empty.** An install that somehow has rows keeps them and its table;
+deleting somebody's configuration to tidy up a schema is not a trade worth making.
+
+**Original finding.**
+
 
 `runtime_instances` is referenced in seven places, none of them retrieval:
 
@@ -2548,7 +2564,40 @@ Node retrieval contains no remote query at all. So both stated rules are false:
   to secondary remote servers"* — nothing contacts a primary, so nothing can fail over
 
 ### UI-076 — This duplicates a working, identity-based capability
-**Severity: high (design) · Status: open**
+**Severity: high (design) · Status: resolved (2026-08-28) — deleted, and the premise was half wrong**
+
+**Corrected.** This entry read the panel as a duplicate of Contacts. The panel's own placeholders say
+otherwise — *"Europe Node, Secondary Lab NN"*, `http://192.168.1.50:8765` — which describe **your own
+infrastructure**, not a friend's machine. So it was not a duplicate of Contacts but a *different*,
+unbuilt idea, and the choice was genuinely open rather than obvious.
+
+Steven decided it anyway: **a peer is a peer.** Contacts reaches another install's nodes with a
+username, a wallet address, a shared secret, HMAC-signed packets and a permission check on both
+sides, and it does not care whether the machine at the other end belongs to you. Runtime Instances
+offered a URL and a bearer token with no identity and no permission model in either direction — a
+second, weaker path to the same place.
+
+Verified before deciding, rather than taken from the entry: `p2p.resolve_node_reference` is invoked
+from a live flow and gated by `_peer_can_resolve_node_reference`, which requires the contact's
+`nodes` permission *and* a firewall record with clearance. It is not another built-but-never-called
+subsystem.
+
+**Two bugs the removal itself surfaced**, both of which would have broken fresh installs silently:
+
+* An `ALTER TABLE runtime_instances ADD COLUMN IF NOT EXISTS locked` sat in a sequential block of
+  migrations. With the table gone it would raise — and take every migration *after* it with it,
+  costing a fresh install `auth_credentials.locked`, `agent_log.tx_id` and both `credential_id`
+  columns.
+* The guarded drop was first written as `IF table_exists AND NOT EXISTS (SELECT 1 FROM
+  runtime_instances)`. PL/pgSQL evaluates a boolean expression as one SQL query, so the inner
+  `SELECT` is planned even when the table does not exist — raising on precisely the fresh installs
+  where it never existed. Nested instead.
+
+11 tests hold the removal complete, including that every settings tab still has its panel: removing
+a panel and leaving its tab is the shape of UI-117 and UI-033.
+
+**Original finding.**
+
 
 Steven's description — *"a friend's html_NN in which the user would need to provide a contact
 endpoint/username"* — describes the **Contacts + p2p** system, which is already built end to end:
