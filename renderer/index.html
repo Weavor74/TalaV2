@@ -296,6 +296,11 @@
             <button class="btn-browser-nav" id="btn-browser-refresh" title="Reload">🔄</button>
             <input type="text" id="browser-url-input" value="https://duckduckgo.com/" placeholder="Enter URL or search term..." />
             <span class="browser-status-ready" id="browser-status">READY</span>
+            <!-- Whose session this tab is showing. Tala browses in her own
+                 headless Chromium; this mirrors it so you can watch without
+                 sharing control of it. -->
+            <button class="browser-follow" id="browser-follow" hidden
+                    title="Follow Tala's browser again">Following Tala</button>
           </div>
           <div class="browser-viewport">
             <webview id="browser-iframe" src="https://duckduckgo.com/"></webview>

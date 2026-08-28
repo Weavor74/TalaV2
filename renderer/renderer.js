@@ -8081,6 +8081,42 @@ const PanelResizer = {
    ═══════════════════════════════════════════════════════════════════ */
 
 const WebBrowser = {
+  /** Point this tab at the page Tala just loaded. */
+  mirror({ url, title }) {
+    this._lastAgentUrl = url;
+    if (!this._following || !this._iframe) return;
+    try {
+      if (typeof this._iframe.loadURL === 'function') {
+        this._iframe.loadURL(url);
+      } else {
+        this._iframe.src = url;
+      }
+      if (this._urlInput) this._urlInput.value = url;
+      IPCLog.append('info', `Tala browsed to: ${title || url}`);
+    } catch (err) {
+      console.warn('[WebBrowser] could not mirror:', err);
+    }
+  },
+
+  /**
+   * You steered, so the tab is yours until you hand it back.
+   *
+   * Called from the address bar and the navigation buttons. Following resumes
+   * only when you ask for it — silently resuming would reintroduce exactly the
+   * behaviour this avoids.
+   */
+  takeOver() {
+    if (!this._following) return;
+    this._following = false;
+    this._renderFollowState();
+  },
+
+  _renderFollowState() {
+    if (!this._follow) return;
+    this._follow.hidden = this._following;
+    this._follow.textContent = this._following ? 'Following Tala' : 'Follow Tala';
+  },
+
   init() {
     this._iframe = qs('#browser-iframe'); // This is our webview now
     this._urlInput = qs('#browser-url-input');
@@ -8088,6 +8124,34 @@ const WebBrowser = {
     this._btnForward = qs('#btn-browser-forward');
     this._btnRefresh = qs('#btn-browser-refresh');
     this._status = qs('#browser-status');
+    this._follow = qs('#browser-follow');
+
+    // Tala's browsing, reflected here (UI-013).
+    //
+    // Her tools drive a headless Chromium, so this tab used to show something
+    // unrelated to whatever she was doing. It now follows her — and only
+    // follows: she keeps her own browser, so she never navigates out from
+    // under you mid-page and never waits on this window.
+    //
+    // The moment you steer, it stops following and says so. A tab that yanks
+    // itself away while you are reading is worse than one that never moved.
+    this._following = true;
+    try {
+      window.tala.on('python:notification', (msg) => {
+        if (!msg || msg.method !== 'browser.mirror' || !msg.params?.url) return;
+        this.mirror(msg.params);
+      });
+    } catch (err) {
+      console.warn('[WebBrowser] could not listen for the mirror:', err);
+    }
+
+    if (this._follow) {
+      this._follow.addEventListener('click', () => {
+        this._following = true;
+        this._renderFollowState();
+        if (this._lastAgentUrl) this.mirror({ url: this._lastAgentUrl });
+      });
+    }
 
     // The badge was decoration: styled markup with no JavaScript anywhere in
     // renderer/, so it read READY while a page was loading and while a page
@@ -8112,6 +8176,7 @@ const WebBrowser = {
 
     if (this._btnBack) {
       this._btnBack.addEventListener('click', () => {
+        this.takeOver();
         try {
           if (this._iframe) {
             if (typeof this._iframe.goBack === 'function') {
@@ -8128,6 +8193,7 @@ const WebBrowser = {
 
     if (this._btnForward) {
       this._btnForward.addEventListener('click', () => {
+        this.takeOver();
         try {
           if (this._iframe) {
             if (typeof this._iframe.goForward === 'function') {
@@ -8159,6 +8225,7 @@ const WebBrowser = {
         if (e.key === 'Enter') {
           const value = this._urlInput.value.trim();
           if (value) {
+            this.takeOver();   // you steered; the tab is yours until handed back
             this.navigate(value);
           }
         }

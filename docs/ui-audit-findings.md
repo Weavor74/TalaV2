@@ -233,7 +233,31 @@ The problem is purely that Stack A and Stack B never meet. Everything Tala does 
 browser Steven cannot watch, while the on-screen browser sits idle.
 
 ### UI-013 — Tala's browser tools drive a headless browser, not the visible one
-**Severity: high · Status: open**
+**Severity: high · Status: fixed (2026-08-28) — as a mirror, by Steven's choice**
+
+> **Steven, asked whether the visible tab should mirror her, be handed over, or be relabelled:**
+> *"Mirror — you watch, she works."*
+
+Tala keeps her headless Chromium. The visible `<webview>` now follows it: `browser_navigate`,
+`browser_click` and `browser_type` each broadcast `browser.mirror` with the page they landed on, and
+the tab loads it. Watching the Web Browser view finally shows what she is doing.
+
+**A mirror, not a handover**, and the distinction is the whole design. She never waits on the window,
+never competes with it, and never loses a page because somebody scrolled. Nothing the window does
+reaches back into her session — a test asserts the mirror makes no RPC.
+
+**It follows; it does not take the tab from you.** Typing an address or pressing back or forward
+hands control to you and following stops, with a "Follow Tala" button to resume. Resuming is never
+automatic: a tab that yanks itself away mid-page is worse than one that never moved. Reading the
+page broadcasts nothing, so the tab only moves when she actually moves.
+
+A failed mirror is not a failed navigation — nobody may be looking at the window, and there may not
+be a window at all.
+
+Verified against a real headless browser: two navigations, two mirrors, `browser_read` silent.
+
+**Original finding.**
+
 
 The six working tools all operate on the Playwright instance. None of them can navigate, read,
 click, or type in the `<webview>`. Watching the Web Browser view tells the user nothing about
@@ -281,7 +305,23 @@ path exists, so Tala would never see what the JS returned. Compare `browser_read
 which does return page content.
 
 ### UI-016 — Control of the visible webview is not exposed as tools
-**Severity: high · Status: open**
+**Severity: high · Status: fixed (2026-08-28) — and the finding was already stale**
+
+*"No `@register_tool` wraps any of them"* was true when written and is not now. **Ten** tools are
+registered and reachable, out of 97 total:
+
+| | |
+|---|---|
+| `browser_navigate`, `browser_read`, `browser_click`, `browser_type`, `browser_screenshot`, `browser_close` | her headless browser |
+| `ui_navigate`, `ui_describe`, `ui_click`, `ui_reload` | this window (UI-119 Route B, shipped as UI-007) |
+
+What remained true is that none of them drove the *visible* webview — which UI-013's mirror now
+addresses, in the direction Steven chose.
+
+A worked example of UI-094: this finding was gathered behind `origin/main` and had been overtaken.
+
+**Original finding.**
+
 
 `browser.navigate`, `browser.get_dom`, and `browser.execute_js` are JSON-RPC methods only
 ([server.py:11084-11085](../python/harness/server.py#L11084)). No `@register_tool` wraps any of
@@ -4084,7 +4124,25 @@ risk_class)` is already resource-scoped and already carries a risk tier — it n
 argument, not a redesign.
 
 ### UI-119 — How Tala could operate the UI: CDP/Playwright vs the existing IPC path
-**Severity: high (design) · Status: decision needed · Source: Steven's question, 2026-08-23**
+**Severity: high (design) · Status: built (already, as UI-007) · Source: Steven's question, 2026-08-23**
+
+**Route B was chosen and is already implemented** — `sdk/agent/ui_control.py` provides `ui_describe`,
+`ui_navigate`, `ui_click` and `ui_reload` as registered tools, broadcasting over the same
+`python:notification` channel `browser.navigate` uses, with `UIControl` handling them in the
+renderer against an allowlist checked on both sides.
+
+Steven confirmed the scope on 2026-08-28 when asked how far it should go: **full control, including
+clicking.** That is what shipped — `ui_click` presses controls the `ui-view-*` node map documents,
+and every call routes through the harness rather than around it.
+
+No debugging port is opened, and a test asserts none appears. Chrome DevTools Protocol has no
+authentication: a port would hand arbitrary JavaScript execution and full app control to any local
+process, letting an agent denied something by policy simply drive the UI to do it. That is the
+reason for Route B, and it holds more strongly now that access control, per-agent privileges and
+lockdown are built rather than planned.
+
+**Original finding.**
+
 
 > **Steven:** *"Electron is a chrome based node. Can we add playwright to it?"*
 

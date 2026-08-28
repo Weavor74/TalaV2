@@ -6530,3 +6530,21 @@ button:focus:not(:focus-visible) {
   max-width: 60ch;
   line-height: 1.5;
 }
+
+/* Whose session the browser tab is showing. Hidden while following, since a
+   badge that is always present stops being read; it appears as a button only
+   once you have steered and can hand the tab back. */
+.browser-follow {
+  background: rgba(240, 165, 82, 0.12);
+  border: 1px solid rgba(240, 165, 82, 0.35);
+  color: #f0a552;
+  border-radius: 999px;
+  padding: 1px 10px;
+  font-size: 0.68rem;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  cursor: pointer;
+}
+
+.browser-follow:hover,
+.browser-follow:focus-visible { background: rgba(240, 165, 82, 0.2); }

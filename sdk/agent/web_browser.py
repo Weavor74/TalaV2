@@ -77,6 +77,34 @@ async def _ensure_page():
     return _page
 
 
+async def _mirror(page) -> None:
+    """
+    Show the visible browser tab where Tala just went.
+
+    Her tools drive a headless Chromium, so watching the Web Browser view told
+    you nothing about what she was doing (UI-013). This reflects her page into
+    the visible ``<webview>`` so you can watch.
+
+    It is a mirror, not a handover. She keeps her own browser: the visible tab
+    follows her, and she never waits on it, competes with it, or loses a page
+    because somebody scrolled. If the mirror cannot be delivered, that is not a
+    navigation failure and must not be reported as one — nobody may be looking
+    at the window, and there may not be a window at all.
+    """
+    try:
+        url = page.url
+        if not url or url == "about:blank":
+            return
+        from python.harness.server import broadcast_notification
+
+        await broadcast_notification("browser.mirror", {
+            "url": url,
+            "title": await page.title(),
+        })
+    except Exception as exc:
+        log.debug("Could not mirror the browser page: %s", exc)
+
+
 async def _page_summary(page, max_chars: int = 3000) -> dict[str, Any]:
     text = await page.evaluate("() => document.body ? document.body.innerText : ''")
     return {
@@ -108,6 +136,7 @@ async def browser_navigate(url: str) -> dict[str, Any]:
         await page.goto(url, wait_until="domcontentloaded", timeout=30000)
         await page.wait_for_timeout(500)
         summary = await _page_summary(page)
+        await _mirror(page)
         return {"success": True, **summary}
     except Exception as exc:
         return {"success": False, "error": f"Navigation failed: {exc}"}
@@ -164,6 +193,7 @@ async def browser_click(index: int | None = None, selector: str | None = None) -
             pass
         await page.wait_for_timeout(500)
         summary = await _page_summary(page)
+        await _mirror(page)
         return {"success": True, **summary}
     except Exception as exc:
         return {"success": False, "error": f"Click failed on {target}: {exc}"}
@@ -203,6 +233,7 @@ async def browser_type(
                 pass
         await page.wait_for_timeout(300)
         summary = await _page_summary(page)
+        await _mirror(page)
         return {"success": True, **summary}
     except Exception as exc:
         return {"success": False, "error": f"Type failed on {target}: {exc}"}
