@@ -224,6 +224,11 @@ def _write_flow_node(directory, node_id, spec, authority="1.00", node_type="work
 
 @pytest.fixture
 def nodes_dir(tmp_path, monkeypatch):
+    # Pinned per-test as well as suite-wide in conftest, so these tests keep
+    # their own directory rather than sharing the session sandbox: completing a
+    # flow distils a skill node through SelfDocumenter, which resolves its
+    # destination itself and never consults the patch below.
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
     monkeypatch.setattr(ne, "_nodes_dir", lambda: tmp_path)
     return tmp_path
 

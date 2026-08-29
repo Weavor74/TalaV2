@@ -121,6 +121,55 @@ def _isolate_database() -> None:
 _isolate_database()
 
 
+# --- user-data isolation -----------------------------------------------------
+#
+# The same bug as the database one, through a different door. Completing a
+# workflow distils a skill node, and that write resolves its own destination
+# via resolve_user_data_dir(), which -- correctly, for a portable install --
+# defaults to the application root. Under pytest that is the checkout, so every
+# run rewrote the run history inside the repository's own
+# nodes/skill-workflow_test.html, and `git status` was dirty after a green
+# suite.
+#
+# Per-fixture pins do not close this: only tests that happen to request the
+# fixture are covered, and the writes come from production code paths that any
+# test can reach. It belongs here, once, ahead of everything.
+#
+# Set TALA_USER_DATA yourself to point somewhere specific. Set
+# TALA_ALLOW_REPO_USER_DATA=1 to deliberately let the suite write into the
+# checkout, which only the node-authoring tools should ever want.
+def _isolate_user_data() -> None:
+    if os.environ.get("TALA_ALLOW_REPO_USER_DATA") == "1":
+        return
+    if os.environ.get("TALA_USER_DATA"):
+        return
+
+    import shutil
+    import tempfile
+
+    sandbox = Path(tempfile.mkdtemp(prefix="tala-test-userdata-"))
+    repo_root = Path(__file__).resolve().parent
+
+    # Seeded, not empty. Plenty of tests legitimately *read* the real graph
+    # through this resolver -- the architecture contract, the tool catalogue,
+    # documentation drift -- and handing them an empty directory does not
+    # isolate those tests, it makes them pass over nothing, which is the same
+    # false success as the writes this guard exists to stop. Copying gives
+    # reads the real content and sends writes to the copy.
+    for name in ("nodes", "workflows"):
+        source = repo_root / name
+        target = sandbox / name
+        if source.is_dir():
+            shutil.copytree(source, target, dirs_exist_ok=True)
+        else:
+            target.mkdir(parents=True, exist_ok=True)
+
+    os.environ["TALA_USER_DATA"] = str(sandbox)
+
+
+_isolate_user_data()
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Stash the deselected count where the summary hook can reach it. pytest
     # reports deselection through the hook below rather than on the config.

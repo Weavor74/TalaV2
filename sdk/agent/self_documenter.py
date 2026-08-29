@@ -556,21 +556,43 @@ __PROV_PLACEHOLDER__
 
         learning_node_path = ""
         try:
+            # Distilled from what the run did, not restated from what it was
+            # asked to do. The old proposal here -- goal text as the topic,
+            # "distilled a reusable learning event from the completed goal" as
+            # the summary -- is the literal boilerplate assess_learning_quality
+            # rejects by name, so this path wrote nothing for any goal at all.
+            #
+            # build_task_lesson declines outright when the run had nothing to
+            # teach, which is most of them: two phases, no failure, finished.
+            # That decision is made before node authoring rather than by the
+            # wiki gate afterwards, so the common case costs nothing.
+            from sdk.agent.task_lessons import TaskOutcome, build_task_lesson
+
+            outcome = TaskOutcome(
+                goal_text=goal_text,
+                phases=list(phases_completed or []),
+                tests_status=tests_status or "",
+                changed_files=list(changed_files or []),
+            )
+            lesson = build_task_lesson(outcome)
+
+            if lesson is None:
+                from sdk.agent.task_lessons import assess_task_worth_recording
+
+                log.info(
+                    "SelfDocumenter: no lesson from %r -- %s",
+                    goal_text[:60], assess_task_worth_recording(outcome),
+                )
+                return {
+                    "skill_node_path": str(node_path),
+                    "learning_node_path": "",
+                }
+
             learning_result = create_learning_documentation_node(
-                topic=goal_text,
-                summary=(
-                    f"Tala distilled a reusable learning event from the completed goal "
-                    f"'{goal_text}' with {len(phases_completed)} phase(s) and tests status "
-                    f"'{tests_status}'."
-                ),
+                topic=str(lesson["topic"]),
+                summary=str(lesson["summary"]),
                 canonical_node_id=node_id,
-                details=[
-                    f"Goal: {goal_text}",
-                    f"Task ID: {task_id}",
-                    f"Phases ({len(phases_completed)}): {phases_inline}",
-                    f"Tests: {tests_status}",
-                    f"Changed files: {', '.join(changed_files or []) or 'none recorded'}",
-                ],
+                details=list(lesson["details"]),
                 source_files=[str(node_path)] + [str(path) for path in (changed_files or [])],
                 references=[node_id, "system-tala-html-nn-memory-runtime"],
                 relationships=[

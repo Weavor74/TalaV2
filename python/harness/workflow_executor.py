@@ -541,7 +541,17 @@ class WorkflowExecutor:
             except Exception as synth_exc:
                 logger.warning("Failed to synthesize executable code for workflow skill: %s", synth_exc)
 
-            documenter = SelfDocumenter(str(self.root_dir))
+            # The canonical data resolver, not self.root_dir. root_dir carries
+            # two meanings here -- where commands execute, and where files are
+            # written -- and it defaults to Path(__file__).parents[2], i.e. the
+            # checkout. A node is user data, so writing it relative to the code
+            # puts it beside the install rather than in the portable data root,
+            # and makes TALA_USER_DATA unable to redirect it: every `pytest`
+            # rewrote the run history in the repo's own
+            # nodes/skill-workflow_test.html. Execution cwd is left alone.
+            from sdk.agent.documentation_nodes import resolve_user_data_dir
+
+            documenter = SelfDocumenter(str(resolve_user_data_dir()))
             node_paths = documenter.document_completed_goal(
                 goal_text=goal_text,
                 phases_completed=phases,

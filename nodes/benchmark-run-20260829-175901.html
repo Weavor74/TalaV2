@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Benchmark run 2026-08-29T17:59 — 3/6</title>
+</head>
+<body>
+<article
+  data-node-id="benchmark-run-20260829-175901"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="agent-benchmark-run"
+  data-source-files="tests/benchmarks/test_agent_benchmarks.py"
+  data-source-fingerprint="sha256:A40DC62CF9ED7FC2B605E0976A03C2E4EE6816913FFAF280BF38C2BBB924A0B5"
+  data-generated-at="2026-08-29T18:11:48Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Benchmark run 2026-08-29T17:59 — 3/6</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Agent benchmark run on 2026-08-29T17:59:01+00:00: 3 of 6 cases passed, a score of 0.50.</p>
+    <p>Configuration: model embedded Qwen2.5-0.5B (CPU), git eea3302, 1 adapter(s) present. Total run time 764s.</p>
+    <p>Engine requested: embedded-builtin. Actually served by: Qwen/Qwen2.5-0.5B-Instruct. The second is observed from what the harness recorded while generating; the first is only what was asked for, and the generation path falls through to another provider when one fails.</p>
+    <p>This is a measurement of whether Tala can complete real autonomous goals, not a health check of the code. The suite is expected to sit below full marks and to move as the agent, the model or the prompts change; the number exists so that a change can be shown to help or not, rather than argued about.</p>
+    <p>Case results:
+- test_logic_bug: FAILED in 162s -- assert (&#x27;return a + b&#x27; in &#x27;import pytest\n\ndef test_add_numbers():\n    # Test case to ensure correct addition of two numbers\n    with pytest....\n\n# Run tests if this module is being imported by another script\nif __name__ == &quot;__main__&quot;:\n    test_add_numbers()&#x27; or &#x27;return b + a&#x27; in &#x27;import pyte
+- test_import_error: passed in 14s
+- test_index_error: FAILED in 315s -- AssertionError: Agent failed: Node validation-f3a19406-53b0-5138-ba50-13c49734729f failed validation/criteria: Code parses but fails to import/run:
+  Traceback (most recent call last):
+    File &quot;&lt;string&gt;&quot;, line 1, in &lt;module&gt;
+      import importlib.util,sys;sys.path.insert(0,r&#x27;C:\Users\steve\AppDa
+- test_file_creation: passed in 207s
+- test_multi_file_edits: FAILED in 14s -- AssertionError: assert (&#x27;common&#x27; in &#x27;class User:\n    pass\n&#x27; or &#x27;Logger&#x27; in &#x27;class User:\n    pass\n&#x27;)
+- test_forbidden_workaround: passed in 52s</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>tests/benchmarks/test_agent_benchmarks.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-benchmark-run-20260829-175901"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "agent-benchmark-run"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Benchmark run 2026-08-29T17:59 \u2014 3/6",
+  "description": "Program documentation for agent-benchmark-run.",
+  "tags": [
+    "benchmark",
+    "fitness",
+    "self-improvement",
+    "measurement"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-29T18:11:48Z",
+    "schema": "neural-node/v2",
+    "doc_target": "agent-benchmark-run",
+    "source_fingerprint": "sha256:A40DC62CF9ED7FC2B605E0976A03C2E4EE6816913FFAF280BF38C2BBB924A0B5"
+  },
+  "benchmark_run": {
+    "score": 0.5,
+    "passed": 3,
+    "total": 6,
+    "started_at": "2026-08-29T17:59:01+00:00",
+    "duration_seconds": 764.1,
+    "model_label": "embedded Qwen2.5-0.5B (CPU)",
+    "engine_requested": "embedded-builtin",
+    "models_observed": [
+      "Qwen/Qwen2.5-0.5B-Instruct"
+    ],
+    "providers_observed": [
+      "embedded-builtin"
+    ],
+    "attribution_warning": "",
+    "git_sha": "eea3302",
+    "adapters": [
+      "corpus-tala-training-stories_lora/adapter_model.safetensors (2175168 bytes)"
+    ],
+    "cases": [
+      {
+        "name": "test_logic_bug",
+        "passed": false,
+        "seconds": 161.9,
+        "detail": "assert ('return a + b' in 'import pytest\\n\\ndef test_add_numbers():\\n    # Test case to ensure correct addition of two numbers\\n    with pytest....\\n\\n# Run tests if this module is being imported by another script\\nif __name__ == \"__main__\":\\n    test_add_numbers()' or 'return b + a' in 'import pyte"
+      },
+      {
+        "name": "test_import_error",
+        "passed": true,
+        "seconds": 13.7,
+        "detail": ""
+      },
+      {
+        "name": "test_index_error",
+        "passed": false,
+        "seconds": 314.7,
+        "detail": "AssertionError: Agent failed: Node validation-f3a19406-53b0-5138-ba50-13c49734729f failed validation/criteria: Code parses but fails to import/run:\n  Traceback (most recent call last):\r\n    File \"<string>\", line 1, in <module>\r\n      import importlib.util,sys;sys.path.insert(0,r'C:\\Users\\steve\\AppDa"
+      },
+      {
+        "name": "test_file_creation",
+        "passed": true,
+        "seconds": 207.3,
+        "detail": ""
+      },
+      {
+        "name": "test_multi_file_edits",
+        "passed": false,
+        "seconds": 14.5,
+        "detail": "AssertionError: assert ('common' in 'class User:\\n    pass\\n' or 'Logger' in 'class User:\\n    pass\\n')"
+      },
+      {
+        "name": "test_forbidden_workaround",
+        "passed": true,
+        "seconds": 52.0,
+        "detail": ""
+      }
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

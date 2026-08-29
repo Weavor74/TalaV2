@@ -1307,6 +1307,27 @@ async def handle_inference_generate(
     
     best_lora_path = None
 
+    # Initialised for BOTH branches below, not just the one that builds a tool
+    # protocol.
+    #
+    # These were assigned only in the `else` (full-context) branch, but they are
+    # read unconditionally further down -- the embedded provider reads
+    # `native_tool_specs` at the top of its block. A raw_prompt request that
+    # reached the embedded engine therefore raised UnboundLocalError before it
+    # could generate a single token, and raw_prompt=True is exactly what
+    # llm_coder._call_llm sends, which is the path every autonomous goal takes
+    # for code synthesis.
+    #
+    # The effect was total and silent: the offline fallback engine -- the one
+    # that must work with no internet -- could not serve any agent request at
+    # all, and the failure surfaced only as "Node synthesis ... failed
+    # validation", which reads like the model wrote bad code rather than like
+    # the provider never ran.
+    xml_tool_protocol = ""
+    native_tool_specs: list[dict[str, Any]] = []
+    tool_index = None
+    sticky_tools: set[str] = set()
+
     raw_prompt = bool(params.get("raw_prompt", False))
     if raw_prompt:
         active_system_prompt = params.get("system_prompt", "You are a precise, helpful software engineering assistant. Output code blocks or clean answers as requested.")
@@ -2536,14 +2557,37 @@ async def handle_inference_generate(
 
     request_provider_id = str(params.get("provider_id", "") or "").strip()
 
-    # Check if there is a per-request or globally forced provider
+    # Check if there is a per-request or globally forced provider.
+    #
+    # TALA_PIN_PROVIDER pins one for the life of the process without touching
+    # stored configuration, so a benchmark can measure a single engine without
+    # mutating the settings it is measuring. TALA_PIN_STRICT=1 additionally
+    # drops every other provider, because this chain falls through on error and
+    # a run pinned to one engine that quietly finishes on another would be
+    # scored as the first.
+    pinned_id = str(os.environ.get("TALA_PIN_PROVIDER", "") or "").strip()
+
     request_provider = None
     forced_provider = None
     for p in providers:
         if request_provider_id and p["id"] == request_provider_id:
             request_provider = p
-        if p["config"] and p["config"].get("is_forced"):
+        if pinned_id:
+            if p["id"] == pinned_id or p["name"] == pinned_id:
+                forced_provider = p
+        elif p["config"] and p["config"].get("is_forced"):
             forced_provider = p
+
+    if pinned_id and not forced_provider:
+        raise RuntimeError(
+            f"TALA_PIN_PROVIDER={pinned_id!r} matches no configured provider. "
+            f"Available: {', '.join(repr(p['id']) for p in providers)}"
+        )
+
+    if pinned_id and forced_provider and os.environ.get("TALA_PIN_STRICT") == "1":
+        logger.info("Provider pinned strictly to '%s'; no fallback.", forced_provider["name"])
+        providers = [forced_provider]
+        request_provider = None
 
     # Routing logic.
     #
@@ -3251,6 +3295,13 @@ async def handle_inference_generate(
                         errors.append(err_msg)
                         success = False
                         continue
+
+                # Recorded here, at the one point a provider actually served.
+                # This is the path GoalEngine reaches -- llm_coder._call_llm
+                # calls this handler, not execute_llm_generation -- so an
+                # instrument placed only on the latter never fires for
+                # autonomous work, which is most of it.
+                await _record_serving_provider(provider, (provider.get("config") or {}).get("model", ""))
 
                 success = True
                 break
@@ -9242,6 +9293,48 @@ async def fetch_webpage_text(url: str) -> str:
         return ""
 
 
+#: Marker on the log line written when a provider actually serves a generation.
+#: Queried by scripts/run_benchmark_suite.py, so it is a constant rather than a
+#: string typed twice.
+SERVED_LOG_MARKER = "inference.served"
+
+
+async def _record_serving_provider(provider: dict[str, Any], model: str) -> None:
+    """
+    Record which provider actually produced a generation.
+
+    Only failures were recorded here: every provider that raised was logged
+    "Trying next...", and the one that succeeded said nothing at all. That is
+    the wrong half to keep. This path falls through on error, so a run
+    deliberately pinned to one engine can quietly complete on another, and
+    without a success-side record nothing anywhere contradicts the assumption
+    that the pin held -- a benchmark score gets filed against an engine that
+    never served a token of it.
+
+    It is also the only record of this path's model usage at all:
+    ``count_and_check`` writes ``token_ledger`` from the chat RPC handler, and
+    never from here, so autonomous work -- the expensive kind -- is absent from
+    token accounting entirely. This does not close that gap, but it does make
+    the provider observable.
+
+    Fire and forget. An accounting write must never be able to fail a
+    generation that already succeeded.
+    """
+    try:
+        await db.log_to_db(
+            "INFO",
+            f"{SERVED_LOG_MARKER}: '{provider.get('name', '?')}' served a generation",
+            {
+                "provider_id": provider.get("id", ""),
+                "provider_name": provider.get("name", ""),
+                "provider_type": provider.get("type", ""),
+                "model": model or (provider.get("config") or {}).get("model", ""),
+            },
+        )
+    except Exception as exc:  # pragma: no cover - defensive
+        logger.debug("Could not record serving provider: %s", exc)
+
+
 async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
     """Non-streaming LLM generation traversing configuration priority list with fallback routing."""
     messages = []
@@ -9282,16 +9375,42 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "locked": True
         }]
 
-    # Check if there is a forced provider
+    # Check if there is a forced provider.
+    #
+    # TALA_PIN_PROVIDER pins one for the life of a process without touching the
+    # stored configuration. Measuring one engine used to mean writing
+    # `is_forced` into the user's live provider row and putting it back
+    # afterwards, which leaves the application pinned to whatever was under
+    # test if the run dies in between. A benchmark must not be able to change
+    # the thing it is measuring.
+    #
+    # TALA_PIN_STRICT=1 additionally removes the embedded fallback appended
+    # below, so a pinned run that cannot use its engine fails instead of
+    # quietly completing on a different one and scoring it as the first.
+    pinned_id = str(os.environ.get("TALA_PIN_PROVIDER", "") or "").strip()
+    pin_strict = os.environ.get("TALA_PIN_STRICT") == "1"
+
     forced_provider = None
     embedded_provider = None
     for p in providers:
-        if p["config"] and p["config"].get("is_forced"):
+        if pinned_id:
+            if p["id"] == pinned_id or p["name"] == pinned_id:
+                forced_provider = p
+        elif p["config"] and p["config"].get("is_forced"):
             forced_provider = p
         if p["id"] == "embedded-builtin":
             embedded_provider = p
 
-    if forced_provider:
+    if pinned_id and not forced_provider:
+        raise RuntimeError(
+            f"TALA_PIN_PROVIDER={pinned_id!r} matches no configured provider. "
+            f"Available: {', '.join(repr(p['id']) for p in providers)}"
+        )
+
+    if forced_provider and pin_strict:
+        logger.info("Provider pinned strictly to '%s'; no fallback.", forced_provider["name"])
+        providers = [forced_provider]
+    elif forced_provider:
         logger.info("Research generation: Forced provider active: '%s'", forced_provider["name"])
         if forced_provider["id"] == "embedded-builtin":
             providers = [forced_provider]
@@ -9323,6 +9442,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
                 chunks = []
                 async for chunk in generate_stream(messages, max_tokens=2048, temperature=0.3):
                     chunks.append(chunk)
+                await _record_serving_provider(provider, p_config.get("model", ""))
                 return "".join(chunks)
 
             elif p_type in ("local", "remote"):
@@ -9368,6 +9488,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
                     if response.status_code != 200:
                         raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
                     resp_json = response.json()
+                    await _record_serving_provider(provider, model)
                     return resp_json["choices"][0]["message"]["content"]
 
         except Exception as exc:
