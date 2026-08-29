@@ -39,8 +39,14 @@ async def test_tot_graph_fleet_unified_workflow(tmp_path):
         # Mock ToT shortlist generation & task mapping
         user_goal = "Design a low-latency cache system"
 
-        # Ensure ToT shortlist file is clean
-        shortlist_file = root_dir / "tot_shortlist.json"
+        # The shortlist follows TALA_USER_DATA (pinned to tmp_path by the
+        # fixture), not root_dir and not the working directory. It used to be
+        # written with a bare relative path: the os.getcwd patch below never
+        # affected it, because open() does not consult os.getcwd, so the file
+        # went to the real working directory -- the checkout -- and the
+        # assertion below read it from there too. Both agreed, the test passed,
+        # and every run left tot_shortlist.json in the repository.
+        shortlist_file = tmp_path / "tot_shortlist.json"
         if shortlist_file.exists():
             os.remove(shortlist_file)
 
@@ -59,8 +65,11 @@ async def test_tot_graph_fleet_unified_workflow(tmp_path):
 
             # Verify ToT run triggered & tasks mapped
             assert len(tasks) > 0
-            # Check shortlist json written
-            assert os.path.exists("tot_shortlist.json")
+            # Check shortlist json written, under the data root
+            assert shortlist_file.exists(), f"expected the shortlist at {shortlist_file}"
+            assert not os.path.exists("tot_shortlist.json"), (
+                "the shortlist was written to the working directory"
+            )
 
             # 3. Execute the first task through the real DAG engine. The LLM
             # synthesis call is mocked: this test's subjects are ToT

@@ -226,11 +226,28 @@ Output JSON array only, wrapped in a Markdown code block like:
             try:
                 shortlist = await run_tot_ideation(user_goal)
                 
-                # Write structured JSON shortlist to tot_shortlist.json
+                # Written under the resolved user-data directory, not the
+                # process working directory.
+                #
+                # This was a bare relative path, so the file landed wherever the
+                # process happened to be started from: the checkout under
+                # pytest, which left `git status` dirty after every benchmark
+                # run and put a disposable scratch file in the repository. The
+                # same class of bug as the skill node that rewrote itself in
+                # nodes/ on every test run -- generated data written relative to
+                # code rather than to the portable data root.
                 try:
-                    with open("tot_shortlist.json", "w", encoding="utf-8") as f:
-                        json.dump(shortlist, f, indent=2)
-                    log.info("GoalTreeDecomposer: Wrote structured shortlist to tot_shortlist.json")
+                    from sdk.agent.documentation_nodes import resolve_user_data_dir
+
+                    shortlist_path = resolve_user_data_dir() / "tot_shortlist.json"
+                    shortlist_path.parent.mkdir(parents=True, exist_ok=True)
+                    shortlist_path.write_text(
+                        json.dumps(shortlist, indent=2), encoding="utf-8"
+                    )
+                    log.info(
+                        "GoalTreeDecomposer: Wrote structured shortlist to %s",
+                        shortlist_path,
+                    )
                 except Exception as file_exc:
                     log.warning("GoalTreeDecomposer: Failed to write tot_shortlist.json: %s", file_exc)
 

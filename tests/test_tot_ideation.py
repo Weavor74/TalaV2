@@ -90,9 +90,13 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
 
     decomposer = GoalTreeDecomposer()
 
-    # Ensure any cleanup from previous tests
-    if os.path.exists("tot_shortlist.json"):
-        os.remove("tot_shortlist.json")
+    # The shortlist follows TALA_USER_DATA, so it lands in tmp_path with the
+    # nodes. It used to be written with a bare relative path -- straight into
+    # whatever directory the process started from, which under pytest is the
+    # checkout, leaving `git status` dirty after every run. The cleanup this
+    # test used to perform here (deleting tot_shortlist.json from the cwd
+    # before asserting) was itself the symptom.
+    shortlist_file = tmp_path / "tot_shortlist.json"
 
     user_goal = "Design a fault-tolerant database replication module"
 
@@ -102,10 +106,14 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
     assert isinstance(tasks, list)
     assert len(tasks) > 0
 
-    # Verify tot_shortlist.json was written
-    assert os.path.exists("tot_shortlist.json")
-    with open("tot_shortlist.json", "r", encoding="utf-8") as f:
-        shortlist_data = json.load(f)
+    # Verify tot_shortlist.json was written, under the data root and not the
+    # working directory.
+    assert shortlist_file.exists(), f"expected the shortlist at {shortlist_file}"
+    assert not os.path.exists("tot_shortlist.json"), (
+        "the shortlist was written to the process working directory; it belongs "
+        "under the resolved user-data root so it travels with the install"
+    )
+    shortlist_data = json.loads(shortlist_file.read_text(encoding="utf-8"))
     assert isinstance(shortlist_data, list)
     assert len(shortlist_data) == len(COGNITIVE_FRAMES)
 
