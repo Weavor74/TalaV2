@@ -52,8 +52,29 @@ class BaseAdapter:
     # -- authorisation -----------------------------------------------------
 
     def allowlist(self) -> set[str]:
-        """Usernames and chat ids permitted to command the agent."""
-        raw = self.config.get("allowlist") or self.config.get("allow_list") or ""
+        """
+        Usernames and chat ids permitted to command the agent.
+
+        ``allowed_users`` is listed first because it is the key the settings UI
+        actually writes (renderer.js builds ``config: {bot_token, allowed_users,
+        respond_to_all}``), and it was the one spelling this never read. The
+        effect was total and silent: the allowlist always parsed as empty, and
+        because ``is_allowed`` fails closed, every inbound message on every
+        channel was rejected no matter what the user typed in the box. A
+        correctly configured Telegram bot ignored its owner, and the rejection
+        logged as an authorisation decision rather than a key mismatch.
+
+        All three spellings are accepted rather than one being normalised at
+        either end, for the same reason credential_crypto lists both cases of
+        every secret field: normalising means trusting every writer to have done
+        it, and there is more than one writer.
+        """
+        raw = (
+            self.config.get("allowed_users")
+            or self.config.get("allowlist")
+            or self.config.get("allow_list")
+            or ""
+        )
         if isinstance(raw, (list, tuple, set)):
             parts = [str(x) for x in raw]
         else:
@@ -212,10 +233,215 @@ class TelegramAdapter(BaseAdapter):
         return {"success": ok, "status_code": resp.status_code}
 
 
+class DiscordAdapter(BaseAdapter):
+    """
+    Discord Gateway, drained through poll() so the base loop still owns policy.
+
+    Discord has no equivalent of Telegram's getUpdates: inbound messages arrive
+    over a Gateway WebSocket, which is a push transport in a module whose other
+    adapter polls. Rather than override ``_run`` and reimplement the loop, a
+    background client fills a queue and ``poll()`` drains it -- so the allowlist
+    check, the rejection accounting and the backoff are inherited rather than
+    repeated. The comment on that check in ``_run`` anticipated this adapter by
+    name; this is it arriving without making a liar of it.
+
+    Answers UI-084. The settings panel has offered Discord all along -- it is
+    the dropdown's default -- with accurate setup instructions and no adapter
+    behind them. A user could follow every step, paste a valid token, save, and
+    get a channel the manager had no class to run.
+    """
+
+    platform = "discord"
+
+    def __init__(self, channel_id: str, name: str, config: dict[str, Any]) -> None:
+        super().__init__(channel_id, name, config)
+        self._inbox: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
+        self._client: Any = None
+        self._gateway: asyncio.Task | None = None
+
+    def _token(self) -> str:
+        return str(self.config.get("bot_token") or self.config.get("token") or "").strip()
+
+    def _respond_to_all(self) -> bool:
+        return bool(self.config.get("respond_to_all") or self.config.get("respondToAll"))
+
+    # -- lifecycle ---------------------------------------------------------
+
+    async def start(self, on_message: Callable[[dict[str, Any]], Any]) -> None:
+        if self._running:
+            return
+        await super().start(on_message)
+        self._gateway = asyncio.create_task(self._gateway_loop())
+
+    async def stop(self) -> None:
+        await super().stop()
+        if self._client is not None:
+            try:
+                await self._client.close()
+            except Exception:
+                pass
+            self._client = None
+        if self._gateway:
+            self._gateway.cancel()
+            try:
+                await self._gateway
+            except (asyncio.CancelledError, Exception):
+                pass
+            self._gateway = None
+
+    async def _gateway_loop(self) -> None:
+        """Hold the Gateway connection open, reconnecting with backoff."""
+        backoff = 5.0
+        while self._running:
+            try:
+                await self._connect_once()
+                backoff = 5.0
+            except asyncio.CancelledError:
+                raise
+            except Exception as exc:
+                # A broken channel is a status line, never a crashed harness.
+                self.last_error = f"{type(exc).__name__}: {exc}"
+                log.warning("channels: discord adapter %r gateway failed: %s", self.name, exc)
+            if not self._running:
+                return
+            # Slept in slices rather than one long await, so a stop during a
+            # backoff takes effect promptly instead of after up to five
+            # minutes. stop() also cancels the task, but a loop that only
+            # notices it was stopped when a timer happens to expire is the kind
+            # of thing that works until something awaits it rather than
+            # cancelling it.
+            waited = 0.0
+            while self._running and waited < backoff:
+                await asyncio.sleep(min(0.25, backoff - waited))
+                waited += 0.25
+            backoff = min(backoff * 2, 300.0)
+
+    async def _connect_once(self) -> None:
+        token = self._token()
+        if not token:
+            raise RuntimeError("discord channel has no bot_token configured")
+
+        try:
+            import discord
+        except ImportError as exc:  # pragma: no cover - declared in pyproject
+            raise RuntimeError(
+                "discord.py is not installed; it is declared in pyproject.toml as discord.py>=2.4"
+            ) from exc
+
+        intents = discord.Intents.default()
+        # The one the settings panel tells the user to enable. Without it every
+        # message arrives with empty content.
+        intents.message_content = True
+
+        client = discord.Client(intents=intents)
+        self._client = client
+
+        @client.event
+        async def on_ready() -> None:  # pragma: no cover - needs a live gateway
+            self.last_error = None
+            log.info("channels: discord adapter %r connected as %s", self.name, client.user)
+
+        @client.event
+        async def on_message(message: Any) -> None:  # pragma: no cover - needs a live gateway
+            record = self._as_record(message, client.user)
+            if record is not None:
+                await self._inbox.put(record)
+
+        try:
+            await client.start(token)
+        finally:
+            self._client = None
+
+    # -- message shaping ---------------------------------------------------
+
+    def _as_record(self, message: Any, me: Any) -> dict[str, Any] | None:
+        """
+        Turn a Discord message into the shape the base loop expects, or drop it.
+
+        Kept separate from the event handler so the addressing rules are
+        testable without a live Gateway -- which is the whole of the logic worth
+        getting right, and none of it needs a socket.
+        """
+        author = getattr(message, "author", None)
+        me_id = getattr(me, "id", None)
+        if author is not None and me_id is not None and getattr(author, "id", None) == me_id:
+            return None  # never answer ourselves
+        if getattr(author, "bot", False):
+            return None  # and never loop with another bot
+
+        text = str(getattr(message, "content", "") or "").strip()
+        if not text:
+            # Almost always MESSAGE CONTENT INTENT being off: the connection
+            # works, messages arrive, and every one of them is empty. Reported
+            # rather than dropped in silence, because a bot that is connected
+            # and deaf looks identical to one nobody is talking to.
+            self.last_error = (
+                "received a message with no content -- enable MESSAGE CONTENT INTENT "
+                "for this bot in the Discord developer portal"
+            )
+            return None
+
+        channel = getattr(message, "channel", None)
+        is_dm = type(channel).__name__ == "DMChannel"
+        mentioned = bool(
+            me_id is not None
+            and any(getattr(u, "id", None) == me_id
+                    for u in (getattr(message, "mentions", None) or []))
+        )
+        if not (is_dm or mentioned or self._respond_to_all()):
+            return None
+
+        return {
+            "channel_id": self.channel_id,
+            "platform": self.platform,
+            "chat_id": getattr(channel, "id", None),
+            "sender": getattr(author, "name", None),
+            "text": text,
+        }
+
+    # -- transport ---------------------------------------------------------
+
+    async def poll(self) -> list[dict[str, Any]]:
+        """Drain whatever the Gateway delivered since the last pass."""
+        drained: list[dict[str, Any]] = []
+        while True:
+            try:
+                drained.append(self._inbox.get_nowait())
+            except asyncio.QueueEmpty:
+                break
+        return drained
+
+    async def send(self, text: str, chat_id: Any = None, **kwargs: Any) -> dict[str, Any]:
+        """
+        Posted over REST rather than through the client.
+
+        Sending must work whether or not the Gateway happens to be connected: a
+        reply that fails because a socket is mid-reconnect would be a dropped
+        answer, not a retryable one.
+        """
+        import httpx
+
+        token = self._token()
+        target = chat_id or self.config.get("chat_id") or self.config.get("channel_id")
+        if not token or not target:
+            return {"success": False, "error": "discord channel needs bot_token and a channel id"}
+
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                f"https://discord.com/api/v10/channels/{target}/messages",
+                headers={"Authorization": f"Bot {token}"},
+                # Discord rejects anything longer; truncating is better than a
+                # 400 that loses the reply entirely.
+                json={"content": text[:2000]},
+            )
+        return {"success": resp.status_code in (200, 201), "status_code": resp.status_code}
+
+
 #: platform -> adapter. server.py validates a saved channel's platform
 #: against these keys, so the names here are the supported set.
 _ADAPTERS: dict[str, type[BaseAdapter]] = {
     "telegram": TelegramAdapter,
+    "discord": DiscordAdapter,
 }
 
 

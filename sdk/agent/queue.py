@@ -323,8 +323,27 @@ Output JSON array only, wrapped in a Markdown code block like:
                     log.warning("GoalTreeDecomposer: Failed to persist ToT shortlist as HTML-NN: %s", node_exc)
 
 
-                # Feed the top ranked approach into the TalaV2 execution pipeline
-                if shortlist:
+                # Feed the top ranked approach into the TalaV2 execution pipeline.
+                #
+                # Only a *reasoned* shortlist may replace decomposition. The
+                # fallback emits the same two steps for every cognitive frame --
+                # "Implement solution: {the entire goal}" and "Verify and
+                # compile solution: {the entire goal}" -- and the filter below
+                # drops the second as a redundant verification step. What
+                # reached the executor was therefore a single phase containing
+                # the whole request, and `return tasks` meant the real
+                # decomposer never ran.
+                #
+                # Measured on "create common.py with a Logger class, then
+                # refactor user.py and order.py to import it": through the
+                # fallback, one phase and the second half never attempted, on
+                # every engine. With ToT disabled, the ordinary decomposer
+                # produces the correct two phases. The planner was never the
+                # problem; scaffolding was overwriting its work.
+                #
+                # Falling through here reaches that decomposer, which is what
+                # should happen whenever ideation had nothing to contribute.
+                if shortlist and shortlist_is_reasoned:
                     top_approach = shortlist[0]
                     tasks = []
                     prev_id = None

@@ -122,6 +122,7 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
     # test used to perform here (deleting tot_shortlist.json from the cwd
     # before asserting) was itself the symptom.
     shortlist_file = tmp_path / "tot_shortlist.json"
+    cwd_shortlist_before = os.path.exists("tot_shortlist.json")
 
     user_goal = "Design a fault-tolerant database replication module"
 
@@ -135,7 +136,12 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
     # Verify tot_shortlist.json was written, under the data root and not the
     # working directory.
     assert shortlist_file.exists(), f"expected the shortlist at {shortlist_file}"
-    assert not os.path.exists("tot_shortlist.json"), (
+    # Asserted as "did not appear during this test", not "is absent from the
+    # working directory". When TALA_USER_DATA is unset the working directory
+    # *is* the data root -- that is the portable design -- so the file
+    # legitimately lives there in ordinary use, and anything another process
+    # left behind would otherwise fail this.
+    assert os.path.exists("tot_shortlist.json") == cwd_shortlist_before, (
         "the shortlist was written to the process working directory; it belongs "
         "under the resolved user-data root so it travels with the install"
     )
