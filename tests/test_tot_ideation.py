@@ -90,6 +90,31 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
 
     decomposer = GoalTreeDecomposer()
 
+    # A *reasoned* shortlist, because a fallback one is deliberately not filed
+    # as memory any more: its critiques are hardcoded per cognitive frame and
+    # its scores are arithmetic over those constants. This test's subject is
+    # the shortlist reaching the wiki -- staging, promotion, content -- so it
+    # supplies reasoning rather than asserting that scaffolding gets kept.
+    reasoned = [
+        {
+            "approach_name": f"Approach for frame {frame}",
+            "frame": frame,
+            "score": 9.0 - index,
+            "architectural_strategy": "A considered strategy for replication.",
+            "tasks": ["Implement replication", "Verify failover"],
+            "risk_matrix": [
+                {"risk": "Split brain", "impact": "High", "likelihood": "Low",
+                 "mitigation": "Quorum writes."},
+                {"risk": "Lag", "impact": "Medium", "likelihood": "Medium",
+                 "mitigation": "Backpressure."},
+                {"risk": "Data loss", "impact": "High", "likelihood": "Low",
+                 "mitigation": "Synchronous commit."},
+            ],
+            "trap_list": ["Do not assume the network is reliable."],
+        }
+        for index, frame in enumerate(COGNITIVE_FRAMES)
+    ]
+
     # The shortlist follows TALA_USER_DATA, so it lands in tmp_path with the
     # nodes. It used to be written with a bare relative path -- straight into
     # whatever directory the process started from, which under pytest is the
@@ -100,7 +125,8 @@ async def test_goal_tree_decomposer_intercept(tmp_path, monkeypatch):
 
     user_goal = "Design a fault-tolerant database replication module"
 
-    tasks = await decomposer.decompose(user_goal)
+    with patch("sdk.agent.tot_ideation.run_tot_ideation", return_value=reasoned):
+        tasks = await decomposer.decompose(user_goal)
 
     # Verify tasks are returned representing the top ToT approach
     assert isinstance(tasks, list)
@@ -188,3 +214,80 @@ async def test_tot_mode_switching():
             mode = await get_tot_mode()
             assert mode == "programmatic"
 
+
+
+def test_fallback_shortlist_is_stamped_as_such():
+    """
+    The fallback critiques are hardcoded per cognitive frame and its scores are
+    arithmetic over those constants -- nothing looked at the problem. Callers
+    have to be able to tell that apart from reasoning.
+    """
+    from sdk.agent.tot_ideation import (
+        _generate_fallback_approaches,
+        _generate_fallback_critic_eval,
+        _generate_fallback_shortlist,
+        is_fallback_shortlist,
+    )
+
+    approaches = _generate_fallback_approaches("Design a cache")
+    evaluated = [
+        {"approach": a, "frame": a["frame"], "evaluation": _generate_fallback_critic_eval(a)}
+        for a in approaches
+    ]
+    shortlist = _generate_fallback_shortlist("Design a cache", evaluated)
+
+    assert shortlist, "the fallback must still produce a usable plan"
+    assert all(entry["source"] == "fallback" for entry in shortlist)
+    assert is_fallback_shortlist(shortlist) is True
+
+
+def test_a_reasoned_shortlist_is_not_treated_as_fallback():
+    from sdk.agent.tot_ideation import is_fallback_shortlist
+
+    assert is_fallback_shortlist([{"approach_name": "Real", "score": 8}]) is False
+    assert is_fallback_shortlist(
+        [{"approach_name": "Real", "score": 8}, {"source": "fallback"}]
+    ) is False, "a mixed shortlist contains real reasoning and should be kept"
+
+
+def test_an_empty_shortlist_counts_as_fallback():
+    from sdk.agent.tot_ideation import is_fallback_shortlist
+
+    assert is_fallback_shortlist([]) is True
+
+
+def test_the_decomposer_does_not_file_a_fallback_shortlist_as_memory():
+    """
+    Confirmed live: a run against an unreachable model promoted four invented
+    architectures with invented scores into production, beside the genuine
+    lesson from the same goal, competing with it for recall.
+    """
+    from pathlib import Path
+
+    src = Path("sdk/agent/queue.py").read_text(encoding="utf-8")
+    assert "shortlist_is_reasoned = not is_fallback_shortlist(shortlist)" in src
+    assert src.index("if shortlist_is_reasoned:") < src.index("create_learning_documentation_node(\n")
+
+
+@pytest.mark.asyncio
+async def test_a_fallback_shortlist_still_plans_but_writes_no_memory(tmp_path, monkeypatch):
+    """
+    The counterpart to the test above. With no model reachable, ToT falls back
+    to a fixed template -- and the plan still has to work, because that is what
+    the fallback is for. What must not happen is the template being filed as a
+    durable learning event, which is how four invented architectures with
+    invented scores ended up promoted into production beside a real lesson.
+    """
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+
+    decomposer = GoalTreeDecomposer()
+    tasks = await decomposer.decompose(
+        "Design a fault-tolerant database replication module"
+    )
+
+    assert tasks, "the fallback must still produce a usable plan"
+
+    staged = list((tmp_path / "nodes" / "_staging").glob("learning-*.html"))
+    promoted = list((tmp_path / "nodes").glob("learning-*.html"))
+    assert staged == [], f"fallback scaffolding was staged as a learning node: {staged}"
+    assert promoted == [], f"fallback scaffolding reached the wiki: {promoted}"

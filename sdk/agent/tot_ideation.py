@@ -263,9 +263,32 @@ def _generate_fallback_shortlist(problem: str, evaluated: list[dict[str, Any]]) 
             "architectural_strategy": app["architectural_strategy"],
             "tasks": app["tasks"],
             "risk_matrix": risk_matrix,
-            "trap_list": trap_list
+            "trap_list": trap_list,
+            # Stamped so callers can tell reasoning from scaffolding.
+            #
+            # Nothing produced here looked at the problem. The critiques are
+            # hardcoded per cognitive frame ("Highly viable; python interfaces
+            # are lightweight"), the scores are arithmetic over those fixed
+            # numbers, and the approach names are the goal text with a prefix.
+            # It exists so the pipeline keeps moving when the model is
+            # unavailable, which is a reasonable thing for a *plan* to be and a
+            # terrible thing for a *memory* to be: a run against an unreachable
+            # model was writing four invented architectures with invented
+            # scores into the graph as a durable "learning event", where they
+            # then competed for recall against real lessons.
+            "source": "fallback",
         })
     return shortlist
+
+
+def is_fallback_shortlist(shortlist: list[dict[str, Any]]) -> bool:
+    """True when nothing in this shortlist came from a model looking at the problem."""
+    if not shortlist:
+        return True
+    return all(
+        isinstance(entry, dict) and entry.get("source") == "fallback"
+        for entry in shortlist
+    )
 
 # ---------------------------------------------------------------------------
 async def get_tot_mode() -> str:

@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Task Lessons</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_task_lessons"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.task_lessons"
+  data-source-files="sdk/agent/task_lessons.py"
+  data-source-fingerprint="sha256:A49A4076F1AA9A65840C86EEC9FF8C0685E243ADCDC2353C3A14DB09CB858CAE"
+  data-generated-at="2026-08-29T23:03:09Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Task Lessons</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>task_lessons.py — turn a completed run into a lesson, or decline to.</p>
+    <p>It lives at sdk/agent/task_lessons.py within the agent SDK.</p>
+    <p>Classes it defines: TaskOutcome — What a finished run recorded about itself. (methods: observed_failures(), tools_used(), phase_kinds()).</p>
+    <p>Functions it exposes: assess_task_worth_recording() — Return a reason to skip, or None if this run is worth a lesson.; build_task_lesson() — Build the lesson, or None if this run should not be recorded.; record_task_lesson() — Build the lesson and write it, or report why it was declined..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/task_lessons.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_task_lessons"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.task_lessons"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Task Lessons",
+  "description": "Program documentation for sdk.agent.task_lessons.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "task_lessons"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-29T23:03:09Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.task_lessons",
+    "source_fingerprint": "sha256:A49A4076F1AA9A65840C86EEC9FF8C0685E243ADCDC2353C3A14DB09CB858CAE"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

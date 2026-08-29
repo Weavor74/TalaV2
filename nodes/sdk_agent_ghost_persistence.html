@@ -22,8 +22,8 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.ghost_persistence"
   data-source-files="sdk/agent/ghost_persistence.py"
-  data-source-fingerprint="sha256:502C45620408F4FB1E2A427A722EFBEEA6EAFA81DD8EBF2FA027D9BB5BD48C01"
-  data-generated-at="2026-08-13T00:21:36Z"
+  data-source-fingerprint="sha256:55CCE6EA27FB08CC996E98C5E02C1372F1736E4F2F6B96E6C3CE0AF08D435D5E"
+  data-generated-at="2026-08-29T23:03:05Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -34,7 +34,7 @@
   <section id="semantic-memory">
     <p>Offline-first thought-state persistence for agent loops</p>
     <p>It lives at sdk/agent/ghost_persistence.py within the agent SDK.</p>
-    <p>Functions it exposes: commit_to_ghost() — Commit agent thought-state to the local Ghost Blockchain; restore_from_ghost() — Restore agent thought-state from local Ghost Blockchain; get_local_status() — Query local blockchain status; get_remote_status() — Query remote blockchain status; pre_flight_reconciliation() — Offline-first pre-flight block reconciliation; check_hash() — Perform a lightweight consensus check.</p>
+    <p>Functions it exposes: commit_to_ghost() — Commit agent thought-state to the local Ghost Blockchain; restore_from_ghost() — Restore agent thought-state from local Ghost Blockchain; get_local_status() — Query local blockchain status; get_remote_status() — status of the configured shared chain; pre_flight_reconciliation() — bring the shared chain up to date before a run; check_hash() — a cheap health check on the local chain.</p>
   </section>
 
   <section id="source-evidence">
@@ -98,10 +98,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-08-13T00:21:36Z",
+    "created_or_updated": "2026-08-29T23:03:05Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.ghost_persistence",
-    "source_fingerprint": "sha256:502C45620408F4FB1E2A427A722EFBEEA6EAFA81DD8EBF2FA027D9BB5BD48C01"
+    "source_fingerprint": "sha256:55CCE6EA27FB08CC996E98C5E02C1372F1736E4F2F6B96E6C3CE0AF08D435D5E"
   }
 }
   </script>

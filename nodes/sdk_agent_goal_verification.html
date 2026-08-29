@@ -1,0 +1,111 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Goal Verification</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_goal_verification"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.goal_verification"
+  data-source-files="sdk/agent/goal_verification.py"
+  data-source-fingerprint="sha256:76C424B7298E7BF827FA75705EBF154E1D258D6C6854693859BA295B2C518681"
+  data-generated-at="2026-08-29T23:03:06Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Goal Verification</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>goal_verification.py — did the run do what the goal asked, or merely not fail? WHY THIS EXISTS --------------- ``GoalEngine.run_goal`` sets ``success = True`` before the first phase and only ever clears it when a phase fails or the budget runs out.</p>
+    <p>It lives at sdk/agent/goal_verification.py within the agent SDK.</p>
+    <p>Classes it defines: GoalVerification — What the goal named, and what actually happened to it. (methods: as_dict()).</p>
+    <p>Functions it exposes: named_artifacts() — Files the goal talks about, in order, without repeats.; snapshot() — Hash each named artifact relative to the workspace root.; verify() — Compare the two snapshots and decide whether the goal was demonstrably met..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/goal_verification.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_goal_verification"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.goal_verification"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Goal Verification",
+  "description": "Program documentation for sdk.agent.goal_verification.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "goal_verification"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-08-29T23:03:06Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.goal_verification",
+    "source_fingerprint": "sha256:76C424B7298E7BF827FA75705EBF154E1D258D6C6854693859BA295B2C518681"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

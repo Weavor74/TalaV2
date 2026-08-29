@@ -260,6 +260,31 @@ Output JSON array only, wrapped in a Markdown code block like:
                 # run. The HTML-NN node is what actually survives as durable,
                 # retrievable memory of "what architectural approaches were
                 # considered for this kind of goal and how they scored."
+                # ...but only when there was reasoning to remember.
+                #
+                # When the model is unreachable, ToT falls back to a fixed
+                # template: hardcoded critiques per cognitive frame, scores that
+                # are arithmetic over those constants, and approach names built
+                # from the goal text. That kept the pipeline moving and then got
+                # filed as a durable learning event -- four invented
+                # architectures with invented scores, competing for recall
+                # against real lessons, and passing the quality gate because it
+                # is long and concretely worded. Confirmed live: a run against
+                # an unreachable model promoted one into production beside the
+                # genuine lesson from the same goal.
+                #
+                # The shortlist is still returned and still drives the plan. It
+                # is simply not knowledge.
+                from sdk.agent.tot_ideation import is_fallback_shortlist
+
+                shortlist_is_reasoned = not is_fallback_shortlist(shortlist)
+                if not shortlist_is_reasoned:
+                    log.info(
+                        "GoalTreeDecomposer: shortlist came from the deterministic "
+                        "fallback, not from reasoning about the problem -- not "
+                        "writing it to the wiki. The plan still uses it."
+                    )
+
                 try:
                     from sdk.agent.documentation_nodes import create_learning_documentation_node
                     approach_summaries = [
@@ -278,19 +303,22 @@ Output JSON array only, wrapped in a Markdown code block like:
                     # The shortlist itself is worth keeping: it records which
                     # approaches were weighed and how they scored. So the
                     # content is stated honestly rather than the gate loosened.
-                    create_learning_documentation_node(
-                        topic=f"Architectural approaches weighed for: {user_goal}"[:120],
-                        summary=(
-                            f"Tree-of-Thought ideation compared {len(shortlist)} candidate "
-                            f"architectures across multiple cognitive frames and scored them. "
-                            f"The ranked shortlist below is the reasoning behind the approach "
-                            f"that was chosen, kept so the rejected options and their scores "
-                            f"remain recoverable later."
-                        ),
-                        details=approach_summaries,
-                        tags=["tot-ideation", "architectural-shortlist", "decision-record"],
-                    )
-                    log.info("GoalTreeDecomposer: Persisted ToT shortlist as an HTML-NN learning node")
+                    if shortlist_is_reasoned:
+                        create_learning_documentation_node(
+                            topic=f"Architectural approaches weighed for: {user_goal}"[:120],
+                            summary=(
+                                f"Tree-of-Thought ideation compared {len(shortlist)} candidate "
+                                f"architectures across multiple cognitive frames and scored them. "
+                                f"The ranked shortlist below is the reasoning behind the approach "
+                                f"that was chosen, kept so the rejected options and their scores "
+                                f"remain recoverable later."
+                            ),
+                            details=approach_summaries,
+                            tags=["tot-ideation", "architectural-shortlist", "decision-record"],
+                        )
+                        log.info(
+                            "GoalTreeDecomposer: Persisted ToT shortlist as an HTML-NN learning node"
+                        )
                 except Exception as node_exc:
                     log.warning("GoalTreeDecomposer: Failed to persist ToT shortlist as HTML-NN: %s", node_exc)
 
