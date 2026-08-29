@@ -135,14 +135,41 @@ def _encrypt_value(key: bytes, plaintext: str) -> dict[str, str]:
     }
 
 
-def _decrypt_value(key: bytes, envelope: dict[str, Any]) -> str | None:
+def _decrypt_value(key: bytes, envelope: dict[str, Any], field: str = "") -> str | None:
     try:
         nonce = base64.b64decode(envelope["n"])
         ct = base64.b64decode(envelope["ct"])
         return AESGCM(key).decrypt(nonce, ct, None).decode("utf-8")
     except Exception as exc:
-        log.error("credential_crypto: a value failed to decrypt (%s). "
-                  "Leaving it as-is rather than dropping it.", type(exc).__name__)
+        # Name the field and say what InvalidTag actually means.
+        #
+        # This used to read "a value failed to decrypt (InvalidTag)" with no
+        # identifier, which is undiagnosable: it fired twice on every goal run
+        # for a whole session and nobody could tell whether it was one
+        # credential or fifty, or which store it came from. An error nobody can
+        # act on is an error everybody learns to scroll past.
+        #
+        # InvalidTag specifically means the ciphertext did not authenticate --
+        # the data is intact but the key is not the one that encrypted it. That
+        # is almost always a key/data split: the key lives in the user-data root
+        # (vault/.keys/credential_key.bin) while the ciphertext lives in
+        # Postgres, so pointing TALA_USER_DATA somewhere new mints a fresh key
+        # and every stored secret stops decrypting while the database is
+        # untouched.
+        detail = (
+            "the key does not match the one that encrypted it (the key lives in "
+            "the user-data root, the value lives in the database, so they can be "
+            "separated)"
+            if type(exc).__name__ == "InvalidTag"
+            else str(exc)
+        )
+        log.error(
+            "credential_crypto: %s failed to decrypt (%s): %s. "
+            "Leaving it as-is rather than dropping it.",
+            f"field {field!r}" if field else "a value",
+            type(exc).__name__,
+            detail,
+        )
         return None
 
 
@@ -198,7 +225,7 @@ def decrypt_config(config: Any) -> Any:
     out = dict(config)
     for field, value in list(out.items()):
         if is_encrypted(value):
-            plain = _decrypt_value(key, value)
+            plain = _decrypt_value(key, value, field)
             if plain is not None:
                 out[field] = plain
     return out
@@ -298,7 +325,7 @@ def decrypt_section(section: Any) -> Any:
             if key is None:
                 out[field] = value
                 continue
-            plain = _decrypt_value(key, value)
+            plain = _decrypt_value(key, value, field)
             out[field] = value if plain is None else plain
         elif isinstance(value, dict):
             out[field] = decrypt_section(value)
