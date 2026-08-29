@@ -478,6 +478,57 @@ def write_run_node(run: SuiteRun) -> dict[str, Any]:
     )
 
 
+def prune_run_nodes(keep: int) -> list[str]:
+    """
+    Keep the newest ``keep`` run nodes, delete the rest. Returns what went.
+
+    Run records land in the same flat directory activation globs, so they
+    compete for recall against actual knowledge. One per benchmark is fine at
+    three and noise at fifty: a graph where the most retrievable thing about
+    multi-file edits is forty near-identical score sheets is worse at answering
+    than one with a handful.
+
+    Node ids are timestamped, so lexical order is chronological.
+    """
+    if keep <= 0:
+        return []
+    try:
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+
+        paths = sorted(resolve_active_nodes_dir().glob("benchmark-run-*.html"))
+    except Exception:
+        return []
+
+    removed: list[str] = []
+    for path in paths[:-keep] if len(paths) > keep else []:
+        try:
+            path.unlink()
+            removed.append(path.name)
+        except Exception:
+            continue
+    return removed
+
+
+def refresh_architecture_contract() -> bool:
+    """
+    Regenerate the contract after the node count changes.
+
+    Writing a run node changes how many nodes exist, and the contract states
+    that number -- so every benchmark left it stale and failed
+    test_it_is_measured_not_asserted until someone re-ran the generator by
+    hand. The tool that moved the count is the right one to put it back;
+    a contract that has drifted is worse than none, because it is believed.
+    """
+    try:
+        result = subprocess.run(
+            [sys.executable, "scripts/generate_architecture_contract.py"],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=120,
+        )
+        return result.returncode == 0
+    except Exception:
+        return False
+
+
 def load_previous_runs() -> list[dict[str, Any]]:
     """Every prior run record, oldest first, for comparison."""
     try:
@@ -561,6 +612,11 @@ def main() -> int:
     parser.add_argument("--junit", default="", help="score an existing JUnit XML instead of running")
     parser.add_argument("--no-write", action="store_true", help="print the score, record nothing")
     parser.add_argument("--compare", action="store_true", help="list previous runs and exit")
+    parser.add_argument(
+        "--keep", type=int, default=10, metavar="N",
+        help="how many run nodes to retain (0 disables pruning); they share the "
+             "directory activation globs, so they accumulate as retrieval noise",
+    )
     parser.add_argument(
         "--repeat", type=int, default=1, metavar="N",
         help="run the suite N times and score the mean pass rate; n=1 cannot "
@@ -667,6 +723,18 @@ def main() -> int:
         return 1
 
     print(f"  Recorded as {result.get('node_id') or result.get('path') or 'a run node'}")
+
+    removed = prune_run_nodes(int(args.keep))
+    if removed:
+        print(f"  Pruned {len(removed)} older run node(s), keeping the newest {args.keep}.")
+
+    # The node count just changed, and the architecture contract states it.
+    if not refresh_architecture_contract():
+        print(
+            "  The architecture contract could not be regenerated; it now "
+            "understates the node count. Run scripts/generate_architecture_contract.py.",
+            file=sys.stderr,
+        )
     return 0
 
 

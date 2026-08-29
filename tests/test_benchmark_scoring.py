@@ -282,3 +282,51 @@ def test_a_single_run_still_reports_one_attempt_per_case():
     run = rbs.SuiteRun(cases=[rbs.CaseResult("only", True, 1.0)])
     assert run.repeats == 1
     assert run.per_case() == [("only", 1, 1, 1.0)]
+
+
+# --- retention ---------------------------------------------------------------
+
+def test_pruning_keeps_the_newest_and_removes_the_rest(tmp_path, monkeypatch):
+    """
+    Run nodes share the directory activation globs, so they compete for recall
+    against real knowledge. Node ids are timestamped, so lexical order is
+    chronological.
+    """
+    import sdk.agent.documentation_nodes as docnodes
+
+    monkeypatch.setattr(docnodes, "resolve_active_nodes_dir", lambda: tmp_path)
+    for stamp in ("20260101-000000", "20260102-000000", "20260103-000000", "20260104-000000"):
+        (tmp_path / f"benchmark-run-{stamp}.html").write_text("x", encoding="utf-8")
+    (tmp_path / "system-something.html").write_text("x", encoding="utf-8")
+
+    removed = rbs.prune_run_nodes(keep=2)
+
+    assert sorted(removed) == [
+        "benchmark-run-20260101-000000.html",
+        "benchmark-run-20260102-000000.html",
+    ]
+    survivors = sorted(p.name for p in tmp_path.glob("*.html"))
+    assert survivors == [
+        "benchmark-run-20260103-000000.html",
+        "benchmark-run-20260104-000000.html",
+        "system-something.html",
+    ], "pruning must not touch anything that is not a run node"
+
+
+def test_pruning_is_disabled_by_zero(tmp_path, monkeypatch):
+    import sdk.agent.documentation_nodes as docnodes
+
+    monkeypatch.setattr(docnodes, "resolve_active_nodes_dir", lambda: tmp_path)
+    (tmp_path / "benchmark-run-20260101-000000.html").write_text("x", encoding="utf-8")
+
+    assert rbs.prune_run_nodes(keep=0) == []
+    assert (tmp_path / "benchmark-run-20260101-000000.html").exists()
+
+
+def test_pruning_below_the_limit_removes_nothing(tmp_path, monkeypatch):
+    import sdk.agent.documentation_nodes as docnodes
+
+    monkeypatch.setattr(docnodes, "resolve_active_nodes_dir", lambda: tmp_path)
+    (tmp_path / "benchmark-run-20260101-000000.html").write_text("x", encoding="utf-8")
+
+    assert rbs.prune_run_nodes(keep=10) == []

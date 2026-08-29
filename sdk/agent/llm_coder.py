@@ -415,9 +415,28 @@ class LLMCodeGenerator:
                 text = res_dict["result"]["text"]
                 return self._extract_code(text, language)
             elif "error" in res_dict:
-                log.warning("LLMCodeGenerator: inference error: %s", res_dict["error"])
+                log.error(
+                    "LLMCodeGenerator: inference returned an error, no code was "
+                    "generated: %s", res_dict["error"],
+                )
         except Exception as exc:
-            log.warning("LLMCodeGenerator: failed to call handle_inference_generate: %s", exc)
+            # ERROR with the exception type, not a bare warning.
+            #
+            # Every failure here became `None`, and the caller turns `None` into
+            # "synthesis failed validation" -- so a provider that was missing,
+            # unreachable or misconfigured was indistinguishable from a model
+            # that wrote unusable code. A benchmark run pinned to a provider
+            # absent from the database reported six capability failures and
+            # named none of them; the cause was one RuntimeError swallowed here.
+            #
+            # Still returns None: callers rely on that and a generation failure
+            # must not take down the run. But the log now says which of the two
+            # happened, and names the exception that decided it.
+            log.error(
+                "LLMCodeGenerator: could not reach inference (%s: %s). This is a "
+                "provider or configuration failure, not a model output problem.",
+                type(exc).__name__, exc,
+            )
         return None
 
     @staticmethod

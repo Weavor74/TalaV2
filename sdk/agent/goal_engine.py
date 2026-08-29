@@ -356,6 +356,22 @@ class GoalEngine:
         policy = policy or BatchPolicy.auto()
         tracker = BudgetTracker(policy)
 
+        # Snapshot the artifacts the goal names, before anything runs.
+        #
+        # `success` below starts True and is only ever cleared by a phase
+        # failure or the budget: it means "nothing went wrong", not "the goal
+        # was met". A decomposition covering half the request therefore reports
+        # exactly what a complete one does. Hashing the named files now is what
+        # makes the difference checkable at the end without a second model call.
+        try:
+            from sdk.agent.goal_verification import named_artifacts, snapshot
+
+            _goal_artifacts = named_artifacts(goal_text)
+            _artifacts_before = snapshot(self.root_dir, _goal_artifacts)
+        except Exception as exc:  # pragma: no cover - defensive
+            log.warning("GoalEngine: could not snapshot goal artifacts: %s", exc)
+            _goal_artifacts, _artifacts_before = [], {}
+
         # 1. Decompose goal (skip if pre-decomposed tasks were supplied by the caller)
         if pre_decomposed_tasks is not None:
             tasks = pre_decomposed_tasks
@@ -978,6 +994,34 @@ class GoalEngine:
         except Exception as exc:
             log.warning("GoalEngine: failed to generate report: %s", exc)
 
+        # Did the run do what was asked, or merely not fail?
+        #
+        # Only unambiguous evidence counts against it: a file the goal said to
+        # create that does not exist, or a file the goal said to change that is
+        # byte-identical to before. A read-only goal leaves its files untouched
+        # and is not held to have failed, because a verifier that guesses turns
+        # working runs red -- worse than the gap it closes.
+        verification_payload = None
+        if success and not suspended and _goal_artifacts:
+            try:
+                from sdk.agent.goal_verification import snapshot, verify
+
+                goal_check = verify(
+                    goal_text,
+                    _artifacts_before,
+                    snapshot(self.root_dir, _goal_artifacts),
+                )
+                verification_payload = goal_check.as_dict()
+                if not goal_check.ok:
+                    success = False
+                    error_msg = f"Goal not verified: {goal_check.reason}"
+                    log.warning("GoalEngine: %s", error_msg)
+            except Exception as exc:  # pragma: no cover - defensive
+                # Verification must never be the thing that fails a run that
+                # otherwise worked.
+                log.warning("GoalEngine: goal verification could not run: %s", exc)
+
+
         # 7. Auto-document skill node (Hermes feature — fire-and-forget)
         clean_success = success and len(phase_retry_counts) == 0
         
@@ -1008,6 +1052,7 @@ class GoalEngine:
             "phases_completed": phases_completed,
             "error": error_msg,
             "report": report,
+            "verification": verification_payload,
         }
 
     # ------------------------------------------------------------------
