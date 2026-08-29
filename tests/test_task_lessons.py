@@ -226,3 +226,57 @@ def test_a_goal_that_failed_and_recovered_writes_a_lesson(tmp_path, monkeypatch)
     written = Path(result["learning_node_path"]).read_text(encoding="utf-8")
     assert "did not compile" in written
     assert "distilled a reusable learning event" not in written
+
+
+# --- the gate that made this unreachable -------------------------------------
+
+def test_the_engine_records_a_lesson_when_a_phase_was_retried():
+    """
+    Auto-documentation is gated on `clean_success = success and
+    len(phase_retry_counts) == 0`. A run that failed and recovered therefore
+    never reached any lesson path -- while the distiller declines every run
+    where nothing failed. The two conditions were mutually exclusive, so the
+    lesson path could not fire from a real goal run at all.
+    """
+    src = Path("sdk/agent/goal_engine.py").read_text(encoding="utf-8")
+
+    assert "record_task_lesson" in src, "the engine must reach the lesson path"
+    gate = src.index("if phase_retry_counts or (verification_payload")
+    documentation = src.index("clean_success and not has_workaround_lang")
+    assert gate > documentation, (
+        "lesson distillation must be independent of the clean-success gate, "
+        "not nested inside it"
+    )
+
+
+def test_record_task_lesson_declines_a_run_with_nothing_to_teach():
+    from sdk.agent.task_lessons import record_task_lesson
+
+    result = record_task_lesson(_trivial())
+    assert result["status"] == "skipped"
+    assert "trivial" in result["reason"]
+
+
+def test_record_task_lesson_writes_when_a_run_recovered(tmp_path, monkeypatch):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    from sdk.agent.task_lessons import record_task_lesson
+
+    result = record_task_lesson(_struggled())
+    assert result.get("path"), f"expected a lesson node, got {result}"
+    written = Path(result["path"]).read_text(encoding="utf-8")
+    assert "did not compile" in written
+
+
+def test_record_task_lesson_never_raises(monkeypatch):
+    """A learning that cannot be filed must not take down the run."""
+    import sdk.agent.documentation_nodes as docnodes
+
+    def _boom(**_kwargs):
+        raise RuntimeError("disk on fire")
+
+    monkeypatch.setattr(docnodes, "create_learning_documentation_node", _boom)
+    from sdk.agent.task_lessons import record_task_lesson
+
+    result = record_task_lesson(_struggled())
+    assert result["status"] == "error"
+    assert "disk on fire" in result["reason"]

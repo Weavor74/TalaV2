@@ -225,3 +225,45 @@ def build_task_lesson(outcome: TaskOutcome) -> dict[str, object] | None:
         details.append(f"Verification: {outcome.tests_status.strip()}")
 
     return {"topic": topic, "summary": summary, "details": details}
+
+
+def record_task_lesson(
+    outcome: TaskOutcome,
+    *,
+    canonical_node_id: str | None = None,
+    source_files: list[str] | None = None,
+    references: list[str] | None = None,
+    relationships: list[dict[str, object]] | None = None,
+) -> dict[str, object]:
+    """
+    Build the lesson and write it, or report why it was declined.
+
+    One entry point, because there are two callers and they must not drift:
+    ``SelfDocumenter`` after a clean goal, and ``GoalEngine`` after a goal that
+    had to retry a phase. The second is the important one and used to be
+    unreachable -- auto-documentation is gated on
+    ``clean_success = success and len(phase_retry_counts) == 0``, so a run that
+    failed and recovered never reached any lesson path, which is exactly the
+    run worth writing down.
+
+    Never raises. A learning that cannot be filed must not take down the run
+    that produced it.
+    """
+    lesson = build_task_lesson(outcome)
+    if lesson is None:
+        return {"status": "skipped", "reason": assess_task_worth_recording(outcome) or "nothing to teach"}
+
+    try:
+        from sdk.agent.documentation_nodes import create_learning_documentation_node
+
+        return create_learning_documentation_node(
+            topic=str(lesson["topic"]),
+            summary=str(lesson["summary"]),
+            canonical_node_id=canonical_node_id,
+            details=list(lesson["details"]),
+            source_files=source_files or [],
+            references=references or [],
+            relationships=relationships or [],
+        )
+    except Exception as exc:
+        return {"status": "error", "reason": f"{type(exc).__name__}: {exc}"}

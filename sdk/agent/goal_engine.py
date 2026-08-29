@@ -1045,6 +1045,44 @@ class GoalEngine:
                 clean_success, has_workaround_lang, is_reusable
             )
 
+        # A run that had to retry a phase is the one worth learning from, and it
+        # is precisely the run the block above excludes: `clean_success`
+        # requires zero retries, so every failure-and-recovery went undocumented
+        # while the lesson distiller -- which declines any run where nothing
+        # failed -- sat behind that gate waiting for input it could never get.
+        #
+        # Skill documentation and lesson distillation want opposite evidence.
+        # A reusable procedure should come from a clean run; what to do when the
+        # obvious approach fails can only come from a run where it did.
+        if phase_retry_counts or (verification_payload and not verification_payload.get("ok", True)):
+            try:
+                from sdk.agent.task_lessons import TaskOutcome, record_task_lesson
+
+                failures: list[str] = [
+                    f"phase {lineage} was replanned and retried {count} time(s)"
+                    for lineage, count in (phase_retry_counts or {}).items()
+                ]
+                if verification_payload and not verification_payload.get("ok", True):
+                    failures.append(
+                        f"goal verification failed: {verification_payload.get('reason', '')}"
+                    )
+
+                result = record_task_lesson(
+                    TaskOutcome(
+                        goal_text=goal_text,
+                        phases=list(phases_completed or []),
+                        tests_status=error_msg or ("succeeded after retries" if success else "failed"),
+                        failures=failures,
+                    ),
+                    references=["system-tala-html-nn-memory-runtime"],
+                )
+                log.info(
+                    "GoalEngine: lesson from a run that recovered: %s",
+                    result.get("path") or result.get("status") or result,
+                )
+            except Exception as exc:
+                log.warning("GoalEngine: could not record a lesson: %s", exc)
+
         return {
             "success": success,
             "suspended": suspended,
