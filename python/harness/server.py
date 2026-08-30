@@ -2565,6 +2565,27 @@ async def handle_inference_generate(
     # drops every other provider, because this chain falls through on error and
     # a run pinned to one engine that quietly finishes on another would be
     # scored as the first.
+    # The embedded engine joins the list before anything resolves against it.
+    #
+    # It was only appended in the branch below that handles "no provider
+    # selected", so a pinned or forced request was matched against a list it
+    # was not in. Pinning to it always raised "matches no configured
+    # provider": every generation failed, and a 96-minute benchmark measured
+    # an engine that never served once -- 231 generation attempts, zero
+    # completions, and a 0/18 the attribution check caught. It is a real row in
+    # the database and permitted in every environment; the list simply had not
+    # been assembled yet at the point the pin was resolved.
+    if not any(p["id"] == "embedded-builtin" for p in providers):
+        providers = providers + [{
+            "id": "embedded-builtin",
+            "type": "embedded",
+            "name": "Tala Embedded Engine",
+            "priority": 999,
+            "status": "online",
+            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+            "locked": True,
+        }]
+
     pinned_id = str(os.environ.get("TALA_PIN_PROVIDER", "") or "").strip()
 
     request_provider = None
@@ -9387,6 +9408,26 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
     # TALA_PIN_STRICT=1 additionally removes the embedded fallback appended
     # below, so a pinned run that cannot use its engine fails instead of
     # quietly completing on a different one and scoring it as the first.
+    # The embedded engine joins the list before anything resolves against it.
+    #
+    # It used to be appended only where the list was assembled for the
+    # no-selection case, so a pinned or forced request was matched against a
+    # list it was not in. Pinning to it always raised "matches no configured
+    # provider", every generation failed, and a 96-minute benchmark measured an
+    # engine that never served once: 231 generation attempts, zero completions.
+    # It is a real row in the database and permitted in every environment; the
+    # list simply had not been assembled yet at the point the pin was resolved.
+    if not any(p["id"] == "embedded-builtin" for p in providers):
+        providers = providers + [{
+            "id": "embedded-builtin",
+            "type": "embedded",
+            "name": "Tala Embedded Engine",
+            "priority": 999,
+            "status": "online",
+            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+            "locked": True,
+        }]
+
     pinned_id = str(os.environ.get("TALA_PIN_PROVIDER", "") or "").strip()
     pin_strict = os.environ.get("TALA_PIN_STRICT") == "1"
 
