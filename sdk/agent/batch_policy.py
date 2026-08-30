@@ -13,7 +13,7 @@ Provides:
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 
 @dataclass
@@ -104,6 +104,24 @@ class BudgetTracker:
             f"Time budget exhausted "
             f"({elapsed:.1f}/{self.policy.max_duration_minutes} minutes elapsed)"
         )
+
+    def remaining_minutes(self) -> float:
+        """Budget left, never negative."""
+        return max(0.0, self.policy.max_duration_minutes - self.elapsed_minutes())
+
+    def deadline(self) -> datetime:
+        """
+        The wall-clock instant this run must stop by.
+
+        Needed because the budget was only ever consulted *between* phases. A
+        phase that made several model calls ran to completion however long it
+        took, so a five-minute ceiling was measured overrunning to 6.4 minutes
+        -- and the more work a phase does, the worse the overshoot. Handing the
+        executor an absolute instant lets it check between nodes, which is a
+        boundary it already has, rather than needing its own clock or a
+        cancellation that could interrupt a half-written file.
+        """
+        return self.start_time + timedelta(minutes=self.policy.max_duration_minutes)
 
     def status(self) -> dict:
         """Return a snapshot of current budget utilization."""

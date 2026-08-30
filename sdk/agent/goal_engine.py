@@ -656,7 +656,12 @@ class GoalEngine:
             # Execute the step using the DAG-Engineered execution engine
             from sdk.agent.graph_engine import DAGExecutionEngine
             graph_engine = DAGExecutionEngine(self.root_dir)
-            graph_res = await graph_engine.execute_task_as_dag(task, policy)
+            # The goal's deadline, not the phase's: the executor checks it
+            # between nodes so a phase cannot run past the budget the way one
+            # measured at 6.4 minutes against a 5-minute ceiling.
+            graph_res = await graph_engine.execute_task_as_dag(
+                task, policy, deadline=tracker.deadline()
+            )
             
             res = {
                 "command": task.description,

@@ -272,7 +272,9 @@ class DAGExecutionEngine:
         # Fallback to in-memory
         return list(self._in_memory_nodes.get(task_id, {}).values())
 
-    async def execute_task_as_dag(self, task: TaskItem, policy: Any = None) -> dict[str, Any]:
+    async def execute_task_as_dag(
+        self, task: TaskItem, policy: Any = None, deadline: Any = None
+    ) -> dict[str, Any]:
         """
         Public entry point. Registers task_id as "actively executing" for the
         duration of the run and *always* unregisters it on the way out —
@@ -295,7 +297,7 @@ class DAGExecutionEngine:
             pass
 
         try:
-            return await self._execute_task_as_dag_inner(task, policy)
+            return await self._execute_task_as_dag_inner(task, policy, deadline)
         finally:
             try:
                 from sdk.agent.goal_engine import unregister_active_task
@@ -407,7 +409,9 @@ class DAGExecutionEngine:
                     targets.append(extra)
         return targets
 
-    async def _execute_task_as_dag_inner(self, task: TaskItem, policy: Any = None) -> dict[str, Any]:
+    async def _execute_task_as_dag_inner(
+        self, task: TaskItem, policy: Any = None, deadline: Any = None
+    ) -> dict[str, Any]:
         """
         Refactors task execution into a DAG flow of Research -> Synthesis -> Writing -> Validation.
         """
@@ -701,7 +705,33 @@ class DAGExecutionEngine:
         
         while runs < loop_limit:
             runs += 1
-            
+
+            # Stop at the goal's deadline, not merely at the next phase.
+            #
+            # The budget was only consulted between phases, so a phase doing
+            # several model calls ran to completion however long that took: a
+            # five-minute ceiling was measured overrunning to 6.4 minutes, and
+            # the overshoot grows with the work a phase does. Checked here
+            # because the scheduling loop is a boundary that already exists --
+            # a node in flight finishes rather than being cancelled, so nothing
+            # is interrupted half-written, and the overrun is bounded by one
+            # node instead of one phase.
+            if deadline is not None:
+                from datetime import UTC as _UTC, datetime as _dt
+
+                if _dt.now(_UTC) >= deadline:
+                    reason = (
+                        f"Deadline reached with {sum(1 for n in nodes.values() if n.status != 'completed')} "
+                        f"node(s) still to run"
+                    )
+                    log.warning("DAGExecutionEngine: %s — stopping before the next node.", reason)
+                    return {
+                        "success": False,
+                        "error": reason,
+                        "deadline_reached": True,
+                        "nodes": {k: v.status for k, v in nodes.items()},
+                    }
+
             # Find topological candidates (pending and all dependencies completed)
             candidates = []
             for n in nodes.values():

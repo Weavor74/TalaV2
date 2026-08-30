@@ -54,7 +54,9 @@ async def test_execute_task_as_dag_always_unregisters_active_task(tmp_path):
     task_boom = TaskItem(description="boom")
     task_boom.task_id = "test-active-task-boom"
 
-    async def _boom(self, task, policy=None):
+    # deadline accepted because the executor now takes one: the goal's
+    # budget is checked between nodes, not only before a phase.
+    async def _boom(self, task, policy=None, deadline=None):
         raise RuntimeError("simulated crash mid-DAG")
 
     with patch.object(DAGExecutionEngine, "_execute_task_as_dag_inner", new=_boom):
