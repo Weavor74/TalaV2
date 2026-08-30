@@ -178,10 +178,75 @@ Output JSON array only, wrapped in a Markdown code block like:
 ]
 ```"""
 
+    #: HTML-NN holding the decomposition prompt, when one has been authored.
+    #: Same shape as the workflow spec: the node is the single canonical
+    #: source, and an unreadable or invalid one falls back to the built-in
+    #: template with the reason logged.
+    PROMPT_NODE_ID = "system-planner-prompt"
+
+    #: A prompt that cannot fill these produces a decomposition request with
+    #: literal braces in it, or one that never names the goal.
+    REQUIRED_PROMPT_PLACEHOLDERS = ("{user_goal}", "{tool_catalogue}")
+
+    @classmethod
+    def _authored_prompt(cls) -> str | None:
+        """
+        The decomposition prompt as data, if a node supplies one.
+
+        The prompt was a string literal in this file, which meant varying it
+        required editing source -- a self-edit, an approval, and a restart.
+        Nothing unattended can do that, so the prompt could not be tuned by
+        anything except a person, and an optimiser could not exist at all.
+
+        Returns None for "use the built-in", which is the default and the
+        normal case. Every rejection is logged with its reason rather than
+        raised: a prompt node that no longer parses must not stop the planner
+        from planning.
+        """
+        try:
+            from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+            from sdk.agent.parser import parse_file
+
+            path = resolve_active_nodes_dir() / f"{cls.PROMPT_NODE_ID}.html"
+            if not path.exists():
+                return None
+            state = parse_file(str(path)).state_data or {}
+        except Exception as exc:
+            log.warning("Planner prompt node could not be read (%s) — using the built-in", exc)
+            return None
+
+        template = state.get("prompt_template")
+        if not isinstance(template, str) or not template.strip():
+            log.warning(
+                "Planner prompt node %s carries no 'prompt_template' string — using the built-in",
+                cls.PROMPT_NODE_ID,
+            )
+            return None
+
+        missing = [ph for ph in cls.REQUIRED_PROMPT_PLACEHOLDERS if ph not in template]
+        if missing:
+            # A prompt missing {user_goal} would ask the model to decompose
+            # nothing, and every goal would decompose identically.
+            log.warning(
+                "Planner prompt node %s is missing %s — using the built-in",
+                cls.PROMPT_NODE_ID, ", ".join(missing),
+            )
+            return None
+
+        log.info("Planner prompt: using the authored node %s", cls.PROMPT_NODE_ID)
+        return template
+
     @classmethod
     def _get_prompt_hash(cls) -> str:
         import hashlib
-        return hashlib.sha256(cls._get_prompt_template().encode("utf-8")).hexdigest()
+        # Hashes whichever prompt will actually be used, so the decomposition
+        # cache cannot serve a plan built by a different prompt.
+        return hashlib.sha256(cls.active_prompt_template().encode("utf-8")).hexdigest()
+
+    @classmethod
+    def active_prompt_template(cls) -> str:
+        """The prompt this planner will actually use: authored if valid, else built-in."""
+        return cls._authored_prompt() or cls._get_prompt_template()
 
     def _get_semantic_similarity(self, goal_a: str, goal_b: str) -> float:
         """Compute cosine similarity of token occurrences between two goal strings."""
@@ -552,7 +617,7 @@ Output JSON array only, wrapped in a Markdown code block like:
 
         # Catalogue is read live, not baked into the template, so a skill
         # registered a minute ago is plannable on the next goal.
-        prompt = self._get_prompt_template().format(
+        prompt = self.active_prompt_template().format(
             user_goal=user_goal,
             tool_catalogue=self._live_tool_catalogue(),
         )
