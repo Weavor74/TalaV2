@@ -303,6 +303,110 @@ class DAGExecutionEngine:
             except Exception:
                 pass
 
+
+    #: Files a plan step is asking to be written.
+    DEFAULT_TARGET = "scratch/output.py"
+
+    @classmethod
+    def derive_target_files(
+        cls,
+        description: str,
+        full_goal: str = "",
+        explicit_path: str | None = None,
+    ) -> list[str]:
+        """
+        Every file this step should write, most-certain first.
+
+        Extracted so the regexes are testable without building and running a
+        graph -- they carry most of the risk in this module and had produced
+        two separate real incidents before this one.
+
+        A goal that says "run X" or "execute X" is NOT asking for X to be
+        rewritten. The scrape is greedy enough to pull any path out of prose,
+        and every graph ends in a `writing` node, so "run
+        scripts/generate_stories.py" once produced a plan to *overwrite*
+        scripts/generate_stories.py with freshly synthesised code. That
+        happened twice for real, replacing a 400-line generator with a
+        hello-world, and validation then compiled the placeholder and reported
+        success.
+
+        The step's own description is the only source of *additional* targets.
+        Taking them from the whole goal would make an early phase write files a
+        later phase owns.
+        """
+        if explicit_path:
+            return [str(explicit_path)]
+
+        execute_only = re.search(
+            r'\b(run|execute|invoke|call)\b[^.\n]{0,40}?[\w\-]+[\/\\][\w\-\/\.]+\.[a-zA-Z0-9]+',
+            f"{description}\n{full_goal}",
+            re.IGNORECASE,
+        )
+
+        primary = None
+        if not execute_only:
+            for text in (description, full_goal):
+                # "named"/"called" cover creation goals naming a bare filename
+                # with no directory ("Create a script named hello.py") -- those
+                # used to fall through to the default, so the task went green
+                # while the requested file never existed.
+                # Write-intent words only. "at" and "in" are positional and
+                # describe where to *read* at least as often as where to
+                # write: "Write report.py using the data in scratch/tmp.py"
+                # resolved to scratch/tmp.py, which would have overwritten
+                # the data source. They are tried last instead, below.
+                m = re.search(
+                    r'(?:file|path|write to|into|named|called)\s+([\w\.\/\\]+\.[a-zA-Z0-9]+)',
+                    text, re.IGNORECASE,
+                )
+                if m:
+                    primary = m.group(1)
+                    break
+                # A bare filename with no directory and no introducing word.
+                #
+                # "Then refactor both user.py and order.py to import the
+                # Logger" matched neither pattern above -- the first needs an
+                # introducing word, the second needs a slash -- so the step
+                # fell through to scratch/output.py and wrote there. The files
+                # it named were never touched, which is the whole of why the
+                # multi-file benchmark failed on every engine.
+                #
+                # Restricted to extensions a plan plausibly writes, so prose
+                # mentioning "version 2.5" or "the 3.11 runtime" cannot become
+                # a write target.
+                m3 = re.search(
+                    r'(?<![\w\/\\.])([\w\-]+\.(?:py|js|ts|tsx|jsx|json|ya?ml|toml|md|txt|html|css|sql|sh|ps1))\b',
+                    text, re.IGNORECASE,
+                )
+                if m3:
+                    primary = m3.group(1)
+                    break
+                m2 = re.search(r'([\w\-]+[\/\\][\w\-\/\.]+\.[a-zA-Z0-9]+)', text)
+                if m2:
+                    primary = m2.group(1)
+                    break
+                # Last resort: a positional preposition. Reached only when
+                # the step named nothing more definite, so "in X" is the
+                # best available guess rather than a preferred reading.
+                m4 = re.search(
+                    r'(?:at|in)\s+([\w\.\/\\]+\.[a-zA-Z0-9]+)', text, re.IGNORECASE,
+                )
+                if m4:
+                    primary = m4.group(1)
+                    break
+
+        if not primary:
+            return [cls.DEFAULT_TARGET]
+
+        targets = [primary]
+        if not execute_only:
+            for extra in re.findall(
+                r'\b([\w\-]+(?:[\/\\][\w\-\.]+)*\.[a-zA-Z0-9]+)\b', str(description)
+            ):
+                if extra not in targets and not extra.startswith("scratch/"):
+                    targets.append(extra)
+        return targets
+
     async def _execute_task_as_dag_inner(self, task: TaskItem, policy: Any = None) -> dict[str, Any]:
         """
         Refactors task execution into a DAG flow of Research -> Synthesis -> Writing -> Validation.
@@ -397,44 +501,12 @@ class DAGExecutionEngine:
             if prior_summary:
                 full_goal = f"{full_goal}\n\n{prior_summary}"
 
-        # Extract target file path
-        target_file = None
-        if isinstance(payload, dict):
-            target_file = payload.get("context", {}).get("path")
-
-        # A goal that says "run X" or "execute X" is NOT asking for X to be
-        # rewritten. The scrape below is greedy enough to pull any path out of
-        # prose, and every node graph ends in a `writing` node -- so a goal of
-        # "run scripts/generate_stories.py" produced a plan to *overwrite*
-        # scripts/generate_stories.py with freshly synthesised code. That
-        # happened twice for real, replacing a 400-line generator with a
-        # hello-world, and the validation node then compiled the placeholder
-        # and reported success.
-        _execute_only = re.search(
-            r'\b(run|execute|invoke|call)\b[^.\n]{0,40}?[\w\-]+[\/\\][\w\-\/\.]+\.[a-zA-Z0-9]+',
-            f"{task.description}\n{full_goal}",
-            re.IGNORECASE,
+        target_files = self.derive_target_files(
+            task.description,
+            full_goal,
+            (payload.get("context", {}) or {}).get("path") if isinstance(payload, dict) else None,
         )
-
-        if not target_file and not _execute_only:
-            search_texts = [task.description, full_goal]
-            for text in search_texts:
-                # "named"/"called" cover creation goals that mention a bare
-                # filename with no directory ("Create a script named
-                # hello.py") — those used to fall through to the
-                # scratch/output.py default, so the task went green while the
-                # requested file never existed.
-                m = re.search(r'(?:file|path|write to|at|in|into|named|called)\s+([\w\.\/\\]+\.[a-zA-Z0-9]+)', text, re.IGNORECASE)
-                if m:
-                    target_file = m.group(1)
-                    break
-                m2 = re.search(r'([\w\-]+[\/\\][\w\-\/\.]+\.[a-zA-Z0-9]+)', text)
-                if m2:
-                    target_file = m2.group(1)
-                    break
-
-        if not target_file:
-            target_file = "scratch/output.py"
+        target_file = target_files[0]
 
         test_file = payload.get("context", {}).get("test_file") if isinstance(payload, dict) else None
 
@@ -528,34 +600,52 @@ class DAGExecutionEngine:
                         inputs={"problem": full_goal},
                         success_criteria={"min_sources": 1}
                     ),
-                    GraphNode(
-                        id=syn_node_id,
-                        task_id=task_id,
-                        node_type="synthesis",
-                        description=f"Synthesize architectural design plan for: {task.description}",
-                        dependencies=[res_node_id],
-                        inputs={"problem": full_goal, "target_file": target_file},
-                        success_criteria={"synthesis_completed": True}
-                    ),
-                    GraphNode(
-                        id=wri_node_id,
-                        task_id=task_id,
-                        node_type="writing",
-                        description=f"Write code changes to: {target_file}",
-                        dependencies=[syn_node_id],
-                        inputs={"target_file": target_file},
-                        success_criteria={"file_written": True}
-                    ),
-                    GraphNode(
-                        id=val_node_id,
-                        task_id=task_id,
-                        node_type="validation",
-                        description=f"Validate written code changes for: {target_file}",
-                        dependencies=[wri_node_id],
-                        inputs={"target_file": target_file, "test_file": test_file},
-                        success_criteria={"min_test_pass_rate": 1.0}
-                    ),
                 ]
+
+                # One synthesise / write / validate chain per target file.
+                #
+                # They share the research node and run in sequence, so a later
+                # file is written knowing the earlier one landed -- which is
+                # what "refactor both user.py and order.py to import the Logger
+                # from common.py" needs, and what a single chain could never
+                # express. The single-target case builds exactly the graph it
+                # always did, with the same node ids.
+                previous = res_node_id
+                for index, path in enumerate(target_files):
+                    suffix = "" if index == 0 else f"-{index}"
+                    syn_id = f"{syn_node_id}{suffix}"
+                    wri_id = f"{wri_node_id}{suffix}"
+                    val_id = f"{val_node_id}{suffix}"
+                    chain.extend([
+                        GraphNode(
+                            id=syn_id,
+                            task_id=task_id,
+                            node_type="synthesis",
+                            description=f"Synthesize architectural design plan for: {task.description}",
+                            dependencies=[previous],
+                            inputs={"problem": full_goal, "target_file": path},
+                            success_criteria={"synthesis_completed": True}
+                        ),
+                        GraphNode(
+                            id=wri_id,
+                            task_id=task_id,
+                            node_type="writing",
+                            description=f"Write code changes to: {path}",
+                            dependencies=[syn_id],
+                            inputs={"target_file": path},
+                            success_criteria={"file_written": True}
+                        ),
+                        GraphNode(
+                            id=val_id,
+                            task_id=task_id,
+                            node_type="validation",
+                            description=f"Validate written code changes for: {path}",
+                            dependencies=[wri_id],
+                            inputs={"target_file": path, "test_file": test_file},
+                            success_criteria={"min_test_pass_rate": 1.0}
+                        ),
+                    ])
+                    previous = val_id
 
             is_verification_phase = any(kw in task.description.lower() for kw in ("verify and compile", "verify solution", "validate solution"))
             if is_verification_phase:
@@ -1211,8 +1301,18 @@ class DAGExecutionEngine:
 
 
         elif node.node_type == "writing":
-            # Writing Logic: Write synthesized code to target files
-            syn_node = self._first_node_of_type(nodes, "synthesis")
+            # Writing Logic: Write synthesized code to target files.
+            #
+            # Resolved from this node's own dependency rather than "the first
+            # synthesis node in the graph". With one target the two are the
+            # same; with several, every writer would take the first file's code
+            # and write it to every path -- so a plan that touches three files
+            # would produce three copies of one of them.
+            syn_node = next(
+                (n for n in nodes.values()
+                 if n.id in (node.dependencies or []) and n.node_type == "synthesis"),
+                None,
+            ) or self._first_node_of_type(nodes, "synthesis")
             code = syn_node.outputs.get("code", "") if syn_node else ""
             target_file = node.inputs.get("target_file", "scratch/output.py")
             target_path = Path(worktree_path) / target_file
