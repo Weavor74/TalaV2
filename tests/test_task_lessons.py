@@ -280,3 +280,86 @@ def test_record_task_lesson_never_raises(monkeypatch):
     result = record_task_lesson(_struggled())
     assert result["status"] == "error"
     assert "disk on fire" in result["reason"]
+
+
+# --- a lesson sharpens instead of being replaced ------------------------------
+
+def _record(tmp_path, monkeypatch, detail):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    from sdk.agent.task_lessons import record_task_lesson
+
+    return record_task_lesson(TaskOutcome(
+        goal_text="Repair the payload decoder so the operator sees whole records",
+        phases=["a (tool): Tool 'code_apply_patch' executed.",
+                f"b (verify): gate_failed -- {detail}"],
+        tests_status="passed after retry",
+    ))
+
+
+def _lesson_text(tmp_path) -> str:
+    staged = list((tmp_path / "nodes" / "_staging").glob("learning-recovery-*.html"))
+    assert len(staged) == 1, f"expected exactly one lesson, found {staged}"
+    return staged[0].read_text(encoding="utf-8")
+
+
+def test_a_second_occurrence_keeps_what_the_first_learned(tmp_path, monkeypatch):
+    """
+    A lesson's node id derives from its topic alone, so the same obstacle met
+    twice resolves to the same file -- and the second write replaced the first
+    outright. Measured before this: two runs recording different failures left
+    only the later one on disk, the earlier evidence gone with nothing to say
+    it had existed.
+    """
+    _record(tmp_path, monkeypatch, "the patch did not compile")
+    _record(tmp_path, monkeypatch, "the import was still unresolved")
+
+    text = _lesson_text(tmp_path)
+    assert "the patch did not compile" in text, "the first occurrence was discarded"
+    assert "the import was still unresolved" in text
+    assert "Times seen: 2" in text
+
+
+def test_occurrences_are_counted(tmp_path, monkeypatch):
+    for detail in ("first", "second", "third"):
+        _record(tmp_path, monkeypatch, detail)
+    assert "Times seen: 3" in _lesson_text(tmp_path)
+
+
+def test_the_same_obstacle_twice_is_not_recorded_twice(tmp_path, monkeypatch):
+    """Evidence accumulates; noise does not."""
+    _record(tmp_path, monkeypatch, "the patch did not compile")
+    _record(tmp_path, monkeypatch, "the patch did not compile")
+
+    text = _lesson_text(tmp_path)
+    assert text.count("the patch did not compile") <= 2, "the obstacle was duplicated"
+    assert "Times seen: 2" in text
+
+
+def test_obstacles_are_bounded(tmp_path, monkeypatch):
+    """
+    Past a point the page stops being a lesson and becomes a log. The newest
+    are kept, because they describe the system as it is now.
+    """
+    from sdk.agent.task_lessons import MAX_RECORDED_OBSTACLES
+
+    for index in range(MAX_RECORDED_OBSTACLES + 4):
+        _record(tmp_path, monkeypatch, f"distinct failure {index}")
+
+    text = _lesson_text(tmp_path)
+    assert "distinct failure 0" not in text, "the oldest obstacle should have aged out"
+    assert f"distinct failure {MAX_RECORDED_OBSTACLES + 3}" in text
+    assert text.count("Did not work first time:") <= MAX_RECORDED_OBSTACLES + 1
+
+
+def test_merging_never_takes_down_the_run(tmp_path, monkeypatch):
+    """A lesson that cannot be merged must still be written."""
+    import sdk.agent.task_lessons as tl
+
+    monkeypatch.setattr(tl, "_existing_lesson_details", lambda _id: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+
+    result = tl.record_task_lesson(TaskOutcome(
+        goal_text="Repair the payload decoder",
+        phases=["a (tool): Tool 'x' executed.", "b: gate_failed -- nope"],
+    ))
+    assert result.get("status") == "error"

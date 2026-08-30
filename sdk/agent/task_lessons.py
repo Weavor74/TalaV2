@@ -227,6 +227,89 @@ def build_task_lesson(outcome: TaskOutcome) -> dict[str, object] | None:
     return {"topic": topic, "summary": summary, "details": details}
 
 
+#: Distinct obstacles kept on one lesson. Past this the page stops being a
+#: lesson and becomes a log; the newest are kept because they describe the
+#: system as it is now.
+MAX_RECORDED_OBSTACLES = 8
+
+#: Prefix under which an obstacle is written into a lesson's details.
+OBSTACLE_PREFIX = "Did not work first time: "
+
+#: Prefix of the line counting how often this lesson has been reached.
+OCCURRENCE_PREFIX = "Times seen: "
+
+
+def _existing_lesson_details(node_id: str) -> list[str]:
+    """
+    Detail lines already recorded on a lesson, from staging or production.
+
+    A lesson's node id is derived from its topic alone, so the same obstacle
+    met twice resolves to the same file -- and the second write replaced the
+    first outright. Measured: two runs recording different failures left only
+    the later one on disk, the earlier evidence gone with nothing to say it had
+    ever existed.
+
+    Reading the prior details back is what turns a second occurrence into
+    evidence rather than a replacement. Returns [] whenever the node cannot be
+    read, so a lesson is still written when merging is impossible.
+    """
+    try:
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+        from sdk.agent.node_staging import resolve_staging_dir
+        from sdk.agent.parser import parse_file
+    except Exception:
+        return []
+
+    for directory in (resolve_staging_dir, resolve_active_nodes_dir):
+        try:
+            path = directory() / f"{node_id}.html"
+            if not path.exists():
+                continue
+            memory = parse_file(str(path)).semantic_memory or ""
+        except Exception:
+            continue
+        found = [
+            line.strip().lstrip("-").strip()
+            for line in memory.splitlines()
+            if line.strip().startswith("-")
+        ]
+        if found:
+            return found
+    return []
+
+
+def _merge_details(previous: list[str], current: list[str]) -> list[str]:
+    """
+    Fold a new occurrence into what the lesson already knew.
+
+    Obstacles accumulate (bounded, newest kept) because each is a distinct way
+    the same work went wrong, and that set is the transferable part. The
+    step-by-step trace does not accumulate: it describes one run and reads as
+    noise once there are several.
+    """
+    def obstacles(lines: list[str]) -> list[str]:
+        return [l for l in lines if l.startswith(OBSTACLE_PREFIX)]
+
+    seen = 1
+    for line in previous:
+        if line.startswith(OCCURRENCE_PREFIX):
+            try:
+                seen = int(line[len(OCCURRENCE_PREFIX):].strip().split()[0])
+            except (ValueError, IndexError):
+                seen = 1
+            break
+
+    merged_obstacles: list[str] = []
+    for line in obstacles(previous) + obstacles(current):
+        if line not in merged_obstacles:
+            merged_obstacles.append(line)
+    merged_obstacles = merged_obstacles[-MAX_RECORDED_OBSTACLES:]
+
+    body = [l for l in current if not l.startswith(OBSTACLE_PREFIX)
+            and not l.startswith(OCCURRENCE_PREFIX)]
+    return [f"{OCCURRENCE_PREFIX}{seen + 1}"] + merged_obstacles + body
+
+
 def record_task_lesson(
     outcome: TaskOutcome,
     *,
@@ -254,13 +337,25 @@ def record_task_lesson(
         return {"status": "skipped", "reason": assess_task_worth_recording(outcome) or "nothing to teach"}
 
     try:
-        from sdk.agent.documentation_nodes import create_learning_documentation_node
+        from sdk.agent.documentation_nodes import (
+            _learning_node_id,
+            create_learning_documentation_node,
+        )
+
+        details = list(lesson["details"])
+        previous = _existing_lesson_details(
+            _learning_node_id(str(lesson["topic"]), "")
+        )
+        if previous:
+            # Sharpen rather than replace. Without this the newer run silently
+            # discards what the earlier one learned about the same obstacle.
+            details = _merge_details(previous, details)
 
         return create_learning_documentation_node(
             topic=str(lesson["topic"]),
             summary=str(lesson["summary"]),
             canonical_node_id=canonical_node_id,
-            details=list(lesson["details"]),
+            details=details,
             source_files=source_files or [],
             references=references or [],
             relationships=relationships or [],
