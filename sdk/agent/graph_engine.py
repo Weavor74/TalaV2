@@ -56,6 +56,13 @@ class GraphNode:
 #: that failure as a completed phase.
 SYNTHESIS_TIMEOUT_SECONDS = float(os.getenv("TALA_SYNTHESIS_TIMEOUT", "300"))
 
+
+def _dt_now():
+    """Wall clock, in one place so the budget instrumentation reads consistently."""
+    from datetime import UTC, datetime
+
+    return datetime.now(UTC)
+
 # ---------------------------------------------------------------------------
 # DAG Execution Engine
 # ---------------------------------------------------------------------------
@@ -804,9 +811,26 @@ class DAGExecutionEngine:
                 await self.save_node(node)
 
                 # Execute specific node logic
+                # Per-node timing against the deadline, so an overrun names
+                # the node that caused it. A node that starts inside the budget
+                # and finishes outside it is the expected, bounded case; a node
+                # that *starts* outside it is a hole in the check above.
+                _n_start = _dt_now()
+                _left_at_start = (
+                    (deadline - _n_start).total_seconds() if deadline else None
+                )
                 success = await self._execute_node(
                     node, nodes, file_backups, worktree_path, allocated_port, deadline
                 )
+                _took = (_dt_now() - _n_start).total_seconds()
+                if deadline is not None:
+                    _over = (_dt_now() - deadline).total_seconds()
+                    log.info(
+                        "DAGExecutionEngine: budget — node %s (%s) took %.1fs, "
+                        "%.1fs of budget remained when it started, %.1fs %s deadline now",
+                        node.id, node.node_type, _took, _left_at_start or 0.0,
+                        abs(_over), "past" if _over > 0 else "before",
+                    )
 
                 if success:
                     node.status = "completed"

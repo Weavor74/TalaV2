@@ -659,8 +659,18 @@ class GoalEngine:
             # The goal's deadline, not the phase's: the executor checks it
             # between nodes so a phase cannot run past the budget the way one
             # measured at 6.4 minutes against a 5-minute ceiling.
+            _t_before = tracker.elapsed_minutes()
             graph_res = await graph_engine.execute_task_as_dag(
                 task, policy, deadline=tracker.deadline()
+            )
+            # Budget accounting around the executor, so an overrun can be
+            # attributed instead of guessed at. Three diagnoses of this were
+            # wrong before it was measured.
+            log.info(
+                "GoalEngine: budget — phase %r entered at %.2f min, left executor "
+                "at %.2f min (budget %.1f, deadline %s)",
+                phase_name, _t_before, tracker.elapsed_minutes(),
+                policy.max_duration_minutes, tracker.deadline().isoformat(),
             )
             
             res = {
