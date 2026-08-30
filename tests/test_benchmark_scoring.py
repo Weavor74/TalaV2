@@ -330,3 +330,88 @@ def test_pruning_below_the_limit_removes_nothing(tmp_path, monkeypatch):
     (tmp_path / "benchmark-run-20260101-000000.html").write_text("x", encoding="utf-8")
 
     assert rbs.prune_run_nodes(keep=10) == []
+
+
+# --- a sha that describes the code that ran ----------------------------------
+
+def test_a_dirty_tree_invalidates_the_run():
+    """
+    A run records the sha as the configuration it measured, which is a lie
+    whenever the tree is dirty -- and it is dirty exactly when the number
+    matters, mid-change. Measured once: a 50-minute run stamped a sha while the
+    tree held a half-finished edit that crashed every case, and recorded the
+    result with nothing to say anything was wrong.
+    """
+    run = rbs.SuiteRun(
+        cases=[rbs.CaseResult("test_a", True, 1.0)],
+        git_sha="abc1234",
+        uncommitted=["sdk/agent/graph_engine.py"],
+    )
+    warning = run.attribution_warning()
+    assert "working tree was not clean" in warning
+    assert "sdk/agent/graph_engine.py" in warning
+    assert "abc1234" in warning
+
+
+def test_the_dirty_warning_outranks_the_engine_warning():
+    """
+    A dirty tree invalidates a run more completely than an unknown engine: the
+    engine only makes the score unattributable, while a dirty tree means the
+    sha names code that never ran.
+    """
+    run = rbs.SuiteRun(
+        cases=[rbs.CaseResult("test_a", True, 1.0)],
+        engine_requested="embedded-builtin",
+        uncommitted=["a.py"],
+    )
+    assert "working tree was not clean" in run.attribution_warning()
+
+
+def test_a_dirty_run_is_never_a_baseline(tmp_path, monkeypatch):
+    """It carries a warning, and warned runs are excluded from comparison."""
+    import sdk.agent.documentation_nodes as docnodes
+
+    monkeypatch.setattr(docnodes, "resolve_active_nodes_dir", lambda: tmp_path)
+    rbs.write_run_node(rbs.SuiteRun(
+        cases=[rbs.CaseResult("test_a", True, 1.0)],
+        label="dirty", git_sha="dead", started_at="2026-08-30T09:00:00",
+        uncommitted=["x.py"],
+    ))
+    assert rbs.load_previous_runs() == []
+
+
+def test_a_clean_tree_says_nothing():
+    run = rbs.SuiteRun(cases=[rbs.CaseResult("test_a", True, 1.0)], uncommitted=[])
+    assert run.attribution_warning() == ""
+
+
+def test_untracked_files_are_not_treated_as_dirty():
+    """
+    Run nodes and scratch output land in the tree constantly and describe
+    nothing about the code under test. Failing on those would train everyone to
+    pass --allow-dirty every time, which is worse than not checking.
+    """
+    import inspect
+
+    src = inspect.getsource(rbs.uncommitted_files)
+    assert "--untracked-files=no" in src
+
+
+def test_the_run_records_which_files_were_dirty():
+    run = rbs.SuiteRun(
+        cases=[rbs.CaseResult("test_a", True, 1.0)],
+        uncommitted=["one.py", "two.py"],
+    )
+    assert run.uncommitted == ["one.py", "two.py"]
+
+
+def test_scoring_an_external_report_does_not_inherit_this_trees_state():
+    """
+    A report produced elsewhere -- possibly on another machine -- is not
+    described by the state of this working tree. Attaching a dirty-tree warning
+    to it would put a caveat on a result the caveat cannot describe.
+    """
+    from pathlib import Path
+
+    src = Path("scripts/run_benchmark_suite.py").read_text(encoding="utf-8")
+    assert "uncommitted=[] if args.junit else dirty," in src

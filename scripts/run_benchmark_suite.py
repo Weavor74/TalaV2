@@ -105,9 +105,23 @@ class SuiteRun:
     #: through on error, so a pinned run can complete on a different engine.
     models_observed: list[str] = field(default_factory=list)
     providers_observed: list[str] = field(default_factory=list)
+    #: Tracked files that differed from HEAD while this ran. Non-empty means
+    #: the recorded sha does not describe the code that produced the score.
+    uncommitted: list[str] = field(default_factory=list)
 
     def attribution_warning(self) -> str:
         """A sentence naming the mismatch, or empty when there is nothing to say."""
+        if self.uncommitted:
+            # Checked before the engine, because it invalidates the run more
+            # completely: an unknown engine makes the score unattributable, but
+            # a dirty tree means the sha names code that never ran.
+            shown = ", ".join(self.uncommitted[:4])
+            more = f" and {len(self.uncommitted) - 4} more" if len(self.uncommitted) > 4 else ""
+            return (
+                f"The working tree was not clean while this ran ({shown}{more}), "
+                f"so commit {self.git_sha} does not describe the code that "
+                f"produced this score."
+            )
         if not self.engine_requested:
             return ""
         if not self.providers_observed:
@@ -214,6 +228,36 @@ def _git_sha() -> str:
         return out.stdout.strip() or "unknown"
     except Exception:
         return "unknown"
+
+
+def uncommitted_files() -> list[str]:
+    """
+    Tracked files differing from HEAD, which the sha does not describe.
+
+    A run records the sha as the configuration it measured. That is a lie
+    whenever the tree is dirty -- and it is dirty in exactly the situation
+    where the number matters, mid-change. Measured once today: a 50-minute run
+    stamped a sha while the working tree held a half-finished edit that crashed
+    every case, and the result was recorded with no indication anything was
+    wrong.
+
+    Untracked files are ignored on purpose. Benchmark run nodes and scratch
+    output land in the tree constantly and describe nothing about the code
+    under test; failing on those would train everyone to pass --allow-dirty
+    every time, which is worse than not checking.
+    """
+    try:
+        out = subprocess.run(
+            ["git", "status", "--porcelain", "--untracked-files=no"],
+            cwd=REPO_ROOT, capture_output=True, text=True, timeout=15,
+        )
+    except Exception:
+        return []
+    return [
+        line[3:].strip()
+        for line in (out.stdout or "").splitlines()
+        if line.strip()
+    ]
 
 
 def _discover_adapters() -> list[str]:
@@ -462,6 +506,7 @@ def write_run_node(run: SuiteRun) -> dict[str, Any]:
                 "models_observed": run.models_observed,
                 "providers_observed": run.providers_observed,
                 "attribution_warning": run.attribution_warning(),
+                "uncommitted": run.uncommitted,
                 "git_sha": run.git_sha,
                 "adapters": run.adapters,
                 "cases": [
@@ -613,6 +658,11 @@ def main() -> int:
     parser.add_argument("--no-write", action="store_true", help="print the score, record nothing")
     parser.add_argument("--compare", action="store_true", help="list previous runs and exit")
     parser.add_argument(
+        "--allow-dirty", action="store_true",
+        help="record a run from a modified working tree; the result says so and is "
+             "never offered as a comparison baseline",
+    )
+    parser.add_argument(
         "--keep", type=int, default=10, metavar="N",
         help="how many run nodes to retain (0 disables pruning); they share the "
              "directory activation globs, so they accumulate as retrieval noise",
@@ -647,6 +697,26 @@ def main() -> int:
                 f"{record.get('model_label','?')}"
             )
         return 0
+
+    # Refused before the run, not after: the point is to save the hour, not to
+    # annotate a wasted one.
+    dirty = uncommitted_files()
+    if dirty and not args.allow_dirty and not args.junit:
+        print(
+            "The working tree is not clean, so a recorded sha would not describe "
+            "the code under test:",
+            file=sys.stderr,
+        )
+        for path in dirty[:10]:
+            print(f"  {path}", file=sys.stderr)
+        if len(dirty) > 10:
+            print(f"  ... and {len(dirty) - 10} more", file=sys.stderr)
+        print(
+            "\nCommit them, stash them, or pass --allow-dirty to record the run "
+            "with that stated on it.",
+            file=sys.stderr,
+        )
+        return 2
 
     started_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
 
@@ -701,6 +771,11 @@ def main() -> int:
         engine_requested=args.engine,
         models_observed=models_observed,
         providers_observed=providers_observed,
+        # Empty when scoring a report this invocation did not produce: that
+        # run happened elsewhere, possibly on another machine, and the state of
+        # this tree says nothing about it. Claiming otherwise would put a
+        # warning on a result it cannot describe.
+        uncommitted=[] if args.junit else dirty,
         repeats=max(1, int(args.repeat)) if not args.junit else 1,
     )
 
