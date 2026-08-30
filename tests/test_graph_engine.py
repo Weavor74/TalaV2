@@ -283,7 +283,9 @@ async def test_validation_failure_triggers_rollback_and_retry(tmp_path):
 
         attempts = {}
 
-        async def mock_execute_node(node: GraphNode, nodes: dict[str, GraphNode], backups: dict[str, str | None], worktree_path: str, allocated_port: int) -> bool:
+        # deadline accepted because a node's timeout is now capped by the
+        # remaining budget, so the executor passes it down.
+        async def mock_execute_node(node: GraphNode, nodes: dict[str, GraphNode], backups: dict[str, str | None], worktree_path: str, allocated_port: int, deadline=None) -> bool:
             if node.node_type == "validation":
                 attempts[node.id] = attempts.get(node.id, 0) + 1
                 if attempts[node.id] == 1:

@@ -402,11 +402,31 @@ class DAGExecutionEngine:
 
         targets = [primary]
         if not execute_only:
-            for extra in re.findall(
-                r'\b([\w\-]+(?:[\/\\][\w\-\.]+)*\.[a-zA-Z0-9]+)\b', str(description)
+            text = str(description)
+            for match in re.finditer(
+                r'\b([\w\-]+(?:[\/\\][\w\-\.]+)*\.[a-zA-Z0-9]+)\b', text
             ):
-                if extra not in targets and not extra.startswith("scratch/"):
-                    targets.append(extra)
+                extra = match.group(1)
+                if extra in targets or extra.startswith("scratch/"):
+                    continue
+                # A file the step reads is not a file the step writes.
+                #
+                # "refactor both user.py and order.py to import the Logger
+                # from common.py" names three files and modifies two. Treating
+                # common.py as a target made this phase rewrite what the
+                # previous phase had just created, and when validation failed
+                # the rollback deleted it -- so the dependency the refactor
+                # needed disappeared, guaranteeing the next attempt failed the
+                # same way. Measured: common.py absent from the workspace after
+                # the run, user.py restored to its original contents.
+                preceding = text[max(0, match.start() - 24):match.start()].lower()
+                if re.search(
+                    r'\b(from|import|imports|importing|using|uses|read|reads|reading|'
+                    r'load|loads|loading|based on|in)\s+(?:the\s+)?$',
+                    preceding,
+                ):
+                    continue
+                targets.append(extra)
         return targets
 
     async def _execute_task_as_dag_inner(
@@ -785,7 +805,7 @@ class DAGExecutionEngine:
 
                 # Execute specific node logic
                 success = await self._execute_node(
-                    node, nodes, file_backups, worktree_path, allocated_port
+                    node, nodes, file_backups, worktree_path, allocated_port, deadline
                 )
 
                 if success:
@@ -928,6 +948,7 @@ class DAGExecutionEngine:
         backups: dict[str, str | None],
         worktree_path: str,
         allocated_port: int,
+        deadline: Any = None,
     ) -> bool:
         try:
             from sdk.agent.telemetry import LiveStatusReporter
@@ -1230,7 +1251,23 @@ class DAGExecutionEngine:
                 # the clock every time and the stale-file fallback above dressed
                 # that up as success. 300s leaves headroom over the slowest
                 # measured turn.
-                res_str = await asyncio.wait_for(_call_llm(), timeout=SYNTHESIS_TIMEOUT_SECONDS)
+                # Capped by whatever budget is left, not only by the node
+                # ceiling. SYNTHESIS_TIMEOUT_SECONDS is 300s and a benchmark
+                # phase gets 5 minutes, so one synthesis call could consume the
+                # entire budget on its own -- which is precisely what a run
+                # measured at 6.0/5.0 minutes was doing, with the between-node
+                # deadline check never getting a turn.
+                _timeout = SYNTHESIS_TIMEOUT_SECONDS
+                if deadline is not None:
+                    from datetime import UTC as _UTC, datetime as _dt
+
+                    _left = (deadline - _dt.now(_UTC)).total_seconds()
+                    if _left <= 0:
+                        node.outputs = {"error": "Deadline reached before synthesis could start."}
+                        return False
+                    _timeout = min(_timeout, _left)
+
+                res_str = await asyncio.wait_for(_call_llm(), timeout=_timeout)
                 res_dict = json.loads(res_str)
 
                 if isinstance(res_dict, dict) and "result" in res_dict and isinstance(res_dict["result"], dict):
@@ -1299,13 +1336,18 @@ class DAGExecutionEngine:
                 # retryable=False: the model that did not answer in 300s will
                 # not answer in the next 300s either, and the retry loop would
                 # spend 20 minutes proving it.
+                # Reports the timeout that actually applied, which is the
+                # node ceiling or the remaining budget, whichever was smaller.
+                # Naming the ceiling regardless would describe a 300s wait that
+                # never happened.
+                _used = locals().get("_timeout", SYNTHESIS_TIMEOUT_SECONDS)
                 log.warning(
-                    "DAGExecutionEngine: LLM synthesis timed out after %ss — "
+                    "DAGExecutionEngine: LLM synthesis timed out after %.0fs — "
                     "failing the node (no code was produced).",
-                    SYNTHESIS_TIMEOUT_SECONDS,
+                    _used,
                 )
                 node.outputs = {
-                    "error": f"LLM synthesis timed out after {SYNTHESIS_TIMEOUT_SECONDS}s; no code produced.",
+                    "error": f"LLM synthesis timed out after {_used:.0f}s; no code produced.",
                     "retryable": False,
                 }
                 return False
@@ -1461,9 +1503,24 @@ class DAGExecutionEngine:
                     )
                     if _m:
                         _required_tool = _m.group(1)
+                # The file's own directory goes on sys.path, ahead of root_dir.
+                #
+                # The probe loads the file from the worktree but only put
+                # root_dir on the path, so a module importing a sibling the
+                # same goal had just written could never resolve it: "refactor
+                # user.py to import the Logger from common.py" wrote both into
+                # the worktree, then imported user.py with only the repository
+                # root importable. It failed with "compiled but failed import
+                # check" however correct the code was, and each failure
+                # triggered a rollback and a fresh synthesis, which is what
+                # exhausted the time budget.
+                #
+                # root_dir stays on the path behind it, because the skill
+                # checks below import sdk.agent.tools from the checkout.
                 _probe = (
                     "import importlib.util,sys;"
                     f"sys.path.insert(0,r'{self.root_dir or '.'}');"
+                    f"sys.path.insert(0,r'{target_path.parent}');"
                     f"spec=importlib.util.spec_from_file_location('_tala_probe',r'{target_path}');"
                     "m=importlib.util.module_from_spec(spec);spec.loader.exec_module(m);"
                 )

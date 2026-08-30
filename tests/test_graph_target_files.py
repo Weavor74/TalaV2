@@ -112,3 +112,58 @@ def test_every_target_is_a_plausible_filename():
         for target in derive(text):
             assert "." in target, f"{target!r} from {text!r} is not a filename"
             assert " " not in target, f"{target!r} contains a space"
+
+
+# --- the import probe must be able to see the files the goal wrote ------------
+
+def test_the_import_probe_puts_the_files_own_directory_on_sys_path():
+    """
+    The probe loads the file from the worktree but only put root_dir on
+    sys.path, so a module importing a sibling the same goal had just written
+    could never resolve it. "Refactor user.py to import the Logger from
+    common.py" wrote both into the worktree and then imported user.py with
+    only the checkout importable -- it failed however correct the code was,
+    and each failure triggered a rollback and a fresh synthesis, which is what
+    exhausted the time budget.
+    """
+    from pathlib import Path
+
+    src = Path("sdk/agent/graph_engine.py").read_text(encoding="utf-8")
+    assert "sys.path.insert(0,r'{target_path.parent}')" in src
+
+    # And ahead of root_dir, which is inserted first and therefore ends up
+    # behind it -- the sibling the goal just wrote must win over a same-named
+    # file in the checkout.
+    root_insert = src.index("sys.path.insert(0,r'{self.root_dir or '.'}')")
+    own_insert = src.index("sys.path.insert(0,r'{target_path.parent}')")
+    assert root_insert < own_insert, "the file's own directory must be inserted last to sit first"
+
+
+# --- a file the step reads is not a file the step writes ----------------------
+
+def test_an_imported_dependency_is_not_a_write_target():
+    """
+    "refactor both user.py and order.py to import the Logger from common.py"
+    names three files and modifies two. Treating common.py as a target made
+    this phase rewrite what the previous phase had just created, and when
+    validation failed the rollback deleted it -- so the dependency the refactor
+    needed vanished and every retry failed the same way. Measured: common.py
+    absent from the workspace after the run.
+    """
+    targets = derive(
+        "Then refactor both user.py and order.py to import the Logger from common.py"
+    )
+    assert "user.py" in targets
+    assert "order.py" in targets
+    assert "common.py" not in targets, "the file being imported from must not be overwritten"
+
+
+@pytest.mark.parametrize("phrase", [
+    "refactor app.py using helpers.py",
+    "update app.py reading config.json",
+    "rewrite app.py importing shared.py",
+])
+def test_reading_contexts_do_not_create_targets(phrase):
+    targets = derive(phrase)
+    assert targets[0] == "app.py"
+    assert len(targets) == 1, f"{phrase!r} produced {targets}"
