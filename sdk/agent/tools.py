@@ -3321,11 +3321,34 @@ async def update_manifest(node_path: str) -> str:
     except Exception:
         pass
         
+    # The valence above is derived from the node's own text. Carry it toward
+    # what the astro engine actually feels right now.
+    #
+    # nodes/spec-emotion-vocabulary.html has always said its four valence keys
+    # are "read by update_manifest and adjust_behavioral_weights", and until now
+    # neither did: this module never imported the astrology package, so the
+    # engine reached Tala's voice and nothing that weighted her memory. The
+    # projection lives in the node, not here -- python/astrology/valence.py is a
+    # reader, so editing the table in the document is what changes the maths.
+    valence_provenance: dict[str, Any] = {"source": "content"}
+    try:
+        from python.astrology.valence import apply_current
+        valence, valence_provenance = await apply_current(valence)
+    except Exception as exc:
+        # A mood that could not be read is recorded as unread. It must not look
+        # the same as a mood that was read and turned out to be neutral.
+        log.warning("update_manifest: emotional valence unavailable: %s", exc)
+        valence_provenance = {"source": "content", "reason": f"{type(exc).__name__}: {exc}"}
+
     metadata_ld = {
         "@context": "https://schema.org",
         "@type": "NeuralNodeMetadata",
         "semantic_tags": inferred_tags,
         "emotional_valence": valence,
+        # How those four numbers were arrived at. Weights with no account of
+        # themselves are the reason it took this long to notice they were
+        # unrelated to the engine that was supposed to produce them.
+        "valence_source": valence_provenance,
         "relevance_weight": float(relevance),
         "usage_count": int(usage)
     }

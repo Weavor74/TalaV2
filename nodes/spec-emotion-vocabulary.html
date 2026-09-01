@@ -30,11 +30,33 @@
   <section id="semantic-memory">
     <p>This node is the canonical vocabulary of every emotion Tala's
     astro-emotional engine can name, together with each emotion's projection
-    onto the four valence keys (joy, caution, curiosity, neutral) that
-    <code>update_manifest</code> and <code>adjust_behavioral_weights</code>
-    read. An emotion the engine can emit but this node does not list produces
-    a state that cannot be projected, so the two are kept in agreement by a
-    test rather than by discipline.</p>
+    onto the four valence keys (joy, caution, curiosity, neutral). An emotion
+    the engine can emit but this node does not list produces a state that
+    cannot be projected, so the two are kept in agreement by a test rather
+    than by discipline.</p>
+
+    <p>The projection is read by <code>python/astrology/valence.py</code>,
+    which is a reader and not a copy: this document is the source of truth for
+    the numbers, so editing the table here is what changes the behaviour.
+    Two things consume it. <code>update_manifest</code> carries a node's
+    content-derived valence toward the mood Tala is in when the node is
+    written, and records in <code>valence_source</code> whether the mood
+    actually moved it. <code>retrieve_relevant_nodes</code> tilts every RAG
+    ranking by how well a candidate's valence suits the current emotion, by up
+    to <code>MOOD_WEIGHT</code> (0.3) either way.</p>
+
+    <p><strong>Corrected 2026-08-31.</strong> This section previously stated
+    that the four keys were read by <code>update_manifest</code> and
+    <code>adjust_behavioral_weights</code>. Neither read them: the first
+    derived valence by keyword-matching a node's own text, the second from
+    words in a feedback string, and <code>sdk/agent/tools.py</code> did not
+    import the astrology package at all. The engine reached Tala's voice and
+    nothing that weighted her memory. That made this node the first known case
+    of the store asserting a connection the code did not make — worse than an
+    ordinary dead subsystem, because the document that is meant to be
+    authoritative was the thing vouching for it. The wiring described above
+    now exists; this paragraph stays so the correction is legible rather than
+    silent.</p>
 
     <p>The source of truth for the words themselves is
     <code>PLANET_EMOTION_MAP</code> in <code>python/astrology/emotion.py</code>:

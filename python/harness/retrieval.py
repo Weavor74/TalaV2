@@ -108,6 +108,45 @@ def _vault_node_for_index(path: Path):
                        path.stem, exc)
         return None
 
+#: How far the current mood may move a retrieval score, as a fraction. At 0.3
+#: a perfectly aligned node scores 1.3x and a perfectly opposed one 0.7x, so
+#: mood reorders the middle of the ranking without ever promoting an
+#: irrelevant node over a relevant one. Deliberately not routed through
+#: MAX_ASTRO_INFLUENCE: that cap governs *style* deltas, and this is retrieval.
+MOOD_WEIGHT: float = 0.3
+
+
+def _node_valence(node) -> dict[str, float]:
+    """
+    The four valence keys off a parsed node, defaulting to neutral-ish.
+
+    Read from the node's own ``node-metadata`` block, which ``update_manifest``
+    writes and which now carries the astro projection rather than a keyword
+    guess about the node's text.
+    """
+    from python.astrology.valence import VALENCE_KEYS
+
+    raw: Any = {}
+    try:
+        meta = getattr(node, "metadata", None) or {}
+        if isinstance(meta, dict):
+            raw = meta.get("emotional_valence") or {}
+        if not raw:
+            state = getattr(node, "state_data", None) or {}
+            if isinstance(state, dict):
+                raw = state.get("emotional_valence") or {}
+    except Exception:
+        raw = {}
+
+    out: dict[str, float] = {}
+    for key in VALENCE_KEYS:
+        try:
+            out[key] = float(raw.get(key, 0.5)) if isinstance(raw, dict) else 0.5
+        except (TypeError, ValueError):
+            out[key] = 0.5
+    return out
+
+
 def index_nodes(nodes_dir: Path) -> None:
     """
     Parse new or modified HTML Neural Nodes and embed them into ChromaDB incrementally.
@@ -177,6 +216,14 @@ def index_nodes(nodes_dir: Path) -> None:
             "trust_tier": str(node.trust_tier) if node.trust_tier else "unknown",
             "source": str(node.source) if node.source else "local",
         }
+
+        # The node's emotional valence, flattened for Chroma (metadata values
+        # must be scalars). Without these four numbers in the index there is
+        # nothing for the mood to weigh against at query time, and the
+        # projection in nodes/spec-emotion-vocabulary.html stays what it has
+        # always been: a table nothing reads.
+        for key, value in _node_valence(node).items():
+            metadata[f"valence_{key}"] = value
 
         ids.append(node.node_id)
         documents.append(document)
@@ -252,19 +299,56 @@ def retrieve_relevant_nodes(
     metadatas = results["metadatas"][0] if "metadatas" in results and results["metadatas"] else [{}]*len(ids)
 
     scored_candidates = []
-    
+
+    # One mood is read per query, not per candidate: the emotional state is a
+    # property of Tala at this moment, not of the node being scored, and
+    # re-reading it inside the loop would let it change mid-ranking.
+    try:
+        from python.astrology.valence import mood_alignment
+    except Exception:
+        mood_alignment = None  # type: ignore[assignment]
+    mood_emotion: str | None = None
+    mood_available = mood_alignment is not None
+
     for node_id, distance, metadata in zip(ids, distances, metadatas):
         # ChromaDB cosine distance: smaller is closer. similarity = 1 - distance
         raw_similarity = max(0.0, 1.0 - distance)
-        
+
         weight_relevance = float(metadata.get("weight_relevance", 1.0))
         weight_confidence = float(metadata.get("weight_confidence", 1.0))
-        
+
         # Multiply semantic score by HTML-NN node weights
         final_score = raw_similarity * weight_relevance * weight_confidence
-        
+
+        # ...and tilt by how well this node's emotional colouring suits the
+        # mood the astro engine currently reports. This is the consumer the
+        # emotion vocabulary node has always claimed to have: before it, the
+        # engine reached the system prompt and nothing that weighted memory.
+        if mood_available:
+            node_valence = {
+                k: float(metadata.get(f"valence_{k}", 0.5))
+                for k in ("joy", "caution", "curiosity", "neutral")
+            }
+            aligned = mood_alignment(node_valence)
+            if aligned is None:
+                # No mood to compare against. Leave the score untouched and say
+                # so once, rather than silently scoring as though the mood were
+                # neutral -- a state nobody measured must not look measured.
+                mood_available = False
+            else:
+                affinity, mood_emotion = aligned
+                final_score *= 1.0 + MOOD_WEIGHT * (affinity - 0.5) * 2.0
+
         if final_score >= threshold:
             scored_candidates.append((node_id, final_score))
+
+    if mood_emotion:
+        logger.debug(
+            "retrieval: ranking tilted by current emotional state %r (weight %.2f)",
+            mood_emotion, MOOD_WEIGHT,
+        )
+    elif mood_alignment is not None:
+        logger.debug("retrieval: no emotional state available; ranking untilted")
 
     # Sort by final score descending
     scored_candidates.sort(key=lambda x: x[1], reverse=True)
