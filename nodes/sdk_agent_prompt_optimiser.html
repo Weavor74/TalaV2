@@ -22,8 +22,8 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.prompt_optimiser"
   data-source-files="sdk/agent/prompt_optimiser.py"
-  data-source-fingerprint="sha256:55EF04DA277364DA651919020F75DAC1AB6011186542DA47DDE67591CB1F57B5"
-  data-generated-at="2026-09-01T00:19:58Z"
+  data-source-fingerprint="sha256:13AB83D99A3F022DA3332C4A03E849E9C21E3BD57FE2BFBF8F801DF31C97B1CD"
+  data-generated-at="2026-09-01T00:36:02Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -35,7 +35,7 @@
     <p>prompt_optimiser.py — propose a better planner prompt, and keep it only if it wins.</p>
     <p>It lives at sdk/agent/prompt_optimiser.py within the agent SDK.</p>
     <p>Classes it defines: Variant — One candidate prompt and what became of it. (methods: as_dict()); Round — One optimisation round: what was tried, what won, and whether it stuck. (methods: as_dict()).</p>
-    <p>Functions it exposes: gather_evidence() — Obstacles from her own lessons, most-repeated first.; validate_variant() — Return a rejection reason, or &quot;&quot; if the variant is worth an evaluation.; choose_promotion() — The variant worth promoting, or None with the reason it was not.; current_champion() — The prompt in play and where it came from.; promote() — Install a challenger as the champion, keeping what it replaced..</p>
+    <p>Functions it exposes: gather_evidence() — Obstacles from her own lessons, most-repeated first.; validate_variant() — Return a rejection reason, or &quot;&quot; if the variant is worth an evaluation.; choose_promotion() — The variant worth promoting, or None with the reason it was not.; current_champion() — The prompt in play and where it came from.; promote() — Install a challenger as the champion, keeping what it replaced.; build_mutation_request() — The instruction that asks for one improved prompt.; extract_prompt() — The prompt out of a reply, or &quot;&quot; if the model did not give one.; propose_variant() — Ask the model for one improved prompt.; install_template() — Put a prompt in play temporarily, without claiming it was promoted..</p>
   </section>
 
   <section id="source-evidence">
@@ -99,10 +99,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-01T00:19:58Z",
+    "created_or_updated": "2026-09-01T00:36:02Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.prompt_optimiser",
-    "source_fingerprint": "sha256:55EF04DA277364DA651919020F75DAC1AB6011186542DA47DDE67591CB1F57B5"
+    "source_fingerprint": "sha256:13AB83D99A3F022DA3332C4A03E849E9C21E3BD57FE2BFBF8F801DF31C97B1CD"
   }
 }
   </script>

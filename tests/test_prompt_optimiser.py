@@ -231,3 +231,143 @@ def test_a_promoted_prompt_is_what_the_planner_then_uses(tmp_path, monkeypatch):
     promote(challenger, score=0.78, beat=0.56, evidence=[])
 
     assert GoalTreeDecomposer.active_prompt_template() == challenger
+
+
+# --- mutation: what the model is asked, and what is accepted back -------------
+
+def test_the_request_leads_with_recorded_failures():
+    """
+    The evidence is what separates this from generic prompt tuning: the
+    failures are recorded rather than imagined, and repeats are named as such.
+    """
+    from sdk.agent.prompt_optimiser import build_mutation_request
+
+    request = build_mutation_request(
+        CHAMPION,
+        ["(seen 3x) the import was unresolved", "a one-off hiccup"],
+        "Address the single most frequent failure listed.",
+    )
+    assert "actually failed, most frequent first" in request
+    assert "(seen 3x) the import was unresolved" in request
+    assert request.index("seen 3x") < request.index("a one-off hiccup")
+
+
+def test_the_request_says_so_when_nothing_has_failed_yet():
+    """A fresh install has no lessons; the round must still be able to run."""
+    from sdk.agent.prompt_optimiser import build_mutation_request
+
+    request = build_mutation_request(CHAMPION, [], "Tighten it.")
+    assert "No failures have been recorded yet" in request
+
+
+def test_the_request_states_the_rules_that_make_a_reply_usable():
+    from sdk.agent.prompt_optimiser import build_mutation_request
+
+    request = build_mutation_request(CHAMPION, [], "Tighten it.")
+    for rule in ("{user_goal}", "{tool_catalogue}", "complete prompt"):
+        assert rule in request
+
+
+def test_a_prompt_is_extracted_from_the_markers():
+    from sdk.agent.prompt_optimiser import extract_prompt
+
+    reply = (
+        "Certainly! Here is my improved prompt:\n"
+        "===BEGIN PROMPT===\n"
+        "Plan {user_goal} using {tool_catalogue}.\n"
+        "===END PROMPT===\n"
+        "Let me know if you would like another."
+    )
+    assert extract_prompt(reply) == "Plan {user_goal} using {tool_catalogue}."
+
+
+def test_a_reply_without_markers_yields_nothing():
+    """
+    A model that ignored the format answered a different question. Guessing
+    which part was the prompt would spend sixteen minutes proving that.
+    """
+    from sdk.agent.prompt_optimiser import extract_prompt
+
+    assert extract_prompt("Here is some helpful advice about prompts.") == ""
+    assert extract_prompt("") == ""
+
+
+def test_a_truncated_reply_still_yields_what_arrived():
+    """
+    The end marker missing usually means the generation was cut off. What did
+    arrive is returned and then judged by validate_variant, which is where
+    truncation is caught with a reason.
+    """
+    from sdk.agent.prompt_optimiser import extract_prompt, validate_variant
+
+    reply = "===BEGIN PROMPT===\nPlan {user_goal} with {tool_catalogue}."
+    extracted = extract_prompt(reply)
+    assert extracted.startswith("Plan {user_goal}")
+    assert "truncated" in validate_variant(extracted, CHAMPION)
+
+
+def test_every_framing_is_a_distinct_instruction():
+    from sdk.agent.prompt_optimiser import MUTATION_FRAMINGS
+
+    assert len(set(MUTATION_FRAMINGS)) == len(MUTATION_FRAMINGS)
+    assert len(MUTATION_FRAMINGS) >= 4
+
+
+# --- installing is not promoting ---------------------------------------------
+
+def test_installing_a_candidate_does_not_claim_a_promotion(tmp_path, monkeypatch):
+    """
+    Screening installs each candidate to measure it. Using promote() for that
+    corrupts the rollback it exists to provide: promote() records what it
+    replaced, so after the first candidate the stored previous_template is the
+    previous *candidate*, and by the end of a round the way back has been
+    overwritten several times.
+    """
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    from sdk.agent.parser import parse_file
+    from sdk.agent.prompt_optimiser import install_template
+
+    result = install_template(_ok_variant("Candidate one. "))
+    state = parse_file(result["path"]).state_data or {}
+
+    assert state["under_evaluation"] is True
+    assert "previous_template" not in state, "an installation must not claim provenance"
+    assert "promoted_score" not in state
+
+
+def test_screening_several_candidates_leaves_the_champion_recoverable(tmp_path, monkeypatch):
+    """The end state after a round: champion back, and its provenance intact."""
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    from sdk.agent.parser import parse_file
+    from sdk.agent.prompt_optimiser import install_template, promote
+
+    champion = GoalTreeDecomposer._get_prompt_template()
+    for name in ("one", "two", "three"):
+        install_template(_ok_variant(f"Candidate {name}. "))
+    install_template(champion)
+
+    assert GoalTreeDecomposer.active_prompt_template() == champion
+
+    winner = _ok_variant("The winner. ")
+    result = promote(winner, score=0.78, beat=0.56, evidence=[])
+    state = parse_file(result["path"]).state_data or {}
+
+    assert state["prompt_template"] == winner
+    assert state["previous_template"] == champion, "the rollback must point at the champion"
+
+
+def test_an_abandoned_round_leaves_a_node_that_says_so(tmp_path, monkeypatch):
+    """
+    If a round dies mid-screen the candidate is still installed. The node has
+    to say it is under evaluation, or the next person finds an unexplained
+    prompt in play and no way to know it was never promoted.
+    """
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    from sdk.agent.parser import parse_file
+    from sdk.agent.prompt_optimiser import install_template
+
+    result = install_template(_ok_variant("Abandoned. "))
+    node = parse_file(result["path"])
+
+    assert (node.state_data or {}).get("under_evaluation") is True
+    assert "did not finish" in node.semantic_memory

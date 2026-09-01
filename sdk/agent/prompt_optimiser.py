@@ -302,3 +302,153 @@ def promote(template: str, *, score: float, beat: float, evidence: list[str]) ->
             "evidence": evidence,
         },
     )
+
+
+# ---------------------------------------------------------------------------
+# Mutation: the model proposes, from its own record
+# ---------------------------------------------------------------------------
+
+#: Framings used to ask for diverse candidates. One variant per call rather
+#: than several in one response: a 4B asked for six prompts in one reply
+#: reliably returns three, merges two, and truncates the last, and the parsing
+#: needed to survive that is where this would break.
+MUTATION_FRAMINGS = (
+    "Address the single most frequent failure listed, and change nothing else.",
+    "Make the ordering of steps explicit, so a step never runs before what it depends on.",
+    "Tighten the instructions about which tool to use and when.",
+    "Make the required output format harder to get wrong.",
+    "Remove whatever in the current prompt is not earning its place.",
+    "State plainly what a good plan looks like for a multi-part request.",
+)
+
+#: The model must return the prompt between these, so prose around it can be
+#: discarded. A model that ignores them yields nothing rather than a prompt
+#: with an apology welded to the front.
+_BEGIN = "===BEGIN PROMPT==="
+_END = "===END PROMPT==="
+
+
+def build_mutation_request(champion: str, evidence: list[str], framing: str) -> str:
+    """
+    The instruction that asks for one improved prompt.
+
+    Evidence leads, because it is the part that makes this different from
+    generic prompt tuning: the failures are recorded rather than imagined, and
+    the ones seen repeatedly are named as such.
+    """
+    if evidence:
+        observed = "\n".join(f"  - {item}" for item in evidence)
+        preamble = (
+            "These are the ways plans produced by the current prompt have "
+            "actually failed, most frequent first:\n"
+            f"{observed}\n\n"
+        )
+    else:
+        preamble = (
+            "No failures have been recorded yet, so improve the prompt on its "
+            "own terms.\n\n"
+        )
+
+    return (
+        "You are improving the prompt that another system uses to break a goal "
+        "into steps. You are not performing the task in the prompt.\n\n"
+        f"{preamble}"
+        f"Your specific instruction for this attempt: {framing}\n\n"
+        "Rules that make a reply usable:\n"
+        "  - Keep the placeholders {user_goal} and {tool_catalogue} exactly as "
+        "written. They are filled in later; without them the prompt cannot work.\n"
+        "  - Introduce no other {placeholders}.\n"
+        "  - Return the complete prompt, not a diff or a description of "
+        "changes.\n"
+        f"  - Put it between {_BEGIN} and {_END} and write nothing after the end "
+        "marker.\n\n"
+        "The current prompt:\n"
+        f"{_BEGIN}\n{champion}\n{_END}\n"
+    )
+
+
+def extract_prompt(reply: str) -> str:
+    """
+    The prompt out of a reply, or "" if the model did not give one.
+
+    Returning "" rather than guessing: a reply without the markers is a model
+    that answered a different question, and evaluating its prose as a prompt
+    would spend sixteen minutes proving that.
+    """
+    text = str(reply or "")
+    if _BEGIN not in text:
+        return ""
+    body = text.split(_BEGIN, 1)[1]
+    if _END in body:
+        body = body.split(_END, 1)[0]
+    return body.strip("\n")
+
+
+async def propose_variant(champion: str, evidence: list[str], framing: str) -> str:
+    """
+    Ask the model for one improved prompt. Returns "" if it did not produce one.
+
+    Deliberately not routed through the goal engine. This changes the prompt the
+    planner plans with, so depending on the planner to produce its replacement
+    would mean a bad promotion could break the thing needed to undo it.
+    """
+    try:
+        from python.harness.server import handle_inference_generate
+    except Exception as exc:  # pragma: no cover - import-time environment
+        log.warning("Prompt optimiser: inference unavailable (%s)", exc)
+        return ""
+
+    try:
+        raw = await handle_inference_generate(
+            {
+                "prompt": build_mutation_request(champion, evidence, framing),
+                "stream": False,
+                "raw_prompt": True,
+                "max_tokens": 2048,
+            },
+            ws=None,
+            req_id="prompt-optimiser",
+        )
+        payload = json.loads(raw)
+    except Exception as exc:
+        log.warning("Prompt optimiser: mutation call failed (%s: %s)", type(exc).__name__, exc)
+        return ""
+
+    if "result" not in payload:
+        log.warning("Prompt optimiser: inference returned no result: %s", str(payload)[:200])
+        return ""
+
+    return extract_prompt(payload["result"].get("text", ""))
+
+
+def install_template(template: str) -> dict[str, Any]:
+    """
+    Put a prompt in play temporarily, without claiming it was promoted.
+
+    Screening installs each candidate in turn to measure it. Using promote()
+    for that corrupts the rollback it exists to provide: promote() records
+    "what I replaced", so after the first candidate the stored previous_template
+    is the *previous candidate* rather than the champion, and by the end of a
+    round the way back has been overwritten several times.
+
+    So installation and promotion are separated. This one writes no provenance
+    and makes no claim; the caller is responsible for putting the champion back,
+    which the runner does on every exit path.
+    """
+    from sdk.agent.documentation_nodes import create_documentation_node
+
+    return create_documentation_node(
+        node_id=CHAMPION_NODE_ID,
+        title="Planner Prompt (under evaluation)",
+        doc_target="planner-prompt",
+        node_type="documentation",
+        semantic_memory=(
+            "A candidate planner prompt installed for measurement. This node is "
+            "rewritten by the optimiser during a round and carries no promotion "
+            "record; if it is still here after a round, the round did not finish "
+            "and the champion should be restored from the last "
+            "planner-optimisation-* node."
+        ),
+        tags=["planner", "prompt", "under-evaluation"],
+        state_extra={"prompt_template": template, "under_evaluation": True},
+    )
