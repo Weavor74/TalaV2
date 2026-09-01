@@ -248,7 +248,43 @@ class ToolRegistry:
                     "error": str(e)
                 }
         # ---------------------------------------
-        
+
+        # --- LEASE GATE ----------------------------------------------------
+        # sdk/agent/leases.py has stated since Milestone 6 that "a lease MUST
+        # be approved before the guarded operation executes" for ledger, wallet
+        # and out-of-sandbox file operations. Nothing ever requested one: the
+        # whole gateway had no production caller, so that MUST described a rule
+        # no code enforced. run_tool is the single chokepoint every one of the
+        # 97 tools passes through, so it is where the rule can actually hold.
+        #
+        # Default mode is `open`: guarded operations are auto-approved and
+        # recorded, so behaviour is unchanged and the machinery runs. Set
+        # TALA_LEASE_MODE=enforce to make them block for sign-off.
+        try:
+            from sdk.agent import lease_policy
+
+            verdict = lease_policy.guard(name, requested_by=plugin_id or "agent",
+                                         metadata={"arguments": sorted(arguments or {})})
+            if not verdict["allowed"]:
+                log.warning(
+                    "ToolRegistry: lease denied for %r [%s]: %s",
+                    name, verdict.get("operation"), verdict.get("reason"),
+                )
+                return {
+                    "success": False,
+                    "lease_denied": True,
+                    "operation": verdict.get("operation"),
+                    "token_id": verdict.get("token_id"),
+                    "error": (
+                        f"Tool {name!r} performs a guarded "
+                        f"{verdict.get('operation')} operation: {verdict.get('reason')}"
+                    ),
+                }
+        except Exception as exc:
+            # The gate must not be the thing that breaks tool execution.
+            log.error("ToolRegistry: lease check raised for %r: %s", name, exc)
+        # -------------------------------------------------------------------
+
         # Governance gating using RiskClassifier
         risk = RiskClassifier.classify_action("execute_tool", name)
         

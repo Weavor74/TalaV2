@@ -14899,6 +14899,19 @@ async def _startup_background() -> None:
     except Exception as _stage_exc:
         logger.warning("NodeStaging failed to start: %s", _stage_exc)
 
+    # ── 7c-bis. Lease gate ──
+    # A lease that blocks on a prompt nobody can see is worse than no gate at
+    # all, so the gateway gets a way to reach the UI before anything can take
+    # a lease. In the default `open` mode nothing blocks; this matters the
+    # moment TALA_LEASE_MODE=enforce.
+    try:
+        from sdk.agent import lease_policy
+
+        lease_policy.register_broadcast(broadcast_notification)
+        logger.info("Lease gate active in %r mode", lease_policy.current_mode())
+    except Exception as _lease_exc:
+        logger.warning("Lease gate could not be registered: %s", _lease_exc)
+
     # ── 7d. Architectural invariants ──
     # These have existed in sdk/agent/verification.py since Milestone 6 with no
     # production caller: PostgreSQL's sole authority, the mem0 read-only guard,
