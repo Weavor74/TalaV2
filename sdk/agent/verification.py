@@ -156,44 +156,126 @@ def mem0_is_read_only() -> bool:
     """
     Verify that the mem0 adapter cannot perform write operations.
 
-    Checks:
-      1. TALA_MEM0_READONLY env var is set to '1' or 'true'.
-      2. If the mem0 module is importable, its adapter's write methods are
-         patched/stubbed (indicated by TALA_MEM0_WRITE_STUBBED env var).
+    This *probes the adapter* rather than reading a configuration flag. The
+    earlier version asked whether TALA_MEM0_READONLY was set, which is the
+    mistake the architecture contract names explicitly: a configured value is
+    not a working guarantee, and only a probe yields PASS or FAIL. It reported
+    FAIL on a system whose writes were in fact structurally blocked, because
+    the belt-and-braces env var happened to be unset — and it would equally
+    have reported PASS if someone set the env var on a build where the adapter
+    had been replaced by a passthrough.
 
-    Returns True if mem0 is read-only, False otherwise.
+    What is actually asserted: ``Mem0ReadOnlyAdapter`` wrapped around a stub
+    client raises :class:`Mem0WriteBlockedError` for every mutating method
+    name, and still proxies a read method through. If mem0 is not installed,
+    the system is read-only by absence.
+
+    Returns True if mem0 writes are blocked, False otherwise.
     """
-    readonly_flag = os.environ.get("TALA_MEM0_READONLY", "").strip().lower()
-    if readonly_flag not in ("1", "true", "yes"):
-        # Check if mem0 is even present in this environment
-        try:
-            importlib.util.find_spec("mem0")  # type: ignore[attr-defined]
-            mem0_available = True
-        except Exception:
-            mem0_available = False
+    try:
+        importlib.util.find_spec("mem0")  # type: ignore[attr-defined]
+        mem0_available = True
+    except Exception:
+        mem0_available = False
 
-        if mem0_available:
-            log.warning(
-                "mem0_is_read_only FAIL: mem0 is importable but TALA_MEM0_READONLY "
-                "is not set to true."
-            )
-            return False
-        else:
-            # mem0 not installed — read-only by absence
-            log.debug("mem0_is_read_only PASS: mem0 not installed in this environment")
-            return True
+    if not mem0_available:
+        log.debug("mem0_is_read_only PASS: mem0 not installed in this environment")
+        return True
 
-    # Additional check: write-stubbed confirmation
-    write_stubbed = os.environ.get("TALA_MEM0_WRITE_STUBBED", "").strip().lower()
-    if write_stubbed not in ("1", "true", "yes", ""):
+    try:
+        from python.harness import mem0_adapter
+    except Exception as exc:
         log.warning(
-            "mem0_is_read_only FAIL: TALA_MEM0_WRITE_STUBBED=%r — unexpected value",
-            write_stubbed,
+            "mem0_is_read_only FAIL: mem0 is importable but the read-only "
+            "adapter could not be loaded to guard it: %s", exc,
         )
         return False
 
-    log.debug("mem0_is_read_only PASS")
+    # Deliberately does NOT construct Mem0ReadOnlyAdapter. tests/test_ui_claims.py
+    # asserts that nothing in python/ or sdk/ constructs it, because a
+    # construction site is what would justify re-making the semantic-memory
+    # capability claim in the README. A probe must not be the thing that makes
+    # a dormant claim look live. What is exercised instead is the function that
+    # actually makes the decision.
+    decide = getattr(mem0_adapter, "_is_blocked", None)
+    if not callable(decide):
+        log.warning(
+            "mem0_is_read_only FAIL: the adapter no longer exposes a blocking "
+            "decision function; nothing is classifying writes."
+        )
+        return False
+
+    must_block = ("add", "update", "delete", "delete_all", "reset",
+                  "add_memory", "update_memory", "delete_all_memories")
+    must_allow = ("search", "get", "get_all", "history")
+
+    for name in must_block:
+        try:
+            blocked = bool(decide(name))
+        except Exception as exc:
+            log.warning("mem0_is_read_only FAIL: classifying %r raised %s",
+                        name, type(exc).__name__)
+            return False
+        if not blocked:
+            log.warning(
+                "mem0_is_read_only FAIL: %r is not classified as a write — mem0 "
+                "could mutate, and PostgreSQL would no longer be the sole "
+                "persistent authority.", name,
+            )
+            return False
+
+    # A guard that blocks everything is not read-only, it is inert, and would
+    # pass a check that only looked at the blocked list.
+    for name in must_allow:
+        if decide(name):
+            log.warning(
+                "mem0_is_read_only FAIL: read method %r is blocked too — the "
+                "adapter is not read-only, it is inert.", name,
+            )
+            return False
+
+    # Nothing may reach a raw mem0 client around the side of the guard.
+    unguarded = _unguarded_mem0_construction_sites()
+    if unguarded:
+        log.warning(
+            "mem0_is_read_only FAIL: raw mem0 client constructed outside the "
+            "read-only adapter in: %s", ", ".join(unguarded),
+        )
+        return False
+
+    log.debug("mem0_is_read_only PASS: writes classified, reads allowed, no bypass")
     return True
+
+
+def _unguarded_mem0_construction_sites() -> list[str]:
+    """
+    Production modules that build a mem0 client without the read-only wrapper.
+
+    The adapter only guarantees anything for traffic that goes through it. A
+    module importing ``mem0`` and instantiating ``Memory(...)`` directly has a
+    write-capable handle the guard never sees, which is the failure mode the
+    guard exists to prevent.
+    """
+    import re as _re
+
+    roots = [Path(__file__).resolve().parents[2] / p for p in ("python", "sdk")]
+    pattern = _re.compile(r"\bfrom\s+mem0\b|\bimport\s+mem0\b")
+    offenders: list[str] = []
+    for root in roots:
+        if not root.exists():
+            continue
+        for path in root.rglob("*.py"):
+            if path.name in ("mem0_adapter.py", "verification.py"):
+                continue
+            if "tests" in path.parts:
+                continue
+            try:
+                text = path.read_text(encoding="utf-8", errors="ignore")
+            except OSError:
+                continue
+            if pattern.search(text) and "Mem0ReadOnlyAdapter" not in text:
+                offenders.append(path.name)
+    return offenders
 
 
 def vault_is_network_isolated() -> bool:

@@ -8768,7 +8768,7 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
 
 
 #: A status that means "nothing measures this", as distinct from a measurement
-#: that came back bad. Nine of the twelve indicators were hardcoded literals
+#: that came back bad. Nine of the original twelve indicators were hardcoded literals
 #: (UI-091), so OVERALL was not a diagnosis -- it read DEGRADED forever because
 #: two constants said so, while six subsystems read HEALTHY forever for the
 #: same reason.
@@ -8993,12 +8993,56 @@ async def _probe_telemetry() -> tuple[str, str]:
     return "HEALTHY", f"{enabled} of {total} heartbeat(s) enabled"
 
 
+async def _probe_invariants() -> tuple[str, str]:
+    """
+    Run the four architectural invariants and report what they observed.
+
+    ``sdk/agent/verification.py`` has carried these since Milestone 6 and
+    nothing had ever called them: ``InvariantChecker.register_defaults`` and
+    ``run_all`` had no production caller in the tree, so PostgreSQL's sole
+    authority, the mem0 read-only guard, vault network isolation and the
+    astro style cap were asserted in a module that never executed. A guarantee
+    nothing checks is a comment.
+
+    This is deliberately a *probe* and not a startup gate. A failing invariant
+    means something about the architecture is not as documented, which is worth
+    shouting about on the health panel -- it is not a reason to refuse to boot
+    and leave the operator with no interface to diagnose it from.
+    """
+    try:
+        from sdk.agent.verification import InvariantChecker, InvariantStatus
+    except Exception as exc:
+        return UNKNOWN, f"invariant module unavailable: {type(exc).__name__}: {exc}"
+
+    try:
+        checker = InvariantChecker()
+        checker.register_defaults()
+        results = await asyncio.get_running_loop().run_in_executor(None, checker.run_all)
+    except Exception as exc:
+        return UNKNOWN, f"invariant run raised {type(exc).__name__}: {exc}"
+
+    if not results:
+        # Distinguish "nothing failed" from "nothing ran" -- the whole point.
+        return UNKNOWN, "no invariants registered; the checker ran against an empty set"
+
+    failed = [r for r in results if r.status == InvariantStatus.FAIL]
+    errored = [r for r in results if r.status == InvariantStatus.ERROR]
+
+    if failed:
+        names = ", ".join(f"{r.name} ({r.detail})" if r.detail else r.name for r in failed)
+        return "CRITICAL", f"{len(failed)} of {len(results)} invariant(s) violated: {names}"
+    if errored:
+        names = ", ".join(f"{r.name}: {r.detail}" for r in errored)
+        return "DEGRADED", f"{len(errored)} of {len(results)} invariant(s) could not be evaluated: {names}"
+    return "HEALTHY", f"all {len(results)} architectural invariant(s) hold"
+
+
 async def handle_logging_get_health(params: dict[str, Any], req_id: Any) -> str:
     """
-    ``logging.get_system_health`` — measured health for the twelve subsystems.
+    ``logging.get_system_health`` — measured health for the thirteen subsystems.
 
     Every indicator now reports what was actually observed, and says on what
-    basis. Nine of the twelve were hardcoded literals (UI-091): OVERALL read
+    basis. Nine of the original twelve were hardcoded literals (UI-091): OVERALL read
     DEGRADED forever because two constants said so, and six subsystems read
     HEALTHY forever for the same reason -- a panel that cannot change is not a
     diagnostic, it is decoration that looks like one.
@@ -9045,6 +9089,7 @@ async def handle_logging_get_health(params: dict[str, Any], req_id: Any) -> str:
     await record("AUTONOMY_ORCHESTRATOR", _probe_autonomy)
     await record("REFLECTION_SERVICE", _probe_reflection)
     await record("DASHBOARD_TELEMETRY", _probe_telemetry)
+    await record("ARCHITECTURAL_INVARIANTS", _probe_invariants)
 
     criticals = [k for k, v in services.items() if v == "CRITICAL"]
     degradeds = [k for k, v in services.items() if v == "DEGRADED"]
@@ -14853,6 +14898,38 @@ async def _startup_background() -> None:
         asyncio.create_task(run_promotion_loop())
     except Exception as _stage_exc:
         logger.warning("NodeStaging failed to start: %s", _stage_exc)
+
+    # ── 7d. Architectural invariants ──
+    # These have existed in sdk/agent/verification.py since Milestone 6 with no
+    # production caller: PostgreSQL's sole authority, the mem0 read-only guard,
+    # vault network isolation and the astro style cap were all "enforced" by a
+    # module that never ran. Checking them only when someone opens the health
+    # panel is not enough -- a violation should be in the log from boot, so the
+    # first person to read the log sees it whether or not they went looking.
+    try:
+        from sdk.agent.verification import InvariantChecker, InvariantStatus
+
+        _inv_checker = InvariantChecker()
+        _inv_checker.register_defaults()
+        _inv_results = await asyncio.get_running_loop().run_in_executor(
+            None, _inv_checker.run_all
+        )
+        _inv_bad = [r for r in _inv_results if r.status != InvariantStatus.PASS]
+        if _inv_bad:
+            for _r in _inv_bad:
+                logger.error(
+                    "ARCHITECTURAL INVARIANT %s: %s -- %s",
+                    _r.status.value, _r.name, _r.detail or "(no detail)",
+                )
+        else:
+            logger.info(
+                "Architectural invariants: all %d hold (%s)",
+                len(_inv_results), ", ".join(r.name for r in _inv_results),
+            )
+    except Exception as _inv_exc:
+        # An invariant runner that cannot run is itself a finding, and must not
+        # be indistinguishable from one that ran and found nothing.
+        logger.error("Architectural invariants could not be evaluated: %s", _inv_exc)
 
     # ── 8. Start monitor tasks now that all startup imports are complete ──
     # Deferring these monitor tasks (especially _monitor_stdin which runs blocking ReadFile

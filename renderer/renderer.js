@@ -3703,16 +3703,41 @@ const LoggingManager = {
       overallMode.textContent = health.mode;
     }
 
-    // Update the 12 health service dots
+    // Update the health service dots.
+    //
+    // Every service the backend reports gets a row, including one this markup
+    // has never heard of. The previous version looked up a hardcoded id and
+    // silently skipped on miss, so adding a probe server-side produced a
+    // measurement that reached the renderer and was dropped on the floor --
+    // indistinguishable, on screen, from a probe that was never written. A
+    // panel that quietly omits what it was told is worse than one that is
+    // merely incomplete, because it looks complete.
     if (health.services) {
+      const grid = qs('#health-dot-DASHBOARD_TELEMETRY')?.closest('.health-item')?.parentElement;
       for (const [service, status] of Object.entries(health.services)) {
-        const dot = qs(`#health-dot-${service}`);
-        if (dot) {
-          dot.className = 'status-dot'; // reset
-          if (status === 'HEALTHY') dot.classList.add('status-ok');
-          else if (status === 'CRITICAL') dot.classList.add('status-error');
-          else dot.classList.add('status-warn');
+        let dot = qs(`#health-dot-${service}`);
+        if (!dot && grid) {
+          const item = document.createElement('div');
+          item.className = 'health-item';
+          dot = document.createElement('span');
+          dot.className = 'status-dot';
+          dot.id = `health-dot-${service}`;
+          const label = document.createElement('span');
+          label.className = 'health-label';
+          label.textContent = service;
+          item.append(dot, label);
+          grid.appendChild(item);
         }
+        if (!dot) continue;
+        dot.className = 'status-dot'; // reset
+        if (status === 'HEALTHY') dot.classList.add('status-ok');
+        else if (status === 'CRITICAL') dot.classList.add('status-error');
+        else dot.classList.add('status-warn');
+        // The backend says on what basis it decided; surface it rather than
+        // making the operator read the log to find out what a colour means.
+        const detail = health.details && health.details[service];
+        const item = dot.closest('.health-item');
+        if (item) item.title = detail ? `${service}: ${status} — ${detail}` : `${service}: ${status}`;
       }
     }
   },

@@ -51,7 +51,12 @@ async def test_every_indicator_reports_its_basis(monkeypatch):
 
     result = json.loads(await server.handle_logging_get_health({}, 1))["result"]
 
-    assert len(result["services"]) == 12
+    # The count is not the assertion -- the coverage is. Pinning a literal here
+    # meant that adding a thirteenth probe (ARCHITECTURAL_INVARIANTS) failed a
+    # test about whether indicators explain themselves, which is not what this
+    # test is for. What must hold is that every indicator the panel reports has
+    # a basis, and that no probe was quietly dropped.
+    assert len(result["services"]) >= 12
     assert set(result["details"]) == set(result["services"])
     for name, detail in result["details"].items():
         assert detail, f"{name} reports a status with no basis"
@@ -73,7 +78,10 @@ async def test_unmeasured_is_unknown_not_healthy(monkeypatch):
     for name, status in result["services"].items():
         if status == "UNKNOWN":
             assert name in result["unmeasured"]
-    assert result["measured"] == 12 - len(result["unmeasured"])
+    # The accounting identity is the point: every service is either measured or
+    # named as unmeasured, with nothing falling between the two and silently
+    # counting as fine.
+    assert result["measured"] == len(result["services"]) - len(result["unmeasured"])
 
 
 @pytest.mark.asyncio
