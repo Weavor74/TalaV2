@@ -124,6 +124,7 @@ packages = ["cli", "harness", "inference", "astrology"]
 testpaths = ["tests", "sdk/agent/tests"]
 markers = [
     "llm: drives a real model or the running harness — minutes per test, and the result depends on machine state. Deselected by default; run with `pytest -m llm`.",
+    "slow: walks the whole tree rather than one component — tens of seconds, but no model and no machine state. Runs by default, because the reachability ratchet is worthless if it is the check people skip.",
 ]
 # The everyday `pytest` is the fast tier, so there is a check cheap enough to
 # run after every change. The 11 `llm` tests held essentially the whole 41
