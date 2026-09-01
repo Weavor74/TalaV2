@@ -8993,6 +8993,29 @@ async def _probe_telemetry() -> tuple[str, str]:
     return "HEALTHY", f"{enabled} of {total} heartbeat(s) enabled"
 
 
+async def _probe_halt() -> tuple[str, str]:
+    """
+    Whether the emergency halt is engaged.
+
+    A global lockdown that does not appear on the health panel is how you end
+    up debugging "why is nothing happening" for an hour. Until this release the
+    question could not even be asked: the halt flag had exactly one reader,
+    AuthorizationGate.request_authorization, and that method had no callers, so
+    abort set a variable nothing looked at and tool execution carried on.
+    """
+    try:
+        from sdk.agent.gates import RevocationHalt
+    except Exception as exc:
+        return UNKNOWN, f"halt state unreadable: {type(exc).__name__}: {exc}"
+
+    if RevocationHalt.is_halted():
+        return "CRITICAL", (
+            "emergency halt engaged -- every tool call is being refused. "
+            "Resume a task in Mission Control to release it."
+        )
+    return "HEALTHY", "emergency halt not engaged; tool execution permitted"
+
+
 async def _probe_invariants() -> tuple[str, str]:
     """
     Run the four architectural invariants and report what they observed.
@@ -9090,6 +9113,7 @@ async def handle_logging_get_health(params: dict[str, Any], req_id: Any) -> str:
     await record("REFLECTION_SERVICE", _probe_reflection)
     await record("DASHBOARD_TELEMETRY", _probe_telemetry)
     await record("ARCHITECTURAL_INVARIANTS", _probe_invariants)
+    await record("EMERGENCY_HALT", _probe_halt)
 
     criticals = [k for k, v in services.items() if v == "CRITICAL"]
     degradeds = [k for k, v in services.items() if v == "DEGRADED"]
@@ -10585,7 +10609,7 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'task_id' and 'action' are required")
         
     try:
-        from sdk.agent.gates import trigger_emergency_halt
+        from sdk.agent.gates import RevocationHalt, trigger_emergency_halt
         if action in ("approve", "reject"):
             # Self-edit proposals sit in the task queue as status 'review' so
             # Mission Control shows them without a separate approval surface.
@@ -10607,8 +10631,25 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
             await db.execute("UPDATE tasks SET status = 'paused' WHERE id = $1 OR parent_id = $1", task_id)
         elif action == "resume":
             await db.execute("UPDATE tasks SET status = 'pending' WHERE id = $1 OR parent_id = $1", task_id)
-            
-        return _ok(req_id, {"success": True, "action": action, "task_id": task_id})
+            # Releasing the halt is the other half of abort being real. The
+            # halt is global and now actually blocks tool execution, so without
+            # a release path the first abort would lock the agent out of every
+            # tool permanently, with nothing in the UI able to undo it -- a
+            # working kill switch and no key.
+            if RevocationHalt.is_halted():
+                RevocationHalt.release_emergency_halt()
+                logger.warning(
+                    "Emergency halt released by resume of task %s", task_id,
+                )
+
+        return _ok(req_id, {
+            "success": True,
+            "action": action,
+            "task_id": task_id,
+            # So the caller can see the halt state, rather than inferring it
+            # from the absence of an error.
+            "halted": RevocationHalt.is_halted(),
+        })
     except Exception as exc:
         logger.exception("task.control error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))

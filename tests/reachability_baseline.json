@@ -92,7 +92,6 @@
   "sdk/agent/editor.py::SurgicalEditor.insert_after",
   "sdk/agent/function_documenter.py::document_function",
   "sdk/agent/gates.py::AuthorizationGate.register_pre_approval",
-  "sdk/agent/gates.py::AuthorizationGate.request_authorization",
   "sdk/agent/ghost_persistence.py::get_local_status",
   "sdk/agent/ghost_persistence.py::get_remote_status",
   "sdk/agent/goal_engine.py::AdapterSelector.select_adapter",

@@ -249,6 +249,35 @@ class ToolRegistry:
                 }
         # ---------------------------------------
 
+        # --- EMERGENCY HALT ------------------------------------------------
+        # Mission Control's abort calls trigger_emergency_halt(), which sets
+        # _EMERGENCY_HALT_ACTIVE. Until now exactly one place read that flag --
+        # AuthorizationGate.request_authorization -- and that method had no
+        # callers, so the kill switch set a variable nobody looked at. Abort
+        # marked rows failed in the database and left tool execution running.
+        #
+        # This is the control you reach for when something is going wrong, so
+        # it is checked first, before permissions, leases and risk: a halted
+        # system should not be evaluating whether it is allowed to act.
+        try:
+            from sdk.agent.gates import RevocationHalt
+
+            if RevocationHalt.is_halted():
+                log.critical(
+                    "ToolRegistry: refusing %r -- emergency halt is engaged.", name,
+                )
+                return {
+                    "success": False,
+                    "halted": True,
+                    "error": (
+                        f"Emergency halt is engaged; tool {name!r} was not run. "
+                        "Resume a task in Mission Control to release it."
+                    ),
+                }
+        except Exception as exc:
+            log.error("ToolRegistry: could not read halt state for %r: %s", name, exc)
+        # -------------------------------------------------------------------
+
         # --- LEASE GATE ----------------------------------------------------
         # sdk/agent/leases.py has stated since Milestone 6 that "a lease MUST
         # be approved before the guarded operation executes" for ledger, wallet
