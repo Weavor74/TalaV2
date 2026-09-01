@@ -14940,6 +14940,19 @@ async def _startup_background() -> None:
     except Exception as _stage_exc:
         logger.warning("NodeStaging failed to start: %s", _stage_exc)
 
+    # ── 7b-bis. Web UI ──
+    # The renderer is already a web app; it only ever needed window.tala and a
+    # file server. Off unless TALA_WEB_UI=1, and it refuses a non-loopback bind
+    # without a token rather than publishing a remote shell.
+    try:
+        from python.harness import webui
+
+        _web_runner = await webui.start()
+        if _web_runner is not None:
+            globals()["_WEB_RUNNER"] = _web_runner
+    except Exception as _web_exc:
+        logger.warning("Web UI failed to start: %s", _web_exc)
+
     # ── 7c-bis. Lease gate ──
     # A lease that blocks on a prompt nobody can see is worse than no gate at
     # all, so the gateway gets a way to reach the UI before anything can take

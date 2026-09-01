@@ -69,6 +69,42 @@ For diagnostics, run the platform doctor script in `scripts/`. For packaged desk
 - Current OS installer: `npm run package`
 - Platform targets: `npm run package:win`, `npm run package:mac`, or `npm run package:linux`
 
+## Web UI
+
+The Electron renderer also runs in a browser. It is the same `renderer/`
+directory, not a second implementation: Electron supplies `window.tala` through
+preload IPC, and `renderer/tala-web-shim.js` supplies the same object backed by
+the WebSocket the harness has always spoken.
+
+```bash
+npm run web
+```
+
+Then open `http://127.0.0.1:8767`. This starts the harness on its own — no
+Electron — with the browser UI switched on. The UI is off in every other launch
+path unless `TALA_WEB_UI=1` is set.
+
+| Variable | Default | Meaning |
+|---|---|---|
+| `TALA_WEB_UI` | unset (off) | `1` to serve the UI |
+| `TALA_WEB_HOST` | `127.0.0.1` | interface to bind |
+| `TALA_WEB_PORT` | `8767` | 8765 is the harness, 8766 is MCP, 8000 is vLLM |
+| `TALA_WEB_TOKEN` | unset | required for any non-loopback bind |
+
+**The UI reaches all 247 JSON-RPC handlers**, including shell execution, source
+patching and vault access. Binding it anywhere other than loopback therefore
+requires `TALA_WEB_TOKEN`; without one the server logs why and declines to
+start rather than publishing a remote shell.
+
+Two differences from the desktop app, both deliberate:
+
+- `terminal:kill` is unavailable. The harness owns the shell rather than
+  handing out per-session process handles, and the shim rejects the call by
+  name instead of silently doing nothing.
+- `vault:read` is not served over HTTP. Electron gated it on there being no
+  outbound connections, a check a web server cannot honestly make; the
+  `vault.read` JSON-RPC method applies the vault's own rules instead.
+
 ## Self Testing
 
 Tala has a repeatable self-test lane for dependency health and code validation:

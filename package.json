@@ -9,6 +9,7 @@
   "scripts": {
     "start": "electron .",
     "dev": "electron . --dev",
+    "web": "node scripts/start-web-ui.js",
     "test": "jest --passWithNoTests",
     "test:js": "jest --runInBand --passWithNoTests",
     "test:py": "node scripts/run_venv_python.js -m pytest tests --ignore=tests/benchmarks -q",
