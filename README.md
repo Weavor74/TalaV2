@@ -89,12 +89,38 @@ path unless `TALA_WEB_UI=1` is set.
 | `TALA_WEB_UI` | unset (off) | `1` to serve the UI |
 | `TALA_WEB_HOST` | `127.0.0.1` | interface to bind |
 | `TALA_WEB_PORT` | `8767` | 8765 is the harness, 8766 is MCP, 8000 is vLLM |
-| `TALA_WEB_TOKEN` | unset | required for any non-loopback bind |
+| `TALA_WEB_TOKEN` | unset | required for any non-loopback bind; also pins the harness socket token |
+| `TALA_WS_ALLOWED_ORIGINS` | unset | extra browser origins allowed on 8765, comma-separated |
 
 **The UI reaches all 247 JSON-RPC handlers**, including shell execution, source
 patching and vault access. Binding it anywhere other than loopback therefore
 requires `TALA_WEB_TOKEN`; without one the server logs why and declines to
 start rather than publishing a remote shell.
+
+### The harness socket (8765) is authenticated
+
+The same 247 handlers sit behind the WebSocket on 8765, and until recently it
+accepted every connection. Loopback is not a control here: **WebSocket
+handshakes are exempt from CORS**, so any page the user visited could open a
+socket to their own machine and drive the whole surface. Two gates now apply to
+every handshake:
+
+* **Origin** — a browser always sends it and page script cannot forge it. Only
+  the web UI's own origin is accepted; add others with
+  `TALA_WS_ALLOWED_ORIGINS`. `null` is refused, because that is what a
+  sandboxed hostile iframe sends.
+* **Token** — read from `TALA_WEB_TOKEN`, or generated on first use into
+  `vault/.keys/ws_token.txt` (mode 0600, already excluded from git). Present it
+  as `Authorization: Bearer <token>`, `X-Tala-Token`, or `?token=` — the query
+  form exists because `new WebSocket()` cannot set headers.
+
+Nothing needs configuring for the desktop app: Electron establishes the token
+before it spawns the harness and sends it on connect.
+
+**Federated peers must be told the token.** A remote Tala calling into this one
+now needs it, so give the contact an endpoint of the form
+`ws://<host>:8765?token=<their-token>`. A peer configured without one will be
+refused, which is the intended direction of failure.
 
 Two differences from the desktop app, both deliberate:
 

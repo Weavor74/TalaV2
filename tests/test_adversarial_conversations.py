@@ -39,6 +39,18 @@ import websockets
 HARNESS_WS = "ws://127.0.0.1:8765"
 
 
+def _harness_ws_url() -> str:
+    """The harness URL with an auth token attached (SEC-W0-03).
+
+    8765 refuses unauthenticated connections. The token is read the same way
+    the harness establishes it, so a developer running the app locally does not
+    have to configure anything for these tests to connect."""
+    from python.harness import ws_auth
+
+    token = ws_auth.load_or_create_token()
+    return f"{HARNESS_WS}?token={token}" if token else HARNESS_WS
+
+
 def _harness_reachable() -> bool:
     s = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     s.settimeout(1)
@@ -78,7 +90,7 @@ _GENERATE_TIMEOUT = float(os.getenv("TALA_ADVERSARIAL_TIMEOUT", "300"))
 
 async def _generate(prompt: str, timeout: float = _GENERATE_TIMEOUT) -> dict:
     """Send a real inference.generate RPC and return the parsed JSON-RPC response."""
-    async with websockets.connect(HARNESS_WS, max_size=16 * 1024 * 1024) as ws:
+    async with websockets.connect(_harness_ws_url(), max_size=16 * 1024 * 1024) as ws:
         await ws.send(json.dumps({
             "jsonrpc": "2.0", "id": 1, "method": "inference.generate",
             "params": {"prompt": prompt, "stream": False},

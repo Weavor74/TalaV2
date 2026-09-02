@@ -15201,6 +15201,20 @@ async def _run_server() -> None:
     _install_signal_handlers(loop)
 
     # ── 1. Bind the WebSocket server immediately so Electron can connect ──
+    #
+    # Authenticated since SEC-W0-03. This socket dispatches every handler in
+    # _HANDLERS, including shell execution, and it accepted anyone -- including
+    # any web page the user visited, because WebSocket handshakes ignore CORS.
+    from python.harness import ws_auth
+
+    _ws_token = ws_auth.load_or_create_token()
+    if not _ws_token:
+        logger.error(
+            "No WebSocket token could be established; every connection to %s "
+            "will be refused. Set TALA_WEB_TOKEN, or make the vault writable.",
+            settings.ws_uri,
+        )
+
     _server = None
     for bind_attempt in range(5):
         try:
@@ -15211,6 +15225,7 @@ async def _run_server() -> None:
                 ping_interval=30,
                 ping_timeout=10,
                 max_size=16 * 1024 * 1024,
+                process_request=ws_auth.make_process_request(_ws_token),
             )
             break
         except OSError as exc:

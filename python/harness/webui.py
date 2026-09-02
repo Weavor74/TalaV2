@@ -250,10 +250,18 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         if not authorised(request):
             return web.Response(status=401, text="// unauthorised")
         import json as _json
+        # Two different secrets, deliberately not merged. `token` gates this
+        # HTTP surface and is optional on loopback; `wsToken` is what 8765
+        # demands of every connection since SEC-W0-03. Reusing one for both
+        # would make turning off the convenience gate also turn off the
+        # security one.
+        from python.harness import ws_auth
+
         payload = _json.dumps({
             "wsUrl": f"ws://{request.host.split(':')[0]}:{ws_port}",
             "bridgeUrl": "/api/bridge",
             "token": token,
+            "wsToken": ws_auth.load_or_create_token(),
         })
         return web.Response(
             text=f"window.__TALA_WEB_CONFIG__ = {payload};",

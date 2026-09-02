@@ -103,6 +103,38 @@ function resolveDataRoot(appPath) {
   return override ? path.resolve(override) : appPath;
 }
 
+/**
+ * Read -- or create -- the shared secret for the harness WebSocket.
+ *
+ * Mirrors python/harness/ws_auth.py::load_or_create_token(). Electron does it
+ * *before* spawning Python and passes the value in the environment, so the two
+ * cannot disagree and there is no window in which the renderer is connecting
+ * while the harness is still writing the file.
+ *
+ * @param {string} appPath
+ * @returns {string}
+ */
+function ensureWsToken(appPath) {
+  const pinned = (process.env.TALA_WEB_TOKEN || process.env.TALA_WS_TOKEN || '').trim();
+  if (pinned) return pinned;
+
+  const tokenPath = path.join(resolveDataRoot(appPath), 'vault', '.keys', 'ws_token.txt');
+  try {
+    if (fs.existsSync(tokenPath)) {
+      const existing = fs.readFileSync(tokenPath, 'utf8').trim();
+      if (existing) return existing;
+    }
+    fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
+    const token = require('node:crypto').randomBytes(32).toString('base64url');
+    fs.writeFileSync(tokenPath, token, { mode: 0o600 });
+    console.log(`[main] created a new harness WebSocket token at ${tokenPath}`);
+    return token;
+  } catch (err) {
+    console.error(`[main] could not establish a WebSocket token: ${err.message}`);
+    return '';
+  }
+}
+
 function firstRunEnv(appPath) {
   const dataRoot = resolveDataRoot(appPath);
   const venvDir = path.join(dataRoot, '.venv');
@@ -115,6 +147,9 @@ function firstRunEnv(appPath) {
     TALA_VENV_DIR: venvDir,
     TALA_ENV_PATH: envPath,
     TALA_WS_PORT: String(HARNESS_PORT),
+    // The harness refuses unauthenticated connections (SEC-W0-03). Established
+    // here, before the spawn, so both ends start from the same value.
+    TALA_WEB_TOKEN: ensureWsToken(appPath),
     PYTHONUNBUFFERED: '1',
     // Serve the same renderer to a browser alongside the desktop window.
     //
@@ -460,7 +495,14 @@ function connectWithRetry(attempt) {
 
   console.log(`[main] WS connect attempt ${attempt + 1}/${MAX_CONNECT_ATTEMPTS}…`);
 
-  const candidate = new WebSocket(HARNESS_URL, { handshakeTimeout: 3_000 });
+  const wsToken = ensureWsToken(app.getAppPath());
+  const candidate = new WebSocket(HARNESS_URL, {
+    handshakeTimeout: 3_000,
+    // Header rather than query string: this never reaches a URL bar, a log
+    // line or a Referer. The browser shim has to use the query form because
+    // new WebSocket() cannot set headers, but the main process can.
+    headers: wsToken ? { Authorization: `Bearer ${wsToken}` } : {},
+  });
 
   candidate.once('open', () => {
     // Hand off to the normal persistent connection machinery
