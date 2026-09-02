@@ -2279,12 +2279,28 @@ const InferenceManager = {
       const eng = qs('#prov-engine'); if (eng && p.engine) eng.value = p.engine;
       const ep = qs('#prov-endpoint'); if (ep && p.endpoint) ep.value = p.endpoint;
       const mod = qs('#prov-model'); if (mod && p.model) mod.value = p.model;
-      const key = qs('#prov-apikey'); if (key && p.apiKey) key.value = p.apiKey;
+      const key = qs('#prov-apikey');
+      if (key) {
+        // The harness withholds stored keys (SEC-W0-02), so there is nothing to
+        // prefill. Say so: a blank box reads as "no key set", and the user
+        // would have no reason not to leave it blank -- which is exactly what
+        // save treats as "unchanged".
+        key.value = '';
+        if (p.hasApiKey || p.config?.apiKey) key.placeholder = '•••••••• stored — leave blank to keep';
+      }
     } else if (p.type === 'remote') {
       const svc = qs('#prov-service'); if (svc && p.service) svc.value = p.service;
       const ep = qs('#prov-endpoint'); if (ep && p.endpoint) ep.value = p.endpoint;
       const mod = qs('#prov-model'); if (mod && p.model) mod.value = p.model;
-      const key = qs('#prov-apikey'); if (key && p.apiKey) key.value = p.apiKey;
+      const key = qs('#prov-apikey');
+      if (key) {
+        // The harness withholds stored keys (SEC-W0-02), so there is nothing to
+        // prefill. Say so: a blank box reads as "no key set", and the user
+        // would have no reason not to leave it blank -- which is exactly what
+        // save treats as "unchanged".
+        key.value = '';
+        if (p.hasApiKey || p.config?.apiKey) key.placeholder = '•••••••• stored — leave blank to keep';
+      }
     }
     
     if (this._modal) this._modal.hidden = false;

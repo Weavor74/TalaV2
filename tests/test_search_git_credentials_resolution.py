@@ -1,6 +1,7 @@
 import pytest
 from unittest.mock import patch
 from python.harness.search_manager import get_search_providers
+from python.harness.credential_crypto import REDACTED_SENTINEL
 from python.harness.server import handle_git_get_providers
 
 @pytest.mark.asyncio
@@ -62,6 +63,14 @@ async def test_git_provider_credential_resolution():
         }
     ]
 
+    # Resolution is asserted on the plaintext helper: the handler redacts the
+    # token before it leaves the process (SEC-W0-02), which would make a broken
+    # resolution and a working one look identical through the RPC.
+    from python.harness.server import _git_provider_from_row
+
+    resolved = _git_provider_from_row(mock_rows[0])
+    assert resolved["api_key"] == "resolved-git-token"
+
     with patch("python.harness.db.fetch", return_value=mock_rows):
         import json
         res_str = await handle_git_get_providers({}, None)
@@ -69,5 +78,6 @@ async def test_git_provider_credential_resolution():
         assert "error" not in res_data
         providers = res_data["result"]["providers"]
         assert len(providers) == 1
-        assert providers[0]["api_key"] == "resolved-git-token"
+        assert providers[0]["api_key"] == REDACTED_SENTINEL
+        assert providers[0]["has_api_key"] is True
         assert providers[0]["credential_id"] == "cred-git"

@@ -4585,6 +4585,8 @@ async def handle_inference_get_providers(params: dict[str, Any], req_id: Any) ->
     ``inference.get_providers`` — Retrieve all configured inference providers sorted by priority.
     """
     try:
+        from python.harness.credential_crypto import config_has_secret, redact_config
+
         rows = await load_inference_providers()
         providers = []
         for r in rows:
@@ -4592,13 +4594,20 @@ async def handle_inference_get_providers(params: dict[str, Any], req_id: Any) ->
             cfg_dict = r["config"]
             if isinstance(cfg_dict, str):
                 cfg_dict = json_mod.loads(cfg_dict)
+            # load_inference_providers() decrypts, so cfg_dict holds the key in
+            # clear. Encrypting at rest bought nothing while this handler then
+            # shipped it to any client that could open a socket -- and 8765 has
+            # no authentication, so "any client" includes any web page the user
+            # visits (SEC-W0-02). The client is told a key exists, never what it
+            # is; inference itself reads the config server-side, not from here.
             providers.append({
                 "id": r["id"],
                 "type": r["type"],
                 "name": r["name"],
                 "priority": r["priority"],
                 "status": r["status"],
-                "config": cfg_dict,
+                "config": redact_config(cfg_dict),
+                "hasApiKey": config_has_secret(cfg_dict),
                 "locked": r["locked"],
             })
         return _ok(req_id, {"providers": providers})
@@ -4617,9 +4626,22 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
 
     import json as json_mod
     try:
+        from python.harness.credential_crypto import (
+            decrypt_config,
+            merge_preserved_secrets,
+        )
+
         pool = db.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # This handler replaces the whole table, so every secret the
+                # client did not send back is a secret about to be destroyed.
+                # Since get_providers now withholds them, that is *all* of them
+                # unless they are re-merged here (SEC-W0-02).
+                existing_cfgs: dict[str, Any] = {}
+                for _row in await conn.fetch("SELECT id, config FROM inference_providers"):
+                    existing_cfgs[_row["id"]] = decrypt_config(_row["config"]) or {}
+
                 # Delete existing providers
                 await conn.execute("DELETE FROM inference_providers")
                 # Insert the updated list
@@ -4636,6 +4658,8 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
                     for k, v in flat_cfg.items():
                         if v is not None:
                             cfg[k] = v
+
+                    cfg = merge_preserved_secrets(cfg, existing_cfgs.get(p["id"], {}))
                     
                     # apiKey was written in clear (UI-047). Selective, so model,
                     # engine and endpoint stay readable and queryable without a
@@ -4760,6 +4784,8 @@ async def handle_inference_detect_local_providers(params: dict[str, Any], req_id
     refresh immediately without a separate get_providers call.
     """
     try:
+        from python.harness.credential_crypto import config_has_secret, redact_config
+
         await _auto_detect_and_verify_providers()
         rows = await load_inference_providers()
         import json as json_mod
@@ -4768,13 +4794,18 @@ async def handle_inference_detect_local_providers(params: dict[str, Any], req_id
             cfg = r["config"]
             if isinstance(cfg, str):
                 cfg = json_mod.loads(cfg)
+            # This handler returns the full provider list precisely so the
+            # renderer can skip get_providers -- which means it is the same
+            # leak, and fixing only get_providers would leave the door open
+            # behind it (SEC-W0-02).
             providers.append({
                 "id":       r["id"],
                 "type":     r["type"],
                 "name":     r["name"],
                 "priority": r["priority"],
                 "status":   r["status"],
-                "config":   cfg,
+                "config":   redact_config(cfg),
+                "hasApiKey": config_has_secret(cfg),
                 "locked":   r["locked"],
             })
         return _ok(req_id, {"providers": providers})
@@ -7995,11 +8026,39 @@ async def handle_system_info(params: dict[str, Any], req_id: Any) -> str:
     return _ok(req_id, {"info": info})
 
 
+def _git_provider_from_row(r: Any) -> dict[str, Any]:
+    """
+    One git_providers row as a provider dict, with its API key resolved.
+
+    A row may carry the token inline or point at an ``auth_credentials`` row
+    that holds it encrypted (UI-080); the credential wins when present. Kept
+    separate from the handler so the resolution can be asserted on the
+    plaintext -- the handler redacts, which would make a broken resolution and
+    a working one look identical.
+    """
+    api_key = r["api_key"]
+    if r["credential_id"] and r["cred_config"]:
+        cred_cfg = _decrypt_credential(r["cred_config"] or {}) or {}
+        api_key = cred_cfg.get("api_key", api_key)
+    return {
+        "id":       r["id"],
+        "name":     r["name"],
+        "endpoint": r["endpoint"],
+        "username": r["username"],
+        "api_key":  api_key,
+        "priority": r["priority"],
+        "locked":   r["locked"],
+        "credential_id": r["credential_id"],
+    }
+
+
 async def handle_git_get_providers(params: dict[str, Any], req_id: Any) -> str:
     """
     ``git.get_providers`` — Retrieve all configured Git hosting providers sorted by priority.
     """
     try:
+        from python.harness.credential_crypto import redact_config
+
         rows = await db.fetch(
             "SELECT p.id, p.name, p.endpoint, p.username, p.api_key, p.priority, p.locked, p.credential_id, "
             "c.config as cred_config "
@@ -8007,24 +8066,16 @@ async def handle_git_get_providers(params: dict[str, Any], req_id: Any) -> str:
             "LEFT JOIN auth_credentials c ON p.credential_id = c.id "
             "ORDER BY p.priority ASC"
         )
+        # Withheld for the same reason as inference.get_providers: this is a
+        # personal access token, and the socket it crosses is unauthenticated
+        # (SEC-W0-02). Resolution stays in _git_provider_from_row so it remains
+        # assertable on the plaintext, which redaction would otherwise hide.
         providers = []
         for r in rows:
-            api_key = r["api_key"]
-            if r["credential_id"] and r["cred_config"]:
-                # Encrypted at rest (UI-080).
-                cred_cfg = _decrypt_credential(r["cred_config"] or {}) or {}
-                api_key = cred_cfg.get("api_key", api_key)
-
-            providers.append({
-                "id":       r["id"],
-                "name":     r["name"],
-                "endpoint": r["endpoint"],
-                "username": r["username"],
-                "api_key":  api_key,
-                "priority": r["priority"],
-                "locked":   r["locked"],
-                "credential_id": r["credential_id"],
-            })
+            resolved = _git_provider_from_row(r)
+            providers.append(
+                redact_config(resolved) | {"has_api_key": bool(resolved["api_key"])}
+            )
         return _ok(req_id, {"providers": providers})
     except Exception as exc:
         logger.exception("git.get_providers error")
@@ -8040,9 +8091,17 @@ async def handle_git_save_providers(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'providers' (list) is required")
 
     try:
+        from python.harness.credential_crypto import resolve_secret
+
         pool = db.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                # get_providers withholds the token, so an unmerged save would
+                # replace every one of them with "" (SEC-W0-02).
+                _existing = {
+                    r["id"]: r["api_key"]
+                    for r in await conn.fetch("SELECT id, api_key FROM git_providers")
+                }
                 await conn.execute("DELETE FROM git_providers")
                 for idx, p in enumerate(providers):
                     is_locked = bool(p.get('locked'))
@@ -8056,7 +8115,7 @@ async def handle_git_save_providers(params: dict[str, Any], req_id: Any) -> str:
                         p['name'],
                         p['endpoint'],
                         p.get('username', ''),
-                        p.get('api_key', ''),
+                        resolve_secret(p.get('api_key', ''), _existing.get(p['id'])),
                         idx + 1,
                         is_locked,
                         p.get('credential_id'),
@@ -8076,8 +8135,15 @@ async def handle_search_get_providers(params: dict[str, Any], req_id: Any) -> st
     ``search.get_providers`` — Retrieve all configured search providers sorted by priority.
     """
     try:
+        from python.harness.credential_crypto import redact_config
         from python.harness.search_manager import get_search_providers
         providers = await get_search_providers()
+        # A Tavily/Brave key is as much a credential as an inference one
+        # (SEC-W0-02).
+        providers = [
+            redact_config(prov) | {"has_api_key": bool((prov or {}).get("api_key"))}
+            for prov in providers
+        ]
         return _ok(req_id, {"providers": providers})
     except Exception as exc:
         logger.exception("search.get_providers error")
@@ -8093,9 +8159,15 @@ async def handle_search_save_providers(params: dict[str, Any], req_id: Any) -> s
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'providers' (list) is required")
 
     try:
+        from python.harness.credential_crypto import resolve_secret
+
         pool = db.get_pool()
         async with pool.acquire() as conn:
             async with conn.transaction():
+                _existing = {
+                    r["id"]: r["api_key"]
+                    for r in await conn.fetch("SELECT id, api_key FROM search_providers")
+                }
                 # Delete existing search providers
                 await conn.execute("DELETE FROM search_providers")
                 # Insert updated list
@@ -8108,7 +8180,7 @@ async def handle_search_save_providers(params: dict[str, Any], req_id: Any) -> s
                         p["id"],
                         p["name"],
                         p["endpoint"],
-                        p.get("api_key", ""),
+                        resolve_secret(p.get("api_key", ""), _existing.get(p["id"])),
                         idx + 1,
                         bool(p.get("locked", False)),
                         p.get("credential_id"),
