@@ -116,6 +116,17 @@ function firstRunEnv(appPath) {
     TALA_ENV_PATH: envPath,
     TALA_WS_PORT: String(HARNESS_PORT),
     PYTHONUNBUFFERED: '1',
+    // Serve the same renderer to a browser alongside the desktop window.
+    //
+    // Without this the web UI existed only when the harness was started by
+    // `npm run web`, so opening http://127.0.0.1:8767 while the desktop app
+    // was running gave connection-refused -- the UI appeared broken when in
+    // fact nothing was serving it.
+    //
+    // Loopback only, and the server refuses any other interface without
+    // TALA_WEB_TOKEN, so this adds a local surface rather than a remote one.
+    // Set TALA_WEB_UI=0 before launching to turn it off.
+    TALA_WEB_UI: process.env.TALA_WEB_UI ?? '1',
   };
 }
 

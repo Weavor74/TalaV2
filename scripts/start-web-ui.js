@@ -21,6 +21,7 @@
 'use strict';
 
 const { spawn } = require('node:child_process');
+const net = require('node:net');
 const { existsSync } = require('node:fs');
 const { join } = require('node:path');
 
@@ -34,27 +35,73 @@ const executable = existsSync(pythonPath) ? pythonPath : 'python';
 const env = { ...process.env, TALA_WEB_UI: '1' };
 const host = env.TALA_WEB_HOST || '127.0.0.1';
 const port = env.TALA_WEB_PORT || '8767';
+const wsPort = Number(env.TALA_WS_PORT || 8765);
 
-console.log(`[tala] starting harness with the web UI at http://${host}:${port}`);
-console.log('[tala] press Ctrl+C to stop.');
-
-const child = spawn(executable, ['-m', 'python.harness.server'], {
-  cwd: root,
-  stdio: 'inherit',
-  env,
-  shell: false,
-});
-
-child.on('error', (err) => {
-  console.error(`[tala] could not start the harness: ${err.message}`);
-  process.exit(1);
-});
-
-// Pass signals through so Ctrl+C stops the harness rather than orphaning it.
-for (const signal of ['SIGINT', 'SIGTERM']) {
-  process.on(signal, () => {
-    if (!child.killed) child.kill(signal);
+/**
+ * Is a harness already listening?
+ *
+ * If Tala's desktop app is running it owns the WebSocket port, and starting a
+ * second harness here would collide on it and be useless at best. In that case
+ * only the UI is served, pointed at the harness that already exists — the
+ * renderer does not care which process hands it its files.
+ */
+function harnessIsRunning() {
+  return new Promise((resolve) => {
+    const socket = net.connect({ host: '127.0.0.1', port: wsPort });
+    const done = (answer) => {
+      socket.destroy();
+      resolve(answer);
+    };
+    socket.setTimeout(1000);
+    socket.once('connect', () => done(true));
+    socket.once('timeout', () => done(false));
+    socket.once('error', () => done(false));
   });
 }
 
-child.on('exit', (code) => process.exit(code ?? 0));
+async function launch() {
+  const alreadyUp = await harnessIsRunning();
+
+  const args = alreadyUp
+    ? ['-m', 'python.harness.webui']
+    : ['-m', 'python.harness.server'];
+
+  if (alreadyUp) {
+    console.log(`[tala] a harness is already running on ws://127.0.0.1:${wsPort}`);
+    console.log('[tala] serving the UI only, against that harness.');
+  } else {
+    console.log('[tala] no harness detected; starting one.');
+  }
+  console.log(`[tala] web UI at http://${host}:${port}`);
+  console.log('[tala] press Ctrl+C to stop.');
+
+  return spawn(executable, args, {
+    cwd: root,
+    stdio: 'inherit',
+    env,
+    shell: false,
+  });
+}
+
+const childPromise = launch();
+let child = null;
+childPromise.then((c) => {
+  child = c;
+  wire(c);
+});
+
+function wire(child) {
+
+  child.on('error', (err) => {
+    console.error(`[tala] could not start: ${err.message}`);
+    process.exit(1);
+  });
+  child.on('exit', (code) => process.exit(code ?? 0));
+}
+
+// Pass signals through so Ctrl+C stops the child rather than orphaning it.
+for (const signal of ['SIGINT', 'SIGTERM']) {
+  process.on(signal, () => {
+    if (child && !child.killed) child.kill(signal);
+  });
+}

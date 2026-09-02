@@ -343,6 +343,10 @@ async def start(host: str | None = None,
         )
         return None
 
+    return await _serve(host, port, ws_port, token)
+
+
+async def _serve(host: str, port: int, ws_port: int, token: str) -> web.AppRunner | None:
     runner = web.AppRunner(_make_app(ws_port, token))
     await runner.setup()
     # Deliberately NOT reuse_address. On Windows SO_REUSEADDR lets a second
@@ -366,3 +370,61 @@ async def start(host: str | None = None,
         host, port, " [token required]" if token else "", _RENDERER_DIR,
     )
     return runner
+
+
+# ---------------------------------------------------------------------------
+# Standalone: serve the UI against a harness that is already running
+# ---------------------------------------------------------------------------
+
+async def _main() -> None:
+    """
+    Serve only the UI, pointing the shim at an existing harness.
+
+    This is the mode to use when Tala is already running -- the desktop app
+    spawns its own harness, and starting a second one would collide on the
+    WebSocket port and take both down. The renderer does not care which
+    process serves its files; the shim connects to the harness over the
+    WebSocket either way.
+    """
+    import asyncio
+
+    host = os.environ.get("TALA_WEB_HOST") or "127.0.0.1"
+    port = int(os.environ.get("TALA_WEB_PORT") or 8767)
+    try:
+        from python.harness.config import settings
+        ws_port = int(settings.WS_PORT)
+    except Exception:
+        ws_port = int(os.environ.get("TALA_WS_PORT") or 8765)
+    token = (os.environ.get("TALA_WEB_TOKEN") or "").strip()
+
+    try:
+        loopback = ipaddress.ip_address(host).is_loopback
+    except ValueError:
+        loopback = host in ("localhost",)
+    if not loopback and not token:
+        raise SystemExit(
+            f"Refusing to serve on {host}: this UI reaches every RPC handler "
+            "the harness has, including shell execution. Set TALA_WEB_TOKEN, "
+            "or bind 127.0.0.1."
+        )
+
+    runner = await _serve(host, port, ws_port, token)
+    if runner is None:
+        raise SystemExit(1)
+
+    print(f"[tala] web UI on http://{host}:{port} -> harness ws://{host}:{ws_port}")
+    print("[tala] press Ctrl+C to stop.")
+    try:
+        await asyncio.Event().wait()
+    finally:
+        await runner.cleanup()
+
+
+if __name__ == "__main__":
+    import asyncio
+
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(message)s")
+    try:
+        asyncio.run(_main())
+    except KeyboardInterrupt:
+        pass

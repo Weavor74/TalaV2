@@ -184,3 +184,68 @@ def test_ports_do_not_collide_with_the_harness():
     default_port = int(src.split('TALA_WEB_PORT") or ')[1].split(")")[0])
     assert default_port != int(settings.WS_PORT)
     assert default_port != int(settings.MCP_PORT)
+
+
+# ---------------------------------------------------------------------------
+# Availability — the failure that made the UI look broken
+# ---------------------------------------------------------------------------
+
+def test_electron_starts_the_harness_with_the_web_ui_enabled():
+    """
+    Without this the web UI existed only when the harness was launched by
+    `npm run web`, so opening the URL while the desktop app was running gave
+    connection-refused. Nothing was serving it, which on screen is
+    indistinguishable from a broken page.
+    """
+    main_js = (ROOT / "electron" / "main.js").read_text(encoding="utf-8")
+    env_block = main_js.split("function firstRunEnv")[1].split("}")[0]
+    assert "TALA_WEB_UI" in env_block, (
+        "the desktop app spawns its harness without TALA_WEB_UI, so the web UI "
+        "is dead whenever Tala is running normally"
+    )
+    assert "process.env.TALA_WEB_UI ??" in env_block, (
+        "TALA_WEB_UI is forced rather than defaulted; setting it to 0 must "
+        "still turn the web UI off"
+    )
+
+
+def test_web_ui_can_be_turned_off():
+    """`TALA_WEB_UI=0` must mean off, not 'any value is truthy'."""
+    import os
+
+    original = os.environ.get("TALA_WEB_UI")
+    try:
+        os.environ["TALA_WEB_UI"] = "0"
+        import asyncio
+        assert asyncio.run(webui.start()) is None
+    finally:
+        if original is None:
+            os.environ.pop("TALA_WEB_UI", None)
+        else:
+            os.environ["TALA_WEB_UI"] = original
+
+
+def test_launcher_reuses_a_running_harness():
+    """
+    Starting a second harness when one is already up collides on the WebSocket
+    port. The launcher probes for one and serves the UI alone if it finds it.
+    """
+    src = (ROOT / "scripts" / "start-web-ui.js").read_text(encoding="utf-8")
+    assert "harnessIsRunning" in src
+    assert "python.harness.webui" in src, "no UI-only mode to fall back to"
+    assert "python.harness.server" in src, "no way to start a harness when none exists"
+
+
+def test_webui_has_a_standalone_entry_point():
+    """The UI-only mode the launcher depends on must actually be runnable."""
+    src = (ROOT / "python" / "harness" / "webui.py").read_text(encoding="utf-8")
+    assert '__name__ == "__main__"' in src
+    assert "async def _main" in src
+
+
+def test_standalone_mode_also_refuses_a_tokenless_public_bind():
+    """The safety rule must not be weaker in the mode people reach for."""
+    src = (ROOT / "python" / "harness" / "webui.py").read_text(encoding="utf-8")
+    main_body = src.split("async def _main")[1]
+    assert "TALA_WEB_TOKEN" in main_body
+    assert "Refusing to serve" in main_body
