@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import base64
 import logging
+import re
 import shutil
 from pathlib import Path
 from typing import Any
@@ -76,17 +77,29 @@ def resolve_path(relative: str) -> Path:
     climb out, which is the same rule the file sandbox uses.
     """
     raw = str(relative or "").strip()
+    # Treat a backslash as a separator too. On POSIX "\" is a legal filename
+    # character, so "..\\..\\etc" would otherwise be swallowed into a single
+    # name and sail past the containment check below -- the same traversal that
+    # is caught on Windows must be caught here, on whatever OS the portable
+    # install happens to be running.
+    normalized = raw.replace("\\", "/")
     # Refuse an absolute path rather than quietly making it relative. Stripping
     # the leading separator would turn "/etc/passwd" into "<workspace>/etc/passwd"
     # -- contained, but not what the caller asked for, and a rule that silently
-    # reinterprets its input is one nobody can reason about.
-    if Path(raw).is_absolute() or raw.startswith(("/", "\\")):
+    # reinterprets its input is one nobody can reason about. Absolute covers
+    # POSIX ("/etc"), a Windows drive ("C:\\Windows") and a UNC share
+    # ("\\\\server\\share", now a leading "//") on every platform.
+    if (
+        Path(normalized).is_absolute()
+        or normalized.startswith("/")
+        or re.match(r"^[A-Za-z]:", normalized)
+    ):
         raise GitError(
             f"{relative!r} is an absolute path. Repository names are relative to "
             f"the workspace."
         )
     root = workspace_root().resolve()
-    candidate = (root / raw).resolve()
+    candidate = (root / normalized).resolve()
     if candidate != root and root not in candidate.parents:
         raise GitError(
             f"{relative!r} resolves outside the repository workspace ({root})."

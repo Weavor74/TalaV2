@@ -1468,7 +1468,11 @@ class DAGExecutionEngine:
             if target_path.suffix.lower() == ".py" and "py_compile" in checks:
                 try:
                     chk = await AsyncShellExecutor.run(
-                        f'python -m py_compile "{target_path}"',
+                        # sys.executable, not a bare "python": the harness runs
+                        # from a venv (and on Ubuntu/CI "python" may not exist at
+                        # all -- only python3), so the validation subprocess must
+                        # reuse this interpreter or the whole DAG fails to run.
+                        f'"{sys.executable}" -m py_compile "{target_path}"',
                         cwd=str(target_path.parent),
                         timeout=20.0,
                     )
@@ -1564,7 +1568,7 @@ class DAGExecutionEngine:
 
                 try:
                     imp = await AsyncShellExecutor.run(
-                        f'python -c "{_probe}"',
+                        f'"{sys.executable}" -c "{_probe}"',
                         cwd=str(self.root_dir or target_path.parent),
                         timeout=45.0,
                     )
@@ -1595,7 +1599,7 @@ class DAGExecutionEngine:
                 )
                 try:
                     test_res = await AsyncShellExecutor.run(
-                        f'python -m pytest "{test_path}" -v',
+                        f'"{sys.executable}" -m pytest "{test_path}" -v',
                         cwd=str(Path(worktree_path)),
                         timeout=60.0,
                     )
