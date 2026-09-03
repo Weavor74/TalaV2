@@ -10320,6 +10320,105 @@ async def handle_crew_escalate(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+async def handle_crew_run(params: dict[str, Any], ws: WebSocketServerProtocol,
+                         req_id: Any) -> str:
+    """
+    ``crew.run`` — run every member of a crew on one goal, at once.
+
+    Unlike ``crew.assign`` (which routes a single task to a single member), this
+    runs the whole team concurrently and, when the crew has a manager, has that
+    manager synthesise the members' answers into one. Returns immediately with a
+    ``run_id``; progress is streamed as ``crew.run.progress`` notifications and
+    the finished run is readable via ``crew.run.get`` / ``crew.runs.list``.
+    """
+    crew_id = str(params.get("crew_id") or "").strip()
+    goal = str(params.get("goal") or "").strip()
+    if not (crew_id and goal):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                    "'crew_id' and 'goal' are required")
+
+    try:
+        max_tokens = int(params.get("max_tokens") or 512)
+    except (TypeError, ValueError):
+        max_tokens = 512
+
+    run_id = f"crewrun-{uuid.uuid4().hex[:12]}"
+
+    async def _notify(event: dict[str, Any]) -> None:
+        try:
+            await ws.send(json.dumps({
+                "jsonrpc": JSONRPC_VERSION,
+                "method": "crew.run.progress",
+                "params": event,
+            }))
+        except Exception:
+            pass
+
+    async def _background() -> None:
+        from python.harness import crews
+
+        try:
+            await crews.run_crew(crew_id, goal, notifier=_notify,
+                                 run_id=run_id, max_tokens=max_tokens)
+        except Exception as exc:
+            logger.exception("crew.run background failure")
+            await _notify({"event": "failed", "run_id": run_id, "error": str(exc)})
+
+    # Validate the crew before we promise a run, so an obvious mistake comes
+    # back as an error rather than a silent background failure.
+    try:
+        from python.harness import crews
+        from python.harness.crews import CrewError
+
+        crew_row = await db.fetchrow("SELECT id FROM crews WHERE id = $1", crew_id)
+        if not crew_row:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, "that crew does not exist")
+        member_count = await db.fetchval(
+            "SELECT COUNT(*) FROM agents WHERE crew_id = $1", crew_id) or 0
+        if member_count == 0:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS,
+                        "that crew has no members to run")
+    except Exception as exc:
+        logger.exception("crew.run validation error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    asyncio.create_task(_background())
+    return _ok(req_id, {"run_id": run_id, "crew_id": crew_id, "status": "running",
+                        "members": int(member_count)})
+
+
+async def handle_crew_runs_list(params: dict[str, Any], req_id: Any) -> str:
+    """``crew.runs.list`` — recent crew runs, newest first."""
+    try:
+        from python.harness import crews
+
+        runs = await crews.list_runs(
+            crew_id=str(params.get("crew_id") or ""),
+            limit=int(params.get("limit") or 50),
+        )
+        return _ok(req_id, {"runs": runs})
+    except Exception as exc:
+        logger.exception("crew.runs.list error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_crew_run_get(params: dict[str, Any], req_id: Any) -> str:
+    """``crew.run.get`` — one crew run in full."""
+    run_id = str(params.get("run_id") or "").strip()
+    if not run_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'run_id' is required")
+    try:
+        from python.harness import crews
+
+        run = await crews.get_run(run_id)
+        if run is None:
+            return _err(req_id, JsonRpcError.INVALID_PARAMS, "no such run")
+        return _ok(req_id, run)
+    except Exception as exc:
+        logger.exception("crew.run.get error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_swarm_workers_active(params: dict[str, Any], req_id: Any) -> str:
     try:
         records = await db.fetch("SELECT id, name, role, config FROM agents WHERE is_active = TRUE")
@@ -14174,6 +14273,9 @@ _HANDLERS: dict[str, Any] = {
     "crew.chart": handle_crew_chart,
     "crew.assign": handle_crew_assign,
     "crew.escalate": handle_crew_escalate,
+    "crew.run": handle_crew_run,
+    "crew.runs.list": handle_crew_runs_list,
+    "crew.run.get": handle_crew_run_get,
     "swarm.start": handle_swarm_start,
     "swarm.pause": handle_swarm_pause,
     "swarm.resume": handle_swarm_resume,
@@ -14287,7 +14389,7 @@ async def _handle_webrtc_message(peer_username: str, raw_message: Any) -> None:
         response = _err(req_id, JsonRpcError.METHOD_NOT_FOUND, f"Method not found: '{method}'")
     else:
         try:
-            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe"):
+            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe", "crew.run"):
                 response = _err(req_id, JsonRpcError.INTERNAL_ERROR, "Streaming methods not supported over WebRTC P2P")
             else:
                 response = await handler(params, req_id)
@@ -14345,8 +14447,8 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
 
         _CURRENT_RPC.set(method)
         try:
-            # inference.generate, workflow.execute, and telemetry.stream_subscribe need the ws object
-            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe"):
+            # inference.generate, workflow.execute, telemetry.stream_subscribe and crew.run need the ws object
+            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe", "crew.run"):
                 response = await handler(params, ws, req_id)
             else:
                 response = await handler(params, req_id)
