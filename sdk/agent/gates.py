@@ -7,7 +7,13 @@ Milestone 4 | Tasks 4.5, 4.6, 4.7
 Implements:
   • AuthorizationGate         — Gatekeeper checking approval signatures or ledger assertions.
   • RevocationHalt            — Global emergency kill-switch to shut down loop runners.
-  • PrivilegedCommandHandler  — Handles credential challenges and sudo escalation flows.
+
+PrivilegedCommandHandler was removed. Its verify_privileged_token() returned
+True for the literal "tala-sudo-sig" -- a hardcoded passcode, published in this
+repository and shipped in release bundles. It had no callers, so it granted
+nothing; but a demo passcode sitting in a module named "gates" is a privilege
+escalation waiting for its first caller, and the safest version of it is the
+one that does not exist.
 """
 
 from __future__ import annotations
@@ -122,18 +128,6 @@ class RevocationHalt:
     def is_halted(cls) -> bool:
         """Check if halt is currently engaged."""
         return _EMERGENCY_HALT_ACTIVE
-
-
-class PrivilegedCommandHandler:
-    """
-    Escalation pathways requiring signed authorization confirmations.
-    """
-
-    @staticmethod
-    def verify_privileged_token(passcode: str) -> bool:
-        """Verify password signature or cryptographic nonce."""
-        # Simple verification rule for demonstration and testing
-        return passcode == "tala-sudo-sig"
 
 
 async def trigger_emergency_halt() -> None:

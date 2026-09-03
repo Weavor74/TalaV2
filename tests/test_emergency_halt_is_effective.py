@@ -118,23 +118,34 @@ async def test_the_health_panel_reports_the_halt():
     assert "halt" in detail.lower()
 
 
-def test_the_demo_passcode_is_still_not_wired_to_anything():
+def test_the_demo_passcode_is_gone_entirely():
     """
-    PrivilegedCommandHandler.verify_privileged_token returns True for the
-    literal string "tala-sudo-sig". That is harmless only for as long as
-    nothing calls it. If this ever fails, a hardcoded passcode has become a
-    privilege escalation path.
+    PrivilegedCommandHandler.verify_privileged_token returned True for the
+    literal "tala-sudo-sig".
+
+    The previous version of this test asserted only that nothing *called* it,
+    which is a guard that holds until someone writes the first caller. The
+    passcode was published in this repository and shipped in release bundles,
+    so it could never have authenticated anyone. It is now deleted, and this
+    asserts it stays deleted -- including that no implementation is quietly
+    reintroduced under the same name.
     """
     import pathlib
+
+    from sdk.agent import gates
+
+    assert not hasattr(gates, "PrivilegedCommandHandler")
 
     root = pathlib.Path(__file__).resolve().parents[1]
     offenders = []
     for path in list((root / "python").rglob("*.py")) + list((root / "sdk").rglob("*.py")):
-        if path.name in ("gates.py",) or "tests" in path.parts:
+        if "tests" in path.parts:
             continue
         text = path.read_text(encoding="utf-8", errors="ignore")
-        if "verify_privileged_token" in text or "PrivilegedCommandHandler" in text:
+        # gates.py names both in a comment explaining the removal; an
+        # implementation would be an assignment or a def, not prose.
+        if "def verify_privileged_token" in text or "class PrivilegedCommandHandler" in text:
             offenders.append(str(path.relative_to(root)))
     assert not offenders, (
-        f"a hardcoded demo passcode is now reachable from: {offenders}"
+        f"the hardcoded demo passcode has been reintroduced in: {offenders}"
     )
