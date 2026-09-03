@@ -2,221 +2,247 @@
 
 A feature comparison of the **Tala Cognitive Engine Room** against the major
 agent interfaces of 2026 — **Hermes Agent** (Nous Research), **Grok Bot**
-(xAI), and **OpenClaw** — with a shorter note on the broader field, followed by
-where Tala leads, where it lags, and concrete gap-closing suggestions.
+(xAI), and **OpenClaw** — with where Tala leads, where it lags, and concrete
+gap‑closing suggestions.
 
-> Sources: Tala claims are grounded in this repository. Competitor claims are
-> from each project's public docs/announcements as of Sep 2026 (Hermes Agent
-> v0.19, Grok Bot beta launched 2026‑08‑11, OpenClaw Gateway/Control UI docs).
-> Where a Tala capability is partial or inferred, it is marked accordingly.
+> **Revision note (2026‑09‑03).** This edition is reconciled against an
+> integrated assessment that combined this competitive review with a
+> **working‑tree functional audit** (measured on `main` @ `3274a09`, 2026‑08‑29:
+> 1,550 tests passing, 69 RPC namespaces, 247 RPC handlers, 97 agent tools,
+> **242 HTML‑NN nodes**, 113 Python modules, 11 UI views) and a strategic
+> critique. Several items the first edition listed as gaps are already
+> shipped — most importantly **messaging gateways (Telegram + Discord)** and
+> **open skill‑standard import (`agentskills.io` SKILL.md)** — so the roadmap
+> below is re‑prioritized around *autonomous reliability and provenance*, not
+> basic parity. Competitor columns are public‑doc baselines, not fresh source
+> audits (the exception is the re‑verified Hermes learning‑loop note in §3).
 
 ---
 
 ## 1. What each system is
 
 **Tala Cognitive Engine Room.** An offline‑first, desktop‑native (Electron) +
-browser AI orchestration shell with a Python harness. Its distinctive substrate
-is **HTML Neural Nodes (HTML‑NN)** — human‑readable HTML documents carrying
-machine‑readable semantic metadata and execution weights that serve
-simultaneously as memory, logic, and documentation. State is authoritative in a
-local **PostgreSQL** database; every other index (ChromaDB, Postgres FTS, mem0)
-is derived and rebuildable. Tala adds a local **Proof‑of‑Authority blockchain**
-with a dual‑token economy, a **P2P WebRTC mesh** for peer‑to‑peer orchestration
-and paid cross‑node inference, autonomous **skill distillation**, visual
-builders (Agent, Guardrail, Workflow, and now **Teams**), deterministic
-**crews** and emergent **swarms**, MCP, and BYO inference (vLLM/OpenAI/
-Anthropic/OpenRouter/embedded).
+browser AI orchestration shell backed by a Python harness and **PostgreSQL as
+sole operational authority**. Its distinctive substrate is **HTML Neural Nodes
+(HTML‑NN)** — human‑readable HTML documents carrying typed relationships,
+authority/trust/privacy metadata, provenance, and execution weights that serve
+at once as memory, logic, documentation, settings, workflows, personas, UI
+maps, and self‑model. Tala pairs this with an **immutable provenance ledger**
+(a local Proof‑of‑Authority blockchain), a dual‑token economy and P2P WebRTC
+mesh built *on top of* that ledger, autonomous **skill distillation** with a
+**proven end‑to‑end learning loop**, visual builders (Agent, Guardrail,
+Workflow, **Teams**), deterministic **crews** and emergent **swarms**, MCP +
+`agentskills.io` SKILL.md interop, messaging adapters (Telegram, Discord),
+persistent‑browser research, deep governance, and BYO inference across seven
+providers (Ollama, vLLM, OpenAI, Anthropic, Gemini, DeepSeek, Kimi) plus an
+embedded local model.
 
-**Hermes Agent (Nous Research).** An open‑source, self‑improving agent
-framework whose defining feature is a **closed learning loop**: it creates
-skills from experience, improves them during use, and curates its own memory.
-Three‑tier memory (episodic FTS5 search + LLM summarization, semantic
-`MEMORY.md`/`USER.md`, procedural skill files), a **multi‑platform messaging
-gateway** (Telegram/Discord/Slack/WhatsApp/Signal/CLI), model‑agnostic across
-200+ models, MCP, subagent delegation and parallel workstreams, natural‑language
-**cron automations**, seven terminal backends (local/Docker/SSH/Singularity/
-Modal/Daytona/Vercel Sandbox, with serverless hibernation), and RL **trajectory
-generation** for training tool‑calling models. TUI‑first.
+**Hermes Agent (Nous Research).** Open‑source, self‑improving agent framework.
+Its signature is a **closed learning loop**: skills created from experience,
+improved during use, curated memory. Three‑tier memory (episodic FTS5 + LLM
+summarization, semantic `MEMORY.md`/`USER.md`, procedural skills — *not* model
+fine‑tuning), multi‑platform messaging gateway (Telegram/Discord/Slack/
+WhatsApp/Signal/CLI), 200+ models, MCP, subagent parallelism, NL **cron
+automations**, seven terminal backends (incl. Modal/Daytona serverless
+hibernation), and RL **trajectory export**. TUI‑first.
 
-**Grok Bot (xAI, with Cursor).** A commercial, **always‑on team of cloud
-agents**. Each Bot runs on its own persistent cloud computer (real browser,
-filesystem, terminal), signs into your tools **with its own logins**, and works
-across apps and websites — including ones with no clean API — via **computer
-use**. Bots **learn workflows from live demonstration** (screen‑recording →
-routines), run **scheduled routines** unattended, and **coordinate as a team**
-(a "chief of staff" Bot managing specialists) over a shared computer/context.
-Model selection is automatic (no manual override). Terminal‑native **Grok Build**
-CLI covers coding.
+**Grok Bot (xAI, with Cursor).** Commercial, **always‑on cloud teammates**.
+Each Bot has its own persistent cloud computer (browser, filesystem, terminal),
+signs into your tools with **its own logins**, works across apps via **computer
+use**, **learns workflows from live demonstration** (screen‑record → routine),
+runs scheduled routines unattended, and **coordinates as a team** (a
+"chief‑of‑staff" over specialists) on a shared computer. No model override.
+Mobile. Terminal‑native **Grok Build** for coding.
 
-**OpenClaw.** A self‑hostable **Gateway** with a browser **Control UI** (a small
-Vite+Lit SPA served on the same port as the gateway). Multi‑agent routing,
-per‑agent **SQLite** memory, workspace identity files (`IDENTITY.md`,
-`AGENTS.md`), and per‑agent settings tabs (Overview, Files, Tools, Skills,
-Channels, Automations, Memory). Reaches users through **messaging channels**
-(Discord, Telegram, …), integrates MCP and per‑agent GitHub identities, and
-takes security seriously (device pairing, Tailscale/SSH access, token auth).
+**OpenClaw.** Self‑hostable **Gateway** + browser **Control UI**. Multi‑agent
+routing, per‑agent **SQLite** memory, `IDENTITY.md`/`AGENTS.md`, per‑agent
+settings tabs, a **broad messaging‑channel catalogue**, MCP, per‑agent GitHub
+identity, and strong device‑pairing/access security.
 
-**The wider field (brief).** General coding/computer‑use agents such as
-**Claude Code**, **OpenAI's ChatGPT agent/Operator**, **Manus**, and **Devin**,
-plus orchestration frameworks like **LangGraph**, **CrewAI**, and **AutoGPT**.
-These are referenced in §6 for positioning but are not the focus.
+**The wider field (brief).** Coding/computer‑use agents (**Claude Code**,
+**ChatGPT agent/Operator**, **Manus**, **Devin**) and orchestration libraries
+(**LangGraph**, **CrewAI**, **AutoGPT**) — referenced in §7 for positioning.
 
 ---
 
 ## 2. Feature comparison matrix
 
-Legend: ✅ first‑class · ⚠️ partial / present but limited · ❌ absent ·
-n/a not applicable.
+Legend: ✅ first‑class · ⚠️ partial / present but limited · ❌ absent.
 
 | Capability | **Tala** | **Hermes** | **Grok Bot** | **OpenClaw** |
 |---|---|---|---|---|
-| **License / model** | Source‑available, self‑host | Open source, self‑host | Commercial (SuperGrok/Cursor), closed | Self‑host gateway |
-| **Primary interface** | Desktop app **+ browser UI** | TUI/CLI | Mobile + desktop app | Browser Control UI |
-| **Messaging gateways** (TG/Discord/Slack/WA/Signal) | ❌ (P2P mesh instead) | ✅ 6 platforms + gateway | ⚠️ via Cursor connectors | ✅ Discord/Telegram + channels |
-| **Mobile client** | ❌ | ❌ | ✅ iOS | ⚠️ Telegram Mini App |
-| **Model strategy** | ✅ BYO (vLLM/OpenAI/Anthropic/OpenRouter/embedded) | ✅ Model‑agnostic (200+) | ❌ Auto‑selected, no override | ✅ Configurable per agent |
-| **Runs fully offline / local‑first** | ✅ (USB‑portable, embedded model) | ⚠️ local backend, but cloud‑oriented | ❌ Cloud‑only | ⚠️ Self‑host, but online‑oriented |
-| **Persistent memory** | ✅ HTML‑NN + Postgres (+Chroma/mem0) | ✅ 3‑tier (FTS5 + files + skills) | ✅ Durable per‑Bot state | ✅ Per‑agent SQLite |
-| **Self‑improvement / learning loop** | ✅ SkillDistiller from successful workflows | ✅ **Signature feature**; skills self‑improve in use | ⚠️ Learns your preferences over time | ⚠️ Skills, less emphasis on auto‑evolution |
-| **Learn from live demonstration** | ❌ | ❌ | ✅ **Signature feature** (screen record → routine) | ❌ |
-| **Skills: format & sharing** | HTML‑NN plugins → **on‑chain marketplace** | Plain‑text, version‑controlled, agentskills.io std | Skills shared across your Bots | Per‑agent skills |
-| **Multi‑agent: teams (hierarchy)** | ✅ **Crews** + `crew.run` (manager synthesis) | ✅ Subagent delegation | ✅ Bots + "chief of staff" | ✅ Multi‑agent routing |
-| **Multi‑agent: emergent/graph** | ✅ **Swarms** (DAG, fan‑out/join, gates) | ⚠️ parallel workstreams | ⚠️ parallel bots, shared surface | ⚠️ routing only |
-| **Parallel execution** | ✅ swarm fan‑out; team run‑at‑once | ✅ isolated subagents | ✅ parallel bots (1 computer‑use task/screen) | ⚠️ |
-| **Computer use / browser automation** | ⚠️ playwright + pyautogui + P2P remote desktop | ⚠️ terminal backends, not app‑UI use | ✅ **Signature feature** (apps w/o APIs, shared logins) | ⚠️ tools, not headline computer use |
-| **MCP integration** | ✅ stdio + sse | ✅ | ✅ connectors/MCP | ✅ |
-| **Scheduled automations (NL)** | ⚠️ heartbeat scheduler (not headline NL UX) | ✅ NL cron, unattended | ✅ routines + events (Slack/GitHub) | ✅ per‑agent automations |
-| **Visual builders** | ✅ Agent / Guardrail / Workflow / **Teams** | ❌ (config/skills) | ⚠️ demonstration, no builder | ⚠️ settings pages |
-| **Guardrails / safety config** | ✅ Guardrail Builder + runtime invariants | ⚠️ resource budgets, versioned rollback | ✅ approval gates for risky actions | ✅ device pairing, exec approvals |
-| **Data ownership / provenance** | ✅ **Local Postgres authority + on‑chain provenance** | ⚠️ local files | ❌ vendor cloud | ⚠️ self‑host |
-| **Token economy / paid inference** | ✅ **PoA chain, ghost/real tokens, house fee** | ❌ | ❌ (subscription) | ❌ |
-| **P2P / decentralization** | ✅ **WebRTC mesh, cross‑user peers** | ❌ | ⚠️ multi‑bot on one *user's* computer | ❌ |
-| **Serverless / hibernating cloud runtime** | ❌ (VPS peer instead) | ✅ Modal/Daytona hibernate | ✅ managed cloud VM | ❌ |
-| **RL trajectory export for training** | ⚠️ LoRA voice‑adapter + benchmarks, not general | ✅ trajectory gen + compression | ❌ | ❌ |
-| **Emotion / persona dynamics** | ✅ Astro Emotion Engine | ⚠️ Honcho user modeling | ⚠️ "picks up your voice" | ⚠️ identity fields |
-| **Onboarding simplicity** | ⚠️ heavy (Postgres, chain, installers) | ⚠️ CLI setup | ✅ "just message it" | ⚠️ gateway + pairing |
+| **License / model** | Source‑available, self‑host | Open source, self‑host | Commercial, closed | Self‑host |
+| **Primary interface** | Desktop **+ browser UI** | TUI/CLI | Mobile + desktop | Browser Control UI |
+| **Messaging gateways** | ✅ **Telegram + Discord** (full pipeline) | ✅ 6 platforms | ⚠️ via Cursor connectors | ✅ broad catalogue |
+| **Mobile client** | ⚠️ browser (PWA candidate) | ❌ | ✅ iOS | ⚠️ Telegram Mini App |
+| **Model strategy** | ✅ 7 providers + embedded; native fn‑calling normalized | ✅ 200+ | ❌ auto only | ✅ per‑agent |
+| **Offline / local‑first** | ✅ USB‑portable, embedded model, failover | ⚠️ | ❌ cloud‑only | ⚠️ |
+| **Small‑model efficiency** | ✅ per‑turn tool selection (≈81% prompt cut) | ⚠️ | n/a (frontier) | ⚠️ |
+| **Persistent memory** | ✅ HTML‑NN + Postgres (+Chroma/mem0) | ✅ 3‑tier | ✅ per‑Bot state | ✅ per‑agent SQLite |
+| **Self‑improvement loop** | ✅ **proven end‑to‑end** (lesson written→promoted→recalled @0.60) | ✅ signature (Markdown skills, *not* fine‑tune) | ⚠️ preferences over time | ⚠️ skills |
+| **Lesson revision / consolidation** | ⚠️ append‑heavy today (roadmap P0) | ✅ revises on failure | ⚠️ | ⚠️ |
+| **Learn from live demonstration** | ❌ (distills from *execution* instead) | ❌ | ✅ signature | ❌ |
+| **Skill‑standard interop** | ✅ SKILL.md import → HTML‑NN + marketplace RPCs | ✅ agentskills.io | ⚠️ shared across Bots | ⚠️ per‑agent |
+| **Multi‑agent: teams (hierarchy)** | ✅ **crews** + `crew.run` manager synthesis | ✅ subagents | ✅ chief‑of‑staff | ✅ routing |
+| **Multi‑agent: emergent/graph** | ✅ **swarms** (DAG, fan‑out/join, gates) | ⚠️ | ⚠️ | ⚠️ |
+| **Result‑oriented verification** | ✅ goal files hashed pre/post; "did it happen" | ⚠️ | ⚠️ approvals | ⚠️ |
+| **Computer use / browser** | ✅ research/DOM (7 tools, persistent Chromium); ⚠️ pixel/app‑login use | ⚠️ terminal backends | ✅ signature (apps w/o APIs, shared logins) | ⚠️ |
+| **MCP integration** | ✅ stdio + sse, machine discovery | ✅ | ✅ connectors/MCP | ✅ |
+| **Scheduled automations (NL)** | ⚠️ heartbeat scheduler (not headline UX) | ✅ NL cron | ✅ routines + events | ✅ per‑agent |
+| **Visual builders** | ✅ Agent/Guardrail/Workflow/**Teams** | ❌ | ⚠️ demonstration | ⚠️ settings pages |
+| **Governance / security** | ✅ **wide lead**: grants, harness guardrails, signed skills, trust registry, E2EE, promptware redaction, supply‑chain checks | ⚠️ budgets, versioned rollback | ✅ approval gates | ✅ device pairing, exec approvals |
+| **Immutable provenance ledger** | ✅ **unique** (evidence/finding/result lineage) | ❌ | ❌ | ❌ |
+| **Token economy / paid inference** | ✅ ghost/real tokens (optional, atop ledger) | ❌ | ❌ | ❌ |
+| **P2P / cross‑user mesh** | ✅ **WebRTC, independent installs** | ❌ | ⚠️ one user's computer | ❌ |
+| **Serverless / hibernating runtime** | ❌ (VPS peer instead) | ✅ Modal/Daytona | ✅ managed cloud VM | ❌ |
+| **Self‑knowledge / self‑operation** | ✅ **unique**: `describe_architecture`, UI‑view nodes + drift guard, AST program nodes, self‑documenter | ❌ | ❌ | ⚠️ identity files |
+| **RL trajectory export** | ⚠️ LoRA + benchmarks, not general | ✅ | ❌ | ❌ |
+| **Onboarding simplicity** | ⚠️ heavy (Postgres, ledger, installers) | ⚠️ CLI | ✅ "just message it" | ⚠️ gateway + pairing |
 
 ---
 
 ## 3. Where Tala already leads
 
-1. **HTML‑NN as a unified substrate.** No competitor unifies memory, logic, and
-   documentation into one human‑and‑machine‑readable, executable artifact. Skills,
-   docs, workflows, and personas are all nodes the system can parse, retrieve,
-   and run — and a person can read and edit. Hermes' `MEMORY.md`/skills and
-   OpenClaw's `IDENTITY.md` are the nearest analogues but are flat files, not an
-   executable graph.
-2. **Provenance and an economy.** The PoA blockchain + dual‑token model
-   (unlimited local "ghost" tokens with a full audit ledger; on‑chain "real"
-   token settlement for cross‑peer inference minus a house fee) is genuinely
-   unique. It enables a **decentralized skill marketplace** and **peer‑paid
-   inference** that none of the three offer.
-3. **True P2P across *different users*.** Grok Bots share one user's computer;
-   Tala's WebRTC mesh lets independent installs orchestrate each other and
-   trade resources. That's a different topology — a network of peers, not one
-   tenant's swarm.
-4. **Data sovereignty / offline‑first.** Postgres‑as‑sole‑authority with derived,
-   disposable indexes, an embedded local model, and USB portability is the
-   strongest local‑first story of the four. Grok Bot is cloud‑only.
-5. **A richer multi‑agent taxonomy.** Tala distinguishes **deterministic crews**
-   (org hierarchy, routing, escalation, run‑at‑once with manager synthesis) from
-   **emergent swarms** (DAG topologies with fan‑out/join and gates) — and both
-   are visually definable. That is more expressive than "subagents" (Hermes) or
-   "a team of bots" (Grok).
-6. **Visual builders + guardrails.** Agent/Guardrail/Workflow/Teams builders plus
-   runtime architectural invariants give non‑coders real authorship with safety
-   rails.
+1. **HTML‑NN as a governed cognitive graph.** Not "HTML‑based memory": a
+   self‑describing graph (~242 nodes) unifying memory, docs, settings, tools,
+   workflows, personas, UI maps, and self‑model, with typed relations and
+   authority/trust/privacy/provenance. No competitor unifies these into one
+   executable, human‑readable substrate.
+2. **An immutable provenance ledger (reframed).** The blockchain's primary role
+   is *evidence*, not Web3: it can prove **what Tala searched, retrieved, used,
+   changed, executed, and produced**. Ghost = local cognitive provenance; Real =
+   federated trust boundary for cross‑install exchange. The token economy, P2P
+   settlement, and marketplace are optional applications *on top of* the ledger.
+3. **Governance breadth.** Unified grant model, guardrails that govern the
+   **harness** (not just model text), signed skills, a trust registry, encrypted
+   credentials, network firewalling, promptware redaction, plugin/supply‑chain
+   validation, and E2EE — architectural, not bolt‑ons.
+4. **A proven learning loop, without fine‑tuning.** A real goal partially
+   completed → verification caught it → a named lesson was written → promoted
+   from staging → later recalled at authority 0.60. (The audit also corrects a
+   myth: Hermes doesn't fine‑tune either; it writes/retrieves Markdown skills —
+   so Tala is at **near‑parity**, with lesson *revision* and *prompt
+   optimization* the two remaining Hermes edges.)
+5. **Result‑oriented verification.** Named goal files are hashed before/after, so
+   a requested change that didn't happen fails the run *by name* — success means
+   the outcome occurred, not merely that execution avoided an exception.
+6. **Self‑knowledge / self‑operation** (no direct competitor): a machine‑readable
+   model of its own architecture and UI (`describe_architecture`, 12 doc RPCs,
+   12 UI‑view nodes with drift guarding, AST‑derived program nodes).
+7. **Richer multi‑agent taxonomy + cross‑user P2P.** Deterministic **crews** and
+   emergent **swarms**, both visually definable — and a WebRTC mesh across
+   *independent* installs (Grok Bots share one user's computer; Tala is a network
+   of peers).
+8. **Local sovereignty + small‑model efficiency.** Postgres‑as‑authority with
+   disposable derived indexes, an embedded model, provider failover, native
+   function‑calling normalized at the boundary, and per‑turn tool selection that
+   cut the tool prompt ~81% (5,975→1,116 tokens; benchmark 2/6→4/6).
 
-## 4. Where Tala lags — and what to do about it
+## 4. The autonomous‑execution bottleneck (the real P0)
 
-Prioritized by leverage (impact ÷ effort). Each names the competitor that sets
-the bar.
+The most important limitation the audit surfaced is **not** the planner. A
+synthesis phase currently resolves a **single write target**, so a phase like
+*"refactor `user.py` and `order.py`"* can't satisfy both even when the plan is
+correct. (A separate Tree‑of‑Thought interception that masked the decomposer was
+already fixed.) This is the direct blocker to giving Tala a complex goal and
+letting it finish autonomously — and it's where roadmap energy should go, not
+another parity feature.
+
+## 5. Where Tala lags — revised, prioritized suggestions
+
+Re‑prioritized around autonomous reliability and provenance. Items the first
+edition listed (messaging gateways, skill‑standard import) are **already done**
+and dropped from the gap list.
 
 ### P0 — highest leverage
-
-1. **Messaging‑platform gateways (vs Hermes, OpenClaw).**
-   Tala has no Telegram/Discord/Slack/WhatsApp/Signal presence; it lives on the
-   desktop/browser. Meeting users where they already are is the single biggest
-   reach gap.
-   *Suggestion:* add a gateway process that bridges these platforms to the
-   harness's JSON‑RPC surface (reuse the `channels`/`ChannelManager` you already
-   have). Start with Telegram + Discord; model it on Hermes' single‑gateway,
-   cross‑platform conversation continuity.
-
-2. **First‑class computer use with persistent logins (vs Grok Bot).**
-   The deps exist (`playwright`, `pyautogui`) and P2P remote‑desktop is there,
-   but there's no polished "agent works in your apps, signed in, on a persistent
-   surface" loop. This is Grok Bot's headline value.
-   *Suggestion:* build a computer‑use node type: a persistent browser context
-   with vaulted, reusable sessions/cookies, screenshot‑grounded action loop, and
-   approval gates for risky actions. Bind it to the existing vault + guardrails.
-
-3. **Onboarding / zero‑config mode (vs Grok Bot).**
-   Postgres + blockchain + platform installers is a lot before first value.
-   *Suggestion:* ship an "instant" profile (embedded model + SQLite/embedded PG +
-   chain disabled) so a new user can chat and run one agent in under a minute,
-   then progressively reveal the powerful subsystems.
+1. **Multi‑target synthesis + execution.** Support bounded multi‑target writes
+   with **explicit per‑target verification**, atomic/recoverable change sets, and
+   ledgered results. Directly unblocks complex multi‑file/multi‑object goals.
+2. **Repeated autonomous benchmark suite.** Single runs are noisy (the audit saw
+   real run‑to‑run variance). Measure fitness across repeated trials *before*
+   optimizing planners or prompts.
+3. **HTML‑NN lesson revision & consolidation.** Add graph lifecycle ops —
+   `refines`, `supersedes`, `contradicts`, `derived_from`, `verified_by`,
+   `invalidated_by` — to detect/merge/supersede near‑duplicate lessons under
+   governance. Prevents memory drift and closes a real Hermes gap.
+4. **Evidence‑first citation enforcement.** Make provenance a runtime invariant:
+   a claim is citable only if it references a **recorded** Evidence/Finding
+   object (Search→Retrieve→Record→Hash/Sign→Analyze→Finding→Answer), not because
+   an LLM emitted a URL. *Integrity ≠ truth* — the ledger proves lineage;
+   veracity still needs corroboration.
 
 ### P1 — strong, moderate effort
+5. **Prompt/strategy optimization against a score** — closes the last Hermes
+   edge (evolve prompts/strategies against the P0 benchmark's objective fitness).
+6. **Zero‑friction core startup** — one‑click launch by *owning a portable/
+   embedded PostgreSQL lifecycle*, **not** by adding SQLite as a second
+   authority (which would fork every subsystem). Auto‑init the local ledger; keep
+   tokens/federation optional.
+7. **Deterministic, governed sandboxing** — run shell, generated code, imported
+   skills, browser automation, and overnight missions under explicit capability
+   boundaries (container/process isolation), with the sandbox decision, grants,
+   artifacts, and outcome **ledgered** through the same identity/permission model.
+8. **Evidence/finding schema hardening** — standardize record IDs, hashes,
+   snapshots, extracted‑passage hashes, contradiction links, confidence, source
+   metadata, and result lineage.
 
-4. **Natural‑language scheduled automations, surfaced in the UI (vs all three).**
-   You have a `heartbeat_scheduler`; competitors expose NL "every morning, do X"
-   routines with run history and approval policies.
-   *Suggestion:* a Routines UI on top of the scheduler — NL → schedule/trigger,
-   test‑run, pause/resume, last‑N run records, and "require approval for
-   send/purchase/delete/publish."
+### P2 — reach & ecosystem
+9. **Channel expansion** — now additive (manager, schema, hot‑reload, and two
+   concrete adapters exist): add Slack/WhatsApp/Signal to close breadth vs
+   OpenClaw/Hermes.
+10. **Visual computer‑use *fallback*** — add pixel/app‑login use for interfaces
+    with no cleaner path, but keep the preference order **API/tool → MCP →
+    CLI/OS → DOM/browser → vision** (structured beats fragile/expensive pixels).
+11. **PWA/mobile control surface** — harden the existing browser UI as an
+    installable, token‑guarded PWA before any native app.
+12. **Federated evidence exchange** — use the Real ledger + peer identity so
+    independent Tala nodes can exchange **verifiable** research/findings with
+    signed lineage (trust mechanism, not just accounting).
+13. **Skill *enrichment* (not just interop)** — on import, wrap SKILL.md as an
+    HTML‑NN node augmented with provenance, signing, trust, permissions, and
+    relationships. Tala's edge isn't reading the format; it's governing it.
+14. **RL trajectory export** — emit compressed, training‑ready trajectories from
+    the state you already persist (natural given the existing LoRA path).
 
-5. **Demonstration‑based skill capture (vs Grok Bot).**
-   Tala distills skills from *successful executions*; Grok learns from a *human
-   walkthrough*. The two are complementary.
-   *Suggestion:* a "follow along" recorder that captures a user's tool‑call /
-   UI sequence into a draft HTML‑NN workflow the SkillDistiller then generalizes.
+## 6. Architectural invariants to preserve
 
-6. **Serverless / hibernating runtime (vs Hermes Modal/Daytona, Grok cloud).**
-   Always‑on without a paid VPS is a real convenience gap.
-   *Suggestion:* add a hibernating backend option (e.g., Modal/Daytona/Fly) that
-   wakes on schedule or peer request; keep the local‑first default.
+- HTML‑NN stays the **governed cognitive representation**, not a passive RAG store.
+- **PostgreSQL** stays the single mutable operational authority.
+- The **local provenance ledger** is always‑on in core mode and auto‑inits;
+  P2P/economy/marketplace remain optional. Evidence must be recorded before it's
+  citable. Immutability proves integrity/provenance, **not** factual truth.
+- Derived vector/search indexes are disposable and rebuildable.
+- **Structured execution preferred over visual**: API/tool → MCP → CLI/OS →
+  DOM/browser → vision/pixel.
+- Autonomous **success = verified outcome**, not "process didn't crash."
+- Learned knowledge is **revised/merged/superseded/invalidated**, not endlessly
+  appended. Imported skills/code are governed, signed, sandboxed objects.
+- Self‑documentation is verified against the running architecture (drift‑guarded).
 
-### P2 — differentiation & ecosystem
+## 7. Positioning
 
-7. **Open skill‑standard interop (vs Hermes agentskills.io).**
-   *Suggestion:* import/export between HTML‑NN plugins and the agentskills.io
-   format so Tala can consume and publish to the wider skill ecosystem while
-   keeping on‑chain provenance as a value‑add.
+> **Hermes** owns *self‑improvement*; **Grok Bot** owns *always‑on cloud
+> teammates that use your apps*; **OpenClaw** owns *a broad self‑hosted
+> gateway/channel ecosystem*. **Tala's** distinct territory is a **sovereign,
+> governed cognitive operating environment** — an executable HTML‑NN graph,
+> cryptographically traceable provenance, local data ownership, self‑knowledge,
+> and a crews+swarms execution fabric. The winning move is **not** to match
+> OpenClaw channel‑for‑channel, Grok click‑for‑click, or Hermes file‑for‑file;
+> it's to make the *closed loop* reliable — evidence‑first research, verified
+> results, multi‑target completion, benchmarked planning, consolidated lessons,
+> governed sandboxing, self‑maintaining knowledge — so the moat becomes: *Tala
+> can act, learn, and change while preserving a cryptographically traceable
+> account of what it knew, what it used, what it did, and what actually
+> happened.*
 
-8. **RL trajectory export (vs Hermes).**
-   *Suggestion:* export run trajectories (you already persist rich task/graph
-   state) in a training‑ready, compressed format for fine‑tuning tool‑calling
-   models — a natural fit given your existing LoRA training path.
-
-9. **Mobile reach (vs Grok iOS).**
-   *Suggestion:* the web UI already runs in a browser; harden it as an installable
-   PWA and expose a token‑guarded remote bind for phone access before investing
-   in native apps.
+For the wider field: **Claude Code / ChatGPT‑agent / Operator / Manus / Devin**
+lead on raw coding/computer‑use autonomy but are vendor‑cloud, not local‑first;
+**LangGraph / CrewAI / AutoGPT** are libraries, not end‑user interfaces — Tala's
+crew/swarm engines occupy similar ground but ship with UI, persistence,
+governance, and provenance.
 
 ---
 
-## 5. One‑line positioning
-
-> **Hermes** optimizes for *self‑improvement*, **Grok Bot** for *always‑on cloud
-> teammates that use your apps*, **OpenClaw** for *a secure self‑hosted gateway*.
-> **Tala's** unclaimed ground is *the sovereign, peer‑to‑peer, economically‑
-> settled agent OS* — local‑first data you own, an executable HTML‑NN memory,
-> and a token‑metered mesh of peers. The fastest way to widen adoption without
-> abandoning that identity is to **meet users on their messaging platforms**,
-> **let agents act inside real apps**, and **make the first five minutes
-> trivial** — while keeping provenance, the economy, and P2P as the moat.
-
----
-
-## 6. Notes on the wider field
-
-- **Claude Code / OpenAI ChatGPT‑agent / Operator / Manus / Devin** — strong at
-  autonomous coding and computer use, but vendor‑cloud and not local‑first;
-  Tala's differentiation is sovereignty + economy, not raw coding autonomy.
-- **LangGraph / CrewAI / AutoGPT** — orchestration *libraries*, not end‑user
-  interfaces. Tala's swarm/crew engines occupy similar ground but ship with a
-  UI, persistence, guardrails, and an economy rather than being a toolkit.
-
-*This is a living document; revise as competitor releases and Tala's roadmap
-evolve.*
+*Living document. Competitor claims are public‑doc baselines (Sep 2026); Tala
+claims are grounded in this repository and a working‑tree functional audit
+(`main` @ `3274a09`, 2026‑08‑29). Revise as releases and roadmap evolve.*
