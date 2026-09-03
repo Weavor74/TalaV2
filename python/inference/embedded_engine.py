@@ -290,7 +290,52 @@ def _apply_template(tokenizer, prompt, tools):
     )
 
 
+# The embedded model is a single shared, in-process instance. Two concurrent
+# turns run `model.generate` on the same object from two background threads and
+# corrupt its state: the symptom is a `probability tensor contains inf/nan`
+# crash or -- worse, because it is silent -- persistent gibberish on every later
+# call, since the damage outlives the request that caused it. Fan-out (a crew or
+# a swarm running several agents at once) makes exactly those concurrent calls.
+# Generation is therefore serialized here: turns run one at a time against the
+# one model. This does not make the orchestration sequential -- callers still
+# dispatch concurrently -- it just means the single local model is a shared
+# resource with a queue. True token-level parallelism needs more than one
+# provider (several embedded workers, or remote APIs), which this does not block.
+_GENERATION_LOCK: "asyncio.Lock | None" = None
+
+
+def _generation_lock() -> "asyncio.Lock":
+    """The process-wide generation lock, created lazily on the running loop."""
+    global _GENERATION_LOCK
+    if _GENERATION_LOCK is None:
+        import asyncio as _asyncio
+
+        _GENERATION_LOCK = _asyncio.Lock()
+    return _GENERATION_LOCK
+
+
 async def generate_stream(
+    prompt: str | list[dict[str, str]],
+    max_tokens: int = 512,
+    temperature: float = 0.7,
+    lora_path: str | None = None,
+    tools: list[dict] | None = None,
+) -> AsyncIterator[str]:
+    """
+    Stream a completion from the local engine, one turn at a time.
+
+    Serializing wrapper around :func:`_generate_stream_impl`. It holds a
+    process-wide lock for the whole turn so concurrent callers cannot run two
+    ``model.generate`` calls on the shared model at once. See _GENERATION_LOCK.
+    """
+    async with _generation_lock():
+        async for chunk in _generate_stream_impl(
+            prompt, max_tokens, temperature, lora_path=lora_path, tools=tools
+        ):
+            yield chunk
+
+
+async def _generate_stream_impl(
     prompt: str | list[dict[str, str]],
     max_tokens: int = 512,
     temperature: float = 0.7,
