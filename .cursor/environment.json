@@ -1,0 +1,23 @@
+{
+  "name": "Tala Cognitive Engine Room",
+  "user": "ubuntu",
+  "install": "bash .cursor/install.sh",
+  "start": "bash .cursor/start.sh",
+  "terminals": [
+    {
+      "name": "tala-chain",
+      "command": "node blockchain/src/app.js",
+      "description": "Tala Proof-of-Authority blockchain / peer-discovery node (http://127.0.0.1:8332)."
+    },
+    {
+      "name": "tala-web",
+      "command": "npm run web",
+      "description": "Python harness + browser UI. Serves the renderer at http://127.0.0.1:8767 and the JSON-RPC WebSocket at ws://127.0.0.1:8765."
+    }
+  ],
+  "ports": [
+    { "name": "blockchain", "port": 8332 },
+    { "name": "harness-ws", "port": 8765 },
+    { "name": "web-ui", "port": 8767 }
+  ]
+}
