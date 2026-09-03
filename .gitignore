@@ -77,3 +77,7 @@ data/chroma.corrupted-backup-*/
 # only affects untracked paths. Run `git rm -r --cached data/training_corpus/`
 # if those should be dropped from version control too.
 data/training_corpus/
+
+# Runtime halt state. Machine-local: a halt engaged on one machine
+# must not travel to another via the repository.
+data/emergency_halt.json

@@ -10696,7 +10696,9 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
             return _ok(req_id, outcome) if outcome.get("success") else _err(
                 req_id, JsonRpcError.INVALID_PARAMS, outcome.get("detail", "decision failed"))
         if action == "abort":
-            await trigger_emergency_halt()
+            # Retroactive since SEC-W1-05: this also kills shell work already
+            # in flight, and persists so a restart does not clear it.
+            await trigger_emergency_halt(f"task {task_id} aborted from Mission Control")
             await db.execute("UPDATE tasks SET status = 'failed' WHERE id = $1 OR parent_id = $1", task_id)
         elif action == "pause":
             # 'paused', NOT 'blocked'. resume_suspended_goals selects
@@ -11025,8 +11027,24 @@ async def handle_shell_run(params: dict[str, Any], req_id: Any) -> str:
         
         risk = RiskClassifier.classify_action("execute_command", command)
         logger.info("Governance check: command=%r has risk=%s", command, risk)
-        
+
+        # This handler calls the executor directly rather than going through
+        # ToolRegistry.run_tool, so it never saw run_tool's halt check: the
+        # one RPC that runs arbitrary shell commands was the one the kill
+        # switch did not cover. AsyncShellExecutor now refuses on its own, and
+        # this returns the refusal as a result rather than an error so the
+        # caller can tell "halted" from "failed".
         result = await AsyncShellExecutor.run(command, _ROOT_DIR, timeout=params.get("timeout", 60.0))
+        if result.get("halted"):
+            return _ok(req_id, {
+                "success": False,
+                "exit_code": -1,
+                "stdout": "",
+                "stderr": result["stderr"],
+                "timed_out": False,
+                "halted": True,
+                "risk_level": risk,
+            })
         return _ok(req_id, {
             "success": result["success"],
             "exit_code": result["exit_code"],
