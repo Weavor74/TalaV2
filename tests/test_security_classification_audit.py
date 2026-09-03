@@ -9,7 +9,6 @@ from sdk.agent.tools import (
     classify_field_heuristically,
     run_security_classification_audit,
     approve_security_classification_mapping,
-    get_user_data
 )
 
 def test_classify_field_heuristically():
@@ -73,15 +72,15 @@ async def test_approve_and_lock_classification():
             assert mapping_file.exists()
             written_map = json.loads(mapping_file.read_text(encoding="utf-8"))
             assert written_map["Passport Issue Date"] == "SECURED"
-            
-            # Verify get_user_data dynamically loads the new mapping
-            # Accessing Passport Issue Date without token -> ACCESS_DENIED
-            res_denied = await get_user_data("Passport Issue Date", permission_token=None)
-            assert res_denied["status"] == "ACCESS_DENIED"
-            assert res_denied["access_level"] == "SECURED"
-            
-            # Accessing Passport Issue Date with token -> SUCCESS
-            res_approved = await get_user_data("Passport Issue Date", permission_token="MANUAL_OK_2026")
-            assert res_approved["status"] == "SUCCESS"
-            assert res_approved["access_level"] == "SECURED"
-            assert res_approved["value"] == "2020-01-01"
+
+            # The classification, the persisted mapping and the ledger anchor
+            # are the real behaviour here and are asserted above.
+            #
+            # This test used to end by reading the field back through
+            # get_user_data to prove the mapping took effect. That tool has
+            # been deleted: it served a hardcoded dict of invented personal
+            # data, so the read-back proved only that a constant was still a
+            # constant.
+            #
+            # NOTE: security_mapping.json currently has no reader. get_user_data
+            # was the only one. The classifier still writes and anchors it.
