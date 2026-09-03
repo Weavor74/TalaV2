@@ -62,6 +62,20 @@ if ($DbExists -eq "1") {
     Write-Host "Database '$DbName' created." -ForegroundColor Green
 }
 
+# The pytest suite isolates itself onto a sibling "<db>_test" database (see the
+# database-isolation guard in conftest.py) so it never mutates the app's own
+# data. Provision it here so a fresh checkout can run the tests with no manual
+# step -- an absent test database was the largest single cause of red CI.
+$TestDbName = "${DbName}_test"
+Write-Host "Ensuring test database '$TestDbName' exists..."
+$TestDbExists = (psql -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='$TestDbName'" 2>$null)
+if ($TestDbExists -eq "1") {
+    Write-Host "Test database '$TestDbName' already exists." -ForegroundColor Yellow
+} else {
+    psql -U postgres -c "CREATE DATABASE ""$TestDbName"" OWNER ""$DbUser"";" | Out-Null
+    Write-Host "Test database '$TestDbName' created." -ForegroundColor Green
+}
+
 # Clear password from env to be safe
 $env:PGPASSWORD = ""
 

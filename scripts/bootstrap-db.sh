@@ -61,6 +61,19 @@ else
     echo -e "\033[32mDatabase '$DB_NAME' created.\033[0m"
 fi
 
+# The pytest suite isolates itself onto a sibling "<db>_test" database (see the
+# database-isolation guard in conftest.py) so it never mutates the app's own
+# data. Provision it here so a fresh checkout can run the tests with no manual
+# step -- an absent test database was the largest single cause of red CI.
+TEST_DB_NAME="${DB_NAME}_test"
+echo "Ensuring test database '$TEST_DB_NAME' exists..."
+if $PSQL_CMD -tAc "SELECT 1 FROM pg_database WHERE datname='$TEST_DB_NAME'" | grep -q 1; then
+    echo -e "\033[33mTest database '$TEST_DB_NAME' already exists.\033[0m"
+else
+    $PSQL_CMD -c "CREATE DATABASE \"$TEST_DB_NAME\" OWNER \"$DB_USER\";" >/dev/null
+    echo -e "\033[32mTest database '$TEST_DB_NAME' created.\033[0m"
+fi
+
 export PGPASSWORD=""
 echo -e "\033[32mDatabase bootstrap complete.\033[0m"
 exit 0

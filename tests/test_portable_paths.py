@@ -60,8 +60,20 @@ def test_the_resolver_ignores_os_profile_variables(monkeypatch, tmp_path):
     monkeypatch.setenv("HOME", str(tmp_path / "home"))
 
     resolved = resolve_user_data_dir()
-    for foreign in ("roaming", "xdg", "home"):
-        assert foreign not in resolved.parts, f"{foreign} leaked into the data root"
+    # Check the actual injected locations, not bare component names. On a
+    # checkout that itself lives under /home/... (CI runners do) the literal
+    # string "home" is a legitimate part of the install path and says nothing
+    # about whether $HOME was preferred -- the real question is whether the
+    # resolved root sits under any of these profile directories.
+    for label, foreign in (
+        ("APPDATA", tmp_path / "roaming"),
+        ("XDG_DATA_HOME", tmp_path / "xdg"),
+        ("HOME", tmp_path / "home"),
+    ):
+        foreign = foreign.resolve()
+        assert resolved != foreign and foreign not in resolved.parents, (
+            f"{label} leaked into the data root"
+        )
 
 
 def test_the_resolver_is_not_relative_to_the_working_directory(monkeypatch, tmp_path):

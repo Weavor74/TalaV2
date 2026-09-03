@@ -53,6 +53,15 @@ async def test_an_unreachable_chain_is_not_unlimited(mode, monkeypatch):
     unlimited tokens while the truth was that nobody could be asked."""
     mode["value"] = "vps"
 
+    # Simulate the chain being unreachable explicitly. Without this the test
+    # depends on nothing answering on 127.0.0.1:8332, which is false whenever a
+    # chain node is running (the dev app, and CI's own standalone node) -- the
+    # wallet then reaches it and reports "real", not "unreachable".
+    def _unreachable(*args, **kwargs):
+        raise OSError("connection refused")
+
+    monkeypatch.setattr(token_counter.urllib.request, "urlopen", _unreachable)
+
     state = await token_counter.wallet_state()
 
     assert state["mode"] == "unreachable"

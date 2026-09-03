@@ -100,11 +100,23 @@ async def restore_from_ghost(task_id: str) -> dict[str, Any] | None:
            
     DESCRIPTION
            Reads the local chain.json directly, finds the latest transaction
-           for this task of type 'thought-state', decrypts it, and returns the state.
+           for this task of type 'thought-state', decrypts it, and returns the
+           state. If the local file does not have it -- which happens whenever
+           the running chain node's data directory is not the one TALA_USER_DATA
+           points at (a sandboxed test, or a node started from a different root)
+           -- it falls back to asking the node over HTTP, since commit_to_ghost
+           anchors through that same node and it therefore always holds the tx.
     """
     log.info("GhostPersistence: Attempting to restore thought-state for task %s", task_id)
-    
-    # Read chain.json directly (fully local and fast)
+
+    state = _restore_from_local_file(task_id)
+    if state is not None:
+        return state
+    return _restore_from_node_http(task_id)
+
+
+def _restore_from_local_file(task_id: str) -> dict[str, Any] | None:
+    """Read chain.json directly (fully local and fast). None if not present."""
     user_data = os.environ.get("TALA_USER_DATA")
     if user_data:
         data_dir = Path(user_data) / "blockchain" / "data"
@@ -112,29 +124,57 @@ async def restore_from_ghost(task_id: str) -> dict[str, Any] | None:
         # Walk up from this file to find blockchain/data
         repo_root = Path(__file__).resolve().parent.parent.parent
         data_dir = repo_root / "blockchain" / "data"
-        
+
     chain_file = data_dir / "chain.json"
     if not chain_file.exists():
-        log.warning("GhostPersistence: chain.json not found at %s", chain_file)
+        log.info("GhostPersistence: no local chain.json at %s; will try the node over HTTP", chain_file)
         return None
-        
+
     try:
         with open(chain_file, "r", encoding="utf-8") as f:
             blocks = json.load(f)
-            
+
         # Search backward from the latest blocks
         for block in reversed(blocks):
             for tx in block.get("transactions", []):
                 if tx.get("id") == f"ghost_commit_{task_id}" and tx.get("metadata", {}).get("document_type") == "thought-state":
-                    # Found it! Decrypt the document
                     doc = tx.get("document")
                     if doc:
-                        decrypted = _decrypt_document(doc)
-                        return decrypted.get("state_data")
+                        return _decrypt_document(doc).get("state_data")
     except Exception as exc:
-        log.warning("GhostPersistence: Failed to restore thought-state: %s", exc)
-        
+        log.warning("GhostPersistence: Failed to read local chain.json: %s", exc)
+
     return None
+
+
+def _restore_from_node_http(task_id: str) -> dict[str, Any] | None:
+    """
+    Ask the running chain node for the tx directly.
+
+    commit_to_ghost anchors through the node, so it holds the transaction even
+    when the local chain.json lives elsewhere. GET /chain/tx/:id returns
+    ``{"transaction": {...}}`` including the (encrypted) document.
+    """
+    port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
+    url = f"http://127.0.0.1:{port}/chain/tx/ghost_commit_{task_id}"
+    try:
+        with urllib.request.urlopen(url, timeout=5) as response:
+            payload = json.loads(response.read().decode("utf-8"))
+    except Exception as exc:
+        log.warning("GhostPersistence: HTTP restore failed for task %s: %s", task_id, exc)
+        return None
+
+    tx = (payload or {}).get("transaction") or {}
+    if tx.get("metadata", {}).get("document_type") != "thought-state":
+        return None
+    doc = tx.get("document")
+    if not doc:
+        return None
+    try:
+        return _decrypt_document(doc).get("state_data")
+    except Exception as exc:
+        log.warning("GhostPersistence: could not decrypt restored document: %s", exc)
+        return None
 
 def get_local_status() -> dict[str, Any]:
     """
