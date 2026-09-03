@@ -54,7 +54,8 @@ class _Recorder:
         self.max_active = 0
         self.calls: list[tuple[str, str]] = []
 
-    async def generate(self, system_prompt: str, user_prompt: str) -> str:
+    async def generate(self, system_prompt: str, user_prompt: str,
+                       max_tokens: int | None = None) -> str:
         self.calls.append((system_prompt, user_prompt))
         self.active += 1
         self.max_active = max(self.max_active, self.active)
@@ -147,9 +148,9 @@ async def test_a_run_needs_a_goal_and_a_populated_crew():
     try:
         await _mk_crew(crew_id, "Empty")
         with pytest.raises(crews.CrewError):
-            await crews.run_crew(crew_id, "", generate=lambda s, u: _noop())
+            await crews.run_crew(crew_id, "", generate=lambda *a: _noop())
         with pytest.raises(crews.CrewError):
-            await crews.run_crew(crew_id, "a goal", generate=lambda s, u: _noop())
+            await crews.run_crew(crew_id, "a goal", generate=lambda *a: _noop())
     finally:
         await _cleanup(crew_id, [])
         await db.close_pool()

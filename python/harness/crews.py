@@ -509,9 +509,9 @@ async def _crew_would_cycle(crew_id: str, proposed_parent: str) -> bool:
 # decided by the written hierarchy, not negotiated at runtime — while the member
 # runs themselves happen concurrently.
 
-#: Signature of the function that turns (system_prompt, user_prompt) into text.
-#: Injectable so the orchestration can be tested without a live model.
-GenerateFn = Callable[[str, str], Awaitable[str]]
+#: Signature of the function that turns (system_prompt, user_prompt[, max_tokens])
+#: into text. Injectable so the orchestration can be tested without a live model.
+GenerateFn = Callable[..., Awaitable[str]]
 
 #: Signature of the progress callback. Never allowed to break a run.
 NotifyFn = Callable[[dict[str, Any]], Awaitable[None]]
@@ -651,7 +651,11 @@ async def run_crew(
         raise CrewError("that crew has no members to run")
 
     manager, workers = pick_manager(members)
-    gen = generate or (lambda sp, up: _default_generate(sp, up, max_tokens))
+    gen = generate or _default_generate
+    # The manager combines several answers into one, so a synthesis that fits in
+    # a worker's budget is the exception. Give it materially more room, or it
+    # truncates mid-sentence exactly when it matters most.
+    manager_tokens = max(max_tokens * 2, 384)
     run_id = str(run_id or "").strip() or f"crewrun-{uuid.uuid4().hex[:12]}"
     crew_name = crew["name"]
     manager_id = manager["id"] if manager else ""
@@ -677,7 +681,7 @@ async def run_crew(
                                "agent_id": member["id"], "name": member["name"],
                                "role": member.get("role") or ""})
         try:
-            text = await gen(_persona_prompt_from_row(member), goal)
+            text = await gen(_persona_prompt_from_row(member), goal, max_tokens)
         except Exception as exc:
             log.warning("crew run %s: member %s failed: %s", run_id, member["id"], exc)
             text = f"[this member could not respond: {exc}]"
@@ -695,7 +699,7 @@ async def run_crew(
                                    "agent_id": manager["id"], "name": manager["name"]})
             try:
                 final = await gen(_persona_prompt_from_row(manager),
-                                  _synthesis_prompt(goal, results))
+                                  _synthesis_prompt(goal, results), manager_tokens)
             except Exception as exc:
                 log.warning("crew run %s: manager synthesis failed: %s", run_id, exc)
                 final = _flat_final(results) + f"\n\n[manager could not synthesise: {exc}]"
