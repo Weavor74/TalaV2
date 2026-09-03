@@ -37,7 +37,7 @@ This repository is intentionally committed as a blank slate: generated node file
 
 - **Model Context Protocol (MCP) Integration:** Full support for the official MCP Python SDK, dynamically discovering and invoking external capabilities across both `stdio` (local subprocess) and `sse` (remote HTTP) transports.
 
-- **Bring-Your-Own-Everything (BYOE):** Inference is fully abstracted across an **embedded local model** (transformers, `Qwen/Qwen2.5-0.5B-Instruct`, runs with no internet) plus **Ollama, vLLM, OpenAI, Anthropic, Gemini, DeepSeek, and Kimi**. Provider configuration is runtime data; native function calling is normalized at the boundary, and provider failover preserves an offline-first path rather than making cloud access a hidden prerequisite. Storage and authentication endpoints are similarly pluggable.
+- **Bring-Your-Own-Everything (BYOE):** The only *pre-configured* inference provider is the **embedded local model** (transformers, `Qwen/Qwen2.5-0.5B-Instruct`), which runs with no internet. Every other model is reached through a generic **OpenAI-compatible provider** interface that the end user configures and selects — point it at a local server (e.g. **Ollama**, **vLLM**, **LM Studio**) or any remote OpenAI-compatible API (e.g. **OpenAI**, **Anthropic**, **Gemini**, **DeepSeek**, **Kimi**) by supplying a base URL, model, and key. Provider configuration is runtime data; native function calling is normalized at the boundary, and provider failover preserves an offline-first path rather than making cloud access a hidden prerequisite. Storage and authentication endpoints are similarly pluggable.
 
 ## Architecture Documents
 
