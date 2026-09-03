@@ -1259,10 +1259,16 @@ async def handle_inference_generate(
     is_casual_chat = is_casual_chat_prompt(prompt)
 
     # Guardrails prompt validation (pre-inference)
+    #
+    # allow_pii is an explicit request parameter rather than a magic string in
+    # the prompt. The old marker was a published constant, so it authorised
+    # nobody in particular, and it was matched as a substring, so quoting it or
+    # pasting a log that contained it counted as consent.
+    allow_pii = bool(params.get("allow_pii", False))
     try:
         from python.harness.guardrails_manager import GuardrailsManager
         guardrails_mgr = await GuardrailsManager.load_current()
-        guardrails_mgr.validate_prompt(prompt)
+        guardrails_mgr.validate_prompt(prompt, allow_pii=allow_pii)
     except (SafetyGuardrailViolation, PiiAccessBlockedError) as exc:
         err_msg = f"Guardrail blocked prompt: {exc.message}"
         logger.warning(err_msg)

@@ -211,10 +211,26 @@ class GuardrailsManager:
         category, rules = await get_active_guardrails()
         return cls(category, rules)
 
-    def validate_prompt(self, prompt: str) -> None:
+    def validate_prompt(self, prompt: str, *, allow_pii: bool = False) -> None:
         """
         Verify input prompt against active guardrails.
         Raises SafetyGuardrailViolation or PiiAccessBlockedError if any check fails.
+
+        ``allow_pii`` is the caller stating that the user has consented to this
+        particular prompt containing personal data. It is a parameter, not a
+        marker in the prompt text, because the previous mechanism -- the literal
+        ``[PERMISSION_GRANT=MANUAL_OK_2026]`` appearing anywhere in the string --
+        had two problems a constant cannot fix:
+
+          * it was a shared secret published in the repository, so it granted
+            nothing to the user that it did not also grant to anyone who read
+            the source; and
+          * it was a *substring* test, so it fired on quoted text, a pasted
+            log line, or a document the user was asking about, none of which
+            are consent. This codebase has been bitten by substring gates
+            three times before.
+
+        A parameter cannot arrive inside content. That is the whole point.
         """
         if not self.rules:
             return
@@ -271,9 +287,7 @@ class GuardrailsManager:
 
         # 4. PII Check - Blocking in input prompts if detected
         if self.rules.get("pii"):
-            has_bypass = "[PERMISSION_GRANT=MANUAL_OK_2026]" in prompt
-            
-            if not has_bypass:
+            if not allow_pii:
                 pii_fields = self.rules.get("pii_fields", [])
                 
                 if "email" in pii_fields and EMAIL_REGEX.search(prompt):
