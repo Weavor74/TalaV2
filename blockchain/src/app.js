@@ -1682,7 +1682,7 @@ const server = http.createServer((req, res) => {
   }
 
   // Route: GET /chain/tx/:id
-  const txMatch = url.pathname.match(/^\/chain\/tx\/([a-zA-Z0-9-]+)$/);
+  const txMatch = url.pathname.match(/^\/chain\/tx\/([a-zA-Z0-9_-]+)$/);
   if (txMatch && req.method === 'GET') {
     const txId = txMatch[1];
     const result = talaLedger.findTransactionById(txId);
