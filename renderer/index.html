@@ -2843,6 +2843,7 @@
             <h1 class="view-title">Agent Builder</h1>
             <nav class="agent-builder-nav" style="display: flex; gap: var(--space-3); border-bottom: 1px solid rgba(255,255,255,0.1); padding-bottom: 4px;">
               <button class="btn btn-secondary active" data-builder-tab="workers">Workers</button>
+              <button class="btn btn-secondary" data-builder-tab="teams">Teams</button>
               <button class="btn btn-secondary" data-builder-tab="topologies">Topologies</button>
               <button class="btn btn-secondary" data-builder-tab="taskboard">Task Board</button>
               <button class="btn btn-secondary" data-builder-tab="runs">Runs</button>
@@ -2856,6 +2857,67 @@
               <p class="form-help" style="margin-bottom: 16px;">Configure isolated capabilities, models, and constraints for your agent swarm workforce.</p>
               <button class="btn btn-primary" onclick="document.querySelector('[data-view=\\'settings\\']').click(); setTimeout(()=>document.querySelector('[data-tab=\\'settings-agents\\']').click(), 100)">Manage Workers in Settings</button>
               <div id="builder-workers-list" style="margin-top: var(--space-4); display: flex; flex-direction: column; gap: var(--space-2);"></div>
+            </div>
+
+            <!-- Teams Tab: define a crew (team) and run every member at once. -->
+            <div id="builder-tab-teams" class="builder-tab-pane" style="display: none; height: 100%;">
+              <div style="display: flex; gap: var(--space-4); height: 100%;">
+                <div style="flex: 0 0 240px; border-right: 1px solid rgba(255,255,255,0.1); padding-right: var(--space-3); display: flex; flex-direction: column;">
+                  <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
+                    <h3 style="margin: 0; font-size: 0.9rem;">Teams</h3>
+                    <button class="btn btn-primary" id="btn-team-new" style="font-size: 0.7rem; padding: 3px 8px;">＋ New</button>
+                  </div>
+                  <div id="team-list" style="display: flex; flex-direction: column; gap: var(--space-2); flex: 1; overflow-y: auto;">
+                    <div class="empty-state" style="padding: var(--space-2);">Loading teams…</div>
+                  </div>
+                </div>
+                <div style="flex: 1; display: flex; flex-direction: column; overflow-y: auto;">
+                  <div id="team-empty" class="empty-state" style="padding: var(--space-4);">Select a team, or create one, to manage its members and run them all at once. A team member set as <em>manager</em> synthesises the others' answers into one.</div>
+
+                  <!-- New / edit team form -->
+                  <div id="team-form" style="display: none; background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.05); border-radius: var(--radius-md); padding: var(--space-4);">
+                    <h3 id="team-form-title" style="margin: 0 0 var(--space-3) 0; font-size: 1rem;">New Team</h3>
+                    <div style="margin-bottom: var(--space-3);">
+                      <label class="form-label" for="team-form-name" style="display:block; font-size:0.75rem; color:var(--text-secondary); margin-bottom:4px;">Team name</label>
+                      <input type="text" id="team-form-name" placeholder="Product Team" style="width:100%; padding:var(--space-2); background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-primary); font-size:0.85rem;" />
+                    </div>
+                    <div style="margin-bottom: var(--space-3);">
+                      <label class="form-label" for="team-form-purpose" style="display:block; font-size:0.75rem; color:var(--text-secondary); margin-bottom:4px;">Purpose (optional)</label>
+                      <input type="text" id="team-form-purpose" placeholder="What is this team for?" style="width:100%; padding:var(--space-2); background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-primary); font-size:0.85rem;" />
+                    </div>
+                    <div id="team-form-error" style="display:none; margin-bottom:var(--space-2); color:var(--status-error,#e74c3c); font-size:0.75rem;"></div>
+                    <div style="display:flex; gap:var(--space-2);">
+                      <button class="btn btn-primary" id="btn-team-form-save">Create Team</button>
+                      <button class="btn btn-secondary" id="btn-team-form-cancel">Cancel</button>
+                    </div>
+                  </div>
+
+                  <!-- Team detail: members + run -->
+                  <div id="team-detail" style="display: none;">
+                    <div style="display:flex; justify-content:space-between; align-items:baseline; margin-bottom:var(--space-2);">
+                      <h3 id="team-name" style="margin:0; font-size:1.1rem;"></h3>
+                      <button class="btn btn-secondary" id="btn-team-delete" style="font-size:0.7rem; padding:3px 8px;">🗑 Disband</button>
+                    </div>
+                    <p id="team-purpose" class="form-help" style="margin-top:0;"></p>
+
+                    <h4 style="font-size:0.85rem; margin:var(--space-3) 0 var(--space-2) 0;">Members</h4>
+                    <div id="team-members" style="display:flex; flex-direction:column; gap:var(--space-2);"></div>
+                    <div style="display:flex; gap:var(--space-2); margin-top:var(--space-2); align-items:center;">
+                      <select id="team-add-agent" style="flex:1; padding:var(--space-2); background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-primary); font-size:0.8rem;"></select>
+                      <button class="btn btn-secondary" id="btn-team-add-member" style="font-size:0.75rem;">Add member</button>
+                    </div>
+                    <div class="form-help" style="font-size:0.65rem; margin-top:4px;">Set one member as <strong>manager</strong> and the others become workers who report to them; the manager synthesises their answers. With no manager, every answer is collected as-is.</div>
+
+                    <h4 style="font-size:0.85rem; margin:var(--space-4) 0 var(--space-2) 0;">Run the team</h4>
+                    <textarea id="team-goal" rows="3" placeholder="Give the whole team one goal — every member works it at once…" style="width:100%; padding:var(--space-2); background:rgba(255,255,255,0.03); border:1px solid rgba(255,255,255,0.1); border-radius:4px; color:var(--text-primary); font-size:0.85rem; resize:vertical;"></textarea>
+                    <div style="display:flex; gap:var(--space-2); align-items:center; margin-top:var(--space-2);">
+                      <button class="btn btn-primary" id="btn-team-run">▶ Run all members at once</button>
+                      <span id="team-run-status" class="form-help" style="margin:0;"></span>
+                    </div>
+                    <div id="team-run-results" style="display:flex; flex-direction:column; gap:var(--space-2); margin-top:var(--space-3);"></div>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <!-- Topologies Tab -->

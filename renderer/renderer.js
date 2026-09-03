@@ -13651,6 +13651,303 @@ const ProfileManager = {
 /* ═══════════════════════════════════════════════════════════════════
    AGENT BUILDER
    ═══════════════════════════════════════════════════════════════════ */
+// ---------------------------------------------------------------------------
+// TeamsBuilder — define a crew (team) and run every member on one goal at once.
+//
+// The swarm builder (Topologies) already lets a user draw a DAG and run it.
+// This is its deterministic sibling: a team is a roster with an optional
+// manager, and running it fans the same goal out to every member concurrently,
+// then (if there is a manager) has that manager synthesise the answers. It maps
+// straight onto the crew.* RPCs plus crew.run / crew.run.progress.
+// ---------------------------------------------------------------------------
+const TeamsBuilder = {
+  teams: [],
+  agents: [],
+  selectedId: null,
+  activeRunId: null,
+  _bound: false,
+  _notifBound: false,
+
+  esc(s) {
+    return String(s == null ? '' : s).replace(/[&<>"']/g, (c) => (
+      { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]
+    ));
+  },
+
+  async rpc(method, params) {
+    return window.tala.invoke('python:rpc', { method, params: params || {} });
+  },
+
+  onShow() {
+    this.bindEvents();
+    this.bindNotifications();
+    this.refreshTeams();
+  },
+
+  bindNotifications() {
+    if (this._notifBound || !window.tala || typeof window.tala.on !== 'function') return;
+    this._notifBound = true;
+    window.tala.on('python:notification', (msg) => {
+      if (!msg || msg.method !== 'crew.run.progress') return;
+      this.onRunProgress(msg.params || {});
+    });
+  },
+
+  bindEvents() {
+    if (this._bound) return;
+    this._bound = true;
+    const on = (id, ev, fn) => { const el = qs(id); if (el) el.addEventListener(ev, fn); };
+    on('#btn-team-new', 'click', () => this.showForm());
+    on('#btn-team-form-cancel', 'click', () => this.hideForm());
+    on('#btn-team-form-save', 'click', () => this.createTeam());
+    on('#btn-team-delete', 'click', () => this.deleteTeam());
+    on('#btn-team-add-member', 'click', () => this.addMember());
+    on('#btn-team-run', 'click', () => this.runTeam());
+  },
+
+  async refreshTeams(selectId) {
+    try {
+      const [teamsRes, agentsRes] = await Promise.all([
+        this.rpc('crew.list', {}),
+        this.rpc('agent.get_agents', {}),
+      ]);
+      this.teams = (teamsRes && teamsRes.crews) || [];
+      this.agents = (agentsRes && agentsRes.agents) || [];
+      const listEl = qs('#team-list');
+      if (listEl) {
+        if (this.teams.length === 0) {
+          listEl.innerHTML = '<div class="empty-state" style="padding: var(--space-2);">No teams yet. Click ＋ New to create one.</div>';
+        } else {
+          listEl.innerHTML = this.teams.map((t) => `
+            <div class="team-list-item" data-team-id="${this.esc(t.id)}" style="padding: var(--space-2) var(--space-3); background: ${t.id === this.selectedId ? 'rgba(88,166,255,0.15)' : 'rgba(0,0,0,0.2)'}; border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; cursor: pointer;">
+              <div style="font-size: 0.85rem; font-weight: 600;">${this.esc(t.name)}</div>
+              <div style="font-size: 0.7rem; color: var(--text-muted);">${t.members} member${t.members === 1 ? '' : 's'}</div>
+            </div>
+          `).join('');
+          listEl.querySelectorAll('.team-list-item').forEach((el) => {
+            el.addEventListener('click', () => this.selectTeam(el.dataset.teamId));
+          });
+        }
+      }
+      if (selectId) this.selectTeam(selectId);
+      else if (this.selectedId) this.selectTeam(this.selectedId);
+    } catch (e) {
+      console.error('Failed to load teams', e);
+    }
+  },
+
+  showForm() {
+    this.selectedId = null;
+    const f = qs('#team-form'); const d = qs('#team-detail'); const e = qs('#team-empty');
+    if (e) e.style.display = 'none';
+    if (d) d.style.display = 'none';
+    if (f) f.style.display = 'block';
+    const err = qs('#team-form-error'); if (err) err.style.display = 'none';
+    const n = qs('#team-form-name'); if (n) { n.value = ''; n.focus(); }
+    const p = qs('#team-form-purpose'); if (p) p.value = '';
+  },
+
+  hideForm() {
+    const f = qs('#team-form'); if (f) f.style.display = 'none';
+    if (this.selectedId) this.selectTeam(this.selectedId);
+    else { const e = qs('#team-empty'); if (e) e.style.display = 'block'; }
+  },
+
+  async createTeam() {
+    const name = (qs('#team-form-name') || {}).value || '';
+    const purpose = (qs('#team-form-purpose') || {}).value || '';
+    const err = qs('#team-form-error');
+    if (!name.trim()) {
+      if (err) { err.textContent = 'A team needs a name.'; err.style.display = 'block'; }
+      return;
+    }
+    try {
+      const res = await this.rpc('crew.create', { name: name.trim(), kind: 'team', purpose: purpose.trim() });
+      const f = qs('#team-form'); if (f) f.style.display = 'none';
+      await this.refreshTeams(res && res.id);
+    } catch (e) {
+      if (err) { err.textContent = String(e.message || e); err.style.display = 'block'; }
+    }
+  },
+
+  async deleteTeam() {
+    if (!this.selectedId) return;
+    const team = this.teams.find((t) => t.id === this.selectedId);
+    if (!window.confirm(`Disband "${team ? team.name : this.selectedId}"? Members are released, not deleted.`)) return;
+    try {
+      await this.rpc('crew.delete', { crew_id: this.selectedId });
+      this.selectedId = null;
+      const d = qs('#team-detail'); if (d) d.style.display = 'none';
+      const e = qs('#team-empty'); if (e) e.style.display = 'block';
+      await this.refreshTeams();
+    } catch (e) { console.error('crew.delete failed', e); }
+  },
+
+  _membersOf(crewId) {
+    return this.agents.filter((a) => a.crew_id === crewId);
+  },
+
+  _managerId(members) {
+    // The member others report to (top of the in-crew tree). Mirrors the
+    // backend pick_manager closely enough for display.
+    const ids = new Set(members.map((m) => m.id));
+    const manages = new Set();
+    members.forEach((m) => {
+      members.forEach((o) => { if (o.id !== m.id && o.reports_to === m.id) manages.add(m.id); });
+    });
+    const tops = members.filter((m) => manages.has(m.id) && !ids.has(m.reports_to));
+    return tops.length === 1 ? tops[0].id : null;
+  },
+
+  async selectTeam(id) {
+    this.selectedId = id;
+    const team = this.teams.find((t) => t.id === id);
+    if (!team) return;
+    // Refresh agents so membership/reporting reflects the latest edits.
+    try {
+      const agentsRes = await this.rpc('agent.get_agents', {});
+      this.agents = (agentsRes && agentsRes.agents) || this.agents;
+    } catch (e) { /* keep cached */ }
+
+    const f = qs('#team-form'); if (f) f.style.display = 'none';
+    const e = qs('#team-empty'); if (e) e.style.display = 'none';
+    const d = qs('#team-detail'); if (d) d.style.display = 'block';
+    const nameEl = qs('#team-name'); if (nameEl) nameEl.textContent = team.name;
+    const purposeEl = qs('#team-purpose');
+    if (purposeEl) purposeEl.textContent = team.purpose || 'No purpose set.';
+
+    const members = this._membersOf(id);
+    const managerId = this._managerId(members);
+    const membersEl = qs('#team-members');
+    if (membersEl) {
+      if (members.length === 0) {
+        membersEl.innerHTML = '<div class="empty-state" style="padding: var(--space-2);">No members yet. Add agents below.</div>';
+      } else {
+        membersEl.innerHTML = members.map((m) => {
+          const isMgr = m.id === managerId;
+          return `
+            <div style="display:flex; align-items:center; justify-content:space-between; padding: var(--space-2) var(--space-3); background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;">
+              <div>
+                <span style="font-size:0.85rem; font-weight:600;">${this.esc(m.name)}</span>
+                ${m.role ? `<span style="font-size:0.7rem; color:var(--text-muted); margin-left:8px;">${this.esc(m.role)}</span>` : ''}
+                ${isMgr ? '<span style="font-size:0.65rem; background:rgba(88,166,255,0.25); color:#58a6ff; padding:1px 6px; border-radius:8px; margin-left:8px;">MANAGER</span>' : ''}
+              </div>
+              <div style="display:flex; gap:6px;">
+                ${isMgr ? '' : `<button class="btn btn-secondary team-make-mgr" data-id="${this.esc(m.id)}" style="font-size:0.65rem; padding:2px 6px;">Make manager</button>`}
+                <button class="btn btn-secondary team-remove" data-id="${this.esc(m.id)}" style="font-size:0.65rem; padding:2px 6px;">Remove</button>
+              </div>
+            </div>`;
+        }).join('');
+        membersEl.querySelectorAll('.team-make-mgr').forEach((el) => {
+          el.addEventListener('click', () => this.makeManager(el.dataset.id));
+        });
+        membersEl.querySelectorAll('.team-remove').forEach((el) => {
+          el.addEventListener('click', () => this.removeMember(el.dataset.id));
+        });
+      }
+    }
+
+    // Populate the add-member dropdown with agents not already in this team.
+    const sel = qs('#team-add-agent');
+    if (sel) {
+      const candidates = this.agents.filter((a) => a.crew_id !== id);
+      sel.innerHTML = candidates.length
+        ? candidates.map((a) => `<option value="${this.esc(a.id)}">${this.esc(a.name)}${a.role ? ' — ' + this.esc(a.role) : ''}</option>`).join('')
+        : '<option value="">(every agent is already on this team)</option>';
+    }
+
+    const results = qs('#team-run-results'); if (results) results.innerHTML = '';
+    const status = qs('#team-run-status'); if (status) status.textContent = '';
+  },
+
+  async addMember() {
+    const sel = qs('#team-add-agent');
+    const agentId = sel && sel.value;
+    if (!agentId) return;
+    try {
+      await this.rpc('crew.set_membership', { agent_id: agentId, crew_id: this.selectedId });
+      await this.refreshTeams(this.selectedId);
+    } catch (e) { console.error('add member failed', e); }
+  },
+
+  async removeMember(agentId) {
+    try {
+      await this.rpc('crew.set_membership', { agent_id: agentId, crew_id: '', reports_to: '' });
+      await this.refreshTeams(this.selectedId);
+    } catch (e) { console.error('remove member failed', e); }
+  },
+
+  async makeManager(agentId) {
+    const members = this._membersOf(this.selectedId);
+    try {
+      // Everyone else reports to the new manager; the manager reports to nobody.
+      for (const m of members) {
+        if (m.id === agentId) {
+          await this.rpc('crew.set_membership', { agent_id: m.id, crew_id: this.selectedId, reports_to: '' });
+        } else {
+          await this.rpc('crew.set_membership', { agent_id: m.id, crew_id: this.selectedId, reports_to: agentId });
+        }
+      }
+      await this.refreshTeams(this.selectedId);
+    } catch (e) { console.error('make manager failed', e); }
+  },
+
+  async runTeam() {
+    const goal = ((qs('#team-goal') || {}).value || '').trim();
+    const status = qs('#team-run-status');
+    const results = qs('#team-run-results');
+    if (!goal) { if (status) status.textContent = 'Enter a goal first.'; return; }
+    if (results) results.innerHTML = '';
+    if (status) status.textContent = 'Starting…';
+    try {
+      const res = await this.rpc('crew.run', { crew_id: this.selectedId, goal, max_tokens: 120 });
+      this.activeRunId = res && res.run_id;
+      if (status) status.textContent = `Running ${res ? res.members : ''} member(s)…`;
+    } catch (e) {
+      if (status) status.textContent = 'Failed: ' + String(e.message || e);
+    }
+  },
+
+  _card(agentId) {
+    let el = qs(`#team-card-${CSS.escape(agentId)}`);
+    if (!el) {
+      const results = qs('#team-run-results');
+      if (!results) return null;
+      el = document.createElement('div');
+      el.id = `team-card-${agentId}`;
+      el.style.cssText = 'padding: var(--space-2) var(--space-3); background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px;';
+      results.appendChild(el);
+    }
+    return el;
+  },
+
+  onRunProgress(ev) {
+    if (!ev || ev.run_id !== this.activeRunId) return;
+    const status = qs('#team-run-status');
+    if (ev.event === 'member_started') {
+      const el = this._card(ev.agent_id);
+      if (el) el.innerHTML = `<div style="font-size:0.8rem; font-weight:600;">${this.esc(ev.name)}${ev.role ? ` <span style="color:var(--text-muted); font-weight:normal;">(${this.esc(ev.role)})</span>` : ''}</div><div style="font-size:0.75rem; color:var(--text-muted);">…thinking</div>`;
+    } else if (ev.event === 'member_completed') {
+      const el = this._card(ev.agent_id);
+      if (el) el.innerHTML = `<div style="font-size:0.8rem; font-weight:600;">${this.esc(ev.name)}${ev.role ? ` <span style="color:var(--text-muted); font-weight:normal;">(${this.esc(ev.role)})</span>` : ''}</div><div style="font-size:0.8rem; white-space:pre-wrap; margin-top:2px;">${this.esc(ev.output)}</div>`;
+    } else if (ev.event === 'synthesizing') {
+      if (status) status.textContent = `Manager (${ev.name}) synthesising…`;
+    } else if (ev.event === 'completed') {
+      if (status) status.textContent = 'Completed.';
+      const results = qs('#team-run-results');
+      if (results) {
+        const fin = document.createElement('div');
+        fin.style.cssText = 'padding: var(--space-3); background: rgba(88,166,255,0.12); border: 1px solid rgba(88,166,255,0.35); border-radius: 6px; margin-top: var(--space-2);';
+        const label = ev.manager ? `Team answer — synthesised by ${this.esc(ev.manager.name)}` : 'Team answer — collected from every member';
+        fin.innerHTML = `<div style="font-size:0.75rem; text-transform:uppercase; color:#58a6ff; margin-bottom:4px;">${label}</div><div style="font-size:0.85rem; white-space:pre-wrap;">${this.esc(ev.final)}</div>`;
+        results.appendChild(fin);
+      }
+    } else if (ev.event === 'failed') {
+      if (status) status.textContent = 'Failed: ' + String(ev.error || 'unknown error');
+    }
+  },
+};
+
 const AgentBuilder = {
   activeTab: 'workers',
   pollInterval: null,
@@ -13699,6 +13996,7 @@ const AgentBuilder = {
     if (tabId === 'taskboard') this.refreshTaskBoard();
     else if (tabId === 'workers') this.refreshWorkers();
     else if (tabId === 'topologies') this.refreshTopologies();
+    else if (tabId === 'teams') TeamsBuilder.onShow();
   },
 
   onShow() {

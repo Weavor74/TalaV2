@@ -38,9 +38,12 @@ Three things were wrong before this existed:
 
 from __future__ import annotations
 
+import asyncio
+import json
 import logging
 import uuid
-from typing import Any
+from datetime import datetime, timezone
+from typing import Any, Awaitable, Callable
 
 log = logging.getLogger(__name__)
 
@@ -495,3 +498,282 @@ async def _crew_would_cycle(crew_id: str, proposed_parent: str) -> bool:
             "SELECT parent_crew_id FROM crews WHERE id = $1", current)
         current = row["parent_crew_id"] if row else None
     return True
+
+
+# ── running a crew: many agents at once ──────────────────────────────────────
+#
+# assign() and escalate() route ONE task to ONE member. The other thing a team
+# is for is running everyone on the same goal at once and, when there is a
+# manager, having them synthesise the answers into one. That is what run_crew
+# does. It is deterministic in the crew sense — who runs and who synthesises is
+# decided by the written hierarchy, not negotiated at runtime — while the member
+# runs themselves happen concurrently.
+
+#: Signature of the function that turns (system_prompt, user_prompt[, max_tokens])
+#: into text. Injectable so the orchestration can be tested without a live model.
+GenerateFn = Callable[..., Awaitable[str]]
+
+#: Signature of the progress callback. Never allowed to break a run.
+NotifyFn = Callable[[dict[str, Any]], Awaitable[None]]
+
+
+def _persona_prompt_from_row(member: dict[str, Any]) -> str:
+    """The member's own system prompt, or a sensible default from name/role."""
+    config = member.get("config")
+    if isinstance(config, str):
+        try:
+            config = json.loads(config)
+        except Exception:
+            config = {}
+    prompt = ((config or {}).get("system_prompt") or "").strip()
+    if prompt:
+        return prompt
+    name = member.get("name") or member.get("id") or "an agent"
+    role = (member.get("role") or "").strip()
+    who = f"You are {name}"
+    if role:
+        who += f", the team's {role}"
+    return who + ". Answer from your specific expertise, concisely and concretely."
+
+
+def pick_manager(
+    members: list[dict[str, Any]],
+) -> tuple[dict[str, Any] | None, list[dict[str, Any]]]:
+    """
+    Decide who, if anyone, is the crew's manager.
+
+    The manager is the single member whom other members report to and who does
+    not themselves report to anyone inside the crew — the top of the in-crew
+    reporting tree. If that is ambiguous (nobody, or more than one such top),
+    the crew is treated as flat: everyone is a worker and the outputs are simply
+    collected rather than synthesised by one of them.
+    """
+    ids = {m["id"] for m in members}
+    manages = {
+        m["id"]
+        for m in members
+        if any((o.get("reports_to") == m["id"]) for o in members if o["id"] != m["id"])
+    }
+    tops = [
+        m for m in members
+        if m["id"] in manages and (m.get("reports_to") or None) not in ids
+    ]
+    if len(tops) == 1:
+        manager = tops[0]
+        workers = [m for m in members if m["id"] != manager["id"]]
+        return manager, workers
+    return None, list(members)
+
+
+async def _default_generate(system_prompt: str, user_prompt: str,
+                            max_tokens: int = 512) -> str:
+    """Run one persona turn through the harness's own inference path."""
+    from python.harness.server import handle_inference_generate
+
+    params = {
+        "prompt": user_prompt,
+        "stream": False,
+        "raw_prompt": True,          # a team goal is not a slash-command to route
+        "system_prompt": system_prompt,
+        "max_tokens": max_tokens,
+    }
+    raw = await handle_inference_generate(params, ws=None, req_id="crew-run")
+    data = json.loads(raw)
+    if isinstance(data, dict):
+        if isinstance(data.get("result"), dict):
+            return (data["result"].get("text") or "").strip()
+        if data.get("error"):
+            raise RuntimeError(str(data["error"]))
+    return ""
+
+
+async def _emit(notifier: NotifyFn | None, event: dict[str, Any]) -> None:
+    if notifier is None:
+        return
+    try:
+        await notifier(event)
+    except Exception as exc:  # a dead socket must not fail the run
+        log.debug("crew run: progress notifier failed (ignored): %s", exc)
+
+
+def _synthesis_prompt(goal: str, results: list[dict[str, Any]]) -> str:
+    parts = [f"The team's goal:\n{goal}\n", "Each team member responded:"]
+    for r in results:
+        header = r["name"] + (f" ({r['role']})" if r.get("role") else "")
+        parts.append(f"\n--- {header} ---\n{r['output']}")
+    parts.append(
+        "\nAs the team's manager, synthesise these into a single, cohesive team "
+        "answer to the goal. Resolve disagreements explicitly and note the key "
+        "contribution each member made."
+    )
+    return "\n".join(parts)
+
+
+def _flat_final(results: list[dict[str, Any]]) -> str:
+    return "\n\n".join(
+        f"### {r['name']}" + (f" — {r['role']}" if r.get("role") else "") + f"\n{r['output']}"
+        for r in results
+    )
+
+
+async def run_crew(
+    crew_id: str,
+    goal: str,
+    *,
+    notifier: NotifyFn | None = None,
+    generate: GenerateFn | None = None,
+    run_id: str = "",
+    max_tokens: int = 512,
+) -> dict[str, Any]:
+    """
+    Run every member of a crew on the same goal at once.
+
+    Workers run concurrently. If the crew has a single manager (top of the
+    in-crew reporting tree), that manager then synthesises the workers' answers
+    into one; otherwise the answers are collected as-is. Progress is streamed
+    through ``notifier`` and the whole run is persisted to ``crew_runs``.
+    """
+    from python.harness import db
+
+    crew_id = str(crew_id or "").strip()
+    goal = str(goal or "").strip()
+    if not goal:
+        raise CrewError("a crew run needs a goal")
+    crew = await db.fetchrow("SELECT id, name FROM crews WHERE id = $1", crew_id)
+    if not crew:
+        raise CrewError("that crew does not exist")
+
+    rows = await db.fetch(
+        "SELECT id, name, role, reports_to, is_active, config "
+        "FROM agents WHERE crew_id = $1 ORDER BY name", crew_id)
+    members = [dict(r) for r in rows]
+    if not members:
+        raise CrewError("that crew has no members to run")
+
+    manager, workers = pick_manager(members)
+    gen = generate or _default_generate
+    # The manager combines several answers into one, so a synthesis that fits in
+    # a worker's budget is the exception. Give it materially more room, or it
+    # truncates mid-sentence exactly when it matters most.
+    manager_tokens = max(max_tokens * 2, 384)
+    run_id = str(run_id or "").strip() or f"crewrun-{uuid.uuid4().hex[:12]}"
+    crew_name = crew["name"]
+    manager_id = manager["id"] if manager else ""
+    manager_name = manager["name"] if manager else ""
+
+    await db.execute(
+        "INSERT INTO crew_runs (id, crew_id, crew_name, goal, status, "
+        "manager_id, manager_name, members) "
+        "VALUES ($1, $2, $3, $4, 'running', $5, $6, '[]'::jsonb)",
+        run_id, crew_id, crew_name, goal, manager_id, manager_name,
+        caller="crews.run_crew",
+    )
+    await _emit(notifier, {
+        "event": "started", "run_id": run_id, "crew_id": crew_id,
+        "crew_name": crew_name, "goal": goal,
+        "manager": ({"id": manager_id, "name": manager_name} if manager else None),
+        "workers": [{"id": w["id"], "name": w["name"], "role": w.get("role") or ""}
+                    for w in workers],
+    })
+
+    async def _run_member(member: dict[str, Any]) -> dict[str, Any]:
+        await _emit(notifier, {"event": "member_started", "run_id": run_id,
+                               "agent_id": member["id"], "name": member["name"],
+                               "role": member.get("role") or ""})
+        try:
+            text = await gen(_persona_prompt_from_row(member), goal, max_tokens)
+        except Exception as exc:
+            log.warning("crew run %s: member %s failed: %s", run_id, member["id"], exc)
+            text = f"[this member could not respond: {exc}]"
+        entry = {"agent_id": member["id"], "name": member["name"],
+                 "role": member.get("role") or "", "output": text}
+        await _emit(notifier, {"event": "member_completed", "run_id": run_id, **entry})
+        return entry
+
+    try:
+        results = await asyncio.gather(*[_run_member(w) for w in workers])
+        results = list(results)
+
+        if manager:
+            await _emit(notifier, {"event": "synthesizing", "run_id": run_id,
+                                   "agent_id": manager["id"], "name": manager["name"]})
+            try:
+                final = await gen(_persona_prompt_from_row(manager),
+                                  _synthesis_prompt(goal, results), manager_tokens)
+            except Exception as exc:
+                log.warning("crew run %s: manager synthesis failed: %s", run_id, exc)
+                final = _flat_final(results) + f"\n\n[manager could not synthesise: {exc}]"
+        else:
+            final = _flat_final(results)
+
+        completed = datetime.now(timezone.utc)
+        await db.execute(
+            "UPDATE crew_runs SET status = 'completed', members = $2::jsonb, "
+            "final = $3, completed_at = $4 WHERE id = $1",
+            run_id, json.dumps(results), final, completed, caller="crews.run_crew",
+        )
+        out = {
+            "run_id": run_id, "crew_id": crew_id, "crew_name": crew_name,
+            "goal": goal, "status": "completed",
+            "manager": ({"id": manager_id, "name": manager_name} if manager else None),
+            "members": results, "final": final,
+        }
+        await _emit(notifier, {"event": "completed", "run_id": run_id, **out})
+        log.info("crew run %s: %d member(s) ran%s", run_id, len(results),
+                 " + manager synthesis" if manager else "")
+        return out
+    except Exception as exc:
+        await db.execute(
+            "UPDATE crew_runs SET status = 'failed', error = $2, "
+            "completed_at = NOW() WHERE id = $1",
+            run_id, str(exc), caller="crews.run_crew")
+        await _emit(notifier, {"event": "failed", "run_id": run_id, "error": str(exc)})
+        raise
+
+
+async def list_runs(crew_id: str = "", limit: int = 50) -> list[dict[str, Any]]:
+    """Recent crew runs, newest first, optionally filtered to one crew."""
+    from python.harness import db
+
+    limit = max(1, min(int(limit or 50), 200))
+    crew_id = str(crew_id or "").strip()
+    if crew_id:
+        rows = await db.fetch(
+            "SELECT id, crew_id, crew_name, goal, status, manager_name, "
+            "created_at, completed_at FROM crew_runs WHERE crew_id = $1 "
+            "ORDER BY created_at DESC LIMIT $2", crew_id, limit)
+    else:
+        rows = await db.fetch(
+            "SELECT id, crew_id, crew_name, goal, status, manager_name, "
+            "created_at, completed_at FROM crew_runs "
+            "ORDER BY created_at DESC LIMIT $1", limit)
+    out = []
+    for r in rows:
+        d = dict(r)
+        for k in ("created_at", "completed_at"):
+            if d.get(k) is not None:
+                d[k] = d[k].isoformat()
+        out.append(d)
+    return out
+
+
+async def get_run(run_id: str) -> dict[str, Any] | None:
+    """One crew run in full, including per-member outputs and the final."""
+    from python.harness import db
+
+    row = await db.fetchrow(
+        "SELECT id, crew_id, crew_name, goal, status, manager_id, manager_name, "
+        "members, final, error, created_at, completed_at "
+        "FROM crew_runs WHERE id = $1", str(run_id or "").strip())
+    if not row:
+        return None
+    d = dict(row)
+    if isinstance(d.get("members"), str):
+        try:
+            d["members"] = json.loads(d["members"])
+        except Exception:
+            d["members"] = []
+    for k in ("created_at", "completed_at"):
+        if d.get(k) is not None:
+            d[k] = d[k].isoformat()
+    return d
