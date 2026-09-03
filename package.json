@@ -90,7 +90,9 @@
     ],
     "testPathIgnorePatterns": [
       "/node_modules/",
-      "/.tala_snapshots/"
+      "/.tala_snapshots/",
+      "/scratch/",
+      "/blockchain/"
     ]
   }
 }
