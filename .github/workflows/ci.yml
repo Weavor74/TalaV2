@@ -49,6 +49,14 @@ jobs:
         with:
           python-version: "3.11"
 
+      - name: Free up disk space
+        # The [transformers] extra is multi-GB. Reclaim space the hosted runner
+        # spends on toolchains this job never uses (dotnet, Haskell, the Android
+        # SDK) so the install cannot hit "No space left on device".
+        run: |
+          sudo rm -rf /usr/share/dotnet /opt/ghc /usr/local/lib/android /usr/local/.ghcup || true
+          df -h /
+
       - name: Install Node dependencies
         run: npm ci
 
@@ -59,7 +67,14 @@ jobs:
         # local-model fallback path used in dev, since CI has no Ollama/vLLM
         # installed. First run downloads a small model from Hugging Face Hub,
         # so this job needs outbound internet access.
-        run: pip install ".[test,transformers]"
+        #
+        # torch is installed CPU-only first, from the PyTorch CPU index. Without
+        # this the transformers extra resolves the default CUDA build of torch
+        # and pulls multi-GB nvidia-cuda-* wheels that CI never uses on its
+        # CPU-only runner -- which exhausted the disk (No space left on device).
+        run: |
+          pip install torch --index-url https://download.pytorch.org/whl/cpu
+          pip install ".[test,transformers]"
 
       - name: Create isolated test database
         # conftest.py redirects the pytest suite onto a sibling "<db>_test"
