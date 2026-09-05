@@ -5754,6 +5754,17 @@ async def _call_peer_node_reference(endpoint: str, contact: dict[str, Any], node
         secret,
     )
     response = await _call_peer_rpc(endpoint, "p2p.resolve_node_reference", {"packet": packet})
+
+    # The other half of the exchange, from this side. Each install keeps its
+    # own ledger, and "I obtained theirs" is not the same fact as "they
+    # served mine" -- either end may be the one asked to account for it.
+    await _record_peer_event(
+        "peer-document",
+        contact["username"],
+        f"node:{node_reference}",
+        outcome="received" if (response or {}).get("resolved") else "refused",
+        reason=str((response or {}).get("reason") or ""),
+    )
     return response
 
 
@@ -5986,6 +5997,17 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
         enrollment_secret,
         permissions,
         caller="p2p.enroll_unknown_tala_contact",
+    )
+    # The request itself is a ledger event, not only the decision on it. A
+    # contact that appears already approved leaves no trace of ever having
+    # asked, and "when did @alice first turn up" is the question an audit
+    # starts from.
+    await _record_peer_event(
+        "peer-contact",
+        username,
+        f"contact:{username}",
+        decision="requested",
+        requested=sorted(k for k, v in requested.items() if v),
     )
     return {
         "username": username,
@@ -6451,14 +6473,29 @@ async def handle_p2p_resolve_node_reference(params: dict[str, Any], req_id: Any)
     except ValueError as exc:
         return _ok(req_id, {"resolved": False, "reason": str(exc)})
 
+    # From here the caller is authenticated, so the request is attributable
+    # and worth anchoring however it ends. A refusal is the more interesting
+    # half of an access log: "@alice was denied node:doc66666" is the line
+    # somebody comes looking for.
     can_resolve, deny_reason = await _peer_can_resolve_node_reference(contact, {node_name})
     if not can_resolve:
+        await _record_peer_event(
+            "document-shared", contact["username"], f"node:{node_name}",
+            outcome="denied", reason=deny_reason or "firewall_denied",
+        )
         return _ok(req_id, {"resolved": False, "reason": deny_reason or "firewall_denied"})
 
     resolved = await _resolve_local_html_nn_reference(node_name)
     if resolved is None:
+        await _record_peer_event(
+            "document-shared", contact["username"], f"node:{node_name}",
+            outcome="not_found",
+        )
         return _ok(req_id, {"resolved": False, "reason": "node_not_found"})
 
+    await _record_peer_event(
+        "document-shared", contact["username"], f"node:{node_name}", outcome="served",
+    )
     return _ok(req_id, {
         "resolved": True,
         "reference": reference,
@@ -12355,6 +12392,17 @@ async def handle_p2p_semantic_search(params: dict, req_id: Any) -> str:
         "p2p.semantic_search for %s: %d visible, %d withheld by firewall",
         contact["username"], len(visible), withheld,
     )
+    # What an index request looked like, not what was searched for. The query
+    # is the peer's own words and the Real chain is shared; the counts are
+    # what makes it auditable -- who searched, how much they saw, how much
+    # the firewall held back.
+    await _record_peer_event(
+        "index-shared",
+        contact["username"],
+        f"query:{len(query)}chars",
+        visible=len(visible),
+        withheld=withheld,
+    )
     return _ok(req_id, {
         "matches": visible,
         "resolved": True,
@@ -14176,6 +14224,38 @@ async def handle_contacts_pending(params: dict[str, Any], req_id: Any) -> str:
             "requested_at": row["created_at"].isoformat() if row["created_at"] else None,
         })
     return _ok(req_id, {"pending": requests, "count": len(requests)})
+
+
+async def _record_peer_event(
+    kind: str,
+    counterparty: str,
+    document_ref: str = "",
+    **facts: Any,
+) -> None:
+    """
+    Anchor one interaction with another install.
+
+    Two rules, both inherited from `chains.record` rather than invented here.
+    A reference and never a body: the Real chain is shared, and a document
+    written to it is a document published. And an interaction is worth
+    recording whether or not it was permitted -- a refusal is the more
+    interesting half of an access log, so the `outcome` fact carries denials
+    too rather than the record only existing on success.
+
+    Never raises. A ledger that can take down the operation it is recording
+    is worse than one with a gap in it.
+    """
+    try:
+        from python.harness import chains
+
+        await chains.record(
+            kind,
+            {"peer": counterparty, "document_ref": document_ref, **facts},
+            counterparty=counterparty,
+            document_ref=document_ref,
+        )
+    except Exception as exc:
+        logger.warning("could not record %s with %s on chain: %s", kind, counterparty, exc)
 
 
 async def _record_contact_decision(username: str, decision: str, granted: dict[str, Any]) -> None:
