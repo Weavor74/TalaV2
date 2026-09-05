@@ -69,6 +69,47 @@ RELAYABLE_METHODS: frozenset[str] = frozenset({
 })
 
 
+# What a connection admitted as a peer may call.
+#
+# The relay verbs on top of the peer surface: a peer needs to name itself and
+# ask for a hop, and `relay.deliver` is how a hop arrives. Everything else on
+# the roughly 180-method surface -- shell execution, source patching, vault
+# reads -- stays with the local token, because being another install is not
+# the same as being the user at this machine.
+PEER_CONNECTION_METHODS: frozenset[str] = RELAYABLE_METHODS | frozenset({
+    "relay.announce",
+    "relay.send",
+    "relay.peers",
+    "relay.deliver",
+    "p2p.handshake",
+})
+
+# What a caller with no credentials at all may call, and only on a connection
+# node. Exactly the enrolment handshake: enough to become a contact, which
+# grants nothing until a human approves it, and not one method more.
+BOOTSTRAP_CONNECTION_METHODS: frozenset[str] = frozenset({
+    "p2p.receive_handshake",
+})
+
+
+def methods_for_class(connection_class: str | None) -> frozenset[str] | None:
+    """
+    The method allowlist for a connection class, or None for no restriction.
+
+    An unrecognised class -- including a connection that never passed the
+    handshake gate at all -- gets the empty set rather than the full surface.
+    Failing closed here is the difference between a missing label meaning
+    "trusted" and meaning "trusted with nothing".
+    """
+    if connection_class == "local":
+        return None
+    if connection_class == "peer":
+        return PEER_CONNECTION_METHODS
+    if connection_class == "bootstrap":
+        return BOOTSTRAP_CONNECTION_METHODS
+    return frozenset()
+
+
 class _VPSMode:
     """Whether this process is running as a connection node."""
 

@@ -5231,6 +5231,49 @@ async def _heartbeat_peer_on_chain_directory(
     return await asyncio.to_thread(_send)
 
 
+async def _peer_shared_secret(username: str) -> str:
+    """
+    The shared secret on a contact's row, for the handshake gate.
+
+    Returns "" for an unknown contact or one with no secret, which the gate
+    turns into the same refusal a bad signature gets -- whether a username is
+    a known contact is not something an unauthenticated caller should be able
+    to enumerate one guess at a time.
+    """
+    try:
+        contact = await _get_contact(username=str(username or "").strip())
+    except Exception:
+        logger.exception("could not look up the contact for a peer handshake")
+        return ""
+    if not contact:
+        return ""
+    return str(contact.get("shared_secret") or "").strip()
+
+
+def _peer_handshake_headers(username: str, secret: str) -> dict[str, str]:
+    """
+    Credentials for dialling another install.
+
+    The counterpart to `_peer_shared_secret`: a contact pair shares one
+    secret, so the same value that lets us verify them lets them verify us.
+    A fresh nonce and timestamp per handshake keep a captured one from being
+    replayed.
+    """
+    import secrets as _secrets
+    import time as _time
+
+    from python.harness import ws_auth
+
+    timestamp = str(int(_time.time()))
+    nonce = _secrets.token_urlsafe(16)
+    return {
+        ws_auth.PEER_HEADER: username,
+        ws_auth.PEER_TS_HEADER: timestamp,
+        ws_auth.PEER_NONCE_HEADER: nonce,
+        ws_auth.PEER_SIG_HEADER: ws_auth.peer_signature(username, timestamp, nonce, secret),
+    }
+
+
 async def _negotiate_webrtc_upgrade(
     endpoint: str,
     peer_username: str,
@@ -5366,7 +5409,30 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
     )
     
     # Fallback to direct WebSocket connection (usually via VPS relay)
-    async with websockets.connect(_normalize_peer_endpoint(endpoint), open_timeout=5, close_timeout=2) as ws:
+    #
+    # The far end gates 8765, so this has to say who is calling. A contact
+    # pair shares one secret: they verify us with the same value we verify
+    # them with. Without these headers every peer call is refused as an
+    # anonymous connection -- which is what happened between the socket being
+    # gated and this being written.
+    #
+    # No secret means no credentials rather than no call: on a connection
+    # node a bare handshake is still admitted for enrolment, and that is
+    # precisely the case where we are not a contact yet.
+    connect_headers: dict[str, str] = {}
+    if peer_username:
+        peer_secret = await _peer_shared_secret(peer_username)
+        if peer_secret:
+            connect_headers = _peer_handshake_headers(
+                os.environ.get("TALA_USERNAME", "@local-tala"), peer_secret
+            )
+
+    async with websockets.connect(
+        _normalize_peer_endpoint(endpoint),
+        open_timeout=5,
+        close_timeout=2,
+        additional_headers=connect_headers or None,
+    ) as ws:
         await ws.send(request)
         raw = await asyncio.wait_for(ws.recv(), timeout=15)
         
@@ -14885,8 +14951,29 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
     Each inbound message is parsed as JSON-RPC 2.0, dispatched to the
     appropriate handler concurrently, and the response is sent back on the same socket.
     """
+    from python.harness import vps_mode, ws_auth
+
     remote = ws.remote_address
-    logger.info("Client connected: %s  path=%s", remote, path)
+
+    # Stamped by the handshake gate. A connection that somehow reached here
+    # without passing it carries no label, and an unlabelled connection is
+    # given nothing -- see vps_mode.methods_for_class.
+    connection_class = getattr(ws, ws_auth.CONNECTION_CLASS_ATTR, None)
+    peer_username = getattr(ws, ws_auth.CONNECTION_PEER_ATTR, "") or ""
+
+    logger.info(
+        "Client connected: %s  path=%s  class=%s%s",
+        remote, path, connection_class or "unlabelled",
+        f"  peer={peer_username}" if peer_username else "",
+    )
+
+    # An authenticated peer has already proved this identity with the same
+    # shared secret relay.announce would ask for, so binding it here saves the
+    # extra round trip -- and means a peer is reachable through this node from
+    # the moment it connects rather than only if it remembers to announce.
+    if connection_class == ws_auth.CLASS_PEER and peer_username and vps_mode.is_enabled():
+        vps_mode.registry.bind(peer_username, ws)
+        logger.info("Peer %s is reachable through this node", peer_username)
 
     async def handle_msg(raw_message: Any) -> None:
         response: str
@@ -14919,13 +15006,36 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
 
         logger.debug("-> %s  id=%s  params=%r", method, req_id, params)
 
+        # What this connection proved at the handshake decides what it may
+        # call. A local token is the user at this machine and is unrestricted;
+        # a peer is another install and gets peer surface; a bootstrap caller
+        # gets the one method that turns it into a contact. The available-
+        # methods hint is withheld from anyone but a local client -- a
+        # restricted caller does not need the catalogue.
+        allowed = vps_mode.methods_for_class(connection_class)
+        if allowed is not None and method not in allowed:
+            logger.warning(
+                "refused %s from a %s connection%s",
+                method, connection_class or "unlabelled",
+                f" ({peer_username})" if peer_username else "",
+            )
+            try:
+                await ws.send(_err(
+                    req_id,
+                    JsonRpcError.METHOD_NOT_FOUND,
+                    f"'{method}' is not available on this connection",
+                ))
+            except Exception:
+                pass
+            return
+
         handler = _HANDLERS.get(method)
         if handler is None:
             response = _err(
                 req_id,
                 JsonRpcError.METHOD_NOT_FOUND,
                 f"Method not found: '{method}'",
-                {"available": sorted(_HANDLERS.keys())},
+                {"available": sorted(_HANDLERS.keys())} if allowed is None else None,
             )
             try:
                 await ws.send(response)
@@ -15732,7 +15842,7 @@ async def _run_server() -> None:
     # Authenticated since SEC-W0-03. This socket dispatches every handler in
     # _HANDLERS, including shell execution, and it accepted anyone -- including
     # any web page the user visited, because WebSocket handshakes ignore CORS.
-    from python.harness import ws_auth
+    from python.harness import vps_mode, ws_auth
 
     _ws_token = ws_auth.load_or_create_token()
     if not _ws_token:
@@ -15752,7 +15862,14 @@ async def _run_server() -> None:
                 ping_interval=30,
                 ping_timeout=10,
                 max_size=16 * 1024 * 1024,
-                process_request=ws_auth.make_process_request(_ws_token),
+                process_request=ws_auth.make_process_request(
+                    _ws_token,
+                    secret_for=_peer_shared_secret,
+                    # Only a connection node lets a stranger in to enrol. On a
+                    # desktop Tala an unauthenticated caller is still refused
+                    # outright, exactly as before this existed.
+                    bootstrap_allowed=vps_mode.is_enabled(),
+                ),
             )
             break
         except OSError as exc:
