@@ -5054,7 +5054,8 @@ async def handle_contacts_list(params: dict[str, Any], req_id: Any) -> str:
     """
     try:
         rows = await db.fetch(
-            "SELECT username, wallet_address, endpoint_url, permissions FROM contacts ORDER BY username ASC"
+            "SELECT username, wallet_address, endpoint_url, permissions, status "
+            "FROM contacts ORDER BY username ASC"
         )
         contacts = []
         for r in rows:
@@ -5067,6 +5068,7 @@ async def handle_contacts_list(params: dict[str, Any], req_id: Any) -> str:
                 "wallet_address": r["wallet_address"],
                 "endpoint_url": r["endpoint_url"],
                 "permissions": perms or {},
+                "status": r["status"],
             })
         return _ok(req_id, {"contacts": contacts})
     except Exception as exc:
@@ -14194,6 +14196,77 @@ async def handle_browser_execute_js(params: dict, req_id: any) -> str:
 CONTACT_STATUSES = ("pending", "approved", "denied")
 
 
+async def handle_chain_peers(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.peers`` — look up other installs in the shared peer directory.
+
+    The blockchain node has served this since NodeRegistry landed, and
+    nothing in the app could reach it: the directory answered "who else is
+    out there" to anyone who asked over HTTP, while the only UI a user has
+    speaks JSON-RPC. So A could never have discovered B, C and D, which is
+    the first step of every peer flow.
+
+    A read, and only a read. Registration and heartbeat stay where they are,
+    driven by the harness's own connection lifecycle rather than by a button.
+    """
+    import urllib.parse
+    import urllib.request
+
+    endpoint = str(params.get("chain_endpoint_url") or "").strip()
+    if not endpoint:
+        from python.harness import chains
+        endpoint = await chains.real_endpoint()
+    if not endpoint:
+        return _ok(req_id, {"peers": [], "count": 0, "reason": "no chain endpoint is configured"})
+
+    query: dict[str, str] = {}
+    if params.get("username"):
+        query["username"] = str(params["username"]).strip()
+    if params.get("wallet_address"):
+        query["wallet_address"] = str(params["wallet_address"]).strip()
+    if params.get("network"):
+        query["network"] = str(params["network"]).strip()
+    if params.get("online_only"):
+        query["online"] = "1"
+
+    url = f"{_normalize_chain_endpoint(endpoint)}/chain/peers"
+    if query:
+        url = f"{url}?{urllib.parse.urlencode(query)}"
+
+    def _fetch() -> dict[str, Any]:
+        request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(request, timeout=5.0) as response:
+            raw = response.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+    try:
+        payload = await asyncio.to_thread(_fetch)
+    except Exception as exc:
+        # A directory that cannot be reached is not an empty directory, and
+        # this codebase's most common defect is interfaces that cannot tell
+        # "found nothing" from "could not look".
+        logger.warning("chain.peers: could not reach the directory at %s: %s", url, exc)
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"could not reach the peer directory: {exc}")
+
+    peers = payload.get("peers") or []
+
+    # Which of them are already contacts here, so the UI can offer "add"
+    # only for the ones that are not, and show the standing decision for
+    # the ones that are.
+    known: dict[str, str] = {}
+    try:
+        rows = await db.fetch("SELECT username, status FROM contacts")
+        known = {r["username"]: r["status"] for r in rows}
+    except Exception:
+        logger.exception("chain.peers: could not read local contacts")
+
+    for peer in peers:
+        if isinstance(peer, dict):
+            peer["local_status"] = known.get(peer.get("username") or "", "")
+
+    return _ok(req_id, {"peers": peers, "count": len(peers), "directory": url})
+
+
 async def handle_contacts_pending(params: dict[str, Any], req_id: Any) -> str:
     """``contacts.pending`` — peers waiting on a decision."""
     try:
@@ -14950,6 +15023,7 @@ _HANDLERS: dict[str, Any] = {
     "contacts.list":          handle_contacts_list,
     "contacts.save":          handle_contacts_save,
     "contacts.delete":        handle_contacts_delete,
+    "chain.peers":            handle_chain_peers,
     "contacts.pending":       handle_contacts_pending,
     "contacts.approve":       handle_contacts_approve,
     "contacts.deny":          handle_contacts_deny,

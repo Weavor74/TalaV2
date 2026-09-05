@@ -2609,10 +2609,41 @@
           <div class="view-header">
             <h1 class="view-title">Contacts Directory</h1>
             <div class="view-actions">
+              <button class="btn" id="btn-contacts-discover">Find Peers</button>
               <button class="btn btn-primary" id="btn-contacts-add">+ Add Contact</button>
             </div>
           </div>
-          
+
+          <!-- Requests: peers that enrolled themselves and are waiting on a
+               decision. Hidden entirely when the queue is empty, so it is a
+               notification rather than a permanent empty box. -->
+          <div class="glass-card" id="contacts-requests-card" style="display: none; margin-bottom: var(--space-3); border-color: var(--accent-blue);">
+            <div class="card-header-compact">
+              <h3 style="margin: 0; color: var(--accent-blue);">Connection Requests <span id="contacts-requests-count" class="badge badge-identity">0</span></h3>
+              <span style="opacity: 0.7; font-size: 0.85em;">These peers can see nothing until you decide.</span>
+            </div>
+            <div id="contacts-requests-container"></div>
+          </div>
+
+          <!-- Directory: who else is registered on the chain. Collapsed by
+               default; this is a lookup, not something to stare at. -->
+          <div class="glass-card" id="contacts-directory-card" style="display: none; margin-bottom: var(--space-3);">
+            <div class="card-header-compact">
+              <h3 style="margin: 0;">Peer Directory</h3>
+              <button class="btn btn-sm" id="btn-contacts-directory-close">Close</button>
+            </div>
+            <div class="panel-toolbar-compact" style="display: flex; gap: var(--space-2); align-items: center;">
+              <input type="text" id="contacts-directory-search" class="form-control" placeholder="Filter by username..." style="flex: 1;" />
+              <label style="display: flex; align-items: center; gap: 6px; white-space: nowrap;">
+                <input type="checkbox" id="contacts-directory-online" checked /> Online only
+              </label>
+              <button class="btn btn-sm btn-primary" id="btn-contacts-directory-refresh">Search</button>
+            </div>
+            <div id="contacts-directory-container">
+              <div class="empty-state">Search the directory to see who is registered.</div>
+            </div>
+          </div>
+
           <div class="contacts-layout">
             <!-- Left Pane: Contacts List -->
             <div class="contacts-left glass-card">
@@ -4080,6 +4111,44 @@
   </div>
 
   <!-- Modal: Add Blockchain Contact -->
+  <!-- Approving a request grants permissions and firewall rights in one
+       step. Splitting them is how a contact ends up approved and inert with
+       nobody sure whether that was deliberate. Everything starts unticked:
+       what the peer asked for is shown, and granted nothing by itself. -->
+  <div id="modal-approve-contact" class="modal-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="modal-approve-contact-title">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h2 id="modal-approve-contact-title" class="modal-title">Approve Contact</h2>
+        <button class="modal-close-btn" id="btn-modal-approve-close" aria-label="Close dialog">✕</button>
+      </div>
+      <div class="modal-body">
+        <p style="margin-top: 0;">
+          <strong id="approve-contact-username">@peer</strong>
+          <span style="opacity: 0.7;" id="approve-contact-wallet"></span>
+        </p>
+        <p style="opacity: 0.75; font-size: 0.9em;" id="approve-contact-requested">Requested nothing.</p>
+
+        <div class="form-group">
+          <label class="form-label">Grant</label>
+          <div id="approve-contact-permissions" style="display: grid; grid-template-columns: 1fr 1fr; gap: 6px;"></div>
+        </div>
+
+        <div class="form-group">
+          <label class="form-label" for="input-approve-clearance">Clearance level</label>
+          <input type="number" id="input-approve-clearance" class="form-control" min="0" max="10" value="0" />
+        </div>
+        <div class="form-group">
+          <label class="form-label" for="input-approve-categories">Allowed categories</label>
+          <input type="text" id="input-approve-categories" class="form-control" placeholder="rp, coding (blank = none)" />
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="btn-modal-approve-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-modal-approve-confirm">Approve</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modal-add-contact" class="modal-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="modal-add-contact-title">
     <div class="modal-card" style="max-width: 480px;">
       <div class="modal-header">
