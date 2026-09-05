@@ -281,6 +281,35 @@ _DDL_STATEMENTS: list[str] = [
     """),
 
     # ------------------------------------------------------------------
+    # crew_runs — a record of running a whole crew (team) at once.
+    #
+    # crews.py routes *individual* tasks into a crew (assign/escalate). This
+    # table records the other thing a team is for: running every member on the
+    # same goal concurrently and, when the crew has a manager, letting that
+    # manager synthesise the members' answers into one. One row per run; the
+    # per-member outputs and the final synthesis live in JSONB so the shape can
+    # grow without a migration per field.
+    # ------------------------------------------------------------------
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS crew_runs (
+            id           TEXT        PRIMARY KEY,
+            crew_id      TEXT        NOT NULL,
+            crew_name    TEXT        NOT NULL DEFAULT '',
+            goal         TEXT        NOT NULL DEFAULT '',
+            status       TEXT        NOT NULL DEFAULT 'running',
+            manager_id   TEXT        NOT NULL DEFAULT '',
+            manager_name TEXT        NOT NULL DEFAULT '',
+            members      JSONB       NOT NULL DEFAULT '[]',
+            final        TEXT        NOT NULL DEFAULT '',
+            error        TEXT        NOT NULL DEFAULT '',
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            completed_at TIMESTAMPTZ
+        );
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_crew_runs_crew
+            ON crew_runs(crew_id, created_at DESC);
+    """),
+
+    # ------------------------------------------------------------------
     # guardrails_config — safety configuration presets (Milestone 18)
     # ------------------------------------------------------------------
     textwrap.dedent("""\
