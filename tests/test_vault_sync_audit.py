@@ -6,47 +6,19 @@ import re
 from pathlib import Path
 from unittest.mock import patch
 
-from sdk.agent.tools import get_user_data, compile_lora_adapter, SecurityError
+from sdk.agent.tools import compile_lora_adapter, SecurityError
 
-@pytest.mark.asyncio
-async def test_get_user_data_public():
-    # Public field should return instantly
-    res = await get_user_data("name")
-    assert res["status"] == "SUCCESS"
-    assert res["access_level"] == "PUBLIC"
-    assert res["value"] == "Steve"
+"""
+The get_user_data tests that lived here were removed with the tool itself.
 
+They asserted that a "SECURED" field returned "USA-987654321" behind a
+permission token -- but that value, and every other field the tool served, was
+a hardcoded dict inside the function body. The vault was never read. Three
+tests named for a vault audit passed consistently while establishing nothing
+about the vault.
 
-@pytest.mark.asyncio
-async def test_get_user_data_secured_denied():
-    # Mock anchor to write to a temp ledger
-    with tempfile.TemporaryDirectory() as tmpdir:
-        tmp_path = Path(tmpdir)
-        chain_dir = tmp_path / "blockchain" / "data"
-        chain_dir.mkdir(parents=True)
-        chain_file = chain_dir / "chain.json"
-        chain_file.write_text("[]", encoding="utf-8")
-        
-        def mock_anchor(node_id, content_html, state_data, creator, document_type, **kwargs):
-            # Just verify that it is capturing the breach event correctly
-            assert state_data["status"] == "ACCESS_DENIED"
-            assert state_data["field_accessed"] == "Passport Number"
-            assert document_type == "security-alert"
-            return "mock_hash", "mock_chaincode", "anchored", "{}", None
-            
-        with patch("sdk.agent.anchor.canonicalize_and_anchor", side_effect=mock_anchor):
-            res = await get_user_data("Passport Number", permission_token=None)
-            assert res["status"] == "ACCESS_DENIED"
-            assert res["access_level"] == "SECURED"
-            assert "Permission Token required" in res["message"]
-
-
-@pytest.mark.asyncio
-async def test_get_user_data_secured_approved():
-    res = await get_user_data("Passport Number", permission_token="MANUAL_OK_2026")
-    assert res["status"] == "SUCCESS"
-    assert res["access_level"] == "SECURED"
-    assert res["value"] == "USA-987654321"
+test_pi_sanitizer_zero_leak below tests real behaviour and stays.
+"""
 
 
 @pytest.mark.asyncio

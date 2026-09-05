@@ -22,8 +22,8 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.gates"
   data-source-files="sdk/agent/gates.py"
-  data-source-fingerprint="sha256:8B99F23D4E655683513688A8A5AB0B1FE5D5DACCB4A33A7FAEEB9393769683EF"
-  data-generated-at="2026-08-13T00:21:36Z"
+  data-source-fingerprint="sha256:9A1703B962B2D29D682077191B0BCBD620AD2D49F1EDA7BF2931AC44FFC688A2"
+  data-generated-at="2026-09-03T00:23:06Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -34,8 +34,8 @@
   <section id="semantic-memory">
     <p>sdk/agent/gates.py ================== Authorization Gates &amp; Emergency Halt Revocation — Tala Cognitive Engine Room Milestone 4 | Tasks 4.5, 4.6, 4.7 Implements: • AuthorizationGate         — Gatekeeper checking approval signatures or ledger assertions.</p>
     <p>It lives at sdk/agent/gates.py within the agent SDK.</p>
-    <p>Classes it defines: AuthorizationGate — Interceptors enforcing user approvals and cryptographic ledger checkpoints. (methods: register_pre_approval(), request_authorization()); RevocationHalt — Global control switch to trigger emergency halt and revoke active workspace leases. (methods: trigger_emergency_halt(), release_emergency_halt(), is_halted()); PrivilegedCommandHandler — Escalation pathways requiring signed authorization confirmations. (methods: verify_privileged_token()).</p>
-    <p>Functions it exposes: trigger_emergency_halt() — Globally triggers emergency halt, freezing loop executions..</p>
+    <p>Classes it defines: AuthorizationGate — Interceptors enforcing user approvals and cryptographic ledger checkpoints. (methods: register_pre_approval(), request_authorization()); RevocationHalt — Global control switch to trigger emergency halt and revoke active workspace leases. (methods: trigger_emergency_halt(), release_emergency_halt(), is_halted()).</p>
+    <p>Functions it exposes: trigger_emergency_halt() — Trigger the halt and stop what is already running..</p>
   </section>
 
   <section id="source-evidence">
@@ -99,10 +99,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-08-13T00:21:36Z",
+    "created_or_updated": "2026-09-03T00:23:06Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.gates",
-    "source_fingerprint": "sha256:8B99F23D4E655683513688A8A5AB0B1FE5D5DACCB4A33A7FAEEB9393769683EF"
+    "source_fingerprint": "sha256:9A1703B962B2D29D682077191B0BCBD620AD2D49F1EDA7BF2931AC44FFC688A2"
   }
 }
   </script>

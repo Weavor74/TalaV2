@@ -22,8 +22,8 @@
   data-governance-status="context-only"
   data-doc-target="tala.architecture"
   data-source-files=""
-  data-source-fingerprint="sha256:68B280DF2A7CB1929375AADEC00DC0FE4FECE8A780E6C2AD322732D935D83504"
-  data-generated-at="2026-09-01T00:20:02Z"
+  data-source-fingerprint="sha256:2AD0A47BA213DAC07C7343725C0EC2DF165CE59CA5365951D83EF4B498A4D7D2"
+  data-generated-at="2026-09-03T00:06:20Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -32,7 +32,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;Read this before reasoning about this system.&lt;/strong&gt; This system does not follow several common defaults. Read the &#x27;differs_from_default&#x27; entries before reasoning about it, and prefer the terms defined in &#x27;vocabulary&#x27; over their usual meanings. Applying ordinary assumptions here produces conclusions that look correct and are not.&lt;/p&gt;&lt;h3&gt;What these words mean here&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;&lt;strong&gt;memory&lt;/strong&gt;: The HTML Neural Node (HTML-NN) store under nodes/. Not a database service. Nodes are the record; every index over them is derived and disposable.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;HTML-NN&lt;/strong&gt;: A normal HTML document with one parser-readable &lt;article&gt; carrying identity, node type, execution and memory authority, semantic-memory prose, typed relationship anchors, and a JSON state block. It is simultaneously a document, a record, and — when it declares execution authority — a program.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;workflow&lt;/strong&gt;: A chain of tool calls passing one step&#x27;s output into the next, stored as an HTML-NN and executed from that node.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;tool registry&lt;/strong&gt;: A collection of HTML-NN (tool-*.html), one per tool, carrying the argument schema. The Python functions are what execute; the nodes are the catalogue.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;vault&lt;/strong&gt;: A tag on a node meaning its sensitive fields are encrypted at rest. Not a separate store.&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;Where ordinary assumptions fail&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; Memory is a database or vector service. &lt;em&gt;Reality:&lt;/em&gt; Memory is the HTML-NN files. ChromaDB and the Postgres memory_index are both derived indexes and can be deleted and rebuilt from nodes/ without loss. &lt;em&gt;If assumed anyway:&lt;/em&gt; Health checks, backups and migrations aimed at the database will miss the actual memory entirely.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; The database is the source of truth. &lt;em&gt;Reality:&lt;/em&gt; Nodes are. Postgres holds operational state (tasks, sessions, providers) and a full-text index; where both exist, the node is authoritative and the database is a fallback. &lt;em&gt;If assumed anyway:&lt;/em&gt; Writes that go only to the database are lost on the next regeneration from nodes.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; Application data lives in an OS profile directory. &lt;em&gt;Reality:&lt;/em&gt; Tala is portable and runs from removable media on any OS. The data root is the install directory unless TALA_USER_DATA says otherwise. APPDATA, XDG and ~/Library are deliberately ignored. &lt;em&gt;If assumed anyway:&lt;/em&gt; Data is written to whichever host machine it happens to be plugged into, and does not travel with the install.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; A configured credential means a working service. &lt;em&gt;Reality:&lt;/em&gt; Configuration and health are separate. A provider reads CONFIGURED until something probes it; only a probe produces OK or FAILED. &lt;em&gt;If assumed anyway:&lt;/em&gt; Dead providers are reported as healthy, which is the single most common defect found in this codebase.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; An empty result means nothing matched. &lt;em&gt;Reality:&lt;/em&gt; It may mean a subsystem is not wired. Interfaces here are expected to distinguish &#x27;found nothing&#x27; from &#x27;could not look&#x27;. &lt;em&gt;If assumed anyway:&lt;/em&gt; Wiring failures are indistinguishable from empty indexes and go unnoticed for months.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; Local model output can be trusted to be complete. &lt;em&gt;Reality:&lt;/em&gt; Inference is local-first by requirement; no remote model is called for the user&#x27;s own reasoning.&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;Stores&lt;/h3&gt;&lt;p&gt;The system of record is the HTML-NN store: 232 node(s) under nodes/. The ChromaDB index holds 0 of them and is rebuildable from the files. The Postgres full-text index covers operational memory — sessions, skills, profiles — and is not the node store; asking it about nodes under-reports. Hindsight is an optional external daemon whose absence is not a fault.&lt;/p&gt;&lt;p&gt;Do not take this document&#x27;s word for it. Call logging.get_system_health for measured subsystem state, tools.catalogue for the live tool list, and list_executable_nodes for what can actually be run. Each reports what it observed and on what basis.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;Read this before reasoning about this system.&lt;/strong&gt; This system does not follow several common defaults. Read the &#x27;differs_from_default&#x27; entries before reasoning about it, and prefer the terms defined in &#x27;vocabulary&#x27; over their usual meanings. Applying ordinary assumptions here produces conclusions that look correct and are not.&lt;/p&gt;&lt;h3&gt;What these words mean here&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;&lt;strong&gt;memory&lt;/strong&gt;: The HTML Neural Node (HTML-NN) store under nodes/. Not a database service. Nodes are the record; every index over them is derived and disposable.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;HTML-NN&lt;/strong&gt;: A normal HTML document with one parser-readable &lt;article&gt; carrying identity, node type, execution and memory authority, semantic-memory prose, typed relationship anchors, and a JSON state block. It is simultaneously a document, a record, and — when it declares execution authority — a program.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;workflow&lt;/strong&gt;: A chain of tool calls passing one step&#x27;s output into the next, stored as an HTML-NN and executed from that node.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;tool registry&lt;/strong&gt;: A collection of HTML-NN (tool-*.html), one per tool, carrying the argument schema. The Python functions are what execute; the nodes are the catalogue.&lt;/li&gt;&lt;li&gt;&lt;strong&gt;vault&lt;/strong&gt;: A tag on a node meaning its sensitive fields are encrypted at rest. Not a separate store.&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;Where ordinary assumptions fail&lt;/h3&gt;&lt;ul&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; Memory is a database or vector service. &lt;em&gt;Reality:&lt;/em&gt; Memory is the HTML-NN files. ChromaDB and the Postgres memory_index are both derived indexes and can be deleted and rebuilt from nodes/ without loss. &lt;em&gt;If assumed anyway:&lt;/em&gt; Health checks, backups and migrations aimed at the database will miss the actual memory entirely.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; The database is the source of truth. &lt;em&gt;Reality:&lt;/em&gt; Nodes are. Postgres holds operational state (tasks, sessions, providers) and a full-text index; where both exist, the node is authoritative and the database is a fallback. &lt;em&gt;If assumed anyway:&lt;/em&gt; Writes that go only to the database are lost on the next regeneration from nodes.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; Application data lives in an OS profile directory. &lt;em&gt;Reality:&lt;/em&gt; Tala is portable and runs from removable media on any OS. The data root is the install directory unless TALA_USER_DATA says otherwise. APPDATA, XDG and ~/Library are deliberately ignored. &lt;em&gt;If assumed anyway:&lt;/em&gt; Data is written to whichever host machine it happens to be plugged into, and does not travel with the install.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; A configured credential means a working service. &lt;em&gt;Reality:&lt;/em&gt; Configuration and health are separate. A provider reads CONFIGURED until something probes it; only a probe produces OK or FAILED. &lt;em&gt;If assumed anyway:&lt;/em&gt; Dead providers are reported as healthy, which is the single most common defect found in this codebase.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; An empty result means nothing matched. &lt;em&gt;Reality:&lt;/em&gt; It may mean a subsystem is not wired. Interfaces here are expected to distinguish &#x27;found nothing&#x27; from &#x27;could not look&#x27;. &lt;em&gt;If assumed anyway:&lt;/em&gt; Wiring failures are indistinguishable from empty indexes and go unnoticed for months.&lt;/li&gt;&lt;li&gt;&lt;em&gt;Assumption:&lt;/em&gt; Local model output can be trusted to be complete. &lt;em&gt;Reality:&lt;/em&gt; Inference is local-first by requirement; no remote model is called for the user&#x27;s own reasoning.&lt;/li&gt;&lt;/ul&gt;&lt;h3&gt;Stores&lt;/h3&gt;&lt;p&gt;The system of record is the HTML-NN store: 246 node(s) under nodes/. The ChromaDB index holds 0 of them and is rebuildable from the files. The Postgres full-text index covers operational memory — sessions, skills, profiles — and is not the node store; asking it about nodes under-reports. Hindsight is an optional external daemon whose absence is not a fault.&lt;/p&gt;&lt;p&gt;Do not take this document&#x27;s word for it. Call logging.get_system_health for measured subsystem state, tools.catalogue for the live tool list, and list_executable_nodes for what can actually be run. Each reports what it observed and on what basis.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -97,10 +97,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-01T00:20:02Z",
+    "created_or_updated": "2026-09-03T00:06:20Z",
     "schema": "neural-node/v2",
     "doc_target": "tala.architecture",
-    "source_fingerprint": "sha256:68B280DF2A7CB1929375AADEC00DC0FE4FECE8A780E6C2AD322732D935D83504"
+    "source_fingerprint": "sha256:2AD0A47BA213DAC07C7343725C0EC2DF165CE59CA5365951D83EF4B498A4D7D2"
   },
   "architecture_contract": {
     "contract_version": "1.0",
@@ -149,16 +149,16 @@
       "html_nn": {
         "role": "system of record",
         "location": "nodes/*.html, under the portable data root",
-        "count": 232,
+        "count": 246,
         "families": {
-          "tool": 97,
+          "tool": 96,
           "system": 15,
           "program": 14,
           "settings": 13,
           "ui": 12,
           "benchmark": 5,
+          "learning": 4,
           "skill": 4,
-          "learning": 3,
           "persona": 3,
           "swarm": 2
         }
@@ -194,8 +194,8 @@
       }
     },
     "capabilities": {
-      "registered_tools": 95,
-      "tool_catalogue_nodes": 97,
+      "registered_tools": 94,
+      "tool_catalogue_nodes": 96,
       "executable_node_types": [
         "workflow",
         "flow"

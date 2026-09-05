@@ -5,8 +5,41 @@ build_bundles.py - Auto-generated documentation base.
 import os
 import zipfile
 import fnmatch
+import re
 import subprocess
 import sys
+
+#: Entry names that must never appear in a published bundle.
+#:
+#: This is checked *after* the zip is written rather than trusted to the
+#: exclude list, because an exclude list only blocks what its author thought
+#: of. The .env leak got in as a generated Markdown rendering of .env, which no
+#: pattern for ".env" would ever have matched.
+SECRET_ENTRY = re.compile(
+    r"(^|/)\.env(?!\.example)(\.|$)"   # .env and .env.local, but not the template
+    r"|(^|/)root_\.env"           # the docs/reference rendering of it
+    r"|\.(pem|key|p12|pfx)$"      # private key material
+    r"|(^|/)(id_rsa|id_ed25519)$",
+    re.IGNORECASE,
+)
+
+
+def _assert_no_secrets(zip_path):
+    """Refuse to publish a bundle carrying credentials.
+
+    Loud and fatal on purpose: a bundle is uploaded to a public URL by
+    scripts/upload_vps.ps1 and advertised in version.json, so a quiet warning
+    here would be read once and shipped anyway.
+    """
+    with zipfile.ZipFile(zip_path) as zf:
+        found = [n for n in zf.namelist() if SECRET_ENTRY.search(n)]
+    if found:
+        raise SystemExit(
+            f"REFUSING TO PUBLISH {os.path.basename(zip_path)}: it contains "
+            f"credential-shaped files {found}. This bundle is served publicly. "
+            f"Add them to base_excludes and rebuild."
+        )
+
 
 def build_bundles():
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
@@ -31,7 +64,15 @@ def build_bundles():
         "*.log",
         "dist/*",
         ".tala_snapshots/*",
-        "scratch/*"
+        "scratch/*",
+        # The docs generator renders every file in the tree to a Markdown page
+        # under docs/reference/, .env included -- so excluding ".env" while
+        # shipping its rendering left the contents in the bundle anyway, which
+        # is exactly what happened. Excluding the source is not enough; the
+        # derivatives have to go too.
+        "docs/reference/root_.env*.md",
+        "*.pem",
+        "*.key",
     ]
 
     bundles = {
@@ -106,6 +147,7 @@ def build_bundles():
                     # Write file
                     zf.write(file_path, rel_path)
                     
+        _assert_no_secrets(zip_path)
         print(f"Created {zip_path}")
 
 if __name__ == "__main__":

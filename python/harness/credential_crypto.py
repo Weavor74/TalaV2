@@ -231,6 +231,121 @@ def decrypt_config(config: Any) -> Any:
     return out
 
 
+# -- redaction for transport ------------------------------------------------
+#
+# Encrypting at rest bought nothing while ``inference.get_providers`` decrypted
+# every config and shipped the plaintext apiKey to any client that could open a
+# socket (SEC-W0-02). Redaction lives here, next to the encryption, so the two
+# cannot drift about what counts as a secret.
+#
+# PII_FIELDS is deliberately *not* redacted: a settings panel that blanks the
+# user's own date of birth every time they open it is a bug, not a control.
+
+#: Sent in place of a stored secret, and accepted back from a client to mean
+#: "keep the one you already have". A client that never sees a key cannot leak
+#: it, but it also cannot send it back -- so the round-trip needs a word for
+#: "unchanged" or the next save silently wipes every credential.
+REDACTED_SENTINEL = "__tala_redacted__"
+
+
+def redact_config(config: Any) -> Any:
+    """
+    Replace credential values with :data:`REDACTED_SENTINEL` for transport.
+
+    Returns a copy; the input is untouched. A field that is absent or empty
+    stays that way, so a client can still tell "no key configured" from "a key
+    is set and withheld" without being told the key.
+    """
+    if not isinstance(config, dict):
+        return config
+    out = dict(config)
+    for field, value in list(out.items()):
+        if field in NEVER_ENCRYPT:
+            continue
+        if field in CREDENTIAL_SECRET_FIELDS and isinstance(value, str) and value:
+            out[field] = REDACTED_SENTINEL
+        elif field in CREDENTIAL_SECRET_FIELDS and is_encrypted(value):
+            # Never decrypted on this path -- still a secret, still withheld.
+            out[field] = REDACTED_SENTINEL
+    return out
+
+
+def config_has_secret(config: Any) -> bool:
+    """True if the config holds any credential value at all."""
+    if not isinstance(config, dict):
+        return False
+    for field, value in config.items():
+        if field in NEVER_ENCRYPT or field not in CREDENTIAL_SECRET_FIELDS:
+            continue
+        if is_encrypted(value):
+            return True
+        if isinstance(value, str) and value and value != REDACTED_SENTINEL:
+            return True
+    return False
+
+
+def merge_preserved_secrets(incoming: Any, existing: Any) -> Any:
+    """
+    Fold a client's config over the stored one, keeping withheld secrets.
+
+    The rules, in order:
+
+    * sentinel  -> keep the stored value (the client was never shown it)
+    * absent    -> keep the stored value (the client did not mention the field)
+    * ``""``    -> keep the stored value; a blank password box means "unchanged"
+    * ``None``  -> the user explicitly cleared it; clear it
+    * anything else -> a new secret the user typed
+
+    Blank meaning "unchanged" also fixes a live credential-loss bug that
+    predates redaction: the renderer prefills the edit form from a flat
+    ``apiKey`` field that only exists after a previous edit, so opening any
+    freshly-loaded provider and pressing save posted ``apiKey: ""`` and wiped
+    the stored key. Clearing is rare and destructive; it gets the explicit
+    spelling, not the one you land on by accident.
+
+    ``existing`` is expected to be the *decrypted* stored config, because the
+    caller re-encrypts the merged result on the way back down.
+    """
+    if not isinstance(incoming, dict):
+        return incoming
+    out = dict(incoming)
+    if not isinstance(existing, dict):
+        existing = {}
+    for field in CREDENTIAL_SECRET_FIELDS:
+        if field in NEVER_ENCRYPT or field not in existing:
+            continue
+        if field not in out:
+            out[field] = existing[field]
+            continue
+        value = out[field]
+        if value is None:
+            out.pop(field)          # explicit clear
+        elif value == REDACTED_SENTINEL or (isinstance(value, str) and not value.strip()):
+            out[field] = existing[field]
+    return out
+
+
+def resolve_secret(incoming: Any, existing: Any) -> str:
+    """
+    Scalar counterpart of :func:`merge_preserved_secrets`.
+
+    ``git_providers.api_key`` and ``search_providers.api_key`` are bare TEXT
+    columns with no config dict to walk, but they are saved by the same
+    replace-the-whole-table pattern and so carry the same hazard.
+
+    Same rules: sentinel, absent and blank keep the stored value; an explicit
+    ``None`` clears it.
+    """
+    existing_str = existing if isinstance(existing, str) else ""
+    if incoming is None:
+        return ""
+    if not isinstance(incoming, str):
+        return existing_str
+    if incoming == REDACTED_SENTINEL or not incoming.strip():
+        return existing_str
+    return incoming
+
+
 # -- single values (plain TEXT columns) --------------------------------------
 #
 # database_providers.password is a bare TEXT column, not JSONB, so there is no

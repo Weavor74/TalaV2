@@ -76,6 +76,74 @@ async def _kill_process_tree(proc: "asyncio.subprocess.Process | None") -> None:
             pass
 
 
+#: Every subprocess this module currently has in flight.
+#:
+#: Exists so the emergency halt can reach work that has *already started*.
+#: The halt used to be a gate in front of dispatch and nothing behind it, so
+#: aborting a runaway job refused the next command while the runaway one ran
+#: to completion -- which is the opposite of what the button is for.
+_LIVE_PROCESSES: "set[asyncio.subprocess.Process]" = set()
+
+
+def _register(proc: "asyncio.subprocess.Process") -> None:
+    _LIVE_PROCESSES.add(proc)
+
+
+def _unregister(proc: "asyncio.subprocess.Process | None") -> None:
+    if proc is not None:
+        _LIVE_PROCESSES.discard(proc)
+
+
+async def kill_running_processes(reason: str = "halt") -> int:
+    """
+    Kill every subprocess this module currently has running.
+
+    Returns how many were still alive and got signalled. Uses the same
+    process-tree kill as the timeout path, because killing the shell without
+    its children leaves the actual workload orphaned -- the exact failure that
+    left six generators queued against one local model.
+    """
+    victims = [p for p in list(_LIVE_PROCESSES) if p.returncode is None]
+    for proc in victims:
+        log.critical(
+            "AsyncShellExecutor: killing pid %s -- %s", getattr(proc, "pid", "?"), reason
+        )
+        try:
+            await _kill_process_tree(proc)
+        except Exception as exc:
+            log.error("AsyncShellExecutor: failed to kill pid %s: %s",
+                      getattr(proc, "pid", "?"), exc)
+        finally:
+            _unregister(proc)
+    return len(victims)
+
+
+def _halt_refusal(what: str) -> dict[str, Any]:
+    return {
+        "success": False,
+        "exit_code": -1,
+        "stdout": "",
+        "stderr": (
+            f"Emergency halt is engaged; {what} was not started. "
+            "Resume the task, or remove data/emergency_halt.json, to continue."
+        ),
+        "timed_out": False,
+        "halted": True,
+    }
+
+
+def _is_halted() -> bool:
+    """Late import: gates imports this module to kill processes on halt."""
+    try:
+        from sdk.agent.gates import RevocationHalt
+
+        return RevocationHalt.is_halted()
+    except Exception as exc:
+        # Refusing to run because the halt is unreadable is the safe direction.
+        log.error("AsyncShellExecutor: could not read halt state (%s); refusing.", exc)
+        return True
+
+
 class AsyncShellExecutor:
     """
     Non-blocking asyncio-based shell executor.
@@ -142,6 +210,10 @@ class AsyncShellExecutor:
         env_override: dict[str, str] | None = None,
     ) -> dict[str, Any]:
         """Execute a binary natively via create_subprocess_exec (no shell)."""
+        if _is_halted():
+            log.critical("AsyncShellExecutor: refusing exec %r -- emergency halt is engaged.", executable)
+            return _halt_refusal(f"exec {executable!r}")
+
         clean_env = AsyncShellExecutor._build_clean_env(env_override)
         log.debug("AsyncShellExecutor: running exec=%r args=%r cwd=%r timeout=%s", executable, args, cwd, timeout)
 
@@ -158,6 +230,7 @@ class AsyncShellExecutor:
                     stdout=asyncio.subprocess.PIPE,
                     stderr=asyncio.subprocess.PIPE,
                 )
+                _register(proc)
                 stdout_bytes, stderr_bytes = await proc.communicate()
                 return (
                     stdout_bytes.decode("utf-8", errors="replace"),
@@ -193,6 +266,8 @@ class AsyncShellExecutor:
                 "stderr": str(exc),
                 "timed_out": False,
             }
+        finally:
+            _unregister(proc)
 
     @staticmethod
     async def run(
@@ -225,6 +300,10 @@ class AsyncShellExecutor:
             stderr     (str)   — Captured standard error.
             timed_out  (bool)  — True if the process was killed due to timeout.
         """
+        if _is_halted():
+            log.critical("AsyncShellExecutor: refusing %r -- emergency halt is engaged.", command)
+            return _halt_refusal(f"command {command!r}")
+
         clean_env = AsyncShellExecutor._build_clean_env(env_override)
 
         log.debug("AsyncShellExecutor: running command=%r cwd=%r timeout=%s", command, cwd, timeout)
@@ -244,6 +323,7 @@ class AsyncShellExecutor:
                     # group without touching the harness's own process group.
                     **({"start_new_session": True} if os.name != "nt" else {}),
                 )
+                _register(proc)
                 stdout_bytes, stderr_bytes = await proc.communicate()
                 return (
                     stdout_bytes.decode("utf-8", errors="replace"),
@@ -292,3 +372,7 @@ class AsyncShellExecutor:
                 "stderr": str(exc),
                 "timed_out": False,
             }
+        finally:
+            # A registry that only ever grows would have the halt trying to
+            # kill processes that exited hours ago.
+            _unregister(proc)

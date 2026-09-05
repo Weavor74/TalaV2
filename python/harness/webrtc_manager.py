@@ -94,6 +94,21 @@ class WebRTCManager:
             logger.info("WebRTC Data Channel open for %s", peer_username)
             self.data_channels[peer_username] = channel
 
+        # The two sides of a negotiation arrive here in different states.
+        # The offerer creates the channel itself and watches it transition,
+        # so "open" fires and the handler above records it. The answerer is
+        # handed the channel by the `datachannel` event -- which aiortc only
+        # emits once the channel is ALREADY open, so that event has come and
+        # gone and `on_open` will never run.
+        #
+        # Left uncorrected the answerer can receive (the message handler
+        # below is attached either way) but can never initiate: send_rpc
+        # looks up a channel that was never recorded and raises. Half a
+        # duplex link, with a healthy ICE connection underneath it.
+        if channel.readyState == "open":
+            logger.info("WebRTC Data Channel already open for %s", peer_username)
+            self.data_channels[peer_username] = channel
+
         @channel.on("close")
         def on_close():
             logger.info("WebRTC Data Channel closed for %s", peer_username)

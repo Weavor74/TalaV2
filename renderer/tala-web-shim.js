@@ -42,9 +42,17 @@
   }
 
   const CONFIG = window.__TALA_WEB_CONFIG__ || {};
-  const WS_URL = CONFIG.wsUrl || `ws://${location.hostname}:8765`;
   const BRIDGE = CONFIG.bridgeUrl || '/api/bridge';
   const TOKEN = CONFIG.token || '';
+
+  // The harness refuses unauthenticated connections (SEC-W0-03). new WebSocket()
+  // cannot set headers, so the token rides in the query string -- the one place
+  // a browser can put it. It is loopback and never leaves this machine.
+  const WS_TOKEN = CONFIG.wsToken || '';
+  const WS_BASE = CONFIG.wsUrl || `ws://${location.hostname}:8765`;
+  const WS_URL = WS_TOKEN
+    ? `${WS_BASE}${WS_BASE.includes('?') ? '&' : '?'}token=${encodeURIComponent(WS_TOKEN)}`
+    : WS_BASE;
 
   /** Channels that are filesystem/process work, not JSON-RPC. */
   const BRIDGE_CHANNELS = new Set([

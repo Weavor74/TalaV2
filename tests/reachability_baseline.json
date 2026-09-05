@@ -75,7 +75,6 @@
   "python/harness/vault_nodes.py::may_share_with_contact",
   "python/harness/wallet.py::get_wallet_address",
   "python/harness/wallet.py::load_or_create_wallet",
-  "python/harness/webrtc_manager.py::WebRTCManager.close_connection",
   "python/harness/workflow_executor.py::datetime_now_iso",
   "python/inference/embedded_engine.py::run_db",
   "python/inference/embedded_engine.py::set_status",
