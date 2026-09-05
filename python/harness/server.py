@@ -5231,11 +5231,78 @@ async def _heartbeat_peer_on_chain_directory(
     return await asyncio.to_thread(_send)
 
 
+async def _negotiate_webrtc_upgrade(
+    endpoint: str,
+    peer_username: str,
+    call_peer_rpc: Any = None,
+) -> bool:
+    """
+    Complete an SDP offer/answer exchange with `peer_username` and leave an
+    open data channel behind.
+
+    Split out of `_call_peer_rpc` so the negotiation can be tested without a
+    database, a socket, or a second live harness -- pass `call_peer_rpc` to
+    stand in for the network leg.
+
+    Returns True when the answer was applied. A False return is not an error
+    the caller needs to handle: the relay path it was upgrading away from
+    still works, and the next peer call will try again.
+    """
+    from python.harness.webrtc_manager import webrtc_manager
+
+    if call_peer_rpc is None:
+        call_peer_rpc = _call_peer_rpc
+
+    if webrtc_manager.connections.get(peer_username):
+        return False
+
+    try:
+        offer = await webrtc_manager.create_offer(peer_username)
+
+        # `peer_username` is who we are CALLING; the offer has to carry who
+        # we ARE. The receiver files the connection under whatever name
+        # arrives in this field, so sending the callee's name makes each end
+        # key the same channel differently and every reverse-direction
+        # lookup miss. This is the identity the E2EE path sends, for the
+        # same reason.
+        self_username = os.environ.get("TALA_USERNAME", "@local-tala")
+
+        response = await call_peer_rpc(
+            endpoint,
+            "p2p.webrtc_offer",
+            {"peer_username": self_username, "offer": offer},
+        )
+
+        # Half an SDP exchange is not a connection. Without applying the
+        # answer the local peer stays in `have-local-offer`, ICE never
+        # starts, the data channel never opens, and every later call falls
+        # back to the relay this upgrade exists to avoid -- silently, with
+        # no error anywhere, because the offer RPC itself succeeded.
+        answer = (response or {}).get("answer")
+        if not answer:
+            raise RuntimeError(f"peer returned no SDP answer: {response!r}")
+
+        await webrtc_manager.handle_answer(peer_username, answer)
+        logger.info("WebRTC upgrade negotiated with %s", peer_username)
+        return True
+    except Exception as e:
+        logger.warning("Failed to negotiate WebRTC upgrade with %s: %s", peer_username, e)
+        # A half-open RTCPeerConnection left in the map is worse than none:
+        # the guard at the top of this function reads it as "already
+        # connected", so without this cleanup one failed upgrade disables
+        # every future attempt for the lifetime of the process.
+        try:
+            await webrtc_manager.close_connection(peer_username)
+        except Exception:
+            logger.debug("WebRTC cleanup after failed upgrade also failed", exc_info=True)
+        return False
+
+
 async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> dict[str, Any]:
     from python.harness.webrtc_manager import webrtc_manager
     import uuid
     import json
-    
+
     # Look up peer username by endpoint
     peer_record = await db.fetchrow("SELECT peer_username FROM p2p_sessions WHERE endpoint_url = $1", endpoint)
     peer_username = peer_record["peer_username"] if peer_record else None
@@ -5305,16 +5372,7 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
         
     # Asynchronously attempt WebRTC upgrade to avoid future VPS relay costs
     if peer_username and method not in ("p2p.webrtc_offer", "p2p.webrtc_answer", "p2p.webrtc_ice_candidate"):
-        async def _upgrade_webrtc():
-            if not webrtc_manager.connections.get(peer_username):
-                try:
-                    offer = await webrtc_manager.create_offer(peer_username)
-                    # Note: We send our identity so the peer knows who is connecting
-                    await _call_peer_rpc(endpoint, "p2p.webrtc_offer", {"peer_username": peer_username, "offer": offer})
-                except Exception as e:
-                    logger.warning("Failed to negotiate WebRTC upgrade with %s: %s", peer_username, e)
-        import asyncio
-        asyncio.create_task(_upgrade_webrtc())
+        asyncio.create_task(_negotiate_webrtc_upgrade(endpoint, peer_username))
         
     response = json.loads(raw)
     if response.get("error"):
@@ -5754,7 +5812,29 @@ def _verify_packet(packet: dict[str, Any], secret: str) -> bool:
 
 
 def _accept_any_tala_client_enabled() -> bool:
-    return os.environ.get("TALA_VPS_ACCEPT_ANY_TALA", "").strip().lower() in {"1", "true", "yes", "on"}
+    """
+    May this process enrol a Tala it has never met?
+
+    The `--vps` flag is the switch. The older `TALA_VPS_ACCEPT_ANY_TALA`
+    environment variable is still honoured so an already-deployed VPS keeps
+    working across the upgrade, but it warns: an env var is ambient, it
+    survives in a shell or a stray .env, and this is not a setting that
+    should ever arrive by accident on a desktop -- it opens contact
+    enrolment and the relay to strangers.
+    """
+    from python.harness import vps_mode
+
+    if vps_mode.is_enabled():
+        return True
+
+    if os.environ.get("TALA_VPS_ACCEPT_ANY_TALA", "").strip().lower() in {"1", "true", "yes", "on"}:
+        logger.warning(
+            "TALA_VPS_ACCEPT_ANY_TALA is set but --vps was not passed. This is "
+            "deprecated; start the connection node with `--vps` instead."
+        )
+        return True
+
+    return False
 
 
 def _is_tala_handshake_packet(packet: dict[str, Any]) -> bool:
@@ -12011,17 +12091,95 @@ async def handle_memory_reindex_profiles(params: dict[str, Any], req_id: Any) ->
 # P2P & Multimodal & Browser Methods
 # ---------------------------------------------------------------------------
 
-async def handle_p2p_semantic_search(params: dict, req_id: any) -> str:
-    from python.harness.server import _ok, _err, JsonRpcError
+async def handle_p2p_semantic_search(params: dict, req_id: Any) -> str:
+    """
+    ``p2p.semantic_search`` — search this Tala's nodes for a peer.
+
+    Who the caller is comes from the signed packet, never from the
+    connection they arrived on. That distinction is the whole point once a
+    relay exists: the forwarding node asserts an identity in its envelope,
+    but it does not hold the shared secret between these two contacts, so
+    only the signature here can establish who is really asking. A relay is
+    trusted to route, never to say who someone is.
+
+    And what that peer may see is decided here, by this client's own
+    firewall -- the same `_peer_can_resolve_node_reference` path that gates
+    direct node resolution, applied per node to the results. Previously this
+    handler asked for neither: it took an unauthenticated `query` and
+    returned everything not tagged `internal`, which made one blanket
+    decision on behalf of every contact.
+
+    (It also never ran. `retrieve_relevant_nodes` is synchronous and takes
+    `nodes_dir` and `top_k`; this awaited it, omitted the directory and
+    passed `limit=`, so every call raised TypeError into the except below
+    and came back as an internal error.)
+    """
     from python.harness.retrieval import retrieve_relevant_nodes
+
+    packet = params.get("packet")
+    if not isinstance(packet, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'packet' is required")
+
+    contact = await _get_contact(wallet_address=str(packet.get("sender_wallet", "")).strip())
+    if contact is None:
+        return _ok(req_id, {"matches": [], "resolved": False, "reason": "unknown_sender"})
+
     try:
-        query = params.get("query", "")
-        # Filter internal nodes
-        where_filter = {"trust_tier": {"$ne": "internal"}}
-        matches = await retrieve_relevant_nodes(query, limit=5, where_filter=where_filter)
-        return _ok(req_id, {"matches": matches})
+        secret = _contact_secret(contact)
+    except ValueError as exc:
+        return _ok(req_id, {"matches": [], "resolved": False, "reason": str(exc)})
+
+    if not _verify_packet(packet, secret):
+        return _ok(req_id, {"matches": [], "resolved": False, "reason": "bad_signature"})
+
+    if not (contact.get("permissions") or {}).get("nodes"):
+        return _ok(req_id, {"matches": [], "resolved": False, "reason": "contact_nodes_permission_disabled"})
+
+    query = str(packet.get("query") or "").strip()
+    if not query:
+        return _ok(req_id, {"matches": [], "resolved": True})
+
+    try:
+        nodes_dir = resolve_active_nodes_dir()
+        matched = await asyncio.to_thread(
+            retrieve_relevant_nodes,
+            query,
+            nodes_dir,
+            5,
+            0.0,
+            {"trust_tier": {"$ne": "internal"}},
+        )
     except Exception as exc:
+        logger.exception("p2p.semantic_search: retrieval failed")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    visible: list[dict[str, Any]] = []
+    withheld = 0
+    for node, score in matched:
+        node_name = str(getattr(node, "node_id", "") or "").strip()
+        if not node_name:
+            withheld += 1
+            continue
+        allowed, _reason = await _peer_can_resolve_node_reference(contact, {node_name})
+        if not allowed:
+            withheld += 1
+            continue
+        visible.append({
+            "node_id": node_name,
+            "node_type": getattr(node, "node_type", ""),
+            "score": round(float(score), 4),
+        })
+
+    logger.info(
+        "p2p.semantic_search for %s: %d visible, %d withheld by firewall",
+        contact["username"], len(visible), withheld,
+    )
+    return _ok(req_id, {
+        "matches": visible,
+        "resolved": True,
+        "peer": contact["username"],
+        "withheld": withheld,
+    })
 
 async def handle_multimodal_capture_screen(params: dict, req_id: any) -> str:
     from python.harness.server import _ok, _err, JsonRpcError
@@ -13790,6 +13948,201 @@ async def handle_browser_execute_js(params: dict, req_id: any) -> str:
         "browser.execute_js", {"code": code}, req_id, "the script"
     )
 
+# ---------------------------------------------------------------------------
+# Relay: routing between peers that cannot dial each other
+# ---------------------------------------------------------------------------
+
+def _relayed_document_ref(method: str, payload: dict[str, Any]) -> str:
+    """
+    What this relayed call was *about*, as a reference.
+
+    A ledger of "@alice called @bob" answers nothing later. "@alice
+    requested node:doc66666 from @bob" is the fact worth anchoring, so the
+    subject is lifted out of the payload here and recorded alongside the
+    hop.
+
+    A reference only, and only from the fields known to hold one. The
+    payload belongs to two other people; nothing else in it is copied, and
+    an unrecognised method contributes no subject rather than a guess.
+    """
+    packet = payload.get("packet")
+    packet = packet if isinstance(packet, dict) else {}
+
+    if method == "p2p.resolve_node_reference":
+        reference = str(packet.get("reference") or "").strip()
+        return f"node:{reference}" if reference else ""
+
+    if method == "p2p.semantic_search":
+        # The query is the subject, but it is also the peer's words, so only
+        # its shape is recorded -- enough to audit that a search happened and
+        # how large it was, without publishing what was searched for.
+        query = str(packet.get("query") or "").strip()
+        return f"query:{len(query)}chars" if query else ""
+
+    if method in ("p2p.receive_message", "p2p.encrypted_payload"):
+        message_type = str(packet.get("type") or payload.get("type") or "").strip()
+        return f"message:{message_type}" if message_type else "message"
+
+    if method in ("p2p.webrtc_offer", "p2p.webrtc_answer"):
+        return "signalling:sdp"
+
+    if method == "p2p.receive_handshake":
+        return "handshake"
+
+    return ""
+
+async def handle_relay_announce(params: dict[str, Any], ws: Any, req_id: Any) -> str:
+    """
+    ``relay.announce`` — bind this socket to a peer identity.
+
+    Until a socket is announced the VPS knows a connection exists but not
+    whose it is, which is the state every connection was permanently stuck
+    in before this existed. The claim is authenticated the same way every
+    other P2P packet is: an HMAC over the canonical body using the shared
+    secret already on the contact row, so announcing as someone else
+    requires their secret.
+    """
+    from python.harness import vps_mode
+
+    if not vps_mode.is_enabled():
+        return _err(req_id, JsonRpcError.INVALID_REQUEST, "This node is not running as a connection node (--vps)")
+
+    packet = params.get("packet")
+    if not isinstance(packet, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'packet' object is required")
+
+    username = str(packet.get("sender_username") or "").strip()
+    if not username:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "packet.sender_username is required")
+
+    contact = await _get_contact(username=username)
+    if contact is None:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Unknown contact {username}; handshake first")
+
+    try:
+        secret = _contact_secret(contact)
+    except ValueError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+
+    if not _verify_packet(packet, secret):
+        logger.warning("relay.announce: bad signature for claimed identity %s", username)
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "Packet signature does not verify")
+
+    vps_mode.registry.bind(username, ws)
+    logger.info("Peer %s announced on this connection node", username)
+    return _ok(req_id, {
+        "announced": username,
+        "peers_online": len(vps_mode.registry.connected_peers()),
+    })
+
+
+async def handle_relay_peers(params: dict[str, Any], req_id: Any) -> str:
+    """``relay.peers`` — who is reachable through this node right now."""
+    from python.harness import vps_mode
+
+    if not vps_mode.is_enabled():
+        return _err(req_id, JsonRpcError.INVALID_REQUEST, "This node is not running as a connection node (--vps)")
+
+    peers = vps_mode.registry.connected_peers()
+    return _ok(req_id, {"peers": peers, "count": len(peers)})
+
+
+async def handle_relay_send(params: dict[str, Any], ws: Any, req_id: Any) -> str:
+    """
+    ``relay.send`` — forward one call to another connected peer.
+
+    Only an announced socket may send, and only to a name that is currently
+    connected. The method is checked against `RELAYABLE_METHODS`: the caller
+    chooses it, so an unrestricted relay would let any enrolled peer run
+    arbitrary RPC inside another peer's harness over the VPS's trusted
+    connection to them.
+    """
+    from python.harness import vps_mode
+
+    if not vps_mode.is_enabled():
+        return _err(req_id, JsonRpcError.INVALID_REQUEST, "This node is not running as a connection node (--vps)")
+
+    from_username = vps_mode.registry.username_for(ws)
+    if not from_username:
+        return _err(req_id, JsonRpcError.INVALID_REQUEST, "Announce this connection first (relay.announce)")
+
+    target = str(params.get("to") or "").strip()
+    method = str(params.get("method") or "").strip()
+    payload = params.get("params") or {}
+    if not target or not method:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'to' and 'method' are required")
+    if not isinstance(payload, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'params' must be an object")
+
+    started = time.monotonic()
+    try:
+        result = await vps_mode.registry.relay(target, method, payload, from_username)
+        ok, detail = True, ""
+    except PermissionError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except LookupError as exc:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, str(exc))
+    except (ConnectionError, TimeoutError) as exc:
+        ok, detail, result = False, str(exc), None
+    except Exception as exc:  # the peer answered with an error of its own
+        ok, detail, result = False, str(exc), None
+
+    # The ledger entry has to say what was asked for, not merely that
+    # something was: "@alice requested node:doc66666 from @bob" is an
+    # auditable fact, "@alice called @bob" is not. `chains.record` carries a
+    # `document_ref` field for exactly this, and its contract is a reference
+    # and never content -- a body written to a chain everyone can read is a
+    # body published, and a relay is carrying other people's messages.
+    document_ref = _relayed_document_ref(method, payload)
+    try:
+        from python.harness import chains
+
+        await chains.record(
+            "relay",
+            {
+                "from": from_username,
+                "to": target,
+                "method": method,
+                "document_ref": document_ref,
+                "ok": ok,
+                "duration_ms": round((time.monotonic() - started) * 1000, 1),
+            },
+            counterparty=target,
+            document_ref=document_ref,
+        )
+    except Exception as exc:
+        logger.warning("relay: could not record hop %s -> %s on chain: %s", from_username, target, exc)
+
+    if not ok:
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"Relay to {target} failed: {detail}")
+    return _ok(req_id, {"from": from_username, "to": target, "result": result})
+
+
+async def handle_relay_deliver(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``relay.deliver`` — the receiving end of a relayed call.
+
+    Runs on the *client*, not the connection node, so it is deliberately not
+    gated on VPS mode. The allowlist is enforced here a second time: the
+    node that forwarded this is trusted to route, not to choose what runs.
+    """
+    from python.harness.vps_mode import RELAYABLE_METHODS
+
+    method = str(params.get("method") or "").strip()
+    payload = params.get("params") or {}
+    from_username = str(params.get("from_username") or "").strip()
+
+    if method not in RELAYABLE_METHODS:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, f"'{method}' is not relayable")
+
+    handler = _HANDLERS.get(method)
+    if handler is None:
+        return _err(req_id, JsonRpcError.METHOD_NOT_FOUND, f"Method not found: '{method}'")
+
+    logger.info("Relayed %s from %s", method, from_username or "<unknown>")
+    return await handler(payload, req_id)
+
+
 async def handle_p2p_webrtc_offer(params: dict[str, Any], req_id: Any) -> str:
     from python.harness.webrtc_manager import webrtc_manager
     peer_username = params.get("peer_username")
@@ -14344,6 +14697,10 @@ _HANDLERS: dict[str, Any] = {
     "marketplace.search": handle_marketplace_search,
     "marketplace.download": handle_marketplace_download,
     "p2p.marketplace_search": handle_p2p_marketplace_search,
+    "relay.announce": handle_relay_announce,
+    "relay.send": handle_relay_send,
+    "relay.peers": handle_relay_peers,
+    "relay.deliver": handle_relay_deliver,
     "p2p.webrtc_offer": handle_p2p_webrtc_offer,
     "p2p.webrtc_answer": handle_p2p_webrtc_answer,
     "p2p.encrypted_payload": handle_p2p_encrypted_payload,
@@ -14378,15 +14735,30 @@ async def _handle_webrtc_message(peer_username: str, raw_message: Any) -> None:
 
     logger.debug("WebRTC -> %s id=%s params=%r", method, req_id, params)
 
-    handler = _HANDLERS.get(method)
+    # A data channel is peer transport, not an administrative console.
+    #
+    # This used to dispatch anything in _HANDLERS, which is the whole ~180
+    # method surface -- vault.read, contacts.delete, self_improvement.execute_goal
+    # -- to whoever completed a WebRTC handshake. And `p2p.webrtc_offer` takes
+    # no signature, so completing one requires nothing but reaching the peer.
+    # The relay made that reachable through the VPS by any enrolled peer,
+    # which is what forced the issue.
+    #
+    # Peers get the peer surface. Each of those handlers then authenticates
+    # its own caller from the signed packet and applies this client's
+    # firewall, so this is a floor, not the authorisation itself.
+    from python.harness.vps_mode import RELAYABLE_METHODS
+
+    handler = _HANDLERS.get(method) if method in RELAYABLE_METHODS else None
     if handler is None:
-        response = _err(req_id, JsonRpcError.METHOD_NOT_FOUND, f"Method not found: '{method}'")
+        response = _err(
+            req_id,
+            JsonRpcError.METHOD_NOT_FOUND,
+            f"'{method}' is not reachable over a peer connection",
+        )
     else:
         try:
-            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe"):
-                response = _err(req_id, JsonRpcError.INTERNAL_ERROR, "Streaming methods not supported over WebRTC P2P")
-            else:
-                response = await handler(params, req_id)
+            response = await handler(params, req_id)
         except Exception as exc:
             logger.exception("Unhandled error in WebRTC handler '%s'", method)
             response = _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
@@ -14412,6 +14784,21 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
     async def handle_msg(raw_message: Any) -> None:
         response: str
         req_id: Any = None
+
+        # A relayed call turns this server into a client for one round trip:
+        # it wrote a request down this socket, so the matching reply arrives
+        # here, in the stream where only requests are expected. Claim it
+        # before `_parse_request` rejects it for having no method.
+        from python.harness import vps_mode
+
+        if vps_mode.is_enabled():
+            try:
+                framed = json.loads(str(raw_message))
+            except Exception:
+                framed = None
+            if isinstance(framed, dict) and vps_mode.registry.is_relay_response(framed):
+                vps_mode.registry.resolve(framed)
+                return
 
         try:
             req_id, method, params = _parse_request(str(raw_message))
@@ -14441,8 +14828,10 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
 
         _CURRENT_RPC.set(method)
         try:
-            # inference.generate, workflow.execute, and telemetry.stream_subscribe need the ws object
-            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe"):
+            # These need the socket itself: the streaming methods write to it
+            # directly, and the relay methods bind an identity to it.
+            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe",
+                          "relay.announce", "relay.send"):
                 response = await handler(params, ws, req_id)
             else:
                 response = await handler(params, req_id)
@@ -14474,6 +14863,13 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
         logger.exception("Fatal error in connection handler for %s", remote)
     finally:
         _active_connections.discard(ws)
+        try:
+            from python.harness import vps_mode
+            departed = vps_mode.registry.release(ws)
+            if departed:
+                logger.info("Peer %s is no longer reachable through this node", departed)
+        except Exception:
+            logger.exception("Failed to release peer registry entry for %s", remote)
         try:
             from sdk.agent.telemetry import LiveStatusReporter
             LiveStatusReporter.unregister_websocket(ws)
@@ -15328,9 +15724,33 @@ def main() -> None:
         python -m harness.server
         # or
         python python/harness/server.py
+        # as a connection node other Talas can be reached through:
+        python -m harness.server --vps
     """
+    import argparse
     import concurrent.futures
+
+    parser = argparse.ArgumentParser(
+        prog="tala-harness",
+        description="Tala harness: JSON-RPC 2.0 over WebSocket.",
+    )
+    parser.add_argument(
+        "--vps",
+        action="store_true",
+        help=(
+            "Run as a connection node: accept first-time Tala handshakes, enrol "
+            "them as contacts, publish them to the chain peer directory, and relay "
+            "between peers that cannot dial each other. Off unless passed -- a "
+            "desktop Tala must never enrol strangers by default."
+        ),
+    )
+    args, _unknown = parser.parse_known_args()
+
     _configure_logging()
+
+    if args.vps:
+        from python.harness import vps_mode
+        vps_mode.mode.enable("--vps")
     # Use a larger thread pool so background tasks (huggingface_hub, torch imports,
     # model-cache walks) don't starve the RPC handler threads.
     executor = concurrent.futures.ThreadPoolExecutor(max_workers=16, thread_name_prefix="tala-worker")
