@@ -5247,6 +5247,15 @@ async def _peer_shared_secret(username: str) -> str:
         return ""
     if not contact:
         return ""
+
+    # A denial has to close the socket, not just the documents. Leaving a
+    # denied peer able to authenticate would let it hold a connection, sit in
+    # the relay registry and keep asking -- refused every time, but present.
+    # Denial should mean gone.
+    if str(contact.get("status") or "").strip().lower() == "denied":
+        logger.warning("refusing a handshake from denied contact %s", username)
+        return ""
+
     return str(contact.get("shared_secret") or "").strip()
 
 
@@ -5819,12 +5828,12 @@ async def _get_contact(username: str | None = None, wallet_address: str | None =
         if lookup and not lookup.startswith("@"):
             lookup = "@" + lookup
         row = await db.fetchrow(
-            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions FROM contacts WHERE username = $1",
+            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions, status FROM contacts WHERE username = $1",
             lookup,
         )
     elif wallet_address:
         row = await db.fetchrow(
-            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions FROM contacts WHERE wallet_address = $1",
+            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions, status FROM contacts WHERE wallet_address = $1",
             wallet_address.strip(),
         )
     else:
@@ -5840,6 +5849,10 @@ async def _get_contact(username: str | None = None, wallet_address: str | None =
         "endpoint_url": row["endpoint_url"],
         "shared_secret": row["shared_secret"],
         "permissions": permissions or {},
+        # Missing on a row written before the status migration ran, which is
+        # a contact the operator added by hand -- approved by the act of
+        # adding it.
+        "status": row["status"] if "status" in row.keys() else "approved",
     }
 
 
@@ -5954,14 +5967,17 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
 
     await db.execute(
         """
-        INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret, permissions)
-        VALUES ($1, $2, $3, $4, $5::jsonb)
+        INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret, permissions, status)
+        VALUES ($1, $2, $3, $4, $5::jsonb, 'pending')
         ON CONFLICT (username) DO UPDATE SET
             wallet_address = EXCLUDED.wallet_address,
             endpoint_url = EXCLUDED.endpoint_url,
             shared_secret = EXCLUDED.shared_secret,
             -- permissions deliberately NOT updated: re-enrolling must never
             -- reset a grant the operator has already made or withdrawn.
+            -- status likewise: re-enrolling must not walk a denial back to
+            -- pending, or a refused peer could reapply until someone
+            -- clicked the wrong button.
             updated_at = NOW()
         """,
         username,
@@ -14114,6 +14130,176 @@ async def handle_browser_execute_js(params: dict, req_id: any) -> str:
     )
 
 # ---------------------------------------------------------------------------
+# Contact approval: the decision a connection node does not get to make
+# ---------------------------------------------------------------------------
+#
+# A connection node enrols anyone, because it is a directory and a relay and
+# needs no opinion about who you are. Whether a contact may actually see
+# anything is a different question with a different answer, made here, by
+# the person whose documents they are.
+#
+# Enrolment already starts every peer from deny, so a pending contact can
+# read nothing regardless. What the status adds is that the request is
+# *visible* -- a queue somebody can act on -- and that a refusal is
+# remembered rather than forgotten the next time the peer asks.
+
+CONTACT_STATUSES = ("pending", "approved", "denied")
+
+
+async def handle_contacts_pending(params: dict[str, Any], req_id: Any) -> str:
+    """``contacts.pending`` — peers waiting on a decision."""
+    try:
+        rows = await db.fetch(
+            """
+            SELECT username, wallet_address, endpoint_url, permissions, created_at
+            FROM contacts WHERE status = 'pending' ORDER BY created_at
+            """
+        )
+    except Exception as exc:
+        logger.exception("contacts.pending error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    requests = []
+    for row in rows:
+        permissions = row["permissions"]
+        if isinstance(permissions, str):
+            permissions = json.loads(permissions)
+        permissions = permissions or {}
+        requests.append({
+            "username": row["username"],
+            "wallet_address": row["wallet_address"],
+            "endpoint_url": row["endpoint_url"],
+            # What the peer asked for, which enrolment recorded and granted
+            # nothing for. Surfaced so the decision can be made against the
+            # actual request rather than in the dark.
+            "requested": permissions.get("_requested") or {},
+            "requested_at": row["created_at"].isoformat() if row["created_at"] else None,
+        })
+    return _ok(req_id, {"pending": requests, "count": len(requests)})
+
+
+async def _record_contact_decision(username: str, decision: str, granted: dict[str, Any]) -> None:
+    """Anchor the decision. 'peer-contact' is already an external kind."""
+    try:
+        from python.harness import chains
+
+        await chains.record(
+            "peer-contact",
+            {
+                "decision": decision,
+                "peer": username,
+                # Which permissions, not what they unlock. The chain is
+                # shared; the shape of a grant is auditable, its contents are
+                # this install's business.
+                "granted": sorted(k for k, v in (granted or {}).items() if v and not k.startswith("_")),
+            },
+            counterparty=username,
+            document_ref=f"contact:{username}",
+        )
+    except Exception as exc:
+        logger.warning("could not record the %s decision for %s on chain: %s", decision, username, exc)
+
+
+async def handle_contacts_approve(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``contacts.approve`` — grant a pending peer what it may have.
+
+    Permissions and access rights are set here in one step, because an
+    approval that grants nothing and leaves the rights for later is how a
+    contact ends up approved and inert with nobody sure whether that was
+    deliberate.
+    """
+    username = str(params.get("username") or "").strip()
+    if not username:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'username' is required")
+
+    permissions = params.get("permissions")
+    if permissions is not None and not isinstance(permissions, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'permissions' must be an object")
+    access_rights = params.get("access_rights")
+    if access_rights is not None and not isinstance(access_rights, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'access_rights' must be an object")
+
+    contact = await _get_contact(username=username)
+    if contact is None:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Unknown contact {username}")
+
+    existing = contact.get("permissions") or {}
+    if isinstance(existing, str):
+        existing = json.loads(existing)
+    # The peer's own request is kept for the record but is never a grant: it
+    # is what they asked for, not what they got.
+    granted = {k: bool(v) for k, v in (permissions or {}).items() if not k.startswith("_")}
+    merged = {**{k: v for k, v in existing.items() if k.startswith("_")}, **granted}
+
+    try:
+        await db.execute(
+            "UPDATE contacts SET status = 'approved', permissions = $2::jsonb, updated_at = NOW() "
+            "WHERE username = $1",
+            username, merged,
+            caller="contacts.approve",
+        )
+        if access_rights is not None:
+            await db.execute(
+                """
+                INSERT INTO firewall_contacts (id, name, access_rights, priority)
+                VALUES ($1, $2, $3::jsonb, 0)
+                ON CONFLICT (id) DO UPDATE SET
+                    access_rights = EXCLUDED.access_rights,
+                    updated_at = NOW()
+                """,
+                contact["wallet_address"], username, access_rights,
+                caller="contacts.approve.firewall",
+            )
+    except Exception as exc:
+        logger.exception("contacts.approve error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    await _record_contact_decision(username, "approved", merged)
+    logger.info("contact %s approved with %s", username, sorted(k for k, v in granted.items() if v))
+    return _ok(req_id, {"username": username, "status": "approved", "permissions": merged})
+
+
+async def handle_contacts_deny(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``contacts.deny`` — refuse a peer, and remember the refusal.
+
+    The row is kept rather than deleted. A deleted contact is one that can
+    self-enrol again on its next handshake and reappear in the queue; a
+    denied one stays denied, and `_peer_shared_secret` stops admitting it at
+    the handshake, so denial closes the socket and not merely the door to
+    the documents.
+    """
+    username = str(params.get("username") or "").strip()
+    if not username:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'username' is required")
+
+    contact = await _get_contact(username=username)
+    if contact is None:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Unknown contact {username}")
+
+    try:
+        await db.execute(
+            "UPDATE contacts SET status = 'denied', permissions = '{}'::jsonb, updated_at = NOW() "
+            "WHERE username = $1",
+            username,
+            caller="contacts.deny",
+        )
+        await db.execute(
+            "DELETE FROM firewall_contacts WHERE id = $1",
+            contact["wallet_address"],
+            caller="contacts.deny.firewall",
+        )
+    except Exception as exc:
+        logger.exception("contacts.deny error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    await _record_contact_decision(username, "denied", {})
+    logger.info("contact %s denied", username)
+    return _ok(req_id, {"username": username, "status": "denied"})
+
+
+# ---------------------------------------------------------------------------
 # Relay: routing between peers that cannot dial each other
 # ---------------------------------------------------------------------------
 
@@ -14684,6 +14870,9 @@ _HANDLERS: dict[str, Any] = {
     "contacts.list":          handle_contacts_list,
     "contacts.save":          handle_contacts_save,
     "contacts.delete":        handle_contacts_delete,
+    "contacts.pending":       handle_contacts_pending,
+    "contacts.approve":       handle_contacts_approve,
+    "contacts.deny":          handle_contacts_deny,
     "p2p.handshake":          handle_p2p_handshake,
     "p2p.receive_handshake":  handle_p2p_receive_handshake,
     "p2p.send_message":       handle_p2p_send_message,
