@@ -160,3 +160,89 @@ def test_the_renderer_sends_what_the_handler_accepts():
     assert "username: profileUsername, endpoint_url: ''" not in text, (
         "the operator's own handle is being passed as the contact name again"
     )
+
+
+# ---------------------------------------------------------------------------
+# Connected means connected
+# ---------------------------------------------------------------------------
+
+
+@pytest.fixture
+def connection_state(monkeypatch, captured):
+    """Watch what gets written as the stored connection status."""
+    saved = {}
+
+    async def fake_save(key, value):
+        saved[key] = value
+
+    async def fake_get(key):
+        return saved.get(key, {})
+
+    monkeypatch.setattr(server, "_save_client_setting", fake_save)
+    monkeypatch.setattr(server, "_get_client_setting", fake_get)
+    return saved
+
+
+@pytest.mark.asyncio
+async def test_a_refused_handshake_does_not_report_connected(connection_state, monkeypatch):
+    """
+    The UI read "VPS Online" while the socket had been refused with HTTP 401.
+    The setting was saved before the handshake and never rolled back, so the
+    status reflected configuration rather than reachability -- the exact
+    confusion the architecture contract calls out: only a probe turns
+    CONFIGURED into OK or FAILED.
+    """
+    async def refused(params, req_id):
+        return json.dumps({
+            "jsonrpc": "2.0", "id": req_id,
+            "error": {"code": -32603, "message": "Peer handshake failed: HTTP 401"},
+        })
+
+    monkeypatch.setattr(server, "handle_p2p_handshake", refused)
+
+    raw = await server.handle_chain_connect_vps({}, 1)
+
+    assert "error" in json.loads(raw), "the caller should still see the failure"
+    stored = connection_state.get(server.CHAIN_CONNECTION_SETTING_KEY, {})
+    assert stored.get("mode") == "local", (
+        f"reported {stored.get('mode')!r} after a refused handshake"
+    )
+    assert "401" in stored.get("last_error", "")
+
+
+@pytest.mark.asyncio
+async def test_an_accepted_handshake_does_report_connected(connection_state, monkeypatch):
+    async def accepted(params, req_id):
+        return json.dumps({
+            "jsonrpc": "2.0", "id": req_id,
+            "result": {"success": True, "peer": "@tala-vps", "response": {"accepted": True}},
+        })
+
+    monkeypatch.setattr(server, "handle_p2p_handshake", accepted)
+
+    await server.handle_chain_connect_vps({}, 1)
+
+    stored = connection_state.get(server.CHAIN_CONNECTION_SETTING_KEY, {})
+    assert stored.get("mode") == "vps"
+    assert stored.get("endpoint_url", "").startswith("ws://talacore.app")
+
+
+@pytest.mark.asyncio
+async def test_a_failed_attempt_keeps_the_contact_for_the_retry(connection_state, monkeypatch, captured):
+    """
+    The contact row carries the shared secret the next attempt authenticates
+    with. Discarding it on failure would leave the retry unable to say who it
+    is.
+    """
+    async def refused(params, req_id):
+        return json.dumps({
+            "jsonrpc": "2.0", "id": req_id,
+            "error": {"code": -32603, "message": "refused"},
+        })
+
+    monkeypatch.setattr(server, "handle_p2p_handshake", refused)
+    await server.handle_chain_connect_vps({}, 1)
+
+    contact_writes = [a for sql, a in captured["execute"] if "INSERT INTO contacts" in sql]
+    assert contact_writes, "the contact was not written, so a retry cannot identify itself"
+    assert isinstance(contact_writes[0][3], str) and contact_writes[0][3]

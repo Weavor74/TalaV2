@@ -6833,12 +6833,22 @@ async def handle_chain_connect_vps(params: dict[str, Any], req_id: Any) -> str:
             "peer_directory": discovery_result,
             "connected_at": datetime.now(timezone.utc).isoformat(),
         }
-        await _save_client_setting(CHAIN_CONNECTION_SETTING_KEY, setting)
     except Exception as exc:
         logger.exception("chain.connect_vps save error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
-    return await handle_p2p_handshake(
+    # Shake hands BEFORE claiming to be connected.
+    #
+    # This used to save the connection setting first and hand the handshake
+    # its return value, so a handshake that failed left "mode": "vps" behind.
+    # `chain.connection_get` reads that setting, the UI reads that, and the
+    # status therefore said "VPS Online" while the socket had been refused
+    # with HTTP 401 -- observed doing exactly that against the live node.
+    #
+    # It is the failure the architecture contract names outright: a
+    # configured credential is not a working service, and only a probe turns
+    # CONFIGURED into OK or FAILED. The handshake is the probe.
+    handshake_raw = await handle_p2p_handshake(
         {
             "username": username,
             "endpoint_url": endpoint_url,
@@ -6847,6 +6857,36 @@ async def handle_chain_connect_vps(params: dict[str, Any], req_id: Any) -> str:
         },
         req_id,
     )
+
+    try:
+        handshake = json.loads(handshake_raw)
+    except Exception:
+        handshake = {}
+    accepted = bool((handshake.get("result") or {}).get("success"))
+
+    if accepted:
+        await _save_client_setting(CHAIN_CONNECTION_SETTING_KEY, setting)
+    else:
+        # Say local, because local is what we are. The contact row stays --
+        # it carries the shared secret the next attempt authenticates with,
+        # and discarding it would make a retry unable to identify itself.
+        logger.warning(
+            "chain.connect_vps: handshake with %s was not accepted; staying local",
+            endpoint_url,
+        )
+        await _save_client_setting(
+            CHAIN_CONNECTION_SETTING_KEY,
+            {
+                "mode": "local",
+                "username": username,
+                "endpoint_url": endpoint_url,
+                "chain_endpoint_url": discovery_endpoint,
+                "last_attempt_at": datetime.now(timezone.utc).isoformat(),
+                "last_error": (handshake.get("error") or {}).get("message", "handshake rejected"),
+            },
+        )
+
+    return handshake_raw
 
 
 async def handle_chain_auto_connect(params: dict[str, Any], req_id: Any) -> str:
