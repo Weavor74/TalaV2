@@ -5146,6 +5146,34 @@ async def handle_contacts_delete(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+#: The project's connection node, by name.
+#:
+#: This used to be the Google Cloud instance's IP prefix, matched as a
+#: substring. A hostname survives moving the box, changing provider, or
+#: putting the thing behind a CDN; an address survives none of those, and
+#: fails *silently* when it stops matching, because the only symptom is that
+#: VPS write-gating quietly stops applying to a node that is still the VPS.
+#:
+#: TALA_VPS_HOST overrides it, comma-separated, for anyone pointing an
+#: install at a different service.
+DEFAULT_VPS_HOST = "talacore.app"
+
+
+def _vps_hosts() -> tuple[str, ...]:
+    configured = (os.environ.get("TALA_VPS_HOST") or "").strip()
+    return tuple(
+        host.strip().lower()
+        for host in (configured or DEFAULT_VPS_HOST).split(",")
+        if host.strip()
+    )
+
+
+def _endpoint_is_project_vps(endpoint: str) -> bool:
+    """Does this endpoint name the project's connection node?"""
+    haystack = (endpoint or "").strip().lower()
+    return any(host in haystack for host in _vps_hosts())
+
+
 def _normalize_peer_endpoint(endpoint: str) -> str:
     endpoint = (endpoint or "").strip()
     if not endpoint:
@@ -5416,7 +5444,7 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
     is_vps = False
     if peer_username and "vps" in peer_username.lower():
         is_vps = True
-    elif "vps" in endpoint.lower() or "34.60." in endpoint:
+    elif "vps" in endpoint.lower() or _endpoint_is_project_vps(endpoint):
         is_vps = True
         
     write_methods = {
