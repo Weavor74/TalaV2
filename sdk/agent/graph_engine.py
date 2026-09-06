@@ -142,6 +142,42 @@ class DAGExecutionEngine:
                 return None
 
             parsed = parse_file(str(node_path))
+
+            # The same gate execute_node applies, applied here too.
+            #
+            # There were two doors into running a node and only one was
+            # locked. `execute_node` checks the type and requires
+            # execution authority >= MIN_EXECUTION_AUTHORITY; this path read
+            # state_data["workflow"] straight off the file and ran it on its
+            # content alone. A node that declared itself observational, or
+            # was not a workflow at all, executed anyway as long as it
+            # carried the right key -- and the node this loads names this
+            # function in its own `consumer` field, so the door it points at
+            # was the unlocked one.
+            #
+            # Contained today only because nothing writes a foreign node into
+            # nodes/. That stops being true the moment nodes carry code and
+            # can be shared, which is exactly when a second unguarded
+            # entrance costs the most.
+            from sdk.agent.node_execution import EXECUTABLE_TYPES, MIN_EXECUTION_AUTHORITY
+
+            node_type = (parsed.node_type or "").strip().lower()
+            if node_type not in EXECUTABLE_TYPES:
+                log.warning(
+                    "Workflow node %s is a %s node, not one of %s — using built-in chain",
+                    node_path.name, node_type or "untyped", sorted(EXECUTABLE_TYPES),
+                )
+                return None
+
+            authority = float(getattr(parsed, "execution_authority", 0.0) or 0.0)
+            if authority < MIN_EXECUTION_AUTHORITY:
+                log.warning(
+                    "Workflow node %s declares execution authority %.2f, below the %.2f "
+                    "required to run — using built-in chain",
+                    node_path.name, authority, MIN_EXECUTION_AUTHORITY,
+                )
+                return None
+
             spec = (parsed.state_data or {}).get("workflow")
             if not isinstance(spec, dict):
                 log.warning("Workflow node %s has no 'workflow' object in #node-state — using built-in chain", node_path)

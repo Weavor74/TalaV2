@@ -28,7 +28,14 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _write_workflow_node(user_data_dir: Path, workflow: dict) -> Path:
-    """Write a minimal schema-valid workflow node carrying `workflow` as its spec."""
+    """
+    Write a minimal schema-valid workflow node carrying `workflow` as its spec.
+
+    Execution authority 0.50, not the 0.00 this helper used to write. A
+    workflow that runs is not observational, and _load_workflow_spec now
+    enforces the same threshold execute_node always did -- so a fixture
+    declaring 0.00 was encoding the mislabelling that hid the missing check.
+    """
     nodes_dir = user_data_dir / "nodes"
     nodes_dir.mkdir(parents=True, exist_ok=True)
     state = json.dumps({"title": "Self-Extension Workflow", "workflow": workflow})
@@ -40,7 +47,7 @@ def _write_workflow_node(user_data_dir: Path, workflow: dict) -> Path:
   data-node-id="workflow-self-extension"
   data-node-type="workflow"
   data-schema-version="neural-node/v2"
-  data-execution-authority="0.00"
+  data-execution-authority="0.50"
   data-memory-authority="0.00"
   data-weight-relevance="1.00"
   data-weight-confidence="1.00">
