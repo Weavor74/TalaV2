@@ -5233,6 +5233,57 @@ async def _heartbeat_peer_on_chain_directory(
     return await asyncio.to_thread(_send)
 
 
+DEFAULT_PEER_USERNAME = "@local-tala"
+
+
+async def _peer_self_username() -> str:
+    """
+    The callsign this install is known by on the network.
+
+    Every install used to answer to ``@local-tala``, because the four places
+    that needed an identity each read a ``TALA_USERNAME`` environment
+    variable that nothing sets. Two installs meeting would then both claim
+    the same name -- and ``contacts.username`` is a primary key, so the
+    second one to arrive collides with the first.
+
+    The identity belongs in the user profile, where the person set it: a
+    handle, not a legal name. Steven's framing -- "my real name is Steven
+    Pollard, but my user name is weavor ... that's what's shared on the
+    blockchain."
+
+    Order:
+
+    1. ``TALA_USERNAME`` when set, because a connection node is headless and
+       has no profile to read. That is the only case that should need it.
+    2. The profile's ``identity.username`` -- the handle.
+    3. ``identity.nickname``, for a profile that filled in one and not the
+       other.
+
+    Deliberately never ``identity.name``. That field may hold the name a
+    person goes by in conversation, and this value is published to a chain
+    other people read; a display name is not a network identity and the two
+    must not be conflated by a fallback.
+    """
+    pinned = (os.environ.get("TALA_USERNAME") or "").strip()
+    if pinned:
+        return pinned if pinned.startswith("@") else f"@{pinned}"
+
+    try:
+        from python.harness import user_profile
+
+        config = await user_profile.load_config()
+        identity = config.get("identity") if isinstance(config.get("identity"), dict) else {}
+        for key in ("username", "nickname"):
+            value = identity.get(key)
+            if isinstance(value, str) and value.strip():
+                handle = re.sub(r"\s+", "-", value.strip()).lstrip("@")
+                return f"@{handle}"
+    except Exception:
+        logger.debug("could not read the profile for a peer identity", exc_info=True)
+
+    return DEFAULT_PEER_USERNAME
+
+
 async def _peer_shared_secret(username: str) -> str:
     """
     The shared secret on a contact's row, for the handshake gate.
@@ -5319,7 +5370,7 @@ async def _negotiate_webrtc_upgrade(
         # key the same channel differently and every reverse-direction
         # lookup miss. This is the identity the E2EE path sends, for the
         # same reason.
-        self_username = os.environ.get("TALA_USERNAME", "@local-tala")
+        self_username = await _peer_self_username()
 
         response = await call_peer_rpc(
             endpoint,
@@ -5405,7 +5456,8 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
         if e2ee_manager.peer_ciphers.get(peer_username):
             logger.debug("Applying E2EE AES-GCM encryption for %s to %s", method, peer_username)
             params = e2ee_manager.encrypt(peer_username, method, params)
-            params["sender_username"] = os.environ.get("TALA_USERNAME", "@local-tala") # Need sender identity to decrypt
+            # The recipient needs to know who to decrypt for.
+            params["sender_username"] = await _peer_self_username()
             method = "p2p.encrypted_payload"
 
     # If WebRTC data channel is open, route over WebRTC
@@ -5435,7 +5487,7 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
         peer_secret = await _peer_shared_secret(peer_username)
         if peer_secret:
             connect_headers = _peer_handshake_headers(
-                os.environ.get("TALA_USERNAME", "@local-tala"), peer_secret
+                await _peer_self_username(), peer_secret
             )
 
     async with websockets.connect(
@@ -5747,7 +5799,7 @@ async def _call_peer_node_reference(endpoint: str, contact: dict[str, Any], node
         {
             "protocol": "tala-p2p/1.0",
             "type": "node-reference",
-            "sender_username": os.environ.get("TALA_USERNAME", "@local-tala"),
+            "sender_username": await _peer_self_username(),
             "sender_wallet": os.environ.get("TALA_WALLET_ADDRESS", "local-tala"),
             "recipient_wallet": contact["wallet_address"],
             "reference": node_reference,
