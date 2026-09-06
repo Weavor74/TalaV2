@@ -15598,8 +15598,15 @@ document.addEventListener('DOMContentLoaded', () => {
                         return;
                     }
                     
-                    // We assume talacore.app is the default public directory
-                    await invoke('python:rpc', { method: 'chain.connect_vps', params: { username: profileUsername, endpoint_url: '', shared_secret: '' } });
+                    // No parameters: the harness knows the project node by
+                    // name and mints the enrolment secret itself.
+                    //
+                    // The profile handle above is checked, not sent. It is
+                    // who *we* are, which the harness reads from the profile
+                    // for itself; `username` in this call names the contact
+                    // being created, so passing our own handle filed the VPS
+                    // under the operator's name.
+                    await invoke('python:rpc', { method: 'chain.connect_vps', params: {} });
                     IPCLog.append('ok', 'Manually connected to Tala VPS chain as @' + profileUsername + '.');
                 }
             } catch (err) {

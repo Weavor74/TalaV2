@@ -5158,6 +5158,17 @@ async def handle_contacts_delete(params: dict[str, Any], req_id: Any) -> str:
 #: install at a different service.
 DEFAULT_VPS_HOST = "talacore.app"
 
+#: What the project's connection node is called and paid to, when a caller
+#: does not say. A single-toggle UI has nowhere to ask.
+DEFAULT_VPS_PEER_USERNAME = "@tala-vps"
+DEFAULT_VPS_WALLET = "tala-vps-main"
+DEFAULT_VPS_WS_PORT = 8765
+
+
+def _default_vps_endpoint() -> str:
+    """The project node's peer socket, by name -- never by address."""
+    return f"ws://{_vps_hosts()[0]}:{DEFAULT_VPS_WS_PORT}"
+
 
 def _vps_hosts() -> tuple[str, ...]:
     configured = (os.environ.get("TALA_VPS_HOST") or "").strip()
@@ -5172,6 +5183,26 @@ def _endpoint_is_project_vps(endpoint: str) -> bool:
     """Does this endpoint name the project's connection node?"""
     haystack = (endpoint or "").strip().lower()
     return any(host in haystack for host in _vps_hosts())
+
+
+def _normalize_optional_endpoint(endpoint: str) -> str:
+    """
+    Normalise an address, or return "" when there isn't one.
+
+    Not every peer has an address. A desktop behind NAT advertises none and
+    is reached over the socket it opened, so "no endpoint" is an ordinary
+    state rather than a missing argument -- but `_normalize_peer_endpoint`
+    raises on empty, and three separate paths called it with a value that
+    could legitimately be blank: enrolling a contact, building a handshake
+    packet, and connecting to the node from the UI toggle. Each turned an
+    absent address into "Peer endpoint is required", surfaced as an internal
+    error.
+
+    `_normalize_peer_endpoint` still raises, because the callers that dial a
+    socket genuinely cannot proceed without one.
+    """
+    endpoint = (endpoint or "").strip()
+    return _normalize_peer_endpoint(endpoint) if endpoint else ""
 
 
 def _normalize_peer_endpoint(endpoint: str) -> str:
@@ -6042,8 +6073,7 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
     # An empty endpoint is recorded as empty. Reachability then comes from
     # the relay registry, which is keyed by the socket the peer itself
     # opened, and needs no address at all.
-    raw_endpoint = str(packet.get("sender_endpoint", "")).strip()
-    endpoint_url = _normalize_peer_endpoint(raw_endpoint) if raw_endpoint else ""
+    endpoint_url = _normalize_optional_endpoint(str(packet.get("sender_endpoint", "")))
     # A peer used to have its requested_permissions written verbatim, and
     # ON CONFLICT DO UPDATE meant it could also overwrite permissions the
     # operator had already narrowed (UI-041). Steven's model is invite-only:
@@ -6183,7 +6213,7 @@ async def handle_p2p_handshake(params: dict[str, Any], req_id: Any) -> str:
     
     if params.get("allow_vps_enrollment") is True:
         packet_body["enrollment_secret"] = secret
-        packet_body["sender_endpoint"] = _normalize_peer_endpoint(str(params.get("sender_endpoint", "")).strip())
+        packet_body["sender_endpoint"] = _normalize_optional_endpoint(str(params.get("sender_endpoint", "")))
         packet_body["requested_permissions"] = contact["permissions"]
     packet = _sign_packet(packet_body, secret)
 
@@ -6713,19 +6743,38 @@ async def handle_chain_disconnect(params: dict[str, Any], req_id: Any) -> str:
 
 
 async def handle_chain_connect_vps(params: dict[str, Any], req_id: Any) -> str:
-    endpoint_url = _normalize_peer_endpoint(str(params.get("endpoint_url", "")).strip())
+    """
+    ``chain.connect_vps`` — enrol this install with a connection node.
+
+    Everything has a default, because there is a known project node and the
+    UI is a single toggle. Previously all three of endpoint, wallet and
+    secret were mandatory and the toggle sent none of them, so the one
+    control a user could reach could not succeed -- and it failed as an
+    internal error rather than a message, because normalising the empty
+    endpoint raised before the checks that would have explained it.
+
+    Note what ``username`` means here: the name for the *contact being
+    created*, i.e. what to call the node. It is not this install's own
+    identity, which comes from the user profile via `_peer_self_username`.
+    The renderer used to pass the operator's own handle into it, which
+    would have filed the VPS in contacts under the user's name.
+    """
+    import secrets as _secrets
+
     chain_endpoint_url = str(params.get("chain_endpoint_url") or "").strip()
-    wallet_address = str(params.get("wallet_address", "")).strip()
-    shared_secret = str(params.get("shared_secret", "")).strip()
-    username = str(params.get("username") or "@tala-vps").strip()
+    username = str(params.get("username") or DEFAULT_VPS_PEER_USERNAME).strip()
     permissions = params.get("permissions") or DEFAULT_VPS_PERMISSIONS
 
-    if not endpoint_url:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'endpoint_url' is required")
-    if not wallet_address:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'wallet_address' is required")
-    if not shared_secret:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'shared_secret' is required")
+    raw_endpoint = str(params.get("endpoint_url", "")).strip() or _default_vps_endpoint()
+    endpoint_url = _normalize_peer_endpoint(raw_endpoint)
+    wallet_address = str(params.get("wallet_address", "")).strip() or DEFAULT_VPS_WALLET
+
+    # The secret is the enrolment credential: we mint it, the node records it
+    # on our contact row, and from then on both ends hold the same value and
+    # can verify each other. Asking a person to invent one is asking them to
+    # invent a shared key, which is not a thing a toggle should require.
+    shared_secret = str(params.get("shared_secret", "")).strip() or _secrets.token_urlsafe(32)
+
     if not isinstance(permissions, dict):
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'permissions' must be an object")
 
