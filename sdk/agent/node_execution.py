@@ -42,16 +42,36 @@ from sdk.agent.tools import register_tool
 log = logging.getLogger(__name__)
 
 #: Node types that describe something runnable.
-EXECUTABLE_TYPES = frozenset({"workflow", "flow", "function"})
+EXECUTABLE_TYPES = frozenset({"workflow", "flow", "function", "decision", "service"})
 
 #: The subset that carries code rather than naming steps somebody else
 #: implemented.
 #:
 #: A workflow names steps existing Python interprets, so the worst a hostile
-#: one can do is ask for a bad arrangement of things already written. A
-#: function node carries the code itself, which is a different kind of
-#: object and needs a different kind of permission -- see node_admission.
-CODE_BEARING_TYPES = frozenset({"function"})
+#: one can do is ask for a bad arrangement of things already written. These
+#: carry the code itself, which is a different kind of object and needs a
+#: different kind of permission -- see node_admission.
+#:
+#: They are three types rather than one because what a node is *for* governs
+#: how carefully it should be read, and that distinction is worth having
+#: before somebody reviews it:
+#:
+#:   function  computes something from its inputs
+#:   decision  chooses which branch a workflow takes
+#:   service   reaches something outside itself
+#:
+#: A service node touching the network deserves a closer reading than a
+#: function adding two numbers, and a reviewer can only weigh that if the
+#: node says which it is. They execute identically; the type is a
+#: declaration of intent, and one a reviewer can check against the code.
+CODE_BEARING_TYPES = frozenset({"function", "decision", "service"})
+
+#: A node that holds current conditions rather than doing anything.
+#:
+#: Deliberately NOT executable and deliberately not admitted: it carries data,
+#: not code, so there is nothing to review and nothing to run. Making state
+#: executable would turn every stored value into a potential program.
+STATE_TYPE = "state"
 
 #: Below this, a node is a document rather than a program.
 MIN_EXECUTION_AUTHORITY = 0.5
@@ -389,14 +409,37 @@ async def _run_function_node(
     # stdout and `result` is what the script returned. Renamed here so a
     # function node's caller reads its value from `output`, matching every
     # other execute_node result rather than the script runner's convention.
-    return {
+    node_type = _node_type_of(html)
+    value = result.get("result")
+    payload = {
         "success": bool(result.get("success")),
         "node": path.stem,
-        "node_type": "function",
-        "output": result.get("result"),
+        "node_type": node_type,
+        "output": value,
         "stdout": result.get("output", ""),
         "error": result.get("error"),
     }
+
+    if node_type == "decision":
+        # A decision's answer is which way to go, so it is surfaced under its
+        # own key rather than left for a caller to infer from `output`. The
+        # branch is whatever the code returned, as a string: the coordinator
+        # matches it against the names the node declares, and a decision that
+        # returns something unnamed is a routing error rather than a silent
+        # fall-through.
+        branches = state.get("branches")
+        payload["branch"] = str(value) if value is not None else ""
+        if isinstance(branches, dict) and payload["branch"] not in branches:
+            payload["success"] = False
+            payload["error"] = (
+                f"{path.stem} chose {payload['branch']!r}, which is not one of its "
+                f"declared branches {sorted(branches)}. A branch nobody declared is "
+                f"a route nobody reviewed."
+            )
+        elif isinstance(branches, dict):
+            payload["next"] = branches[payload["branch"]]
+
+    return payload
 
 
 @register_tool(
@@ -516,3 +559,156 @@ async def create_function_node(
             f"with a note saying what it does."
         ),
     }
+
+
+# ---------------------------------------------------------------------------
+# State nodes
+# ---------------------------------------------------------------------------
+#
+# What is currently true, as an HTML-NN. A decision node reads one to choose a
+# branch; a function node writes one to record what it found.
+#
+# Not executable, and not admitted. It carries data rather than code, so
+# there is nothing to review and nothing to run -- and making state
+# executable would turn every stored value into a potential program, which is
+# the one thing the admission gate exists to prevent.
+
+
+def _read_state(path: Path) -> dict[str, Any]:
+    from sdk.agent.parser import parse_file
+
+    state = parse_file(str(path)).state_data or {}
+    if isinstance(state, str):
+        try:
+            state = json.loads(state)
+        except json.JSONDecodeError:
+            state = {}
+    values = state.get("values")
+    return values if isinstance(values, dict) else {}
+
+
+@register_tool(
+    name="read_state_node",
+    description="Read the current values a state HTML-NN holds.",
+)
+async def read_state_node(node_id: str) -> dict[str, Any]:
+    """
+    NAME
+           read_state_node - what a state node currently holds
+
+    DESCRIPTION
+           Returns the node's ``values`` object. Refuses any other node type
+           by name, because "this is a function node" tells the caller to
+           stop looking where a bare empty result invites a retry.
+    """
+    path = _find_node(str(node_id or "").strip())
+    if path is None:
+        return {"success": False, "error": f"No node named {node_id!r} was found."}
+
+    html = path.read_text(encoding="utf-8")
+    node_type = _node_type_of(html)
+    if node_type != STATE_TYPE:
+        return {
+            "success": False,
+            "error": f"{path.stem} is a {node_type or 'untyped'} node, not a state node.",
+        }
+
+    return {"success": True, "node": path.stem, "values": _read_state(path)}
+
+
+@register_tool(
+    name="write_state_node",
+    description=(
+        "Record current conditions into a state HTML-NN, creating it if needed. "
+        "Merges into whatever it already holds."
+    ),
+)
+async def write_state_node(node_id: str, values: dict[str, Any], title: str = "") -> dict[str, Any]:
+    """
+    NAME
+           write_state_node - record what is currently true
+
+    DESCRIPTION
+           Merges ``values`` into the node rather than replacing it, so two
+           writers recording different facts do not erase each other. A
+           caller wanting a key gone sets it to null explicitly.
+
+           Creating a state node needs no admission: it holds data, and the
+           gate exists for code.
+    """
+    node_id = str(node_id or "").strip()
+    if not node_id:
+        return {"success": False, "error": "node_id is required."}
+    if not isinstance(values, dict):
+        return {"success": False, "error": "values must be an object."}
+
+    directory = _nodes_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{node_id}.html"
+
+    existing: dict[str, Any] = {}
+    if path.exists():
+        node_type = _node_type_of(path.read_text(encoding="utf-8"))
+        if node_type != STATE_TYPE:
+            return {
+                "success": False,
+                "error": (
+                    f"{path.stem} is a {node_type or 'untyped'} node. Refusing to "
+                    f"overwrite it with state."
+                ),
+            }
+        existing = _read_state(path)
+
+    merged = {**existing, **values}
+    from datetime import datetime, timezone
+
+    state = json.dumps(
+        {
+            "title": title or node_id,
+            "values": merged,
+            "observed_at": datetime.now(timezone.utc).isoformat(),
+        },
+        indent=2, ensure_ascii=False,
+    )
+    summary = ", ".join(f"{k}={v!r}" for k, v in list(merged.items())[:6]) or "nothing yet"
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="tala-schema" content="neural-node/v2">
+<title>Neural Node: {title or node_id}</title></head>
+<body>
+<article
+  data-node-id="{node_id}"
+  data-node-type="{STATE_TYPE}"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="1.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity"><h1 id="node-title">{title or node_id}</h1></header>
+
+  <section id="semantic-memory">
+    <p>Current conditions: {summary}.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul></ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{state}
+  </script>
+</article>
+</body>
+</html>
+"""
+    try:
+        path.write_text(html, encoding="utf-8")
+    except OSError as exc:
+        return {"success": False, "error": str(exc)}
+
+    return {"success": True, "node": path.stem, "values": merged}
