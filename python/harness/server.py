@@ -5343,6 +5343,33 @@ async def _peer_self_username() -> str:
     return DEFAULT_PEER_USERNAME
 
 
+def _peer_interaction_allowed(contact: dict[str, Any]) -> tuple[bool, str]:
+    """
+    May this peer do anything beyond asking to be approved?
+
+    Steven's rule: "all clients can connect to the VPS without approval, but
+    clients cannot connect to each other until approved."
+
+    So approval is the gate on peer-to-peer, stated once here rather than
+    implied by whichever permission each handler happens to check. Two of the
+    three peer surfaces were already covered incidentally -- node resolution
+    and search both require permissions.nodes, which is False for anyone
+    unapproved -- but messaging checked only the signature, so a contact that
+    merely existed could talk to you. Relying on a permission to enforce a
+    rule about status works until somebody grants that permission for an
+    unrelated reason.
+
+    The handshake is deliberately not gated by this: it is how a peer asks,
+    and a gate that blocked the request would make approval unreachable.
+    """
+    status = str(contact.get("status") or "").strip().lower()
+    if status == "approved":
+        return True, ""
+    if status == "denied":
+        return False, "denied"
+    return False, "not_yet_approved"
+
+
 async def _peer_shared_secret(username: str) -> str:
     """
     The shared secret on a contact's row, for the handshake gate.
@@ -6101,7 +6128,26 @@ def _is_tala_handshake_packet(packet: dict[str, Any]) -> bool:
 
 
 async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any] | None:
-    if not _accept_any_tala_client_enabled() or not _is_tala_handshake_packet(packet):
+    """
+    Record a Tala nobody here has met.
+
+    Both roles do this, and they mean different things by it.
+
+    A connection node enrols so the peer can be routed: everyone connects,
+    nobody is asked, and the row says 'enrolled'.
+
+    A client enrols so the peer can be *considered*. Refusing an unknown
+    sender outright -- which is what happened before -- made the approval
+    flow unreachable: a stranger could never ask, so nothing could ever be
+    approved, and "clients cannot connect to each other until approved"
+    collapsed into "clients cannot connect to each other". The row says
+    'pending' and grants nothing; `_peer_interaction_allowed` keeps it inert
+    until a person decides.
+
+    A request is not a connection. Enrolling costs the peer a row in a queue
+    and buys it nothing at all.
+    """
+    if not _is_tala_handshake_packet(packet):
         return None
 
     enrollment_secret = packet.get("enrollment_secret")
@@ -6418,6 +6464,12 @@ async def handle_p2p_receive_message(params: dict[str, Any], req_id: Any) -> str
         return _ok(req_id, {"accepted": False, "reason": str(exc)})
     if not _verify_packet(packet, secret):
         return _ok(req_id, {"accepted": False, "reason": "bad_signature"})
+
+    allowed, why = _peer_interaction_allowed(contact)
+    if not allowed:
+        logger.info("refused a message from %s: %s", contact["username"], why)
+        return _ok(req_id, {"accepted": False, "reason": why})
+
     await _record_p2p_message(contact["username"], "inbound", packet)
 
     if packet.get("type") == "a2a":

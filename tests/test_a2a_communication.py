@@ -98,6 +98,10 @@ async def test_handle_p2p_receive_message_triggers_a2a(mock_handle_inbound, mock
     mock_get_contact.return_value = {
         "username": "peer-agent",
         "wallet_address": "0xABCDEF",
+        # Approved, because only an approved peer may interact: "clients
+        # cannot connect to each other until approved". A contact that merely
+        # exists is no longer enough to send a message.
+        "status": "approved",
         "shared_secret": "secret_key_123"
     }
     mock_verify.return_value = True

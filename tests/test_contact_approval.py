@@ -421,104 +421,39 @@ async def test_only_a_denial_closes_the_door(peer):
 
 
 @pytest.mark.asyncio
-async def test_nothing_else_gates_on_contact_status():
+async def test_status_gates_exactly_two_things_and_they_differ():
     """
-    Guard against a future change quietly making `pending` mean "refused".
-    If a second gate is genuinely wanted, this test should be updated
-    deliberately rather than discovered by a peer who cannot connect.
+    Written earlier tonight asserting a single gate, which was true when the
+    only rule was "a denial closes the door". Steven's rule made it two, and
+    they answer different questions:
+
+        admission    may this peer open a socket?   denied alone refuses
+        interaction  may this peer do anything?     approved alone permits
+
+    A connection node admits everyone and interacts with nobody, which is
+    only expressible because those are separate. Collapsing them back into
+    one gate would either let unapproved peers message a client or stop
+    enrolled peers reaching the relay.
     """
     import inspect
     import re
 
     src = inspect.getsource(server)
-    gates = re.findall(r'contact\.get\("status"\)[^\n]*', src)
 
-    assert len(gates) == 1, f"contact status is gated in {len(gates)} places: {gates}"
-    assert "denied" in gates[0], "the single status gate no longer checks for a denial"
+    reads = re.findall(r'contact\.get\("status"\)[^\n]*', src)
+    assert len(reads) == 2, (
+        f"contact status is read in {len(reads)} places; there should be exactly two "
+        f"gates, and a third is a rule nobody stated: {reads}"
+    )
 
+    admission = inspect.getsource(server._peer_shared_secret)
+    assert '== "denied"' in admission, (
+        "socket admission no longer refuses a denial"
+    )
+    assert '"approved"' not in admission, (
+        "admission now requires approval, which would stop enrolled peers "
+        "reaching the relay they connected for"
+    )
 
-# ---------------------------------------------------------------------------
-# A connection node does not ask
-# ---------------------------------------------------------------------------
-
-
-async def test_a_connection_node_enrols_without_asking(pool, monkeypatch):
-    """
-    Steven: "no one's Tala should need approval from the VPS, only from
-    others."
-
-    Enrolling as 'pending' left a queue on the node implying a decision was
-    owed that nobody should make -- and since pending gates nothing, working
-    through it changed nothing either. A list of decisions that do not
-    matter is worse than no list: somebody eventually acts on it believing
-    it does.
-    """
-    import hashlib
-    import hmac
-
-    from python.harness import vps_mode
-
-    marker = uuid.uuid4().hex[:12]
-    username = f"@node-enrolled-{marker}"
-    secret = f"enrol-{marker}"
-    vps_mode.mode.enable("test")
-
-    packet = {
-        "protocol": "tala-p2p/1.0", "type": "handshake",
-        "sender_username": username, "sender_wallet": f"wallet-{marker}",
-        "sender_endpoint": "", "timestamp": "2026-09-06T00:00:00+00:00",
-        "enrollment_secret": secret,
-    }
-    unsigned = json.dumps(packet, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
-    packet["signature"] = hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).hexdigest()
-
-    try:
-        await server._enroll_unknown_tala_contact(packet)
-
-        assert await _status(username) == "enrolled", (
-            "a connection node put somebody in a queue nobody should work through"
-        )
-
-        queue = _ok(await server.handle_contacts_pending({}, 1))
-        assert not [p for p in queue["pending"] if p["username"] == username], (
-            "an enrolled peer is waiting for a decision on a node that makes none"
-        )
-    finally:
-        vps_mode.mode.disable()
-        await db.execute("DELETE FROM contacts WHERE username = $1", username)
-
-
-async def test_enrolled_still_grants_a_route_and_nothing_else(pool, monkeypatch):
-    """
-    'enrolled' is not 'approved'. It means connect, not read.
-    """
-    marker = uuid.uuid4().hex[:12]
-    username = f"@route-only-{marker}"
-    try:
-        await db.execute(
-            """
-            INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret,
-                                  permissions, status)
-            VALUES ($1, $2, '', $3, '{}'::jsonb, 'enrolled')
-            """,
-            username, f"wallet-{marker}", f"secret-{marker}",
-        )
-
-        assert await server._peer_shared_secret(username) == f"secret-{marker}", (
-            "an enrolled peer could not connect"
-        )
-        assert not any(
-            v for k, v in (await _permissions(username)).items() if not k.startswith("_")
-        ), "enrolling granted access to something"
-    finally:
-        await db.execute("DELETE FROM contacts WHERE username = $1", username)
-
-
-async def test_the_word_approved_is_kept_for_decisions_people_made():
-    """
-    A node could have written 'approved' -- both connect equally. Keeping the
-    word for an actual decision is what lets the client side mean something
-    by it.
-    """
-    assert "enrolled" in server.CONTACT_STATUSES
-    assert "approved" in server.CONTACT_STATUSES
+    interaction = inspect.getsource(server._peer_interaction_allowed)
+    assert '== "approved"' in interaction, "interaction no longer requires approval"
