@@ -14436,6 +14436,94 @@ async def handle_browser_execute_js(params: dict, req_id: any) -> str:
 CONTACT_STATUSES = ("pending", "approved", "denied")
 
 
+# ---------------------------------------------------------------------------
+# Personas: who this install becomes, and what it remembers
+# ---------------------------------------------------------------------------
+
+async def handle_persona_list(params: dict[str, Any], req_id: Any) -> str:
+    """``persona.list`` — the persona nodes on disk, and which cannot be adopted."""
+    from python.harness import personas
+    try:
+        return _ok(req_id, personas.available())
+    except Exception as exc:
+        logger.exception("persona.list error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_persona_active(params: dict[str, Any], req_id: Any) -> str:
+    """``persona.active`` — who this install is, and whether anyone chose."""
+    from python.harness import personas
+    try:
+        return _ok(req_id, await personas.active())
+    except Exception as exc:
+        logger.exception("persona.active error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_persona_adopt(params: dict[str, Any], req_id: Any) -> str:
+    """``persona.adopt`` — become the persona a node describes."""
+    from python.harness import personas
+    persona_id = str(params.get("id") or "").strip()
+    if not persona_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    try:
+        result = await personas.adopt(persona_id)
+    except Exception as exc:
+        logger.exception("persona.adopt error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    if not result.get("adopted"):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "could not adopt"))
+    return _ok(req_id, result)
+
+
+async def handle_persona_draft_history(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``persona.draft_history`` — write a past from a description, and save none of it.
+
+    Deliberately separate from persona.save_history. The prose comes back for
+    a person to read and edit; a generator that writes its own output to
+    nodes/ is how the wiki filled with material nobody asked for.
+    """
+    from python.harness import personas
+    persona_id = str(params.get("id") or "").strip()
+    if not persona_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    try:
+        result = await personas.draft_history(
+            persona_id, params.get("description", ""), params.get("name", ""),
+        )
+    except Exception as exc:
+        logger.exception("persona.draft_history error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    if not result.get("drafted"):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "could not draft"))
+    return _ok(req_id, result)
+
+
+async def handle_persona_save_history(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``persona.save_history`` — write the history node and point the persona at it.
+
+    Takes prose, not a description: hand-written and edited-generated history
+    arrive identically, because once saved there is no such thing as a
+    generated node, only a node.
+    """
+    from python.harness import personas
+    persona_id = str(params.get("id") or "").strip()
+    if not persona_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    try:
+        result = await personas.save_history(
+            persona_id, params.get("history", ""), params.get("name", ""),
+        )
+    except Exception as exc:
+        logger.exception("persona.save_history error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    if not result.get("saved"):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "could not save"))
+    return _ok(req_id, result)
+
+
 async def handle_chain_peers(params: dict[str, Any], req_id: Any) -> str:
     """
     ``chain.peers`` — look up other installs in the shared peer directory.
@@ -15264,6 +15352,11 @@ _HANDLERS: dict[str, Any] = {
     "contacts.save":          handle_contacts_save,
     "contacts.delete":        handle_contacts_delete,
     "chain.peers":            handle_chain_peers,
+    "persona.list":           handle_persona_list,
+    "persona.active":         handle_persona_active,
+    "persona.adopt":          handle_persona_adopt,
+    "persona.draft_history":  handle_persona_draft_history,
+    "persona.save_history":   handle_persona_save_history,
     "contacts.pending":       handle_contacts_pending,
     "contacts.approve":       handle_contacts_approve,
     "contacts.deny":          handle_contacts_deny,
