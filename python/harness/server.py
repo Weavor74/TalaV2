@@ -5680,7 +5680,58 @@ def _firewall_allows_node_name(access_rights: dict[str, Any] | None, node_names:
     return bool(normalized_allowed & normalized_candidates)
 
 
+#: Node types that never cross to another install, whatever the grants say.
+#:
+#: A persona is who this Tala IS. Everything else in nodes/ is something she
+#: knows, and knowledge is what the firewall exists to portion out.
+PEER_WITHHELD_NODE_TYPES = frozenset({"persona"})
+
+
+async def _persona_nodes_among(node_names: set[str]) -> set[str]:
+    """Which of these names are nodes that must not leave this install."""
+    withheld: set[str] = set()
+    for node_name in node_names:
+        try:
+            resolved = await _resolve_local_html_nn_reference(node_name)
+        except Exception:
+            logger.debug("could not resolve %s while screening for personas", node_name, exc_info=True)
+            # A node we cannot read is one we cannot clear, and the safe
+            # direction for an unreadable node is to withhold it.
+            withheld.add(node_name)
+            continue
+        if not resolved:
+            continue
+        node = resolved.get("node") or {}
+        node_type = str(node.get("node_type") or node.get("type") or "").strip().lower()
+        if node_type in PEER_WITHHELD_NODE_TYPES:
+            withheld.add(node_name)
+    return withheld
+
+
 async def _peer_can_resolve_node_reference(contact: dict[str, Any], node_names: set[str]) -> tuple[bool, str | None]:
+    # A persona never leaves this install, whatever anyone has been granted.
+    #
+    # Checked before everything else on purpose. Below this, an explicit
+    # per-node grant supersedes the contact's flags, and a wildcard category
+    # skips the granular checks entirely -- so anywhere later in the
+    # function is somewhere the two of them can override.
+    #
+    # Steven, of T.A.L.A.: "no one else should have this TALA." A persona is
+    # identity, not a document. settings_nn.py mirrors every agent row to
+    # nodes/persona-<id>.html, so the whole system prompt sits on disk under
+    # a predictable name, in the same directory peers resolve references
+    # from; a contact with `nodes` and a wildcard could simply ask for it.
+    #
+    # Sharing a persona deliberately is a separate feature with its own
+    # consent, not a side effect of granting somebody access to documents.
+    withheld = await _persona_nodes_among(node_names)
+    if withheld:
+        logger.warning(
+            "refusing to serve persona node(s) %s to %s: a persona is not a document",
+            sorted(withheld), contact.get("username"),
+        )
+        return False, "persona_not_shareable"
+
     # An explicit grant to this peer for these nodes supersedes both the
     # contact's `nodes` flag and the firewall clearance below (UI-082,
     # UI-101). Checked first so an invitation actually means something; the
