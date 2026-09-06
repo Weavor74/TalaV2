@@ -442,16 +442,37 @@ async def classify(
         except Exception:
             logger.exception("ws_auth: could not look up the contact for a peer claim")
             return None, "", (500, "auth error")
+        # An unknown contact and a bad signature are refused identically:
+        # whether a username is known must not be enumerable one guess at a
+        # time. They are logged distinctly, because only the log is private.
+        rejected = ""
         if not secret:
-            # Same refusal as a bad signature on purpose: whether a username
-            # is a known contact is not something an unauthenticated caller
-            # should be able to enumerate.
-            logger.warning("ws_auth: peer claim for unknown contact %r", username)
+            rejected = "unknown contact"
+        else:
+            ok, reason = _verify_peer_claim(claim, secret)
+            if not ok:
+                rejected = reason
+
+        if rejected:
+            logger.warning("ws_auth: peer claim for %r rejected: %s", username, rejected)
+            if bootstrap_allowed:
+                # Fall back to what an anonymous caller would have got anyway.
+                #
+                # Refusing here was strictly worse than sending no headers at
+                # all, which is incoherent: it made a failed claim more
+                # punishing than no claim, so a client whose contact row had
+                # been removed at the node -- or whose identity had changed --
+                # could never enrol again. It presented credentials for a name
+                # the node had never heard of, got 401, and had no way back.
+                # Observed doing exactly that against the live node.
+                #
+                # This concedes nothing: bootstrap reaches one method, the
+                # enrolment handshake, and anyone could have reached it by
+                # simply omitting the headers.
+                logger.info("ws_auth: admitting %r as bootstrap so it can enrol again", username)
+                return CLASS_BOOTSTRAP, "", None
             return None, "", (401, "peer credentials rejected")
-        ok, reason = _verify_peer_claim(claim, secret)
-        if not ok:
-            logger.warning("ws_auth: peer claim for %r rejected: %s", username, reason)
-            return None, "", (401, "peer credentials rejected")
+
         return CLASS_PEER, username, None
 
     if bootstrap_allowed:

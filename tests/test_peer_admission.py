@@ -446,3 +446,73 @@ async def test_the_domain_is_part_of_what_is_signed():
     assert ws_auth.PEER_SIGNATURE_DOMAIN in "\n".join(
         (ws_auth.PEER_SIGNATURE_DOMAIN, PEER, "1700000000", "n1")
     )
+
+
+# ---------------------------------------------------------------------------
+# A claim that does not stand up
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_stale_identity_can_still_enrol_again_on_a_node():
+    """
+    Refusing a failed claim outright was strictly worse than sending no
+    headers at all, which is incoherent -- it made presenting credentials
+    more punishing than presenting none.
+
+    Observed live: the desktop still held a contact row for the node and so
+    signed its handshake, the node's matching row had been removed, and the
+    client got HTTP 401 with no way back. It could not enrol, because
+    enrolling is what it needed the connection for.
+    """
+    cls, who, refusal = await ws_auth.classify(
+        "/", claim_headers(username="@forgotten", nonce="stale-1"), "tok",
+        secret_for=secret_for_alice, bootstrap_allowed=True,
+    )
+
+    assert refusal is None
+    assert cls == ws_auth.CLASS_BOOTSTRAP
+    assert who == "", "a rejected claim must not carry an identity forward"
+    assert methods_for_class(cls) == frozenset({"p2p.receive_handshake"})
+
+
+@pytest.mark.asyncio
+async def test_a_forged_signature_also_lands_in_bootstrap_on_a_node():
+    """
+    Same treatment for a wrong signature. It concedes nothing: the one
+    method bootstrap reaches was reachable by omitting the headers.
+    """
+    headers = claim_headers(nonce="stale-2")
+    headers[ws_auth.PEER_SIG_HEADER] = "0" * 64
+
+    cls, who, refusal = await ws_auth.classify(
+        "/", headers, "tok", secret_for=secret_for_alice, bootstrap_allowed=True,
+    )
+
+    assert (cls, who, refusal) == (ws_auth.CLASS_BOOTSTRAP, "", None)
+
+
+@pytest.mark.asyncio
+async def test_a_desktop_still_refuses_a_failed_claim_outright():
+    """
+    The fallback exists because a connection node enrols strangers. A
+    desktop does not, so there is nothing to fall back to.
+    """
+    cls, _who, refusal = await ws_auth.classify(
+        "/", claim_headers(username="@forgotten", nonce="stale-3"), "tok",
+        secret_for=secret_for_alice, bootstrap_allowed=False,
+    )
+
+    assert cls is None
+    assert refusal[0] == 401
+
+
+@pytest.mark.asyncio
+async def test_a_good_claim_is_still_a_peer_not_a_bootstrap():
+    """The fallback must not swallow the success case."""
+    cls, who, refusal = await ws_auth.classify(
+        "/", claim_headers(nonce="good-after-fallback"), "tok",
+        secret_for=secret_for_alice, bootstrap_allowed=True,
+    )
+
+    assert (cls, who, refusal) == (ws_auth.CLASS_PEER, PEER, None)
