@@ -6152,10 +6152,28 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
             username, sorted(k for k, v in requested.items() if v),
         )
 
+    # A connection node does not judge, so it must not ask.
+    #
+    # Steven: "no one's Tala should need approval from the VPS, only from
+    # others." Enrolling here as 'pending' left a queue on the node implying
+    # a decision was owed that nobody should make -- and since pending gates
+    # nothing, acting on it changed nothing either. A list of decisions that
+    # do not matter is worse than no list: somebody eventually works through
+    # it believing it does.
+    #
+    # 'enrolled' rather than 'approved' because approval is a thing a person
+    # did, and nobody did anything here. Both are equally permitted to
+    # connect -- only 'denied' closes the door -- so the distinction costs
+    # nothing and keeps the word honest for the client side, where approval
+    # is real.
+    #
+    # Permissions are still all False. Enrolling grants a route, not access.
+    status = "enrolled" if _accept_any_tala_client_enabled() else "pending"
+
     await db.execute(
         """
         INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret, permissions, status)
-        VALUES ($1, $2, $3, $4, $5::jsonb, 'pending')
+        VALUES ($1, $2, $3, $4, $5::jsonb, $6)
         ON CONFLICT (username) DO UPDATE SET
             wallet_address = EXCLUDED.wallet_address,
             endpoint_url = EXCLUDED.endpoint_url,
@@ -6172,6 +6190,7 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
         endpoint_url,
         enrollment_secret,
         permissions,
+        status,
         caller="p2p.enroll_unknown_tala_contact",
     )
     # The request itself is a ledger event, not only the decision on it. A
@@ -14433,7 +14452,13 @@ async def handle_browser_execute_js(params: dict, req_id: any) -> str:
 # *visible* -- a queue somebody can act on -- and that a refusal is
 # remembered rather than forgotten the next time the peer asks.
 
-CONTACT_STATUSES = ("pending", "approved", "denied")
+#: What a contact row can say about itself.
+#:
+#: 'enrolled' is a connection node's answer: it let somebody in because
+#: letting people in is what it does, and no person decided anything. Only
+#: 'denied' closes the door -- the other three are all permitted to connect,
+#: and what separates them is who decided and whether anyone was asked.
+CONTACT_STATUSES = ("enrolled", "pending", "approved", "denied")
 
 
 # ---------------------------------------------------------------------------
