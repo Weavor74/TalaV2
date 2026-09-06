@@ -107,7 +107,6 @@
   "sdk/agent/leases.py::SystemStatusLog.degraded_components",
   "sdk/agent/leases.py::TelemetryChannel.emit_many",
   "sdk/agent/mcp_bridge.py::unregister_mcp_tools",
-  "sdk/agent/node_execution.py::execute_node_by_id",
   "sdk/agent/node_staging.py::promote_node",
   "sdk/agent/node_staging.py::promotion_min_minutes",
   "sdk/agent/node_staging.py::quarantine_node",

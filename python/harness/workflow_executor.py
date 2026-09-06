@@ -402,6 +402,42 @@ class WorkflowExecutor:
                         result_data = {"tool": tool_name, "result": tool_result}
                         node_logs.append(message)
 
+            elif node_type == "node":
+                # A step that runs another HTML-NN.
+                #
+                # This is what makes a workflow a network of nodes rather than
+                # a script with the steps inlined. The step names a node id;
+                # execute_node_by_id applies that node's own gates -- its type,
+                # its declared authority, and for anything code-bearing its
+                # admission -- so coordinating a node cannot grant it
+                # permissions it does not have on its own. A workflow is not a
+                # way to launder an unadmitted function.
+                #
+                # A decision node answers with `branch`, which is carried out
+                # to the routing below.
+                from sdk.agent.node_execution import execute_node_by_id
+
+                target = str(self._resolve(config.get("node_id") or config.get("node") or "")).strip()
+                if not target:
+                    success = False
+                    message = "A node step must name the node it runs."
+                    result_data = {"status": "error", "error": message}
+                else:
+                    node_inputs = self._resolve(config.get("inputs") or {})
+                    if not isinstance(node_inputs, dict):
+                        node_inputs = {"value": node_inputs}
+                    node_logs.append(f"Running node {target}.")
+                    ran = await execute_node_by_id(target, node_inputs)
+                    success = bool(ran.get("success"))
+                    result_data = ran
+                    branch = ran.get("branch")
+                    message = (
+                        f"{target} chose {branch}." if branch
+                        else f"{target} {'completed' if success else 'failed'}."
+                    )
+                    if not success:
+                        node_logs.append(str(ran.get("error") or "no reason given"))
+
             elif node_type == "output":
                 node_logs.append("Output node reached. Consolidating workflow result.")
                 result_data = {"status": "SUCCESS", "final_data": self.variables}
@@ -490,10 +526,30 @@ class WorkflowExecutor:
                 except Exception as cb_exc:
                     logger.error("Workflow callback failed: %s", cb_exc)
 
+            branch = result_data.get("branch") if isinstance(result_data, dict) else None
             if not success:
                 status = "FAILED"
                 # Follow onFailure path
                 next_node_id = connections.get("onFailure")
+            elif branch:
+                # A decision chose. Its branch names the connection to follow,
+                # so the shape of the flow lives in the workflow while the
+                # choice lives in the decision node -- neither knowing the
+                # other's business.
+                #
+                # An undeclared branch stops the workflow rather than falling
+                # back to onSuccess. Quietly continuing down the default path
+                # would run the wrong half of a fork and report success, which
+                # is the failure mode a decision exists to prevent.
+                next_node_id = connections.get(branch)
+                if not next_node_id:
+                    status = "FAILED"
+                    node_logs.append(
+                        f"{node_id} chose branch {branch!r}, which this workflow "
+                        f"does not connect. Declared: {sorted(k for k in connections if k not in ('onSuccess', 'onFailure'))}."
+                    )
+                    current_node = None
+                    continue
             else:
                 # Follow onSuccess path
                 next_node_id = connections.get("onSuccess")
