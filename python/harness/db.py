@@ -1352,6 +1352,72 @@ async def _configure_connection(conn: asyncpg.Connection) -> None:
     )
 
 
+async def _ensure_embeddings_schema() -> None:
+    """
+    Create the ``embeddings`` table the VPS write gate reads.
+
+    No migration ever created it. Installs that have one got it from a
+    migration since removed, so the table survived by inheritance and its
+    absence only showed up on a genuinely fresh database -- which is exactly
+    what rebuilding talacore.app produced:
+
+        Failed to seed approved VPS memory context:
+        relation "embeddings" does not exist
+
+    That is not cosmetic. ``VPSWriteStateMachine.validate`` decides whether a
+    write to a connection node is allowed by looking for an approved context
+    in this table, and with no table there is no approved context, so every
+    such write is DENIED. A brand-new install could therefore never connect
+    to the VPS, and the reason it could not was a missing table reported as a
+    memory-context denial.
+
+    Guarded rather than added to _DDL_STATEMENTS: pgvector may be absent, and
+    the harness losing peer-write validation should be a loud warning naming
+    the consequence, not a refusal to start. The extension and the table are
+    attempted separately, so an install whose extension is already present
+    still gets its table when the CREATE EXTENSION is refused -- that
+    statement needs privileges the app's own role may not hold.
+    """
+    try:
+        await execute("CREATE EXTENSION IF NOT EXISTS vector", caller="db._ensure_embeddings_schema")
+    except Exception as exc:
+        logger.warning(
+            "Could not create the pgvector extension (%s). Continuing: it may "
+            "already exist, or an administrator may need to add it.", exc,
+        )
+
+    try:
+        await execute(
+            """
+            CREATE TABLE IF NOT EXISTS embeddings (
+                id              UUID        PRIMARY KEY,
+                owner_kind      TEXT        NOT NULL,
+                owner_id        UUID,
+                chunk_index     INTEGER     NOT NULL DEFAULT 0,
+                embedding_model TEXT        NOT NULL,
+                content         TEXT        NOT NULL,
+                content_hash    TEXT        NOT NULL,
+                metadata        JSONB       NOT NULL DEFAULT '{}'::jsonb,
+                created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                embedding       vector(1536)
+            );
+            """,
+            caller="db._ensure_embeddings_schema",
+        )
+        await execute(
+            "CREATE INDEX IF NOT EXISTS idx_embeddings_owner ON embeddings(owner_kind, owner_id);",
+            caller="db._ensure_embeddings_schema",
+        )
+    except Exception as exc:
+        logger.error(
+            "Could not create the embeddings table (%s). Writes to a connection "
+            "node will be DENIED, because the VPS write gate validates against "
+            "approved contexts stored there. Install pgvector "
+            "(e.g. postgresql-16-pgvector) and restart.",
+            exc,
+        )
+
+
 async def seed_approved_vps_context() -> None:
     """
     NAME
@@ -1435,6 +1501,7 @@ async def _run_migrations() -> None:
             await conn.execute("ALTER TABLE agent_log ADD COLUMN IF NOT EXISTS tx_id TEXT;")
     except Exception as exc:
         logger.warning("Failed to run dynamic migrations: %s", exc)
+    await _ensure_embeddings_schema()
     try:
         await seed_approved_vps_context()
     except Exception as exc:

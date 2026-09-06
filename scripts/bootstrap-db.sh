@@ -74,6 +74,25 @@ else
     echo -e "\033[32mTest database '$TEST_DB_NAME' created.\033[0m"
 fi
 
+# pgvector, in both databases.
+#
+# Creating an extension needs superuser, which the app's own role is not, so
+# the harness cannot do this for itself -- it can only report that it could
+# not. Provisioning is this script's job, and it is not optional: without the
+# extension there is no `vector` type, so the embeddings table cannot be
+# created, so the VPS write gate finds no approved context and DENIES every
+# write to a connection node. A fresh install could not connect to the VPS,
+# and said only "Memory context validation failed".
+for db in "$DB_NAME" "$TEST_DB_NAME"; do
+    if $PSQL_CMD -d "$db" -c "CREATE EXTENSION IF NOT EXISTS vector;" >/dev/null 2>&1; then
+        echo -e "\033[32mpgvector ready in '$db'.\033[0m"
+    else
+        echo -e "\033[31mCould not enable pgvector in '$db'. Install the server package"
+        echo -e "  (Debian/Ubuntu: postgresql-\$(pg_config --version | grep -oE '[0-9]+' | head -1)-pgvector)"
+        echo -e "  then re-run this script. Peer writes to a connection node will be denied until then.\033[0m"
+    fi
+done
+
 export PGPASSWORD=""
 echo -e "\033[32mDatabase bootstrap complete.\033[0m"
 exit 0
