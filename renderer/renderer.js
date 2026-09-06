@@ -12566,6 +12566,24 @@ const ContactsManager = {
       this._searchInput.addEventListener('input', () => this.filterList());
     }
 
+    // Requests and directory
+    const bind = (selector, event, handler) => {
+      const el = qs(selector);
+      if (el) el.addEventListener(event, handler);
+    };
+    bind('#btn-contacts-discover', 'click', () => this.toggleDirectory(true));
+    bind('#btn-contacts-directory-close', 'click', () => this.toggleDirectory(false));
+    bind('#btn-contacts-directory-refresh', 'click', () => this.searchDirectory());
+    bind('#contacts-directory-search', 'keydown', (e) => {
+      if (e.key === 'Enter') this.searchDirectory();
+    });
+    bind('#btn-modal-approve-close', 'click', () => this.closeApproveModal());
+    bind('#btn-modal-approve-cancel', 'click', () => this.closeApproveModal());
+    bind('#btn-modal-approve-confirm', 'click', () => this.confirmApprove());
+    bind('#modal-approve-contact', 'click', (e) => {
+      if (e.target && e.target.id === 'modal-approve-contact') this.closeApproveModal();
+    });
+
     // Modal backdrop click
     if (this._modal) {
       this._modal.addEventListener('click', (e) => {
@@ -12580,6 +12598,220 @@ const ContactsManager = {
     this.init();
     await this.fetchContacts();
     this.filterList();
+    await this.loadPendingRequests();
+  },
+
+  /* ── Connection requests ────────────────────────────────────────────
+     A peer that enrolled itself is waiting on a decision, and until this
+     existed the request was invisible: the row simply appeared in the
+     contacts table with every permission denied and nothing said so. */
+
+  async loadPendingRequests() {
+    const card = qs('#contacts-requests-card');
+    const container = qs('#contacts-requests-container');
+    const count = qs('#contacts-requests-count');
+    if (!card || !container) return;
+
+    let pending = [];
+    try {
+      const resp = await invoke('python:rpc', { method: 'contacts.pending', params: {} });
+      pending = (resp && resp.pending) || [];
+    } catch (err) {
+      console.error('[ContactsManager] Error loading pending requests:', err);
+      IPCLog.append('error', `Failed to load connection requests: ${err.message || err}`);
+      return;
+    }
+
+    this._pending = pending;
+    if (!pending.length) {
+      card.style.display = 'none';
+      return;
+    }
+
+    card.style.display = '';
+    if (count) count.textContent = String(pending.length);
+    container.innerHTML = '';
+
+    pending.forEach(request => {
+      const asked = Object.keys(request.requested || {}).filter(k => request.requested[k]);
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);'
+        + 'padding:var(--space-3);border:1px solid var(--glass-border);border-radius:var(--radius-md);'
+        + 'margin-bottom:var(--space-2);';
+      const asking = asked.length
+        ? `asked for ${asked.join(', ')}`
+        : 'asked for nothing in particular';
+      row.innerHTML = `
+        <div style="min-width:0;">
+          <div style="font-weight:600;">${escapeHtml(request.username)}</div>
+          <div style="opacity:0.7;font-size:0.85em;overflow:hidden;text-overflow:ellipsis;">
+            ${escapeHtml(request.wallet_address || '')} — ${escapeHtml(asking)}
+          </div>
+        </div>
+        <div style="display:flex;gap:var(--space-2);flex-shrink:0;">
+          <button class="btn btn-sm btn-primary" data-approve="${escapeHtml(request.username)}">Approve…</button>
+          <button class="btn btn-sm" data-deny="${escapeHtml(request.username)}">Deny</button>
+        </div>
+      `;
+      container.appendChild(row);
+    });
+
+    container.querySelectorAll('[data-approve]').forEach(btn => {
+      btn.addEventListener('click', () => this.openApproveModal(btn.getAttribute('data-approve')));
+    });
+    container.querySelectorAll('[data-deny]').forEach(btn => {
+      btn.addEventListener('click', () => this.denyContact(btn.getAttribute('data-deny')));
+    });
+  },
+
+  openApproveModal(username) {
+    const request = (this._pending || []).find(p => p.username === username);
+    if (!request) return;
+    this._approving = request;
+
+    const modal = qs('#modal-approve-contact');
+    if (!modal) return;
+    qs('#approve-contact-username').textContent = request.username;
+    qs('#approve-contact-wallet').textContent = request.wallet_address ? ` · ${request.wallet_address}` : '';
+
+    const asked = Object.keys(request.requested || {}).filter(k => request.requested[k]);
+    qs('#approve-contact-requested').textContent = asked.length
+      ? `They asked for: ${asked.join(', ')}. Granting is up to you.`
+      : 'They asked for nothing specific.';
+
+    // Every box starts unticked, including the ones they asked for. A
+    // request is not a default.
+    const box = qs('#approve-contact-permissions');
+    box.innerHTML = '';
+    this._sharePermissionKeys.forEach(key => {
+      const label = document.createElement('label');
+      label.style.cssText = 'display:flex;align-items:center;gap:6px;';
+      label.innerHTML = `<input type="checkbox" data-permission="${key}" /> ${key}`;
+      if (asked.includes(key)) {
+        label.style.color = 'var(--accent-blue)';
+        label.title = 'requested by the peer';
+      }
+      box.appendChild(label);
+    });
+
+    qs('#input-approve-clearance').value = '0';
+    qs('#input-approve-categories').value = '';
+    modal.hidden = false;
+  },
+
+  closeApproveModal() {
+    const modal = qs('#modal-approve-contact');
+    if (modal) modal.hidden = true;
+    this._approving = null;
+  },
+
+  async confirmApprove() {
+    const request = this._approving;
+    if (!request) return;
+
+    const permissions = {};
+    document.querySelectorAll('#approve-contact-permissions [data-permission]').forEach(input => {
+      permissions[input.getAttribute('data-permission')] = input.checked;
+    });
+
+    const categories = (qs('#input-approve-categories').value || '')
+      .split(',').map(s => s.trim()).filter(Boolean);
+    const accessRights = {
+      clearance_level: parseInt(qs('#input-approve-clearance').value, 10) || 0,
+      allowed_categories: categories,
+    };
+
+    try {
+      await invoke('python:rpc', {
+        method: 'contacts.approve',
+        params: { username: request.username, permissions, access_rights: accessRights },
+      });
+      const granted = Object.keys(permissions).filter(k => permissions[k]);
+      IPCLog.append('ok', `Approved ${request.username}${granted.length ? ` with ${granted.join(', ')}` : ' with nothing granted'}`);
+      this.closeApproveModal();
+      await this.load();
+    } catch (err) {
+      IPCLog.append('error', `Failed to approve ${request.username}: ${err.message || err}`);
+    }
+  },
+
+  async denyContact(username) {
+    if (!confirm(`Deny ${username}? They will not be able to connect again.`)) return;
+    try {
+      await invoke('python:rpc', { method: 'contacts.deny', params: { username } });
+      IPCLog.append('ok', `Denied ${username}`);
+      await this.load();
+    } catch (err) {
+      IPCLog.append('error', `Failed to deny ${username}: ${err.message || err}`);
+    }
+  },
+
+  /* ── Peer directory ─────────────────────────────────────────────────
+     The chain has answered "who else is out there" since NodeRegistry
+     landed; nothing in the app could ask it. */
+
+  toggleDirectory(show) {
+    const card = qs('#contacts-directory-card');
+    if (!card) return;
+    card.style.display = show ? '' : 'none';
+    if (show) this.searchDirectory();
+  },
+
+  async searchDirectory() {
+    const container = qs('#contacts-directory-container');
+    if (!container) return;
+    container.innerHTML = '<div class="empty-state">Searching…</div>';
+
+    const params = {};
+    const term = (qs('#contacts-directory-search').value || '').trim();
+    if (term) params.username = term;
+    if (qs('#contacts-directory-online').checked) params.online_only = true;
+
+    let peers = [];
+    try {
+      const resp = await invoke('python:rpc', { method: 'chain.peers', params });
+      peers = (resp && resp.peers) || [];
+    } catch (err) {
+      // A directory that cannot be reached is not an empty directory.
+      container.innerHTML = `<div class="empty-state">Could not reach the peer directory: ${escapeHtml(err.message || String(err))}</div>`;
+      return;
+    }
+
+    if (!peers.length) {
+      container.innerHTML = '<div class="empty-state">No peers registered on the chain match that.</div>';
+      return;
+    }
+
+    container.innerHTML = '';
+    peers.forEach(peer => {
+      const status = peer.local_status || '';
+      const row = document.createElement('div');
+      row.style.cssText = 'display:flex;align-items:center;justify-content:space-between;gap:var(--space-3);'
+        + 'padding:var(--space-2) var(--space-3);border-bottom:1px solid var(--glass-border);';
+      const already = status
+        ? `<span class="badge badge-identity">${escapeHtml(status)}</span>`
+        : `<button class="btn btn-sm" data-add-peer="${escapeHtml(peer.username || '')}">Add</button>`;
+      row.innerHTML = `
+        <div style="min-width:0;">
+          <div style="font-weight:600;">${escapeHtml(peer.username || '(unnamed)')}</div>
+          <div style="opacity:0.7;font-size:0.85em;">${escapeHtml(peer.wallet_address || '')}</div>
+        </div>
+        <div style="flex-shrink:0;">${already}</div>
+      `;
+      container.appendChild(row);
+    });
+
+    container.querySelectorAll('[data-add-peer]').forEach(btn => {
+      btn.addEventListener('click', () => {
+        const username = btn.getAttribute('data-add-peer');
+        const found = peers.find(p => p.username === username) || {};
+        this.openAddModal();
+        const set = (sel, value) => { const el = qs(sel); if (el && value) el.value = value; };
+        set('#input-add-contact-username', found.username);
+        set('#input-add-contact-wallet', found.wallet_address);
+        set('#input-add-contact-endpoint', found.endpoint_url);
+      });
+    });
   },
 
   async fetchContacts() {

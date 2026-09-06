@@ -593,6 +593,19 @@ _DDL_STATEMENTS: list[str] = [
     textwrap.dedent("""\
         CREATE INDEX IF NOT EXISTS idx_contacts_wallet ON contacts(wallet_address);
     """),
+    # Whether a human has decided about this contact yet.
+    #
+    # 'approved' is the default so that every contact already on disk keeps
+    # working: those rows exist because the operator added them deliberately,
+    # and a migration that silently suspended them would be a migration that
+    # broke every existing peer. Only self-enrolment writes 'pending'.
+    textwrap.dedent("""\
+        ALTER TABLE contacts
+            ADD COLUMN IF NOT EXISTS status TEXT NOT NULL DEFAULT 'approved';
+    """),
+    textwrap.dedent("""\
+        CREATE INDEX IF NOT EXISTS idx_contacts_status ON contacts(status);
+    """),
     textwrap.dedent("""\
         CREATE TABLE IF NOT EXISTS p2p_sessions (
             peer_username TEXT        PRIMARY KEY,

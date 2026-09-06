@@ -5054,7 +5054,8 @@ async def handle_contacts_list(params: dict[str, Any], req_id: Any) -> str:
     """
     try:
         rows = await db.fetch(
-            "SELECT username, wallet_address, endpoint_url, permissions FROM contacts ORDER BY username ASC"
+            "SELECT username, wallet_address, endpoint_url, permissions, status "
+            "FROM contacts ORDER BY username ASC"
         )
         contacts = []
         for r in rows:
@@ -5067,6 +5068,7 @@ async def handle_contacts_list(params: dict[str, Any], req_id: Any) -> str:
                 "wallet_address": r["wallet_address"],
                 "endpoint_url": r["endpoint_url"],
                 "permissions": perms or {},
+                "status": r["status"],
             })
         return _ok(req_id, {"contacts": contacts})
     except Exception as exc:
@@ -5231,6 +5233,58 @@ async def _heartbeat_peer_on_chain_directory(
     return await asyncio.to_thread(_send)
 
 
+async def _peer_shared_secret(username: str) -> str:
+    """
+    The shared secret on a contact's row, for the handshake gate.
+
+    Returns "" for an unknown contact or one with no secret, which the gate
+    turns into the same refusal a bad signature gets -- whether a username is
+    a known contact is not something an unauthenticated caller should be able
+    to enumerate one guess at a time.
+    """
+    try:
+        contact = await _get_contact(username=str(username or "").strip())
+    except Exception:
+        logger.exception("could not look up the contact for a peer handshake")
+        return ""
+    if not contact:
+        return ""
+
+    # A denial has to close the socket, not just the documents. Leaving a
+    # denied peer able to authenticate would let it hold a connection, sit in
+    # the relay registry and keep asking -- refused every time, but present.
+    # Denial should mean gone.
+    if str(contact.get("status") or "").strip().lower() == "denied":
+        logger.warning("refusing a handshake from denied contact %s", username)
+        return ""
+
+    return str(contact.get("shared_secret") or "").strip()
+
+
+def _peer_handshake_headers(username: str, secret: str) -> dict[str, str]:
+    """
+    Credentials for dialling another install.
+
+    The counterpart to `_peer_shared_secret`: a contact pair shares one
+    secret, so the same value that lets us verify them lets them verify us.
+    A fresh nonce and timestamp per handshake keep a captured one from being
+    replayed.
+    """
+    import secrets as _secrets
+    import time as _time
+
+    from python.harness import ws_auth
+
+    timestamp = str(int(_time.time()))
+    nonce = _secrets.token_urlsafe(16)
+    return {
+        ws_auth.PEER_HEADER: username,
+        ws_auth.PEER_TS_HEADER: timestamp,
+        ws_auth.PEER_NONCE_HEADER: nonce,
+        ws_auth.PEER_SIG_HEADER: ws_auth.peer_signature(username, timestamp, nonce, secret),
+    }
+
+
 async def _negotiate_webrtc_upgrade(
     endpoint: str,
     peer_username: str,
@@ -5366,7 +5420,30 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
     )
     
     # Fallback to direct WebSocket connection (usually via VPS relay)
-    async with websockets.connect(_normalize_peer_endpoint(endpoint), open_timeout=5, close_timeout=2) as ws:
+    #
+    # The far end gates 8765, so this has to say who is calling. A contact
+    # pair shares one secret: they verify us with the same value we verify
+    # them with. Without these headers every peer call is refused as an
+    # anonymous connection -- which is what happened between the socket being
+    # gated and this being written.
+    #
+    # No secret means no credentials rather than no call: on a connection
+    # node a bare handshake is still admitted for enrolment, and that is
+    # precisely the case where we are not a contact yet.
+    connect_headers: dict[str, str] = {}
+    if peer_username:
+        peer_secret = await _peer_shared_secret(peer_username)
+        if peer_secret:
+            connect_headers = _peer_handshake_headers(
+                os.environ.get("TALA_USERNAME", "@local-tala"), peer_secret
+            )
+
+    async with websockets.connect(
+        _normalize_peer_endpoint(endpoint),
+        open_timeout=5,
+        close_timeout=2,
+        additional_headers=connect_headers or None,
+    ) as ws:
         await ws.send(request)
         raw = await asyncio.wait_for(ws.recv(), timeout=15)
         
@@ -5679,6 +5756,17 @@ async def _call_peer_node_reference(endpoint: str, contact: dict[str, Any], node
         secret,
     )
     response = await _call_peer_rpc(endpoint, "p2p.resolve_node_reference", {"packet": packet})
+
+    # The other half of the exchange, from this side. Each install keeps its
+    # own ledger, and "I obtained theirs" is not the same fact as "they
+    # served mine" -- either end may be the one asked to account for it.
+    await _record_peer_event(
+        "peer-document",
+        contact["username"],
+        f"node:{node_reference}",
+        outcome="received" if (response or {}).get("resolved") else "refused",
+        reason=str((response or {}).get("reason") or ""),
+    )
     return response
 
 
@@ -5753,12 +5841,12 @@ async def _get_contact(username: str | None = None, wallet_address: str | None =
         if lookup and not lookup.startswith("@"):
             lookup = "@" + lookup
         row = await db.fetchrow(
-            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions FROM contacts WHERE username = $1",
+            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions, status FROM contacts WHERE username = $1",
             lookup,
         )
     elif wallet_address:
         row = await db.fetchrow(
-            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions FROM contacts WHERE wallet_address = $1",
+            "SELECT username, wallet_address, endpoint_url, shared_secret, permissions, status FROM contacts WHERE wallet_address = $1",
             wallet_address.strip(),
         )
     else:
@@ -5774,6 +5862,10 @@ async def _get_contact(username: str | None = None, wallet_address: str | None =
         "endpoint_url": row["endpoint_url"],
         "shared_secret": row["shared_secret"],
         "permissions": permissions or {},
+        # Missing on a row written before the status migration ran, which is
+        # a contact the operator added by hand -- approved by the act of
+        # adding it.
+        "status": row["status"] if "status" in row.keys() else "approved",
     }
 
 
@@ -5888,14 +5980,17 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
 
     await db.execute(
         """
-        INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret, permissions)
-        VALUES ($1, $2, $3, $4, $5::jsonb)
+        INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret, permissions, status)
+        VALUES ($1, $2, $3, $4, $5::jsonb, 'pending')
         ON CONFLICT (username) DO UPDATE SET
             wallet_address = EXCLUDED.wallet_address,
             endpoint_url = EXCLUDED.endpoint_url,
             shared_secret = EXCLUDED.shared_secret,
             -- permissions deliberately NOT updated: re-enrolling must never
             -- reset a grant the operator has already made or withdrawn.
+            -- status likewise: re-enrolling must not walk a denial back to
+            -- pending, or a refused peer could reapply until someone
+            -- clicked the wrong button.
             updated_at = NOW()
         """,
         username,
@@ -5904,6 +5999,17 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
         enrollment_secret,
         permissions,
         caller="p2p.enroll_unknown_tala_contact",
+    )
+    # The request itself is a ledger event, not only the decision on it. A
+    # contact that appears already approved leaves no trace of ever having
+    # asked, and "when did @alice first turn up" is the question an audit
+    # starts from.
+    await _record_peer_event(
+        "peer-contact",
+        username,
+        f"contact:{username}",
+        decision="requested",
+        requested=sorted(k for k, v in requested.items() if v),
     )
     return {
         "username": username,
@@ -6369,14 +6475,29 @@ async def handle_p2p_resolve_node_reference(params: dict[str, Any], req_id: Any)
     except ValueError as exc:
         return _ok(req_id, {"resolved": False, "reason": str(exc)})
 
+    # From here the caller is authenticated, so the request is attributable
+    # and worth anchoring however it ends. A refusal is the more interesting
+    # half of an access log: "@alice was denied node:doc66666" is the line
+    # somebody comes looking for.
     can_resolve, deny_reason = await _peer_can_resolve_node_reference(contact, {node_name})
     if not can_resolve:
+        await _record_peer_event(
+            "document-shared", contact["username"], f"node:{node_name}",
+            outcome="denied", reason=deny_reason or "firewall_denied",
+        )
         return _ok(req_id, {"resolved": False, "reason": deny_reason or "firewall_denied"})
 
     resolved = await _resolve_local_html_nn_reference(node_name)
     if resolved is None:
+        await _record_peer_event(
+            "document-shared", contact["username"], f"node:{node_name}",
+            outcome="not_found",
+        )
         return _ok(req_id, {"resolved": False, "reason": "node_not_found"})
 
+    await _record_peer_event(
+        "document-shared", contact["username"], f"node:{node_name}", outcome="served",
+    )
     return _ok(req_id, {
         "resolved": True,
         "reference": reference,
@@ -12273,6 +12394,17 @@ async def handle_p2p_semantic_search(params: dict, req_id: Any) -> str:
         "p2p.semantic_search for %s: %d visible, %d withheld by firewall",
         contact["username"], len(visible), withheld,
     )
+    # What an index request looked like, not what was searched for. The query
+    # is the peer's own words and the Real chain is shared; the counts are
+    # what makes it auditable -- who searched, how much they saw, how much
+    # the firewall held back.
+    await _record_peer_event(
+        "index-shared",
+        contact["username"],
+        f"query:{len(query)}chars",
+        visible=len(visible),
+        withheld=withheld,
+    )
     return _ok(req_id, {
         "matches": visible,
         "resolved": True,
@@ -14048,6 +14180,279 @@ async def handle_browser_execute_js(params: dict, req_id: any) -> str:
     )
 
 # ---------------------------------------------------------------------------
+# Contact approval: the decision a connection node does not get to make
+# ---------------------------------------------------------------------------
+#
+# A connection node enrols anyone, because it is a directory and a relay and
+# needs no opinion about who you are. Whether a contact may actually see
+# anything is a different question with a different answer, made here, by
+# the person whose documents they are.
+#
+# Enrolment already starts every peer from deny, so a pending contact can
+# read nothing regardless. What the status adds is that the request is
+# *visible* -- a queue somebody can act on -- and that a refusal is
+# remembered rather than forgotten the next time the peer asks.
+
+CONTACT_STATUSES = ("pending", "approved", "denied")
+
+
+async def handle_chain_peers(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``chain.peers`` — look up other installs in the shared peer directory.
+
+    The blockchain node has served this since NodeRegistry landed, and
+    nothing in the app could reach it: the directory answered "who else is
+    out there" to anyone who asked over HTTP, while the only UI a user has
+    speaks JSON-RPC. So A could never have discovered B, C and D, which is
+    the first step of every peer flow.
+
+    A read, and only a read. Registration and heartbeat stay where they are,
+    driven by the harness's own connection lifecycle rather than by a button.
+    """
+    import urllib.parse
+    import urllib.request
+
+    endpoint = str(params.get("chain_endpoint_url") or "").strip()
+    if not endpoint:
+        from python.harness import chains
+        endpoint = await chains.real_endpoint()
+    if not endpoint:
+        return _ok(req_id, {"peers": [], "count": 0, "reason": "no chain endpoint is configured"})
+
+    query: dict[str, str] = {}
+    if params.get("username"):
+        query["username"] = str(params["username"]).strip()
+    if params.get("wallet_address"):
+        query["wallet_address"] = str(params["wallet_address"]).strip()
+    if params.get("network"):
+        query["network"] = str(params["network"]).strip()
+    if params.get("online_only"):
+        query["online"] = "1"
+
+    url = f"{_normalize_chain_endpoint(endpoint)}/chain/peers"
+    if query:
+        url = f"{url}?{urllib.parse.urlencode(query)}"
+
+    def _fetch() -> dict[str, Any]:
+        request = urllib.request.Request(url, method="GET")
+        with urllib.request.urlopen(request, timeout=5.0) as response:
+            raw = response.read().decode("utf-8")
+        return json.loads(raw) if raw else {}
+
+    try:
+        payload = await asyncio.to_thread(_fetch)
+    except Exception as exc:
+        # A directory that cannot be reached is not an empty directory, and
+        # this codebase's most common defect is interfaces that cannot tell
+        # "found nothing" from "could not look".
+        logger.warning("chain.peers: could not reach the directory at %s: %s", url, exc)
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"could not reach the peer directory: {exc}")
+
+    peers = payload.get("peers") or []
+
+    # Which of them are already contacts here, so the UI can offer "add"
+    # only for the ones that are not, and show the standing decision for
+    # the ones that are.
+    known: dict[str, str] = {}
+    try:
+        rows = await db.fetch("SELECT username, status FROM contacts")
+        known = {r["username"]: r["status"] for r in rows}
+    except Exception:
+        logger.exception("chain.peers: could not read local contacts")
+
+    for peer in peers:
+        if isinstance(peer, dict):
+            peer["local_status"] = known.get(peer.get("username") or "", "")
+
+    return _ok(req_id, {"peers": peers, "count": len(peers), "directory": url})
+
+
+async def handle_contacts_pending(params: dict[str, Any], req_id: Any) -> str:
+    """``contacts.pending`` — peers waiting on a decision."""
+    try:
+        rows = await db.fetch(
+            """
+            SELECT username, wallet_address, endpoint_url, permissions, created_at
+            FROM contacts WHERE status = 'pending' ORDER BY created_at
+            """
+        )
+    except Exception as exc:
+        logger.exception("contacts.pending error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    requests = []
+    for row in rows:
+        permissions = row["permissions"]
+        if isinstance(permissions, str):
+            permissions = json.loads(permissions)
+        permissions = permissions or {}
+        requests.append({
+            "username": row["username"],
+            "wallet_address": row["wallet_address"],
+            "endpoint_url": row["endpoint_url"],
+            # What the peer asked for, which enrolment recorded and granted
+            # nothing for. Surfaced so the decision can be made against the
+            # actual request rather than in the dark.
+            "requested": permissions.get("_requested") or {},
+            "requested_at": row["created_at"].isoformat() if row["created_at"] else None,
+        })
+    return _ok(req_id, {"pending": requests, "count": len(requests)})
+
+
+async def _record_peer_event(
+    kind: str,
+    counterparty: str,
+    document_ref: str = "",
+    **facts: Any,
+) -> None:
+    """
+    Anchor one interaction with another install.
+
+    Two rules, both inherited from `chains.record` rather than invented here.
+    A reference and never a body: the Real chain is shared, and a document
+    written to it is a document published. And an interaction is worth
+    recording whether or not it was permitted -- a refusal is the more
+    interesting half of an access log, so the `outcome` fact carries denials
+    too rather than the record only existing on success.
+
+    Never raises. A ledger that can take down the operation it is recording
+    is worse than one with a gap in it.
+    """
+    try:
+        from python.harness import chains
+
+        await chains.record(
+            kind,
+            {"peer": counterparty, "document_ref": document_ref, **facts},
+            counterparty=counterparty,
+            document_ref=document_ref,
+        )
+    except Exception as exc:
+        logger.warning("could not record %s with %s on chain: %s", kind, counterparty, exc)
+
+
+async def _record_contact_decision(username: str, decision: str, granted: dict[str, Any]) -> None:
+    """Anchor the decision. 'peer-contact' is already an external kind."""
+    try:
+        from python.harness import chains
+
+        await chains.record(
+            "peer-contact",
+            {
+                "decision": decision,
+                "peer": username,
+                # Which permissions, not what they unlock. The chain is
+                # shared; the shape of a grant is auditable, its contents are
+                # this install's business.
+                "granted": sorted(k for k, v in (granted or {}).items() if v and not k.startswith("_")),
+            },
+            counterparty=username,
+            document_ref=f"contact:{username}",
+        )
+    except Exception as exc:
+        logger.warning("could not record the %s decision for %s on chain: %s", decision, username, exc)
+
+
+async def handle_contacts_approve(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``contacts.approve`` — grant a pending peer what it may have.
+
+    Permissions and access rights are set here in one step, because an
+    approval that grants nothing and leaves the rights for later is how a
+    contact ends up approved and inert with nobody sure whether that was
+    deliberate.
+    """
+    username = str(params.get("username") or "").strip()
+    if not username:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'username' is required")
+
+    permissions = params.get("permissions")
+    if permissions is not None and not isinstance(permissions, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'permissions' must be an object")
+    access_rights = params.get("access_rights")
+    if access_rights is not None and not isinstance(access_rights, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'access_rights' must be an object")
+
+    contact = await _get_contact(username=username)
+    if contact is None:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Unknown contact {username}")
+
+    existing = contact.get("permissions") or {}
+    if isinstance(existing, str):
+        existing = json.loads(existing)
+    # The peer's own request is kept for the record but is never a grant: it
+    # is what they asked for, not what they got.
+    granted = {k: bool(v) for k, v in (permissions or {}).items() if not k.startswith("_")}
+    merged = {**{k: v for k, v in existing.items() if k.startswith("_")}, **granted}
+
+    try:
+        await db.execute(
+            "UPDATE contacts SET status = 'approved', permissions = $2::jsonb, updated_at = NOW() "
+            "WHERE username = $1",
+            username, merged,
+            caller="contacts.approve",
+        )
+        if access_rights is not None:
+            await db.execute(
+                """
+                INSERT INTO firewall_contacts (id, name, access_rights, priority)
+                VALUES ($1, $2, $3::jsonb, 0)
+                ON CONFLICT (id) DO UPDATE SET
+                    access_rights = EXCLUDED.access_rights,
+                    updated_at = NOW()
+                """,
+                contact["wallet_address"], username, access_rights,
+                caller="contacts.approve.firewall",
+            )
+    except Exception as exc:
+        logger.exception("contacts.approve error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    await _record_contact_decision(username, "approved", merged)
+    logger.info("contact %s approved with %s", username, sorted(k for k, v in granted.items() if v))
+    return _ok(req_id, {"username": username, "status": "approved", "permissions": merged})
+
+
+async def handle_contacts_deny(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``contacts.deny`` — refuse a peer, and remember the refusal.
+
+    The row is kept rather than deleted. A deleted contact is one that can
+    self-enrol again on its next handshake and reappear in the queue; a
+    denied one stays denied, and `_peer_shared_secret` stops admitting it at
+    the handshake, so denial closes the socket and not merely the door to
+    the documents.
+    """
+    username = str(params.get("username") or "").strip()
+    if not username:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'username' is required")
+
+    contact = await _get_contact(username=username)
+    if contact is None:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Unknown contact {username}")
+
+    try:
+        await db.execute(
+            "UPDATE contacts SET status = 'denied', permissions = '{}'::jsonb, updated_at = NOW() "
+            "WHERE username = $1",
+            username,
+            caller="contacts.deny",
+        )
+        await db.execute(
+            "DELETE FROM firewall_contacts WHERE id = $1",
+            contact["wallet_address"],
+            caller="contacts.deny.firewall",
+        )
+    except Exception as exc:
+        logger.exception("contacts.deny error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    await _record_contact_decision(username, "denied", {})
+    logger.info("contact %s denied", username)
+    return _ok(req_id, {"username": username, "status": "denied"})
+
+
+# ---------------------------------------------------------------------------
 # Relay: routing between peers that cannot dial each other
 # ---------------------------------------------------------------------------
 
@@ -14618,6 +15023,10 @@ _HANDLERS: dict[str, Any] = {
     "contacts.list":          handle_contacts_list,
     "contacts.save":          handle_contacts_save,
     "contacts.delete":        handle_contacts_delete,
+    "chain.peers":            handle_chain_peers,
+    "contacts.pending":       handle_contacts_pending,
+    "contacts.approve":       handle_contacts_approve,
+    "contacts.deny":          handle_contacts_deny,
     "p2p.handshake":          handle_p2p_handshake,
     "p2p.receive_handshake":  handle_p2p_receive_handshake,
     "p2p.send_message":       handle_p2p_send_message,
@@ -14885,8 +15294,29 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
     Each inbound message is parsed as JSON-RPC 2.0, dispatched to the
     appropriate handler concurrently, and the response is sent back on the same socket.
     """
+    from python.harness import vps_mode, ws_auth
+
     remote = ws.remote_address
-    logger.info("Client connected: %s  path=%s", remote, path)
+
+    # Stamped by the handshake gate. A connection that somehow reached here
+    # without passing it carries no label, and an unlabelled connection is
+    # given nothing -- see vps_mode.methods_for_class.
+    connection_class = getattr(ws, ws_auth.CONNECTION_CLASS_ATTR, None)
+    peer_username = getattr(ws, ws_auth.CONNECTION_PEER_ATTR, "") or ""
+
+    logger.info(
+        "Client connected: %s  path=%s  class=%s%s",
+        remote, path, connection_class or "unlabelled",
+        f"  peer={peer_username}" if peer_username else "",
+    )
+
+    # An authenticated peer has already proved this identity with the same
+    # shared secret relay.announce would ask for, so binding it here saves the
+    # extra round trip -- and means a peer is reachable through this node from
+    # the moment it connects rather than only if it remembers to announce.
+    if connection_class == ws_auth.CLASS_PEER and peer_username and vps_mode.is_enabled():
+        vps_mode.registry.bind(peer_username, ws)
+        logger.info("Peer %s is reachable through this node", peer_username)
 
     async def handle_msg(raw_message: Any) -> None:
         response: str
@@ -14919,13 +15349,36 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
 
         logger.debug("-> %s  id=%s  params=%r", method, req_id, params)
 
+        # What this connection proved at the handshake decides what it may
+        # call. A local token is the user at this machine and is unrestricted;
+        # a peer is another install and gets peer surface; a bootstrap caller
+        # gets the one method that turns it into a contact. The available-
+        # methods hint is withheld from anyone but a local client -- a
+        # restricted caller does not need the catalogue.
+        allowed = vps_mode.methods_for_class(connection_class)
+        if allowed is not None and method not in allowed:
+            logger.warning(
+                "refused %s from a %s connection%s",
+                method, connection_class or "unlabelled",
+                f" ({peer_username})" if peer_username else "",
+            )
+            try:
+                await ws.send(_err(
+                    req_id,
+                    JsonRpcError.METHOD_NOT_FOUND,
+                    f"'{method}' is not available on this connection",
+                ))
+            except Exception:
+                pass
+            return
+
         handler = _HANDLERS.get(method)
         if handler is None:
             response = _err(
                 req_id,
                 JsonRpcError.METHOD_NOT_FOUND,
                 f"Method not found: '{method}'",
-                {"available": sorted(_HANDLERS.keys())},
+                {"available": sorted(_HANDLERS.keys())} if allowed is None else None,
             )
             try:
                 await ws.send(response)
@@ -15732,7 +16185,7 @@ async def _run_server() -> None:
     # Authenticated since SEC-W0-03. This socket dispatches every handler in
     # _HANDLERS, including shell execution, and it accepted anyone -- including
     # any web page the user visited, because WebSocket handshakes ignore CORS.
-    from python.harness import ws_auth
+    from python.harness import vps_mode, ws_auth
 
     _ws_token = ws_auth.load_or_create_token()
     if not _ws_token:
@@ -15752,7 +16205,14 @@ async def _run_server() -> None:
                 ping_interval=30,
                 ping_timeout=10,
                 max_size=16 * 1024 * 1024,
-                process_request=ws_auth.make_process_request(_ws_token),
+                process_request=ws_auth.make_process_request(
+                    _ws_token,
+                    secret_for=_peer_shared_secret,
+                    # Only a connection node lets a stranger in to enrol. On a
+                    # desktop Tala an unauthenticated caller is still refused
+                    # outright, exactly as before this existed.
+                    bootstrap_allowed=vps_mode.is_enabled(),
+                ),
             )
             break
         except OSError as exc:

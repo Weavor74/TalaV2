@@ -59,6 +59,20 @@ EXTERNAL_KINDS = frozenset({
     "remote-storage",     # online storage
     "payment",            # value moving
     "marketplace",        # buying or selling
+
+    # Documents crossing between installs. Paired the same way peer-skill and
+    # skill-shared are, because each install writes its own ledger and the
+    # two ends of one exchange are not the same event: "I obtained theirs"
+    # and "they obtained mine" are separately auditable facts.
+    #
+    # Every one of these carries a document_ref and never a body. A node
+    # copied locally is still node-create on Ghost and stays there; what
+    # belongs on the shared chain is the interaction, not the document.
+    "peer-document",      # a document obtained from a peer
+    "document-shared",    # a peer obtained one of ours
+    "peer-index",         # searching a peer's index
+    "index-shared",       # a peer searching ours
+    "relay",              # a hop forwarded between two peers
 })
 
 #: Local-only activity. Recorded on Ghost and never sent anywhere. Checked

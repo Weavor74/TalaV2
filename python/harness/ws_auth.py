@@ -135,20 +135,21 @@ def _supplied_token(path: str, headers: Any) -> str:
     return values[0].strip() if values else ""
 
 
-def check(path: str, headers: Any, token: str) -> tuple[int, str] | None:
+def _origin_refusal(headers: Any) -> tuple[int, str] | None:
     """
-    Decide one handshake. Returns None to accept, or (status, reason).
-
-    Kept free of websockets types so it can be unit-tested with a plain dict,
-    which is the difference between this being covered and being "covered".
+    The drive-by gate: a page on the internet opening a socket to a service
+    on the user's own machine. One implementation, used by every path in,
+    because a rule written twice is a rule that will be fixed once.
     """
     origin = (headers.get("origin") if headers is not None else None) or ""
     origin = str(origin).strip().rstrip("/")
     if origin and origin not in _allowed_origins():
-        # The drive-by case: a page on the internet opening a socket to a
-        # service on the user's own machine.
         return 403, f"origin {origin!r} is not allowed"
+    return None
 
+
+def _token_refusal(path: str, headers: Any, token: str) -> tuple[int, str] | None:
+    """Why this handshake is not a local client. None means it is one."""
     if not token:
         # No token could be established. Refusing is the safe direction: the
         # alternative is serving 247 handlers to anyone who asks.
@@ -162,7 +163,29 @@ def check(path: str, headers: Any, token: str) -> tuple[int, str] | None:
     return None
 
 
-def make_process_request(token: str):
+def check(path: str, headers: Any, token: str) -> tuple[int, str] | None:
+    """
+    Decide one handshake on the token alone. None to accept, or (status, reason).
+
+    The synchronous, token-only view of the gate, kept because peer admission
+    needs a database and this does not -- a rule that can be checked with a
+    plain dict is a rule that stays tested. :func:`classify` is what the
+    server installs; both share the two helpers above rather than each
+    carrying their own copy.
+    """
+    return _origin_refusal(headers) or _token_refusal(path, headers, token)
+
+
+#: Where the handshake leaves its verdict for the connection handler to read.
+#: websockets hands `process_request` the same connection object it later
+#: passes to the handler, so an attribute on it survives the trip -- and a
+#: connection that never went through the gate has no attribute, which reads
+#: as the most restricted class rather than the least.
+CONNECTION_CLASS_ATTR = "tala_connection_class"
+CONNECTION_PEER_ATTR = "tala_peer_username"
+
+
+def make_process_request(token: str, secret_for: Any = None, bootstrap_allowed: bool = False):
     """
     Build the ``process_request`` callback for ``websockets.serve``.
 
@@ -190,12 +213,41 @@ def make_process_request(token: str):
             headers = getattr(request, "headers", None)
 
         try:
-            verdict = check(path, headers, token)
+            connection_class, peer_username, verdict = await classify(
+                path, headers, token,
+                secret_for=secret_for,
+                bootstrap_allowed=bootstrap_allowed,
+            )
         except Exception:
             logger.exception("ws_auth: handshake check failed; refusing")
-            verdict = (500, "auth error")
+            connection_class, peer_username, verdict = None, "", (500, "auth error")
 
         if verdict is None:
+            # Legacy websockets hands us a path string here, not a connection,
+            # so there is nothing to stamp. Peer and bootstrap classes are
+            # refused on that path rather than admitted unlabelled: an
+            # unlabelled connection would read as LOCAL downstream.
+            if legacy:
+                if connection_class != CLASS_LOCAL:
+                    logger.warning(
+                        "ws_auth: refusing a %s connection on the legacy handshake path, "
+                        "which cannot carry a connection class",
+                        connection_class,
+                    )
+                    return (HTTPStatus(401), [("Content-Type", "text/plain")], b"forbidden\n")
+                return None
+            try:
+                setattr(first, CONNECTION_CLASS_ATTR, connection_class)
+                setattr(first, CONNECTION_PEER_ATTR, peer_username)
+            except Exception:
+                logger.exception("ws_auth: could not label the connection; refusing")
+                return first.respond(HTTPStatus(500), "forbidden\n")
+            if connection_class != CLASS_LOCAL:
+                logger.info(
+                    "ws_auth: admitted a %s connection%s",
+                    connection_class,
+                    f" for {peer_username}" if peer_username else "",
+                )
             return None
 
         status, reason = verdict
@@ -207,3 +259,204 @@ def make_process_request(token: str):
         return first.respond(HTTPStatus(status), "forbidden\n")
 
     return process_request
+
+
+# ---------------------------------------------------------------------------
+# Peer admission
+# ---------------------------------------------------------------------------
+#
+# The token above answers "is this a local process the user controls", and a
+# holder of it gets the whole surface. That is the right answer for the
+# renderer and the CLI and exactly the wrong one for another install: a peer
+# is not a local user, and nothing about being reachable should confer shell
+# execution or vault reads.
+#
+# So admission here is not binary. A handshake resolves to one of three
+# classes, and the class decides which methods the connection may call:
+#
+#   LOCAL     the vault token. Everything, as before.
+#   PEER      a contact proving possession of the shared secret already on
+#             its contact row. Peer surface only.
+#   BOOTSTRAP no credential at all, admitted ONLY on a connection node, and
+#             able to call exactly one method: the enrolment handshake.
+#
+# BOOTSTRAP exists because of a circularity: a stranger cannot authenticate
+# as a contact until it *is* a contact, and it becomes one by enrolling over
+# a connection it could not otherwise open. Restricting that class to the
+# single method that creates the contact row is what keeps opening the door
+# from meaning opening the house -- and enrolment itself grants no
+# permissions, so what a bootstrap connection can achieve is to become a
+# contact with everything denied, awaiting approval.
+
+CLASS_LOCAL = "local"
+CLASS_PEER = "peer"
+CLASS_BOOTSTRAP = "bootstrap"
+
+PEER_HEADER = "x-tala-peer"
+PEER_TS_HEADER = "x-tala-peer-ts"
+PEER_NONCE_HEADER = "x-tala-peer-nonce"
+PEER_SIG_HEADER = "x-tala-peer-sig"
+
+#: How far a peer's clock may be from ours. Two minutes tolerates ordinary
+#: drift between machines while keeping a captured handshake useless for
+#: longer than it takes to notice one.
+PEER_CLOCK_SKEW_SECONDS = 120
+
+#: Nonces seen inside the skew window. A signature is otherwise replayable
+#: for as long as its timestamp stays fresh -- capture one handshake, open
+#: connections as that peer for two minutes.
+_seen_nonces: dict[str, float] = {}
+
+
+#: Domain separator for handshake signatures.
+#:
+#: The contact's shared secret already signs P2P packets, via
+#: `_packet_signature` over canonical JSON. Two different things signed with
+#: one key is how a signature obtained for one purpose gets replayed as the
+#: other -- and this codebase has met that already, in a proof-of-possession
+#: endpoint that signed a caller's nonce with the block-signing key and so
+#: handed out valid block signatures.
+#:
+#: The two encodings cannot collide today, because canonical JSON always
+#: begins with "{" and a username cannot. That is an accident of format, not
+#: a decision, and it would stop being true the moment either encoding
+#: changed. The prefix makes it a decision.
+PEER_SIGNATURE_DOMAIN = "tala-ws-handshake/1"
+
+
+def peer_signature(username: str, timestamp: str, nonce: str, secret: str) -> str:
+    """HMAC binding the claimed identity to this one handshake."""
+    import hashlib
+    import hmac
+
+    canonical = "\n".join((PEER_SIGNATURE_DOMAIN, str(username), str(timestamp), str(nonce)))
+    return hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def _peer_claim(headers: Any) -> dict[str, str] | None:
+    """The identity a handshake claims, unverified. None if it claims none."""
+    if headers is None:
+        return None
+
+    def _get(name: str) -> str:
+        return str(headers.get(name) or "").strip()
+
+    username = _get(PEER_HEADER)
+    if not username:
+        return None
+    return {
+        "username": username,
+        "timestamp": _get(PEER_TS_HEADER),
+        "nonce": _get(PEER_NONCE_HEADER),
+        "signature": _get(PEER_SIG_HEADER),
+    }
+
+
+def _prune_nonces(now: float) -> None:
+    stale = [n for n, seen in _seen_nonces.items() if now - seen > PEER_CLOCK_SKEW_SECONDS * 2]
+    for nonce in stale:
+        _seen_nonces.pop(nonce, None)
+
+
+def _verify_peer_claim(claim: dict[str, str], secret: str, now: float | None = None) -> tuple[bool, str]:
+    """
+    Check one peer claim against the shared secret on its contact row.
+
+    Returns (ok, reason). The reason is for the log, never for the client:
+    telling a caller which field failed helps nobody but an attacker.
+    """
+    import time as _time
+
+    now = _time.time() if now is None else now
+
+    username = claim.get("username") or ""
+    timestamp = claim.get("timestamp") or ""
+    nonce = claim.get("nonce") or ""
+    signature = claim.get("signature") or ""
+
+    if not (timestamp and nonce and signature):
+        return False, "incomplete claim"
+    if not secret:
+        return False, "contact has no shared secret"
+
+    try:
+        age = now - float(timestamp)
+    except (TypeError, ValueError):
+        return False, "unparseable timestamp"
+    if abs(age) > PEER_CLOCK_SKEW_SECONDS:
+        return False, f"timestamp {age:.0f}s outside the {PEER_CLOCK_SKEW_SECONDS}s window"
+
+    expected = peer_signature(username, timestamp, nonce, secret)
+    if not secrets.compare_digest(signature, expected):
+        return False, "signature does not verify"
+
+    # Only after the signature checks out, or an unauthenticated caller could
+    # fill the nonce table by replaying garbage.
+    _prune_nonces(now)
+    if nonce in _seen_nonces:
+        return False, "nonce already used"
+    _seen_nonces[nonce] = now
+
+    return True, ""
+
+
+async def classify(
+    path: str,
+    headers: Any,
+    token: str,
+    secret_for: Any = None,
+    bootstrap_allowed: bool = False,
+) -> tuple[str | None, str, tuple[int, str] | None]:
+    """
+    Decide one handshake fully: which class, whose identity, or why not.
+
+    Returns ``(connection_class, username, refusal)`` -- exactly one of the
+    first and last being meaningful.
+
+    ``secret_for`` is an async callable taking a username and returning that
+    contact's shared secret, or "" if there is no such contact. It is passed
+    in rather than imported so this module keeps knowing nothing about the
+    database, which is what lets the whole gate be tested with a plain dict.
+
+    Order matters. Origin is checked first and for everyone: it is the gate
+    that stops a web page opening this socket, and a peer claim in a header
+    is not something page script can produce anyway. Then the local token,
+    because that is the common case. A peer claim is considered only when
+    there is no valid token, so a local client never accidentally downgrades
+    itself to peer surface.
+    """
+    refused_origin = _origin_refusal(headers)
+    if refused_origin:
+        return None, "", refused_origin
+
+    if _token_refusal(path, headers, token) is None:
+        return CLASS_LOCAL, "", None
+
+    claim = _peer_claim(headers)
+    if claim is not None:
+        if secret_for is None:
+            return None, "", (401, "peer credentials are not accepted here")
+        username = claim["username"]
+        try:
+            secret = await secret_for(username)
+        except Exception:
+            logger.exception("ws_auth: could not look up the contact for a peer claim")
+            return None, "", (500, "auth error")
+        if not secret:
+            # Same refusal as a bad signature on purpose: whether a username
+            # is a known contact is not something an unauthenticated caller
+            # should be able to enumerate.
+            logger.warning("ws_auth: peer claim for unknown contact %r", username)
+            return None, "", (401, "peer credentials rejected")
+        ok, reason = _verify_peer_claim(claim, secret)
+        if not ok:
+            logger.warning("ws_auth: peer claim for %r rejected: %s", username, reason)
+            return None, "", (401, "peer credentials rejected")
+        return CLASS_PEER, username, None
+
+    if bootstrap_allowed:
+        # A connection node, and a caller with nothing to prove yet. It gets
+        # in with access to the enrolment handshake and nothing else.
+        return CLASS_BOOTSTRAP, "", None
+
+    return None, "", _token_refusal(path, headers, token)
