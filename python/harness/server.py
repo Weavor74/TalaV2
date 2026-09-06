@@ -16108,9 +16108,46 @@ def _install_signal_handlers(loop: asyncio.AbstractEventLoop) -> None:
             signal.signal(sig, lambda s, f: _shutdown_event.set())
 
 
+def _stdin_is_a_parent_pipe() -> bool:
+    """
+    Is stdin the pipe a supervising parent holds open, or something else?
+
+    Electron spawns the harness with ``stdio: ['pipe', 'pipe', 'pipe']``, so
+    stdin is a pipe that stays open exactly as long as Electron lives, and
+    EOF on it means the app has gone. That is the signal `_monitor_stdin`
+    was written for.
+
+    Under systemd there is no such pipe. ``Type=simple`` with no
+    ``StandardInput=`` gives the service /dev/null, which reads EOF
+    immediately -- so the monitor fired about forty seconds into every
+    start and shut the harness down, while the blockchain child kept
+    running. 8332 answered, 8765 never opened, and the service reported
+    active throughout. Anything run from cron, nohup, a container without a
+    TTY, or a terminal that has since closed hits the same thing.
+
+    So the monitor is armed only for the case it can actually read: a FIFO.
+    A character device (/dev/null, a TTY) or a closed descriptor is not a
+    parent hanging up, and must not be read as one.
+    """
+    import stat
+
+    try:
+        mode = os.fstat(sys.stdin.fileno()).st_mode
+    except Exception:
+        # No usable stdin at all -- certainly not a parent's pipe.
+        return False
+    return stat.S_ISFIFO(mode)
+
+
 async def _monitor_stdin() -> None:
-    """Monitor stdin for EOF. If stdin is closed, trigger shutdown."""
-    import sys
+    """Shut down when a supervising parent closes the pipe it spawned us with."""
+    if not _stdin_is_a_parent_pipe():
+        logger.info(
+            "stdin is not a parent pipe; running without the stdin shutdown monitor "
+            "(service manager, container, or detached start)"
+        )
+        return
+
     try:
         def read_stdin():
             try:
