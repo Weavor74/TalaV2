@@ -593,6 +593,50 @@ _DDL_STATEMENTS: list[str] = [
     textwrap.dedent("""\
         CREATE INDEX IF NOT EXISTS idx_contacts_wallet ON contacts(wallet_address);
     """),
+    # Conversations: the same object whatever the participants are.
+    #
+    # User to agent, user to user, users to users, users to agent, agents to
+    # agents -- five shapes Steven named, and one model. A participant is an
+    # identity: a peer username, or a local agent id. A message belongs to
+    # the conversation rather than to a pair, which is the whole difference
+    # from p2p_messages (peer_username + direction, structurally 1:1).
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS conversations (
+            id          TEXT        PRIMARY KEY,
+            title       TEXT        NOT NULL DEFAULT '',
+            created_by  TEXT        NOT NULL DEFAULT '',
+            -- 'joined' once a person decided to be in it. A conversation
+            -- somebody was invited to is not one they are in: the hybrid
+            -- rule approves the ROOM, so there has to be a moment where that
+            -- happens.
+            status      TEXT        NOT NULL DEFAULT 'invited',
+            created_at  TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at  TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS conversation_participants (
+            conversation_id  TEXT        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            participant      TEXT        NOT NULL,
+            participant_kind TEXT        NOT NULL DEFAULT 'user',
+            joined_at        TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (conversation_id, participant)
+        );
+    """),
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS conversation_messages (
+            id              BIGSERIAL   PRIMARY KEY,
+            conversation_id TEXT        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,
+            sender          TEXT        NOT NULL,
+            body            TEXT        NOT NULL,
+            -- Whether the sender was an approved contact WHEN THIS ARRIVED.
+            -- Stored rather than computed at read time: it is a fact about
+            -- the message, and approving somebody later should not silently
+            -- rewrite what was true when they said it.
+            sender_approved BOOLEAN     NOT NULL DEFAULT FALSE,
+            created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+        );
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_conversation_messages_convo
+            ON conversation_messages(conversation_id, created_at);
+    """),
     # Whether a node carrying code is allowed to run it.
     #
     # Keyed by node id AND content hash, which is the load-bearing part:

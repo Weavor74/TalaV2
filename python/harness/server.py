@@ -14625,6 +14625,101 @@ async def handle_persona_save_history(params: dict[str, Any], req_id: Any) -> st
     return _ok(req_id, result)
 
 
+# ---------------------------------------------------------------------------
+# Conversations
+# ---------------------------------------------------------------------------
+
+async def handle_conversation_list(params: dict[str, Any], req_id: Any) -> str:
+    """``conversation.list`` — every conversation, invitations included."""
+    from python.harness import conversations
+    try:
+        return _ok(req_id, {"conversations": await conversations.listing()})
+    except Exception as exc:
+        logger.exception("conversation.list error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_conversation_create(params: dict[str, Any], req_id: Any) -> str:
+    """``conversation.create`` — start one with any set of participants."""
+    from python.harness import conversations
+    people = params.get("participants") or []
+    if not isinstance(people, list):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'participants' must be a list")
+    try:
+        created = await conversations.create(
+            title=str(params.get("title") or ""),
+            participants=[
+                {"participant": str(p.get("participant") or p), "kind": str((p or {}).get("kind", "user"))}
+                if isinstance(p, dict) else {"participant": str(p), "kind": "user"}
+                for p in people
+            ],
+            created_by=await _peer_self_username(),
+        )
+    except Exception as exc:
+        logger.exception("conversation.create error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    return _ok(req_id, created)
+
+
+async def handle_conversation_messages(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``conversation.messages`` — what was said, and by whom you had approved.
+
+    Each message carries `sender_approved`, which is the hybrid rule made
+    visible: an unapproved participant is neither silenced nor passed off as
+    trusted.
+    """
+    from python.harness import conversations
+    conversation_id = str(params.get("id") or "").strip()
+    if not conversation_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    try:
+        return _ok(req_id, {
+            "id": conversation_id,
+            "participants": await conversations.participants(conversation_id),
+            "messages": await conversations.messages(conversation_id, int(params.get("limit") or 100)),
+        })
+    except Exception as exc:
+        logger.exception("conversation.messages error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_conversation_post(params: dict[str, Any], req_id: Any) -> str:
+    """``conversation.post`` — say something in a conversation."""
+    from python.harness import conversations
+    conversation_id = str(params.get("id") or "").strip()
+    body = str(params.get("body") or "")
+    if not conversation_id:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' is required")
+    sender = str(params.get("sender") or "") or await _peer_self_username()
+    try:
+        result = await conversations.post(conversation_id, sender, body)
+    except Exception as exc:
+        logger.exception("conversation.post error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    if not result.get("posted"):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "not posted"))
+    return _ok(req_id, result)
+
+
+async def handle_conversation_set_membership(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``conversation.set_membership`` — join or decline an invitation.
+
+    The room-level decision the hybrid rule rests on: the one place a person
+    says yes to being somewhere, as distinct from saying yes to a person.
+    """
+    from python.harness import conversations
+    conversation_id = str(params.get("id") or "").strip()
+    status = str(params.get("status") or "").strip()
+    if not conversation_id or not status:
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'id' and 'status' are required")
+    result = await conversations.set_membership(conversation_id, status)
+    if not result.get("ok"):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "not set"))
+    return _ok(req_id, result)
+
+
 async def handle_chain_peers(params: dict[str, Any], req_id: Any) -> str:
     """
     ``chain.peers`` — look up other installs in the shared peer directory.
@@ -15453,6 +15548,11 @@ _HANDLERS: dict[str, Any] = {
     "contacts.save":          handle_contacts_save,
     "contacts.delete":        handle_contacts_delete,
     "chain.peers":            handle_chain_peers,
+    "conversation.list":       handle_conversation_list,
+    "conversation.create":     handle_conversation_create,
+    "conversation.messages":   handle_conversation_messages,
+    "conversation.post":       handle_conversation_post,
+    "conversation.set_membership": handle_conversation_set_membership,
     "persona.list":           handle_persona_list,
     "persona.active":         handle_persona_active,
     "persona.adopt":          handle_persona_adopt,
