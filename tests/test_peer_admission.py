@@ -389,3 +389,60 @@ async def test_a_replay_fails_against_a_real_socket_too():
     finally:
         server.close()
         await server.wait_closed()
+
+
+# ---------------------------------------------------------------------------
+# One key, two purposes
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_handshake_signature_is_domain_separated_from_a_packet_signature():
+    """
+    The contact's shared secret signs P2P packets as well as handshakes. Two
+    different things signed with one key is how a signature obtained for one
+    purpose is replayed as the other -- this codebase has met that before, in
+    a proof-of-possession endpoint that signed a caller's nonce with the
+    block-signing key and handed out valid block signatures.
+
+    The encodings could not collide anyway, because canonical JSON starts
+    with "{" and a username cannot. That is an accident of format; the
+    prefix is the decision.
+    """
+    from python.harness import server
+
+    handshake = ws_auth.peer_signature(PEER, "1700000000", "n1", SECRET)
+
+    # The same fields, signed the other way, must not produce the handshake.
+    packet_shaped = server._packet_signature(
+        {"sender_username": PEER, "timestamp": "1700000000", "nonce": "n1"}, SECRET
+    )
+    assert handshake != packet_shaped
+
+    # And a packet legitimately signed by this peer is not a handshake for it.
+    signed_packet = server._sign_packet(
+        {"protocol": "tala-p2p/1.0", "type": "handshake", "sender_username": PEER}, SECRET
+    )
+    claim = {
+        "username": PEER, "timestamp": str(int(time.time())),
+        "nonce": "from-a-packet", "signature": signed_packet["signature"],
+    }
+    ok, reason = ws_auth._verify_peer_claim(claim, SECRET)
+    assert ok is False
+    assert "signature" in reason
+
+
+@pytest.mark.asyncio
+async def test_the_domain_is_part_of_what_is_signed():
+    """Changing the domain must change every signature it produces."""
+    import hashlib
+    import hmac
+
+    undomained = hmac.new(
+        SECRET.encode(), "\n".join((PEER, "1700000000", "n1")).encode(), hashlib.sha256
+    ).hexdigest()
+
+    assert ws_auth.peer_signature(PEER, "1700000000", "n1", SECRET) != undomained
+    assert ws_auth.PEER_SIGNATURE_DOMAIN in "\n".join(
+        (ws_auth.PEER_SIGNATURE_DOMAIN, PEER, "1700000000", "n1")
+    )

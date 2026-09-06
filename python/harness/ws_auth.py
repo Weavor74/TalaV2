@@ -308,12 +308,28 @@ PEER_CLOCK_SKEW_SECONDS = 120
 _seen_nonces: dict[str, float] = {}
 
 
+#: Domain separator for handshake signatures.
+#:
+#: The contact's shared secret already signs P2P packets, via
+#: `_packet_signature` over canonical JSON. Two different things signed with
+#: one key is how a signature obtained for one purpose gets replayed as the
+#: other -- and this codebase has met that already, in a proof-of-possession
+#: endpoint that signed a caller's nonce with the block-signing key and so
+#: handed out valid block signatures.
+#:
+#: The two encodings cannot collide today, because canonical JSON always
+#: begins with "{" and a username cannot. That is an accident of format, not
+#: a decision, and it would stop being true the moment either encoding
+#: changed. The prefix makes it a decision.
+PEER_SIGNATURE_DOMAIN = "tala-ws-handshake/1"
+
+
 def peer_signature(username: str, timestamp: str, nonce: str, secret: str) -> str:
     """HMAC binding the claimed identity to this one handshake."""
     import hashlib
     import hmac
 
-    canonical = "\n".join((str(username), str(timestamp), str(nonce)))
+    canonical = "\n".join((PEER_SIGNATURE_DOMAIN, str(username), str(timestamp), str(nonce)))
     return hmac.new(secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
