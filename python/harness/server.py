@@ -6199,7 +6199,14 @@ async def handle_p2p_handshake(params: dict[str, Any], req_id: Any) -> str:
     packet_body = {
         "protocol": "tala-p2p/1.0",
         "type": "handshake",
-        "sender_username": params.get("sender_username") or "@local-tala",
+        # Not a literal fallback. This is the packet a connection node enrols
+        # us from, so whatever lands here becomes our name on the network --
+        # and the placeholder default hardcoded here is how a real enrolment
+        # against talacore.app filed a desktop under that name despite the
+        # profile saying otherwise. `chain.connect_vps` passes no
+        # sender_username, so this fallback is the live path, not the edge
+        # case.
+        "sender_username": params.get("sender_username") or await _peer_self_username(),
         "sender_wallet": params.get("sender_wallet") or os.environ.get("TALA_WALLET_ADDRESS", "local-tala"),
         "recipient_username": contact["username"],
         "recipient_wallet": contact["wallet_address"],

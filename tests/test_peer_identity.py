@@ -16,8 +16,9 @@ that's what's shared on the blockchain." A callsign, not a legal name.
 from __future__ import annotations
 
 import pytest
+import pytest_asyncio
 
-from python.harness import server
+from python.harness import db, server
 
 pytestmark = pytest.mark.asyncio
 
@@ -96,18 +97,81 @@ async def test_no_profile_and_no_pin_falls_back_rather_than_failing(monkeypatch)
     assert await server._peer_self_username() == server.DEFAULT_PEER_USERNAME
 
 
-async def test_nothing_still_reads_the_bare_environment_variable():
+async def test_nothing_resolves_the_identity_on_its_own():
     """
-    The regression that mattered: four call sites each resolving identity
-    their own way is how they drift apart.
+    Call sites each resolving identity their own way is how they drift apart.
+
+    The first version of this counted only `os.environ.get("TALA_USERNAME")`
+    and passed while a fifth site quietly hardcoded the default instead:
+
+        "sender_username": params.get("sender_username") or "@local-tala"
+
+    That was the live path for `chain.connect_vps`, so a real enrolment
+    against talacore.app filed the desktop as @local-tala while the profile
+    said "steve". Counting the literal too is what makes this a guard rather
+    than a description of one spelling.
     """
     import inspect
 
     src = inspect.getsource(server)
-    occurrences = src.count('os.environ.get("TALA_USERNAME"')
 
-    assert occurrences == 1, (
-        f"{occurrences} places read TALA_USERNAME directly; only _peer_self_username should"
+    env_reads = src.count('os.environ.get("TALA_USERNAME"')
+    assert env_reads == 1, (
+        f"{env_reads} places read TALA_USERNAME directly; only _peer_self_username should"
+    )
+
+    # The constant may be defined once and returned by the resolver; anywhere
+    # else it is a second, silent answer to "who are we".
+    literals = src.count('"@local-tala"')
+    assert literals <= 1, (
+        f"{literals} hardcoded @local-tala defaults; identity must come from "
+        "_peer_self_username, which owns DEFAULT_PEER_USERNAME"
+    )
+
+
+@pytest_asyncio.fixture
+async def pool():
+    await db.init_pool()
+    yield
+    await db.close_pool()
+
+
+@pytest.mark.asyncio
+async def test_the_enrolment_packet_carries_the_profile_identity(monkeypatch, pool):
+    """
+    The exact path chain.connect_vps takes, which is where this went wrong
+    live: it passes no sender_username, so the fallback IS the behaviour.
+    """
+    import json
+
+    _profile(monkeypatch, {"username": "steve", "nickname": "Weavor"})
+
+    captured = {}
+
+    async def fake_get_contact(**kwargs):
+        return {
+            "username": "@tala-vps", "wallet_address": "tala-vps-main",
+            "endpoint_url": "ws://talacore.app:8765", "shared_secret": "s3cret",
+            "permissions": {}, "status": "approved",
+        }
+
+    async def fake_profile_config():
+        return {}
+
+    async def fake_call_peer_rpc(endpoint, method, params):
+        captured["packet"] = params.get("packet") or {}
+        return {"accepted": True}
+
+    monkeypatch.setattr(server, "_get_contact", fake_get_contact)
+    monkeypatch.setattr(server, "_get_master_profile_config", fake_profile_config)
+    monkeypatch.setattr(server, "_call_peer_rpc", fake_call_peer_rpc)
+
+    await server.handle_p2p_handshake(
+        {"username": "@tala-vps", "endpoint_url": "ws://talacore.app:8765"}, 1
+    )
+
+    assert captured["packet"]["sender_username"] == "@steve", (
+        f"enrolled as {captured['packet'].get('sender_username')!r} rather than the profile handle"
     )
 
 
