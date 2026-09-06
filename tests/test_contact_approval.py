@@ -298,3 +298,86 @@ async def test_deciding_about_a_stranger_is_refused(pool):
         assert "Unknown contact" in error["message"]
 
     assert _error(await server.handle_contacts_approve({}, 1))["message"].startswith("'username'")
+
+
+# ---------------------------------------------------------------------------
+# Enrolling without an address
+# ---------------------------------------------------------------------------
+
+
+async def test_a_peer_with_no_endpoint_can_still_enrol(pool, monkeypatch):
+    """
+    A connection node exists for peers that cannot be dialled. Requiring an
+    endpoint to enrol excluded exactly them: a desktop behind NAT has no
+    address to advertise, so it could never become a contact, never
+    authenticate as a peer, and never use the relay -- the one route by
+    which it could have been reached.
+
+    Found against the live VPS, where enrolment came back as
+    "Internal error: Peer endpoint is required".
+    """
+    import hashlib
+    import hmac
+
+    marker = uuid.uuid4().hex[:12]
+    username = f"@no-endpoint-{marker}"
+    wallet = f"wallet-{marker}"
+    secret = f"enrol-{marker}"
+
+    from python.harness import vps_mode
+    vps_mode.mode.enable("test")
+
+    packet = {
+        "protocol": "tala-p2p/1.0",
+        "type": "handshake",
+        "sender_username": username,
+        "sender_wallet": wallet,
+        "sender_endpoint": "",          # the whole point
+        "timestamp": "2026-09-06T00:00:00+00:00",
+        "enrollment_secret": secret,
+    }
+    unsigned = json.dumps(packet, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    packet["signature"] = hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).hexdigest()
+
+    try:
+        contact = await server._enroll_unknown_tala_contact(packet)
+
+        assert contact is not None, "a peer with no endpoint was refused enrolment"
+        assert contact["endpoint_url"] == ""
+        assert contact["username"] == username
+        assert await _status(username) == "pending"
+    finally:
+        vps_mode.mode.disable()
+        await db.execute("DELETE FROM contacts WHERE username = $1", username)
+
+
+async def test_an_endpoint_is_still_normalised_when_given(pool, monkeypatch):
+    """A peer that does have an address keeps it, in ws:// form."""
+    import hashlib
+    import hmac
+
+    marker = uuid.uuid4().hex[:12]
+    username = f"@with-endpoint-{marker}"
+    secret = f"enrol-{marker}"
+
+    from python.harness import vps_mode
+    vps_mode.mode.enable("test")
+
+    packet = {
+        "protocol": "tala-p2p/1.0",
+        "type": "handshake",
+        "sender_username": username,
+        "sender_wallet": f"wallet-{marker}",
+        "sender_endpoint": "https://peer.example:8765",
+        "timestamp": "2026-09-06T00:00:00+00:00",
+        "enrollment_secret": secret,
+    }
+    unsigned = json.dumps(packet, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+    packet["signature"] = hmac.new(secret.encode(), unsigned.encode(), hashlib.sha256).hexdigest()
+
+    try:
+        contact = await server._enroll_unknown_tala_contact(packet)
+        assert contact["endpoint_url"] == "wss://peer.example:8765"
+    finally:
+        vps_mode.mode.disable()
+        await db.execute("DELETE FROM contacts WHERE username = $1", username)

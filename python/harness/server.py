@@ -6002,7 +6002,20 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
 
     username = str(packet["sender_username"]).strip()
     wallet_address = str(packet["sender_wallet"]).strip()
-    endpoint_url = _normalize_peer_endpoint(str(packet.get("sender_endpoint", "")).strip())
+    # A peer that cannot be dialled must still be able to enrol.
+    #
+    # `_normalize_peer_endpoint` raises on an empty string, which turned an
+    # absent endpoint into an internal error and refused the enrolment. That
+    # excluded exactly the peers a connection node exists for: a desktop
+    # behind NAT has no address to advertise, so it could never become a
+    # contact, never authenticate as a peer, and never use the relay -- the
+    # one route by which it could have been reached.
+    #
+    # An empty endpoint is recorded as empty. Reachability then comes from
+    # the relay registry, which is keyed by the socket the peer itself
+    # opened, and needs no address at all.
+    raw_endpoint = str(packet.get("sender_endpoint", "")).strip()
+    endpoint_url = _normalize_peer_endpoint(raw_endpoint) if raw_endpoint else ""
     # A peer used to have its requested_permissions written verbatim, and
     # ON CONFLICT DO UPDATE meant it could also overwrite permissions the
     # operator had already narrowed (UI-041). Steven's model is invite-only:
