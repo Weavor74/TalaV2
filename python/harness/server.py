@@ -6239,6 +6239,30 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
         status,
         caller="p2p.enroll_unknown_tala_contact",
     )
+    if status == "pending":
+        # Tell the person. A request that only appears in a queue is a
+        # request nobody sees: they would have to already suspect it to go
+        # looking, and the peer waits on a decision that is not being made
+        # because nobody knows it is theirs to make.
+        #
+        # Steven's framing: a person makes the request and the VPS notifies
+        # the person one has been made. The node carries it -- that is what
+        # the relay is for -- and this harness raises it to its own UI. A
+        # relay that could push notifications into somebody's app would be a
+        # relay with opinions about their screen.
+        try:
+            await broadcast_notification("contacts.request_received", {
+                "username": username,
+                "wallet_address": wallet_address,
+                # What they asked for, which the decision should be made
+                # against. It is a request and grants nothing.
+                "requested": sorted(k for k, v in requested.items() if v),
+            })
+        except Exception as exc:
+            # A notification that fails must not lose the request: the row is
+            # already written, and the queue is the durable half.
+            logger.warning("could not announce the request from %s: %s", username, exc)
+
     # The request itself is a ledger event, not only the decision on it. A
     # contact that appears already approved leaves no trace of ever having
     # asked, and "when did @alice first turn up" is the question an audit

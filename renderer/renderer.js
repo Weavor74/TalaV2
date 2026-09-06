@@ -5401,6 +5401,28 @@ const AgentChat = {
         const method = msg.method;
         const params = msg.params || {};
 
+        // Somebody is asking to connect.
+        //
+        // Raised the moment the request is recorded rather than left in a
+        // queue: a request only visible to someone who goes looking is one
+        // the peer waits on indefinitely, because the person who could
+        // decide does not know there is anything to decide.
+        //
+        // It says who and what they asked for, and nothing about granting
+        // it — asking is not getting, and a notification that reads like an
+        // announcement invites approving on reflex.
+        if (method === 'contacts.request_received') {
+          const asked = (params.requested || []).join(', ');
+          IPCLog.append('info',
+            `${params.username} is asking to connect` +
+            (asked ? ` — requested ${asked}` : '') +
+            '. Nothing is granted until you approve it in Contacts.');
+          if (typeof ContactsManager !== 'undefined' && ContactsManager._initialized) {
+            ContactsManager.loadPendingRequests();
+          }
+          return;
+        }
+
         // Agent-initiated speech (speak_text tool) — play immediately
         if (method === 'voice.play' && params.audio_base64) {
           this.playAudio(params.audio_base64, params.mime_type || 'audio/mpeg');
