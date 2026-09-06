@@ -593,6 +593,31 @@ _DDL_STATEMENTS: list[str] = [
     textwrap.dedent("""\
         CREATE INDEX IF NOT EXISTS idx_contacts_wallet ON contacts(wallet_address);
     """),
+    # Whether a node carrying code is allowed to run it.
+    #
+    # Keyed by node id AND content hash, which is the load-bearing part:
+    # admitting a node admits *that code*. Edit a line and the hash moves, the
+    # admission no longer matches, and the node is inert until somebody looks
+    # at what changed. Keyed by id alone, "admitted once" would mean
+    # "admitted forever, including for code substituted afterwards".
+    #
+    # Permission lives here rather than in the node because every field
+    # inside a node is written by whoever wrote the node -- which, in the
+    # case this exists for, is not the person running it.
+    textwrap.dedent("""        CREATE TABLE IF NOT EXISTS node_admissions (
+            node_id      TEXT        NOT NULL,
+            content_hash TEXT        NOT NULL,
+            origin       TEXT        NOT NULL DEFAULT 'local',
+            admitted     BOOLEAN     NOT NULL DEFAULT FALSE,
+            review       TEXT        NOT NULL DEFAULT '',
+            reviewed_by  TEXT        NOT NULL DEFAULT '',
+            created_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            updated_at   TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+            PRIMARY KEY (node_id, content_hash)
+        );
+    """),
+    textwrap.dedent("""        CREATE INDEX IF NOT EXISTS idx_node_admissions_node ON node_admissions(node_id);
+    """),
     # Whether a human has decided about this contact yet.
     #
     # 'approved' is the default so that every contact already on disk keeps

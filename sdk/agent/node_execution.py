@@ -42,7 +42,16 @@ from sdk.agent.tools import register_tool
 log = logging.getLogger(__name__)
 
 #: Node types that describe something runnable.
-EXECUTABLE_TYPES = frozenset({"workflow", "flow"})
+EXECUTABLE_TYPES = frozenset({"workflow", "flow", "function"})
+
+#: The subset that carries code rather than naming steps somebody else
+#: implemented.
+#:
+#: A workflow names steps existing Python interprets, so the worst a hostile
+#: one can do is ask for a bad arrangement of things already written. A
+#: function node carries the code itself, which is a different kind of
+#: object and needs a different kind of permission -- see node_admission.
+CODE_BEARING_TYPES = frozenset({"function"})
 
 #: Below this, a node is a document rather than a program.
 MIN_EXECUTION_AUTHORITY = 0.5
@@ -185,6 +194,9 @@ async def execute_node_by_id(
     except Exception as exc:
         return {"success": False, "error": f"Could not parse {path.name}: {exc}"}
 
+    if node_type in CODE_BEARING_TYPES:
+        return await _run_function_node(path, html, parsed, dict(inputs or {}))
+
     spec = parsed.state_data
     if isinstance(spec, str):
         try:
@@ -309,3 +321,198 @@ async def list_executable_nodes() -> dict:
         found.append(entry)
 
     return {"success": True, "count": len(found), "nodes": found}
+
+
+async def _run_function_node(
+    path: Path, html: str, parsed: Any, inputs: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Run the code a function node carries, if it has been admitted.
+
+    Two checks the workflow path does not need, because a workflow only ever
+    asks for arrangements of code somebody already wrote:
+
+    * **Admission.** The node's own fields cannot grant this. Permission is a
+      row keyed by node id and content hash, so an admission covers the exact
+      code that was read; editing the node makes it inert again rather than
+      inheriting the old decision. See sdk/agent/node_admission.py.
+    * **Something to run.** A function node with no ``code`` is a document
+      that declared the wrong type, and saying so beats a confusing failure
+      further in.
+
+    The code itself runs through the same machinery as ``run_tool_script``:
+    an async body with ``call_tool`` in scope and a timeout. Reusing it means
+    a function node can do exactly what a script could and nothing more --
+    one execution surface to reason about rather than two.
+    """
+    from sdk.agent.node_admission import is_admitted
+
+    state = parsed.state_data
+    if isinstance(state, str):
+        try:
+            state = json.loads(state)
+        except json.JSONDecodeError:
+            state = {}
+    state = state or {}
+
+    code = str(state.get("code") or "").strip()
+    if not code:
+        return {
+            "success": False,
+            "error": (
+                f"{path.stem} is a function node with no code in its node-state "
+                f"block. It documents a function rather than carrying one."
+            ),
+        }
+
+    ok, why_not = await is_admitted(parsed.node_id or path.stem, html)
+    if not ok:
+        log.warning("execute_node: refused function node %s: %s", path.stem, why_not)
+        return {
+            "success": False,
+            "error": f"{path.stem} is not admitted to run: {why_not}",
+            "admitted": False,
+        }
+
+    timeout = float(state.get("timeout_seconds") or 120.0)
+    log.info("execute_node: running function node %s (%d chars of code)", path.stem, len(code))
+
+    from sdk.agent.tools import run_tool_script
+
+    # inputs reach the script as `inputs`, so a function node is a callable
+    # unit rather than a fixed script: the workflow that coordinates them
+    # passes each one what the previous produced.
+    prelude = f"inputs = {inputs!r}\n"
+    result = await run_tool_script(prelude + code, timeout_seconds=timeout)
+
+    # run_tool_script names these the other way round: `output` is captured
+    # stdout and `result` is what the script returned. Renamed here so a
+    # function node's caller reads its value from `output`, matching every
+    # other execute_node result rather than the script runner's convention.
+    return {
+        "success": bool(result.get("success")),
+        "node": path.stem,
+        "node_type": "function",
+        "output": result.get("result"),
+        "stdout": result.get("output", ""),
+        "error": result.get("error"),
+    }
+
+
+@register_tool(
+    name="create_function_node",
+    description=(
+        "Author an HTML-NN that carries executable Python. The node is written and "
+        "recorded but NOT admitted to run: a person reviews the code and admits it "
+        "before it can execute."
+    ),
+)
+async def create_function_node(
+    node_id: str,
+    title: str,
+    code: str,
+    description: str = "",
+    timeout_seconds: float = 120.0,
+) -> dict[str, Any]:
+    """
+    NAME
+           create_function_node - write a node that carries code
+
+    DESCRIPTION
+           Writes a `function` node whose node-state block holds `code`, and
+           records its arrival as locally authored. It cannot run yet.
+
+           Authoring does not admit, even here. The obvious shortcut is to
+           treat locally written code as reviewed -- you wrote it, after all
+           -- but this tool is in the registry, so the writer is as often
+           the model as the person, and self-admission would make "never a
+           start without review" true only for code that came from
+           elsewhere. That is precisely backwards: code Tala writes for
+           herself is the case the review exists for.
+
+           So the flow is the same for everyone. Write, read, admit.
+
+           The code runs with `call_tool(name, **kwargs)` in scope, `inputs`
+           bound to whatever the caller passed, and `return` for its value --
+           the same contract as run_tool_script.
+    """
+    from sdk.agent.node_admission import ORIGIN_LOCAL, record_arrival
+
+    node_id = str(node_id or "").strip()
+    code = str(code or "").strip()
+    if not node_id:
+        return {"success": False, "error": "node_id is required."}
+    if not code:
+        return {"success": False, "error": "A function node with no code is a document."}
+
+    # Written here rather than through generate_detailed_neural_node, which
+    # resolves its own nodes directory (workspace_root/"nodes", or
+    # TALA_USER_DATA) instead of resolve_active_nodes_dir() -- the one
+    # execute_node reads. Two resolvers that can disagree put the file
+    # somewhere the reader does not look, which is exactly what happened:
+    # "written but cannot be found again". The writer must target the
+    # directory the reader uses.
+    directory = _nodes_dir()
+    directory.mkdir(parents=True, exist_ok=True)
+    path = directory / f"{node_id}.html"
+
+    state = json.dumps(
+        {"title": title or node_id, "code": code, "timeout_seconds": float(timeout_seconds)},
+        indent=2, ensure_ascii=False,
+    )
+    body = description or f"Executable function node {node_id}."
+    html = f"""<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><meta name="tala-schema" content="neural-node/v2">
+<title>Neural Node: {title or node_id}</title></head>
+<body>
+<article
+  data-node-id="{node_id}"
+  data-node-type="function"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="{MIN_EXECUTION_AUTHORITY:.2f}"
+  data-memory-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-source="local"
+  data-trust-tier="system"
+  data-privacy="internal">
+
+  <header id="node-identity"><h1 id="node-title">{title or node_id}</h1></header>
+
+  <section id="semantic-memory">
+    <p>{body}</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul></ul>
+  </nav>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{state}
+  </script>
+</article>
+</body>
+</html>
+"""
+    try:
+        path.write_text(html, encoding="utf-8")
+    except OSError as exc:
+        log.exception("create_function_node: could not write %s", node_id)
+        return {"success": False, "error": str(exc)}
+
+    record = await record_arrival(
+        node_id, path.read_text(encoding="utf-8"), ORIGIN_LOCAL, admitted=False,
+    )
+
+    return {
+        "success": True,
+        "node": path.name,
+        "content_hash": record["content_hash"][:16],
+        "admitted": False,
+        "next_step": (
+            f"{node_id} is written and cannot run yet. Review the code, then admit it "
+            f"with a note saying what it does."
+        ),
+    }

@@ -1,0 +1,142 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: create_function_node</title>
+</head>
+<body>
+<article
+  data-node-id="tool-create-function-node"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="create_function_node"
+  data-source-files=""
+  data-source-fingerprint="sha256:AD62D68F743DD7EE0219CF1CACB770AE89DCB05117112BEFE239083C8F8FD63D"
+  data-generated-at="2026-09-06T13:28:37Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: create_function_node</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;create_function_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Author an HTML-NN that carries executable Python. The node is written and recorded but NOT admitted to run: a person reviews the code and admits it before it can execute.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_function_node(node_id*, title*, code*, description, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;code&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;description&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Writes a `function` node whose node-state block holds `code`, and records its arrival as locally authored. It cannot run yet. Authoring does not admit, even here. The obvious shortcut is to treat locally written code as reviewed -- you wrote it, after all -- but this tool is in the registry, so the writer is as often the model as the person, and self-admission would make &quot;never a start without review&quot; true only for code that came from elsewhere. That is precisely backwards: code Tala writes for herself is the case the review exists for. So the flow is the same for everyone. Write, read, admit. The code runs with `call_tool(name, **kwargs)` in scope, `inputs` bound to whatever the caller passed, and `return` for its value -- the same contract as run_tool_script.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.node_execution&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-create-function-node"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "create_function_node"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: create_function_node",
+  "description": "Program documentation for create_function_node.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "create_function_node"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-06T13:28:37Z",
+    "schema": "neural-node/v2",
+    "doc_target": "create_function_node",
+    "source_fingerprint": "sha256:AD62D68F743DD7EE0219CF1CACB770AE89DCB05117112BEFE239083C8F8FD63D"
+  },
+  "tool": {
+    "name": "create_function_node",
+    "description": "Author an HTML-NN that carries executable Python. The node is written and recorded but NOT admitted to run: a person reviews the code and admits it before it can execute.",
+    "signature": "create_function_node(node_id*, title*, code*, description, timeout_seconds)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "node_id": {
+          "type": "string"
+        },
+        "title": {
+          "type": "string"
+        },
+        "code": {
+          "type": "string"
+        },
+        "description": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "node_id",
+        "title",
+        "code"
+      ]
+    },
+    "module": "sdk.agent.node_execution",
+    "required": [
+      "node_id",
+      "title",
+      "code"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>
