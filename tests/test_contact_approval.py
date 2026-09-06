@@ -381,3 +381,55 @@ async def test_an_endpoint_is_still_normalised_when_given(pool, monkeypatch):
     finally:
         vps_mode.mode.disable()
         await db.execute("DELETE FROM contacts WHERE username = $1", username)
+
+
+# ---------------------------------------------------------------------------
+# What "pending" costs a peer, which on a connection node is nothing
+# ---------------------------------------------------------------------------
+
+
+async def test_pending_does_not_stop_a_peer_connecting(peer):
+    """
+    Steven's decision, so that everyone can connect: a connection node
+    enrols and relays, it does not judge. Approval governs access to
+    documents, and a node serves none.
+
+    So `pending` must gate nothing. Only a denial closes the door -- and
+    that asymmetry is the whole design, not an oversight to be tidied up
+    later by making the states symmetrical.
+    """
+    assert await _status(peer["username"]) == "pending"
+    assert await server._peer_shared_secret(peer["username"]) == peer["secret"], (
+        "a pending peer was refused its credentials, so it could not connect"
+    )
+
+
+async def test_only_a_denial_closes_the_door(peer):
+    """The one status that gates, stated as a rule rather than a side effect."""
+    for status in ("pending", "approved"):
+        await db.execute(
+            "UPDATE contacts SET status = $2 WHERE username = $1", peer["username"], status
+        )
+        assert await server._peer_shared_secret(peer["username"]) == peer["secret"], status
+
+    await db.execute(
+        "UPDATE contacts SET status = 'denied' WHERE username = $1", peer["username"]
+    )
+    assert await server._peer_shared_secret(peer["username"]) == ""
+
+
+@pytest.mark.asyncio
+async def test_nothing_else_gates_on_contact_status():
+    """
+    Guard against a future change quietly making `pending` mean "refused".
+    If a second gate is genuinely wanted, this test should be updated
+    deliberately rather than discovered by a peer who cannot connect.
+    """
+    import inspect
+    import re
+
+    src = inspect.getsource(server)
+    gates = re.findall(r'contact\.get\("status"\)[^\n]*', src)
+
+    assert len(gates) == 1, f"contact status is gated in {len(gates)} places: {gates}"
+    assert "denied" in gates[0], "the single status gate no longer checks for a denial"
