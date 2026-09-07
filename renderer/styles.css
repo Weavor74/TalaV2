@@ -1596,6 +1596,119 @@ button:focus:not(:focus-visible) {
   overflow: hidden;
 }
 
+/* ── Conversation tabs ──────────────────────────────────────────────────
+   The agent tab is always on; room tabs are added beside it as rooms are
+   started or invitations arrive. A room that has been invited but not
+   answered is marked, because a tab that looks like every other tab is a
+   room you would assume you were already in. */
+.chat-tabs {
+  display: flex;
+  align-items: stretch;
+  gap: 2px;
+  padding: 0 var(--space-2);
+  border-bottom: 1px solid var(--glass-border);
+  overflow-x: auto;
+  flex-shrink: 0;
+  scrollbar-width: thin;
+}
+
+.chat-tab {
+  background: none;
+  border: none;
+  border-bottom: 2px solid transparent;
+  color: var(--text-secondary);
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  letter-spacing: 0.04em;
+  padding: 6px 8px;
+  max-width: 140px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.chat-tab:hover {
+  color: var(--text-primary);
+}
+
+.chat-tab.active {
+  color: var(--accent-blue);
+  border-bottom-color: var(--accent-blue);
+}
+
+/* An invitation nobody has answered. Nothing can be said in it yet. */
+.chat-tab.invited {
+  font-style: italic;
+  opacity: 0.75;
+}
+
+/* Something was said in a room you are not looking at. */
+.chat-tab.unread::after {
+  content: '\2022';
+  color: var(--accent-blue);
+  margin-left: 4px;
+}
+
+.chat-tab-add {
+  background: none;
+  border: none;
+  color: var(--text-secondary);
+  font-size: 0.9rem;
+  line-height: 1;
+  padding: 4px 8px;
+  cursor: pointer;
+  flex-shrink: 0;
+}
+
+.chat-tab-add:hover {
+  color: var(--accent-blue);
+}
+
+.conversation-bar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 4px var(--space-3);
+  border-bottom: 1px solid var(--glass-border);
+  font-size: 0.65rem;
+  font-family: var(--font-mono);
+  color: var(--text-secondary);
+  flex-shrink: 0;
+}
+
+.conversation-people {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.conversation-actions {
+  display: flex;
+  gap: 4px;
+  flex-shrink: 0;
+}
+
+/* `.chat-messages` and `.conversation-bar` set `display`, which beats the
+   browser's own `[hidden]` rule on specificity -- so without this, hiding a
+   pane with `el.hidden = true` does nothing and both panes stack. */
+.chat-messages[hidden],
+.conversation-bar[hidden],
+.chat-tab[hidden] {
+  display: none !important;
+}
+
+/* Said by somebody in the room this install has not approved. Marked rather
+   than hidden: under the hybrid rule they are present and visible, and
+   hiding them would leave you in a room with somebody you could not see. */
+.chat-message .message-meta .unapproved-mark {
+  color: var(--accent-amber, #fbbf24);
+  margin-left: 4px;
+  cursor: help;
+}
+
 .chat-messages {
   flex: 1;
   overflow-y: auto;

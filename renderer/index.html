@@ -3330,6 +3330,33 @@
       </div>
 
       <div class="chat-container">
+        <!-- Conversation tabs. The agent tab is always on and cannot be
+             closed: talking to Tala is the thing this panel is, and a room
+             is something added beside it. Rooms appear here when one is
+             started or an invitation arrives. -->
+        <div class="chat-tabs" id="chat-tabs" role="tablist" aria-label="Conversations">
+          <button class="chat-tab active" id="chat-tab-agent" data-conversation=""
+                  role="tab" aria-selected="true" title="Talk to Tala">TALA</button>
+          <button class="chat-tab-add" id="btn-conversation-new"
+                  title="Start a conversation with other people">+</button>
+        </div>
+
+        <!-- Who is in the room, and the two decisions a person makes about
+             being in it. Hidden while the agent tab is active. -->
+        <div class="conversation-bar" id="conversation-bar" hidden>
+          <span class="conversation-people" id="conversation-people"></span>
+          <span class="conversation-actions">
+            <button class="chat-action-btn" id="btn-conversation-join" hidden
+                    title="Join this conversation">Join</button>
+            <button class="chat-action-btn" id="btn-conversation-decline" hidden
+                    title="Decline this invitation">Decline</button>
+            <button class="chat-action-btn" id="btn-conversation-leave" hidden
+                    title="Leave this conversation">Leave</button>
+          </span>
+        </div>
+
+        <div class="chat-messages" id="conversation-messages" role="log" aria-live="polite" hidden></div>
+
         <div class="chat-messages" id="chat-messages" role="log" aria-live="polite">
           <!-- Initial greeting from Tala -->
           <div class="chat-message agent">
@@ -4115,6 +4142,37 @@
        step. Splitting them is how a contact ends up approved and inert with
        nobody sure whether that was deliberate. Everything starts unticked:
        what the peer asked for is shown, and granted nothing by itself. -->
+  <!-- Starting a room. The contact list here shows standing rather than
+       filtering on it: the hybrid rule lets somebody you have not approved
+       be in a room with you, and a person choosing who to put in one should
+       be able to see which is which. -->
+  <div id="modal-new-conversation" class="modal-overlay" hidden aria-modal="true" role="dialog"
+       aria-labelledby="modal-new-conversation-title">
+    <div class="modal-card" style="max-width: 520px;">
+      <div class="modal-header">
+        <h2 id="modal-new-conversation-title" class="modal-title">New Conversation</h2>
+        <button class="modal-close-btn" id="btn-modal-conversation-close" aria-label="Close dialog">&#10005;</button>
+      </div>
+      <div class="modal-body">
+        <div class="form-group">
+          <label class="form-label" for="input-conversation-title">Title</label>
+          <input type="text" id="input-conversation-title" class="form-control" placeholder="What this room is for" />
+        </div>
+        <div class="form-group">
+          <label class="form-label">Who is in it</label>
+          <div id="conversation-people-picker" style="max-height: 220px; overflow-y: auto;"></div>
+          <p style="opacity: 0.7; font-size: 0.85em; margin-bottom: 0;">
+            Being in a room with somebody does not approve them. They can speak here and nowhere else.
+          </p>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button class="btn" id="btn-modal-conversation-cancel">Cancel</button>
+        <button class="btn btn-primary" id="btn-modal-conversation-create">Start</button>
+      </div>
+    </div>
+  </div>
+
   <div id="modal-approve-contact" class="modal-overlay" hidden aria-modal="true" role="dialog" aria-labelledby="modal-approve-contact-title">
     <div class="modal-card" style="max-width: 520px;">
       <div class="modal-header">

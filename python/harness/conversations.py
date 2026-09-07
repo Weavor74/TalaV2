@@ -49,6 +49,13 @@ log = logging.getLogger(__name__)
 STATUS_INVITED = "invited"
 STATUS_JOINED = "joined"
 STATUS_DECLINED = "declined"
+#: Left a room that was joined. Distinct from `declined`, which is an
+#: invitation that was never taken up -- the difference is whether anything
+#: was ever said. Both close the room the same way: the receive path admits
+#: messages only into a conversation whose status is `joined`, so leaving is
+#: what makes "a participant can only talk to you in that room" end when the
+#: room does.
+STATUS_LEFT = "left"
 
 KIND_USER = "user"
 KIND_AGENT = "agent"
@@ -247,7 +254,7 @@ async def set_membership(conversation_id: str, status: str) -> dict[str, Any]:
     """
     from python.harness import db
 
-    if status not in (STATUS_INVITED, STATUS_JOINED, STATUS_DECLINED):
+    if status not in (STATUS_INVITED, STATUS_JOINED, STATUS_DECLINED, STATUS_LEFT):
         return {"ok": False, "reason": f"unknown status {status!r}"}
 
     await db.execute(
@@ -318,11 +325,24 @@ async def record_remote_conversation(
 
     existing = await db.fetchrow("SELECT id, status FROM conversations WHERE id = $1", conversation_id)
     if existing:
+        status = str(existing["status"])
+        # A room that was left or declined is one this install is not in, so a
+        # new invitation to it is a new question rather than a no-op. Without
+        # this, leaving a room once would make it impossible ever to be asked
+        # back into it -- the invitation would land on a closed row and
+        # silently change nothing.
+        if status in (STATUS_LEFT, STATUS_DECLINED):
+            await db.execute(
+                "UPDATE conversations SET status = $2, updated_at = NOW() WHERE id = $1",
+                conversation_id, STATUS_INVITED,
+                caller="conversations.reinvite",
+            )
+            status = STATUS_INVITED
         for person in people:
             await _add_participant(
                 conversation_id, person["participant"], person.get("kind", KIND_USER)
             )
-        return {"id": conversation_id, "status": existing["status"], "created": False}
+        return {"id": conversation_id, "status": status, "created": False}
 
     await db.execute(
         "INSERT INTO conversations (id, title, created_by, status) VALUES ($1, $2, $3, $4)",

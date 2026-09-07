@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSafe('FileExplorer', () => FileExplorer.init());
   initSafe('SettingsDashboard', () => SettingsDashboard.init());
   initSafe('AgentChat', () => AgentChat.init());
+  initSafe('ConversationTabs', () => ConversationTabs.init());
   initSafe('PanelResizer', () => PanelResizer.init());
   initSafe('CommandBar', () => CommandBar.init());
   initSafe('WebBrowser', () => WebBrowser.init());
@@ -5411,6 +5412,14 @@ const AgentChat = {
         // It says who and what they asked for, and nothing about granting
         // it — asking is not getting, and a notification that reads like an
         // announcement invites approving on reflex.
+        // Room traffic: an invitation, something said, or a report that
+        // somebody in the room did not receive what was sent.
+        if (method && method.startsWith('conversation.')) {
+          if (typeof ConversationTabs !== 'undefined' && ConversationTabs._initialized) {
+            if (ConversationTabs.onNotification(method, params)) return;
+          }
+        }
+
         if (method === 'contacts.request_received') {
           const asked = (params.requested || []).join(', ');
           IPCLog.append('info',
@@ -5755,6 +5764,16 @@ const AgentChat = {
     const text = this._textarea.value.trim();
     const pendingImages = (this._pendingImages || []).slice();
     if (!text && !pendingImages.length) return;
+
+    // One input, two destinations. When a room tab is active the text is
+    // something said to the people in that room, so it hands over here --
+    // before slash commands, peer mentions or inference get a look at it. A
+    // message meant for a room must not be run as a command.
+    if (typeof ConversationTabs !== 'undefined' && ConversationTabs.isRoomActive && ConversationTabs.isRoomActive()) {
+      this._textarea.value = '';
+      await ConversationTabs.send(text);
+      return;
+    }
 
     // Vision path: attached/pasted images ride along with the prompt
     if (pendingImages.length) {
@@ -6426,6 +6445,397 @@ const AgentChat = {
     this._messages.appendChild(msgEl);
     this._messages.scrollTop = this._messages.scrollHeight;
   }
+};
+
+/* ═══════════════════════════════════════════════════════════════════
+   4b. ConversationTabs — rooms beside the agent chat
+   ═══════════════════════════════════════════════════════════════════
+
+   The agent tab is always on and cannot be closed: talking to Tala is what
+   this panel is, and a room is something added beside it. Rooms appear as
+   tabs when one is started here or an invitation arrives from somebody else.
+
+   The rule this UI has to make legible is Steven's: **a room participant can
+   only talk to you in that room.** Two consequences show up on screen.
+
+   Joining is a decision, so an invitation arrives as a tab you cannot type
+   in until you take it -- the room-level decision is the one thing the
+   hybrid rule reserves for a person, and a tab that silently worked would
+   make it for them. Leaving is the same decision withdrawn: the harness
+   admits messages only into a conversation whose status is `joined`, so
+   Leave is what ends the scope, not merely a way to tidy the tab strip.
+
+   And an unapproved participant is marked, never hidden. Under the hybrid
+   rule they are in the room and allowed to speak in it; hiding them would
+   leave you in a room with somebody you could not see. */
+
+const ConversationTabs = {
+  AGENT_TAB: '',
+
+  init() {
+    this._strip = qs('#chat-tabs');
+    this._pane = qs('#conversation-messages');
+    this._agentPane = qs('#chat-messages');
+    this._bar = qs('#conversation-bar');
+    this._people = qs('#conversation-people');
+    this._active = this.AGENT_TAB;
+    this._rooms = [];
+    this._unread = new Set();
+    if (!this._strip || !this._pane) return;
+
+    const agentTab = qs('#chat-tab-agent');
+    if (agentTab) agentTab.addEventListener('click', () => this.select(this.AGENT_TAB));
+
+    const bindClick = (selector, handler) => {
+      const el = qs(selector);
+      if (el) el.addEventListener('click', handler);
+    };
+
+    bindClick('#btn-conversation-new', () => this.openNewModal());
+    bindClick('#btn-modal-conversation-close', () => this.closeNewModal());
+    bindClick('#btn-modal-conversation-cancel', () => this.closeNewModal());
+    bindClick('#btn-modal-conversation-create', () => this.createConversation());
+    bindClick('#btn-conversation-join', () => this.setMembership('joined'));
+    bindClick('#btn-conversation-decline', () => this.setMembership('declined'));
+    bindClick('#btn-conversation-leave', () => this.setMembership('left'));
+
+    this._initialized = true;
+    this.refresh();
+  },
+
+  /** Whether a room, rather than Tala, is what the chat box is pointed at. */
+  isRoomActive() {
+    return Boolean(this._active);
+  },
+
+  activeId() {
+    return this._active;
+  },
+
+  activeRoom() {
+    return (this._rooms || []).find(r => r.id === this._active) || null;
+  },
+
+  async rpc(method, params) {
+    return invoke('python:rpc', { method, params: params || {} });
+  },
+
+  /* ── The tab strip ──────────────────────────────────────────────── */
+
+  async refresh() {
+    if (!this._initialized) return;
+    let rooms = [];
+    try {
+      const resp = await this.rpc('conversation.list', {});
+      rooms = (resp && resp.conversations) || [];
+    } catch (err) {
+      console.error('[ConversationTabs] could not list conversations:', err);
+      return;
+    }
+
+    // A room that was left or declined is one this install is not in. It
+    // stays in the harness -- history is not deleted by walking out of the
+    // room -- but it is not a tab.
+    this._rooms = rooms.filter(r => r.status === 'joined' || r.status === 'invited');
+    this.renderTabs();
+
+    // The active room may have just been left, from here or elsewhere.
+    if (this._active && !this._rooms.some(r => r.id === this._active)) {
+      this.select(this.AGENT_TAB);
+    }
+  },
+
+  renderTabs() {
+    if (!this._strip) return;
+    this._strip.querySelectorAll('.chat-tab[data-conversation]:not(#chat-tab-agent)')
+      .forEach(el => el.remove());
+
+    const addButton = qs('#btn-conversation-new');
+    this._rooms.forEach(room => {
+      const tab = document.createElement('button');
+      tab.className = 'chat-tab';
+      tab.setAttribute('role', 'tab');
+      tab.dataset.conversation = room.id;
+      if (room.id === this._active) tab.classList.add('active');
+      if (room.status === 'invited') tab.classList.add('invited');
+      if (this._unread.has(room.id)) tab.classList.add('unread');
+      tab.textContent = room.title || room.id;
+      tab.title = room.status === 'invited'
+        ? `${room.title || room.id} — invitation, not yet joined`
+        : `${room.title || room.id} — ${room.participants} in the room`;
+      tab.addEventListener('click', () => this.select(room.id));
+      this._strip.insertBefore(tab, addButton || null);
+    });
+
+    const agentTab = qs('#chat-tab-agent');
+    if (agentTab) {
+      agentTab.classList.toggle('active', !this._active);
+      agentTab.setAttribute('aria-selected', String(!this._active));
+    }
+  },
+
+  select(conversationId) {
+    this._active = conversationId || this.AGENT_TAB;
+    this._unread.delete(this._active);
+
+    const room = this.isRoomActive();
+    if (this._agentPane) this._agentPane.hidden = room;
+    if (this._pane) this._pane.hidden = !room;
+    if (this._bar) this._bar.hidden = !room;
+
+    const textarea = qs('#chat-textarea');
+    if (textarea) {
+      const current = this.activeRoom();
+      const joined = current && current.status === 'joined';
+      // An invitation nobody has answered is not a room anyone is in, and
+      // the harness would refuse the message anyway. Say so here rather
+      // than letting somebody type into a room that will not take it.
+      textarea.placeholder = !room
+        ? 'Ask Tala... (Paste images supported)'
+        : joined
+          ? `Say something in ${current.title || 'this room'}...`
+          : 'Join this conversation before speaking in it';
+    }
+
+    this.renderTabs();
+    if (room) this.loadMessages();
+  },
+
+  /** Point the chat box back at Tala. */
+  selectAgent() {
+    if (this.isRoomActive()) this.select(this.AGENT_TAB);
+  },
+
+  /* ── One room ───────────────────────────────────────────────────── */
+
+  async loadMessages() {
+    const conversationId = this._active;
+    if (!conversationId || !this._pane) return;
+
+    let payload = null;
+    try {
+      payload = await this.rpc('conversation.messages', { id: conversationId });
+    } catch (err) {
+      console.error('[ConversationTabs] could not load messages:', err);
+      return;
+    }
+    if (this._active !== conversationId) return;  // switched away mid-flight
+
+    this.renderPeople((payload && payload.participants) || []);
+    this._pane.innerHTML = '';
+    ((payload && payload.messages) || []).forEach(m => this.appendMessage(m));
+    this._pane.scrollTop = this._pane.scrollHeight;
+  },
+
+  renderPeople(participants) {
+    const room = this.activeRoom();
+    if (this._people) {
+      const names = participants.map(p => {
+        // The marking the hybrid rule turns on, in the one place that says
+        // who is here.
+        const mark = p.kind === 'agent' ? '' : (p.approved ? '' : ' (unapproved)');
+        return `${escapeHtml(p.participant)}${mark}`;
+      });
+      this._people.innerHTML = names.join(' · ') || 'nobody else yet';
+    }
+
+    const invited = room && room.status === 'invited';
+    const join = qs('#btn-conversation-join');
+    const decline = qs('#btn-conversation-decline');
+    const leave = qs('#btn-conversation-leave');
+    if (join) join.hidden = !invited;
+    if (decline) decline.hidden = !invited;
+    if (leave) leave.hidden = Boolean(invited);
+  },
+
+  appendMessage(message) {
+    if (!this._pane) return;
+    const el = document.createElement('div');
+    el.className = 'chat-message ' + (message.sender_approved === undefined ? 'agent' : 'agent');
+    const at = message.at ? new Date(message.at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : '';
+    // Unapproved is marked and never hidden: they are in the room, and you
+    // should be able to tell whose words you are reading.
+    const mark = message.sender_approved === false
+      ? ' <span class="unapproved-mark" title="You have not approved this contact. They can speak in this room and nowhere else.">&#9888;</span>'
+      : '';
+    el.innerHTML = `
+      <div class="message-meta">${escapeHtml(message.sender || '')}${mark} ${at ? '&bull; ' + at : ''}</div>
+      <div class="message-content"></div>
+    `;
+    el.querySelector('.message-content').textContent = message.body || '';
+    this._pane.appendChild(el);
+    this._pane.scrollTop = this._pane.scrollHeight;
+  },
+
+  /**
+   * Say something in the active room.
+   *
+   * Called from AgentChat.sendMessage, which hands over whenever a room tab
+   * is active rather than sending the text to the model. Returns true when
+   * it took the message.
+   */
+  async send(text) {
+    const conversationId = this._active;
+    const room = this.activeRoom();
+    if (!conversationId) return false;
+
+    if (!room || room.status !== 'joined') {
+      IPCLog.append('info', 'Join this conversation before speaking in it.');
+      return true;
+    }
+
+    try {
+      await this.rpc('conversation.post', { id: conversationId, body: text });
+    } catch (err) {
+      IPCLog.append('error', `Could not post to the conversation: ${err.message || err}`);
+      return true;
+    }
+    await this.loadMessages();
+    return true;
+  },
+
+  /* ── Being in a room, or not ────────────────────────────────────── */
+
+  async setMembership(status) {
+    const conversationId = this._active;
+    if (!conversationId) return;
+    try {
+      await this.rpc('conversation.set_membership', { id: conversationId, status });
+    } catch (err) {
+      IPCLog.append('error', `Could not update the conversation: ${err.message || err}`);
+      return;
+    }
+
+    if (status === 'joined') {
+      IPCLog.append('ok', 'Joined the conversation.');
+    } else {
+      // Leaving closes the room from this side: the harness admits messages
+      // only into a conversation this install has joined, so the people in
+      // it can no longer reach here through it.
+      IPCLog.append('info', status === 'left'
+        ? 'Left the conversation. Nobody in it can reach you through it now.'
+        : 'Declined the invitation.');
+      this._active = this.AGENT_TAB;
+    }
+    await this.refresh();
+    if (status === 'joined') this.select(conversationId);
+    else this.select(this.AGENT_TAB);
+  },
+
+  /* ── Starting one ───────────────────────────────────────────────── */
+
+  async openNewModal() {
+    const modal = qs('#modal-new-conversation');
+    const picker = qs('#conversation-people-picker');
+    if (!modal || !picker) return;
+
+    const titleInput = qs('#input-conversation-title');
+    if (titleInput) titleInput.value = '';
+
+    let contacts = [];
+    try {
+      const resp = await this.rpc('contacts.list', {});
+      contacts = (resp && (resp.contacts || resp)) || [];
+    } catch (err) {
+      console.error('[ConversationTabs] could not load contacts:', err);
+    }
+
+    picker.innerHTML = '';
+    if (!contacts.length) {
+      picker.innerHTML = '<p style="opacity:0.7;">No contacts yet. Connect with somebody first.</p>';
+    }
+    contacts.forEach(contact => {
+      const username = contact.username || '';
+      if (!username) return;
+      // Denied is the one status left out. Everything else can be in a room:
+      // the hybrid rule is what makes an unapproved participant possible,
+      // and a denial is a decision that this person gets nothing.
+      if (contact.status === 'denied') return;
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:var(--space-2);padding:4px 0;';
+      row.innerHTML = `
+        <input type="checkbox" value="${escapeHtml(username)}" />
+        <span>${escapeHtml(username)}</span>
+        <span style="opacity:0.6;font-size:0.85em;">${escapeHtml(contact.status || '')}</span>
+      `;
+      picker.appendChild(row);
+    });
+
+    modal.hidden = false;
+  },
+
+  closeNewModal() {
+    const modal = qs('#modal-new-conversation');
+    if (modal) modal.hidden = true;
+  },
+
+  async createConversation() {
+    const picker = qs('#conversation-people-picker');
+    const titleInput = qs('#input-conversation-title');
+    const chosen = picker
+      ? Array.from(picker.querySelectorAll('input[type="checkbox"]:checked')).map(i => i.value)
+      : [];
+
+    if (!chosen.length) {
+      IPCLog.append('info', 'Pick at least one person to be in the room with.');
+      return;
+    }
+
+    let created = null;
+    try {
+      created = await this.rpc('conversation.create', {
+        title: (titleInput && titleInput.value.trim()) || chosen.join(', '),
+        participants: chosen.map(username => ({ participant: username, kind: 'user' })),
+      });
+    } catch (err) {
+      IPCLog.append('error', `Could not start the conversation: ${err.message || err}`);
+      return;
+    }
+
+    this.closeNewModal();
+    await this.refresh();
+    if (created && created.id) this.select(created.id);
+    IPCLog.append('ok', 'Conversation started. Everyone in it has been invited.');
+  },
+
+  /* ── Live updates ───────────────────────────────────────────────── */
+
+  /** Something arrived for a room. Returns true when it was handled. */
+  onNotification(method, params) {
+    if (method === 'conversation.invited') {
+      IPCLog.append('info',
+        `${params.from} invited you to "${params.title || params.id}". ` +
+        'Nothing can be said in it until you join.');
+      this._unread.add(params.id);
+      this.refresh();
+      return true;
+    }
+
+    if (method === 'conversation.message') {
+      if (params.id === this._active) {
+        this.loadMessages();
+      } else {
+        this._unread.add(params.id);
+        this.renderTabs();
+      }
+      return true;
+    }
+
+    if (method === 'conversation.delivery') {
+      // Fan-out is best-effort by design -- the message is recorded before
+      // it is sent -- so a failure is worth saying out loud rather than
+      // leaving somebody to assume the room heard them.
+      const failed = params.failed || [];
+      if (failed.length) {
+        IPCLog.append('warn',
+          'Not everyone received that: ' +
+          failed.map(f => `${f.peer} (${f.reason})`).join(', '));
+      }
+      return true;
+    }
+
+    return false;
+  },
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -8449,6 +8859,12 @@ const CommandBar = {
       IPCLog.append('info', `Command Bar: Received command "${rawText}"`);
       
       if (typeof AgentChat !== 'undefined' && typeof AgentChat.appendMessage === 'function') {
+        // A command is always for Tala. The command bar types into the chat
+        // textarea, so without pointing it back at the agent first the
+        // command would be posted into whichever room happened to be open.
+        if (typeof ConversationTabs !== 'undefined' && ConversationTabs.selectAgent) {
+          ConversationTabs.selectAgent();
+        }
         AgentChat.appendMessage('user', 'You', `[Command: ${rawText}]`);
         AgentChat._textarea.value = `Execute command: ${rawText}`;
         AgentChat.sendMessage();

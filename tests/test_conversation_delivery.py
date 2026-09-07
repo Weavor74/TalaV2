@@ -520,3 +520,84 @@ async def test_the_relay_records_the_room_and_not_what_was_said():
     })
     assert subject == "conversation:conv-abc123"
     assert "private" not in subject and "room name" not in subject
+
+
+# ---------------------------------------------------------------------------
+# Leaving
+# ---------------------------------------------------------------------------
+
+
+async def test_leaving_ends_what_the_room_permitted(me, peer):
+    """
+    The rule scopes somebody's reach to a room. Leaving is how that scope
+    ends -- so it has to close the door itself, not merely tidy a tab away.
+    """
+    convo = await conversations.create(
+        title="room",
+        participants=[{"participant": peer["username"], "kind": "user"},
+                      {"participant": me, "kind": "user"}],
+        created_by=me,
+    )
+    try:
+        assert (await receive(conversation_packet(
+            peer, convo["id"], kind="message", body="while you were here"
+        )))["accepted"] is True
+
+        await conversations.set_membership(convo["id"], conversations.STATUS_LEFT)
+
+        result = await receive(conversation_packet(
+            peer, convo["id"], kind="message", body="after you left"
+        ))
+        assert result["accepted"] is False
+        assert result["reason"] == "conversation_left"
+
+        said = [m["body"] for m in await conversations.messages(convo["id"])]
+        assert said == ["while you were here"], "a message landed in a room nobody is in"
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
+
+
+async def test_leaving_a_room_is_not_leaving_it_forever(me, peer, announced):
+    """
+    A fresh invitation to a room this install walked out of is a fresh
+    question. Without this the invitation would land on a closed row and
+    silently change nothing, so leaving once would mean never being asked
+    back.
+    """
+    conversation_id = f"conv-{uuid.uuid4().hex[:16]}"
+    invitation = conversation_packet(
+        peer, conversation_id, kind="invitation", title="come back",
+        participants=[{"participant": peer["username"], "kind": "user"},
+                      {"participant": me, "kind": "user"}],
+    )
+    try:
+        await receive(invitation)
+        await conversations.set_membership(conversation_id, conversations.STATUS_JOINED)
+        await conversations.set_membership(conversation_id, conversations.STATUS_LEFT)
+
+        again = await receive(invitation)
+        assert again["accepted"] is True
+        assert await conversations.status_of(conversation_id) == conversations.STATUS_INVITED, (
+            "a room that was left could never be offered again"
+        )
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", conversation_id)
+
+
+async def test_leaving_does_not_reopen_on_a_message(me, peer):
+    """
+    Only an invitation reopens a room, and only to `invited`. A message must
+    never be the thing that puts this install back in a room it left.
+    """
+    convo = await conversations.create(
+        title="room",
+        participants=[{"participant": peer["username"], "kind": "user"},
+                      {"participant": me, "kind": "user"}],
+        created_by=me,
+    )
+    try:
+        await conversations.set_membership(convo["id"], conversations.STATUS_LEFT)
+        await receive(conversation_packet(peer, convo["id"], kind="message", body="knock"))
+        assert await conversations.status_of(convo["id"]) == conversations.STATUS_LEFT
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
