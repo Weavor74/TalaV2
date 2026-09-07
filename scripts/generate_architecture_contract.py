@@ -91,12 +91,19 @@ def _tool_count() -> int:
 
 
 async def build_contract() -> dict:
+    from python.harness.architecture_facts import all_facts, verification_metadata
+
     total_nodes, families = _count_nodes()
     chroma = _chroma_count()
     pg = await _pg_counts()
+    facts = all_facts()
+    # Taken fresh here rather than out of `facts`, so the stamp records when
+    # THIS contract was built rather than when the facts happened to be
+    # gathered -- and so the function has a caller a reader can follow.
+    facts["verification"] = verification_metadata()
 
     return {
-        "contract_version": "1.0",
+        "contract_version": "2.0",
         "system": "Tala",
         "read_this_first": (
             "This system does not follow several common defaults. Read the "
@@ -251,9 +258,21 @@ async def build_contract() -> dict:
         "capabilities": {
             "registered_tools": _tool_count(),
             "tool_catalogue_nodes": families.get("tool", 0),
-            "executable_node_types": ["workflow", "flow"],
-            "min_execution_authority": 0.5,
+            # Read from node_execution, never restated. The hardcoded
+            # ["workflow", "flow"] that used to sit here stopped being true the
+            # day function, decision and service nodes became executable, and
+            # a model asking the contract what it could run was given the wrong
+            # answer by the one document it is told to consult first.
+            **{k: v for k, v in facts["execution_gates"].items()
+               if k not in ("available", "reason")},
         },
+
+        # -- the six things a self-reasoning system gets wrong about itself --
+        "data_ownership": facts["data_ownership"],
+        "security_model": facts["security_model"],
+        "execution_paths": facts["execution_paths"],
+        "capability_maturity": facts["capability_maturity"],
+        "verification": facts["verification"],
 
         "how_to_verify": (
             "Do not take this document's word for it. Call "
@@ -291,6 +310,86 @@ def _prose(contract: dict) -> str:
         "node store; asking it about nodes under-reports. Hindsight is an "
         "optional external daemon whose absence is not a fault.</p>"
     )
+    # Data ownership, in the terms that matter for backup and restore.
+    own = contract["data_ownership"]
+    lines.append("<h3>Which store owns what</h3><p>Authoritative, and not "
+                 "reconstructible from anything else:</p><ul>")
+    for item in own["authoritative"]:
+        lines.append(f"<li><strong>{item['records']}</strong> — {item['store']}. "
+                     f"{item['backup']} If lost: {item['if_lost']}</li>")
+    lines.append("</ul><p>Derived, and safe to delete:</p><ul>")
+    for item in own["derived"]:
+        lines.append(f"<li>{item['records']} — {item['store']}, rebuildable from "
+                     f"{item['rebuildable_from']}.</li>")
+    lines.append("</ul>")
+    contradiction = own.get("known_contradiction")
+    if contradiction:
+        lines.append(f"<p><strong>Known contradiction:</strong> "
+                     f"{contradiction['what']} {contradiction['why_it_matters']}</p>")
+    lines.append("<p><strong>Restore in this order:</strong> "
+                 + "; ".join(own["restore_order"]) + ".</p>")
+
+    # Security, kept in three pieces on purpose.
+    sec = contract["security_model"]
+    lines.append("<h3>Security: three separate things</h3><ul>")
+    lines.append("<li><strong>Renderer isolation</strong> — "
+                 f"{sec['renderer_isolation']['what_it_protects']} Flags: "
+                 + ", ".join(f"{k}={v}" for k, v in
+                             sec["renderer_isolation"]["electron_flags"].items())
+                 + ".</li>")
+    ipc = sec["ipc_surface"]
+    lines.append(f"<li><strong>The IPC surface</strong> — {ipc['what_this_means']}"
+                 + (f" {ipc['note']}" if ipc.get("note") else "") + "</li>")
+    lines.append("<li><strong>Peer permission checks</strong> — "
+                 f"{sec['peer_permission_checks']['what_it_protects']} "
+                 + " ".join(f"({i + 1}) {layer}." for i, layer in
+                            enumerate(sec["peer_permission_checks"]["layers"]))
+                 + f" {sec['peer_permission_checks']['scope_note']}</li>")
+    lines.append("<li><strong>Host command execution</strong> — "
+                 f"{sec['host_command_execution']['reality']} "
+                 f"{sec['host_command_execution']['consequence']}</li>")
+    lines.append("</ul>")
+
+    # How anything reaches a tool.
+    lines.append("<h3>How work reaches a tool</h3><ul>")
+    for route in contract["execution_paths"]:
+        state = "" if route["entry_exists"] else " <em>(entry point missing — this "
+        state += "" if route["entry_exists"] else "route is described but not present)</em>"
+        lines.append(f"<li><strong>{route['path']}</strong> ({route['entry']}): "
+                     f"{route['reaches_tools_via']}. Verification: "
+                     f"{route['verifies_results']}.{state}</li>")
+    lines.append("</ul>")
+
+    # What is actually finished.
+    lines.append("<h3>Maturity, with evidence</h3><p>implemented = the code "
+                 "exists; tested = a named regression covers it; live-verified = "
+                 "observed working outside this machine; experimental = present "
+                 "and not to be relied on; unavailable = absent or known "
+                 "broken.</p><ul>")
+    for claim in contract["capability_maturity"]:
+        entry = (f"<li><strong>{claim['capability']}</strong> — "
+                 f"{claim['maturity']}")
+        if claim.get("evidence_present"):
+            entry += f". Evidence: {', '.join(claim['evidence_present'])}"
+        if claim.get("limits"):
+            entry += f". Limits: {claim['limits']}"
+        if claim.get("evidence_missing"):
+            entry += (f". <em>EVIDENCE MISSING: {', '.join(claim['evidence_missing'])} "
+                      "— treat this claim as unsupported.</em>")
+        lines.append(entry + "</li>")
+    lines.append("</ul>")
+
+    ver = contract["verification"]
+    lines.append(
+        f"<h3>When this was true</h3><p>Generated {ver['generated_at']} at commit "
+        f"{ver['reviewed_commit'][:12]} ({ver['reviewed_commit_subject']}), working "
+        f"tree {'clean' if ver['working_tree_clean'] else 'DIRTY — %d uncommitted file(s)' % ver['uncommitted_files']}. "
+        f"Reproduce with: {ver['how_to_reproduce']}</p><ul>"
+    )
+    for limit in ver["known_limitations"]:
+        lines.append(f"<li>{limit}</li>")
+    lines.append("</ul>")
+
     lines.append(f"<p>{contract['how_to_verify']}</p>")
     return "".join(lines)
 
