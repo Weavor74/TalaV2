@@ -132,7 +132,8 @@ async def participants(conversation_id: str) -> list[dict[str, Any]]:
 
     rows = await db.fetch(
         """
-        SELECT p.participant, p.participant_kind, c.status AS contact_status
+        SELECT p.participant, p.participant_kind, p.participant_status,
+               c.status AS contact_status
         FROM conversation_participants p
         LEFT JOIN contacts c ON c.username = p.participant
         WHERE p.conversation_id = $1
@@ -146,17 +147,62 @@ async def participants(conversation_id: str) -> list[dict[str, Any]]:
             "kind": r["participant_kind"],
             "approved": (r["contact_status"] == "approved"),
             "contact_status": r["contact_status"],
+            # Standing in the ROOM, which is a different question from
+            # standing as a contact. Somebody who left is still listed --
+            # they were here and they said things -- but they are no longer
+            # in it, and the two must not be conflated.
+            "status": r["participant_status"],
+            "present": r["participant_status"] == STATUS_JOINED,
         }
         for r in rows
     ]
 
 
+async def set_participant_status(
+    conversation_id: str, participant: str, status: str
+) -> dict[str, Any]:
+    """
+    Record that somebody joined or left the room.
+
+    The counterpart to `set_membership`, which is this install's own decision
+    about a room. This one is what the other people in it are told, so the
+    list of who is here stays true on every side rather than only on the side
+    where the decision was made.
+
+    Never adds a row. A departure notice for somebody who was never in the
+    room should change nothing, not quietly enrol them.
+    """
+    from python.harness import db
+
+    if status not in (STATUS_INVITED, STATUS_JOINED, STATUS_DECLINED, STATUS_LEFT):
+        return {"ok": False, "reason": f"unknown status {status!r}"}
+
+    row = await db.fetchrow(
+        """
+        UPDATE conversation_participants SET participant_status = $3
+        WHERE conversation_id = $1 AND participant = $2
+        RETURNING participant
+        """,
+        conversation_id, participant, status,
+    )
+    if row is None:
+        return {"ok": False, "reason": f"{participant} is not in this conversation"}
+    log.info("%s is now %s in conversation %s", participant, status, conversation_id)
+    return {"ok": True, "participant": participant, "status": status}
+
+
 async def _is_participant(conversation_id: str, participant: str) -> bool:
     from python.harness import db
 
+    # Still in it, not merely once listed. Somebody who left keeps their row
+    # -- the history of what they said is theirs and stays -- but a departure
+    # that did not close the door would be a departure in name only.
     row = await db.fetchrow(
-        "SELECT 1 FROM conversation_participants WHERE conversation_id = $1 AND participant = $2",
-        conversation_id, participant,
+        """
+        SELECT 1 FROM conversation_participants
+        WHERE conversation_id = $1 AND participant = $2 AND participant_status = $3
+        """,
+        conversation_id, participant, STATUS_JOINED,
     )
     return row is not None
 
@@ -184,6 +230,13 @@ async def post(conversation_id: str, sender: str, body: str) -> dict[str, Any]:
 
     if not await _is_participant(conversation_id, sender):
         return {"posted": False, "reason": f"{sender} is not in this conversation"}
+
+    # And the room itself has to be one this install is in. Leaving sets the
+    # conversation status, so without this a departure would close the door
+    # to everybody else while leaving it open outbound.
+    room_status = await status_of(conversation_id)
+    if room_status and room_status != STATUS_JOINED:
+        return {"posted": False, "reason": f"this conversation is {room_status}"}
 
     approved = await _sender_is_approved(sender)
     row = await db.fetchrow(
@@ -313,6 +366,10 @@ async def remote_participants(conversation_id: str, exclude: str = "") -> list[s
         p["participant"]
         for p in await participants(conversation_id)
         if p["kind"] == KIND_USER and p["participant"] and p["participant"] != exclude
+        # Somebody who left is not sent the room's traffic. Their own harness
+        # would refuse it anyway; not sending it is the difference between a
+        # departure that took effect and one that only produced errors.
+        and p["status"] != STATUS_LEFT
     ]
 
 

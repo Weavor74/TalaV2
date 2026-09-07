@@ -14741,6 +14741,18 @@ async def handle_conversation_set_membership(params: dict[str, Any], req_id: Any
     result = await conversations.set_membership(conversation_id, status)
     if not result.get("ok"):
         return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "not set"))
+
+    # Tell the room. Without this the decision is real only here: everybody
+    # else keeps sending into a room this install has left, sees each message
+    # refused, and has no way to tell a departure from an outage.
+    me = await _peer_self_username()
+    await conversations.set_participant_status(conversation_id, me, status)
+    if status in (conversations.STATUS_JOINED, conversations.STATUS_LEFT,
+                  conversations.STATUS_DECLINED):
+        asyncio.create_task(_fan_out_conversation(
+            conversation_id, sender=me,
+            packet_body={"kind": "membership", "membership": status},
+        ))
     return _ok(req_id, result)
 
 
@@ -15004,6 +15016,32 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
     status = await conversations.status_of(conversation_id)
     if not status:
         return _ok(req_id, {"accepted": False, "reason": "unknown_conversation"})
+
+    if kind == "membership":
+        # Somebody in the room said whether they are in it. Recorded even
+        # when this install has not joined -- who is in a room is true
+        # regardless of whether we are -- and it can only change the row of
+        # the peer who signed the packet, never anybody else's.
+        decision = str(packet.get("membership") or "").strip()
+        recorded = await conversations.set_participant_status(
+            conversation_id, sender, decision
+        )
+        if not recorded.get("ok"):
+            return _ok(req_id, {"accepted": False, "reason": recorded.get("reason", "refused")})
+        await _record_peer_event(
+            "conversation", sender,
+            document_ref=f"conversation:{conversation_id}",
+            direction="inbound", event="membership", outcome=decision,
+        )
+        try:
+            await broadcast_notification("conversation.membership", {
+                "id": conversation_id, "participant": sender, "status": decision,
+            })
+        except Exception:
+            logger.warning("could not announce a membership change in %s",
+                           conversation_id, exc_info=True)
+        return _ok(req_id, {"accepted": True, "conversation": conversation_id,
+                            "participant": sender, "status": decision})
     if status != conversations.STATUS_JOINED:
         # Being invited somewhere is not being there. Until the room-level
         # decision is made, nobody is in a room with this install, so nobody

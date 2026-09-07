@@ -621,6 +621,9 @@ _DDL_STATEMENTS: list[str] = [
             PRIMARY KEY (conversation_id, participant)
         );
     """),
+    textwrap.dedent("""        ALTER TABLE conversation_participants
+            ADD COLUMN IF NOT EXISTS participant_status TEXT NOT NULL DEFAULT 'joined';
+    """),
     textwrap.dedent("""        CREATE TABLE IF NOT EXISTS conversation_messages (
             id              BIGSERIAL   PRIMARY KEY,
             conversation_id TEXT        NOT NULL REFERENCES conversations(id) ON DELETE CASCADE,

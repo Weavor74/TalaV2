@@ -601,3 +601,162 @@ async def test_leaving_does_not_reopen_on_a_message(me, peer):
         assert await conversations.status_of(convo["id"]) == conversations.STATUS_LEFT
     finally:
         await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
+
+
+# ---------------------------------------------------------------------------
+# Telling the room
+# ---------------------------------------------------------------------------
+
+
+async def test_leaving_tells_the_people_in_the_room(me, peer, announced, monkeypatch):
+    """
+    Without this the decision is real only on the side that made it: everyone
+    else keeps sending into a room this install has left, sees each message
+    refused, and cannot tell a departure from an outage.
+    """
+    import json
+
+    sent = []
+
+    async def fake_deliver(target, conversation_id, packet_body):
+        sent.append((target, packet_body))
+        return {"peer": target, "delivered": True, "reason": ""}
+
+    monkeypatch.setattr(server, "_deliver_conversation_packet", fake_deliver)
+
+    convo = await conversations.create(
+        title="room",
+        participants=[{"participant": peer["username"], "kind": "user"}],
+        created_by=me,
+    )
+    try:
+        raw = await server.handle_conversation_set_membership(
+            {"id": convo["id"], "status": "left"}, 1
+        )
+        assert json.loads(raw)["result"]["ok"] is True
+
+        import asyncio
+        for _ in range(50):
+            if sent:
+                break
+            await asyncio.sleep(0.01)
+
+        assert sent, "nobody in the room was told"
+        target, body = sent[0]
+        assert target == peer["username"]
+        assert body["kind"] == "membership" and body["membership"] == "left"
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
+
+
+async def test_a_departure_notice_is_recorded(me, peer, announced):
+    """The room's view of who is here stays true on every side, not only one."""
+    convo = await conversations.create(
+        title="room",
+        participants=[{"participant": peer["username"], "kind": "user"}],
+        created_by=me,
+    )
+    try:
+        result = await receive(conversation_packet(
+            peer, convo["id"], kind="membership", membership="left"
+        ))
+        assert result["accepted"] is True
+
+        who = {p["participant"]: p for p in await conversations.participants(convo["id"])}
+        assert who[peer["username"]]["present"] is False
+        assert who[me]["present"] is True, "somebody else's departure moved this install"
+
+        told = [p for m, p in announced if m == "conversation.membership"]
+        assert told and told[0]["participant"] == peer["username"]
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
+
+
+async def test_somebody_who_left_cannot_speak_again(me, peer):
+    """
+    A departure that did not close the door would be a departure in name
+    only -- the whole point is that the room's scope ends.
+    """
+    convo = await conversations.create(
+        title="room",
+        participants=[{"participant": peer["username"], "kind": "user"}],
+        created_by=me,
+    )
+    try:
+        await receive(conversation_packet(
+            peer, convo["id"], kind="membership", membership="left"
+        ))
+        result = await receive(conversation_packet(
+            peer, convo["id"], kind="message", body="one more thing"
+        ))
+        assert result["accepted"] is False
+        assert "not in this conversation" in result["reason"]
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
+
+
+async def test_a_departure_notice_cannot_remove_somebody_else(me, peer, announced):
+    """
+    It changes the row of whoever signed it and nobody else's. Otherwise one
+    participant could empty a room they merely happen to be in.
+    """
+    marker = uuid.uuid4().hex[:8]
+    other = f"@third-{marker}"
+    await db.execute(
+        """
+        INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret,
+                              permissions, status)
+        VALUES ($1, $2, '', $3, '{}'::jsonb, 'approved')
+        """,
+        other, f"w-{marker}", f"s-{marker}",
+    )
+    convo = await conversations.create(
+        title="room",
+        participants=[{"participant": peer["username"], "kind": "user"},
+                      {"participant": other, "kind": "user"}],
+        created_by=me,
+    )
+    try:
+        # The peer signs a notice naming the third party. The handler reads
+        # the signer, never the packet's claim about who it is about.
+        await receive(conversation_packet(
+            peer, convo["id"], kind="membership", membership="left",
+            participant=other,
+        ))
+        who = {p["participant"]: p for p in await conversations.participants(convo["id"])}
+        assert who[other]["present"] is True, "one participant removed another"
+        assert who[peer["username"]]["present"] is False
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
+        await db.execute("DELETE FROM contacts WHERE username = $1", other)
+
+
+async def test_a_notice_for_somebody_not_in_the_room_enrols_nobody(me, peer):
+    convo = await conversations.create(
+        title="room", participants=[], created_by=me,
+    )
+    try:
+        result = await receive(conversation_packet(
+            peer, convo["id"], kind="membership", membership="joined"
+        ))
+        assert result["accepted"] is False
+        who = {p["participant"] for p in await conversations.participants(convo["id"])}
+        assert peer["username"] not in who, "a notice added somebody to the room"
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
+
+
+async def test_a_room_that_was_left_is_not_posted_into(me, peer):
+    """Leaving closes the door outbound as well as in."""
+    convo = await conversations.create(
+        title="room",
+        participants=[{"participant": peer["username"], "kind": "user"}],
+        created_by=me,
+    )
+    try:
+        await conversations.set_membership(convo["id"], conversations.STATUS_LEFT)
+        result = await conversations.post(convo["id"], me, "still talking")
+        assert result["posted"] is False
+        assert "left" in result["reason"]
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])

@@ -6638,8 +6638,10 @@ const ConversationTabs = {
     const room = this.activeRoom();
     if (this._people) {
       const names = participants.map(p => {
-        // The marking the hybrid rule turns on, in the one place that says
-        // who is here.
+        // Two different questions, and the bar has to answer both. Whether
+        // they are still in the room, and -- the marking the hybrid rule
+        // turns on -- whether this install has approved them.
+        if (p.present === false) return `<s>${escapeHtml(p.participant)}</s>`;
         const mark = p.kind === 'agent' ? '' : (p.approved ? '' : ' (unapproved)');
         return `${escapeHtml(p.participant)}${mark}`;
       });
@@ -6851,6 +6853,21 @@ const ConversationTabs = {
       } else {
         this._unread.add(params.id);
         this.renderTabs();
+      }
+      return true;
+    }
+
+    if (method === 'conversation.membership') {
+      // Somebody said whether they are in the room. Worth saying in the
+      // room, because it explains why their messages stop.
+      if (params.id === this._active) {
+        // Reload first: `loadMessages` clears the pane, so a notice appended
+        // before it would be wiped by the refresh that follows.
+        this.loadMessages().then(() => {
+          this.appendNotice(params.status === 'joined'
+            ? `${params.participant} joined this conversation.`
+            : `${params.participant} ${params.status} this conversation.`);
+        });
       }
       return true;
     }
@@ -13949,12 +13966,11 @@ const ProfileManager = {
 
     // Enable/disable all form controls inside workspace
     document.querySelectorAll('#profile-active-workspace input, #profile-active-workspace textarea, #profile-active-workspace select').forEach(ctrl => {
-      if (ctrl.id !== 'prof-input-name' && ctrl.id !== 'prof-input-username') {
-        ctrl.disabled = !editing;
-      } else {
-        if (ctrl.id === 'prof-input-name') ctrl.disabled = !editing;
-        else ctrl.disabled = true; // handle locked
-      }
+      // The handle used to be locked in edit mode too, which made the one
+      // field this install's whole network identity comes from the only one
+      // a person could not set: `_peer_self_username` reads
+      // `identity.username`, peers see it, and it is what the chain records.
+      ctrl.disabled = !editing;
     });
 
     // Also control panel list add buttons
@@ -14080,14 +14096,33 @@ const ProfileManager = {
     return list;
   },
 
+  /**
+   * A handle as the network will actually use it.
+   *
+   * `_peer_self_username` strips a leading @ and turns whitespace into
+   * hyphens before this value becomes a contact username on other installs
+   * and a name on a shared chain. Doing the same here means the field shows
+   * what peers will see, rather than something the harness quietly rewrites.
+   */
+  normalizeHandle(raw) {
+    return String(raw || '').trim().replace(/^@+/, '').replace(/\s+/g, '-');
+  },
+
   async saveActiveProfile() {
     const name = qs('#prof-input-name').value.trim();
-    const username = qs('#prof-input-username').value.trim();
+    const usernameField = qs('#prof-input-username');
+    const username = this.normalizeHandle(usernameField ? usernameField.value : '');
 
     if (!name) {
       alert('Display Name is required.');
       return;
     }
+    if (!username) {
+      alert('Username / Handle is required. It is the name other installs know you by.');
+      return;
+    }
+    // Show the person what they are actually saving.
+    if (usernameField) usernameField.value = username;
 
     const config = {
       identity: {
