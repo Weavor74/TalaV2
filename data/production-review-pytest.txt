@@ -1,0 +1,56 @@
+.....................................................................ss. [  3%]
+........................................................................ [  6%]
+........................................................................ [ 10%]
+........................................................................ [ 13%]
+........................................................................ [ 17%]
+........................................................................ [ 20%]
+........................................................................ [ 24%]
+........................................................................ [ 27%]
+....................ss.ss............................................... [ 31%]
+........................................................................ [ 34%]
+........................................................................ [ 38%]
+........................................................................ [ 41%]
+........................................................................ [ 45%]
+........................................................................ [ 48%]
+........................................................................ [ 52%]
+.............................................s.......................... [ 55%]
+........................................................................ [ 59%]
+........................................................................ [ 62%]
+........................................................................ [ 65%]
+........................................................................ [ 69%]
+........................................................................ [ 72%]
+........................................................................ [ 76%]
+........................................................................ [ 79%]
+........................................................................ [ 83%]
+........................................................................ [ 86%]
+........................................................................ [ 90%]
+........................................................................ [ 93%]
+........................................................................ [ 97%]
+..........................................................               [100%]
+============================== warnings summary ===============================
+python\harness\server.py:47
+  D:\src\TalaV2\python\harness\server.py:47: DeprecationWarning: websockets.server.WebSocketServerProtocol is deprecated
+    from websockets.server import WebSocketServerProtocol
+
+.venv\Lib\site-packages\websockets\legacy\__init__.py:6
+  D:\src\TalaV2\.venv\Lib\site-packages\websockets\legacy\__init__.py:6: DeprecationWarning: websockets.legacy is deprecated; see https://websockets.readthedocs.io/en/stable/howto/upgrade.html for upgrade instructions
+    warnings.warn(  # deprecated in 14.0 - 2024-11-09
+
+tests/test_peer_approval_gate.py::test_only_an_approved_peer_may_interact
+  tests\test_peer_approval_gate.py:67: PytestWarning: The test <Function test_only_an_approved_peer_may_interact> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_only_an_approved_peer_may_interact():
+
+tests/test_peer_approval_gate.py::test_the_two_refusals_are_told_apart
+  tests\test_peer_approval_gate.py:75: PytestWarning: The test <Function test_the_two_refusals_are_told_apart> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_the_two_refusals_are_told_apart():
+
+tests/test_request_notification.py::test_the_ui_surfaces_it_and_says_nothing_is_granted
+  tests\test_request_notification.py:134: PytestWarning: The test <Function test_the_ui_surfaces_it_and_says_nothing_is_granted> is marked with '@pytest.mark.asyncio' but it is not an async function. Please remove the asyncio mark. If the test is not marked explicitly, check for global marks applied via 'pytestmark'.
+    def test_the_ui_surfaces_it_and_says_nothing_is_granted():
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=================================== NOT RUN ===================================
+5 test(s) marked `llm` were deselected. They drive a real model or the running harness and take minutes each.
+  pytest -m llm    run only those
+  pytest -m ""     run everything
+2067 passed, 7 skipped, 5 deselected, 5 warnings in 364.22s (0:06:04)
