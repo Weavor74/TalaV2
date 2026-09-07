@@ -199,3 +199,41 @@ def test_the_invitation_notice_says_nothing_is_open_yet(renderer):
     assert "until you join" in handler, (
         "an invitation reads as a room you are already in"
     )
+
+
+# ---------------------------------------------------------------------------
+# What the room says when nothing happened
+# ---------------------------------------------------------------------------
+
+
+def test_a_refused_message_is_said_in_the_room(renderer):
+    """
+    The text leaves the box whether it was sent or not, so a refusal
+    reported only in the IPC log looks exactly like a message that went
+    through. This is how the creator's first message vanished: `post`
+    refused it and the room showed nothing.
+    """
+    module = renderer.split("const ConversationTabs = {")[1]
+    send = module.split("  async send(text) {")[1].split("\n  },")[0]
+    assert "this.appendNotice" in send, (
+        "a refused message disappears with nothing said in the room"
+    )
+
+
+def test_an_empty_room_says_it_is_empty(renderer):
+    module = renderer.split("const ConversationTabs = {")[1]
+    load = module.split("  async loadMessages() {")[1].split("\n  },")[0]
+    assert "appendNotice" in load and "said.length" in load, (
+        "an empty room is indistinguishable from a broken one"
+    )
+
+
+def test_the_connection_node_is_not_offered_as_company(renderer):
+    """
+    It enrols itself as a contact, so it appears in the picker looking like
+    a person. Rooms travel *through* it; nothing requires it in one.
+    """
+    module = renderer.split("const ConversationTabs = {")[1]
+    picker = module.split("async openNewModal()")[1].split("\n  },")[0]
+    assert "chain.connection_get" in picker
+    assert "connection node" in picker, "the node is listed as though it were a person"

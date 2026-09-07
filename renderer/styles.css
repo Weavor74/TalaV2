@@ -1694,6 +1694,17 @@ button:focus:not(:focus-visible) {
 /* `.chat-messages` and `.conversation-bar` set `display`, which beats the
    browser's own `[hidden]` rule on specificity -- so without this, hiding a
    pane with `el.hidden = true` does nothing and both panes stack. */
+/* Something the room says about itself -- that it is empty, that a message
+   was refused. Set apart from what people actually said. */
+.conversation-notice {
+  font-family: var(--font-mono);
+  font-size: 0.65rem;
+  color: var(--text-secondary);
+  opacity: 0.75;
+  text-align: center;
+  padding: var(--space-2);
+}
+
 .chat-messages[hidden],
 .conversation-bar[hidden],
 .chat-tab[hidden] {

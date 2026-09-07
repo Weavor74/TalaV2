@@ -77,6 +77,12 @@ async def create(
     Defaults to ``joined`` because a conversation you started is one you are
     in; an incoming invitation is recorded as ``invited`` by the receive path
     instead, which is where the room-level decision actually happens.
+
+    The creator is added to the participant list, and that is not a
+    convenience. `status` said they were in the room while the participant
+    list did not, and `post` checks the list -- so the very first thing the
+    person who started a conversation tried to say in it was refused as
+    coming from somebody who is not in this conversation.
     """
     from python.harness import db
 
@@ -86,7 +92,10 @@ async def create(
         conversation_id, title, created_by, status,
         caller="conversations.create",
     )
-    for participant in participants or []:
+    participants = list(participants or [])
+    if created_by and not any(p.get("participant") == created_by for p in participants):
+        participants.insert(0, {"participant": created_by, "kind": KIND_USER})
+    for participant in participants:
         await _add_participant(
             conversation_id,
             participant["participant"],

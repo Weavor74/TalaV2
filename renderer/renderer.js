@@ -6623,7 +6623,14 @@ const ConversationTabs = {
 
     this.renderPeople((payload && payload.participants) || []);
     this._pane.innerHTML = '';
-    ((payload && payload.messages) || []).forEach(m => this.appendMessage(m));
+    const said = (payload && payload.messages) || [];
+    said.forEach(m => this.appendMessage(m));
+    if (!said.length) {
+      const room = this.activeRoom();
+      this.appendNotice(room && room.status === 'invited'
+        ? 'You were invited to this conversation. Join it to take part.'
+        : 'Nothing has been said here yet.');
+    }
     this._pane.scrollTop = this._pane.scrollHeight;
   },
 
@@ -6680,18 +6687,33 @@ const ConversationTabs = {
     if (!conversationId) return false;
 
     if (!room || room.status !== 'joined') {
-      IPCLog.append('info', 'Join this conversation before speaking in it.');
+      this.appendNotice('Join this conversation before speaking in it.');
       return true;
     }
 
     try {
       await this.rpc('conversation.post', { id: conversationId, body: text });
     } catch (err) {
+      // In the room, not only in the IPC log. A message that is refused and
+      // says so somewhere else looks exactly like one that was sent -- the
+      // text disappears from the box either way, and the transcript is
+      // where a person is looking.
+      this.appendNotice(`Not sent: ${err.message || err}`);
       IPCLog.append('error', `Could not post to the conversation: ${err.message || err}`);
       return true;
     }
     await this.loadMessages();
     return true;
+  },
+
+  /** Something the room needs to say about itself, rather than a message. */
+  appendNotice(text) {
+    if (!this._pane) return;
+    const el = document.createElement('div');
+    el.className = 'conversation-notice';
+    el.textContent = text;
+    this._pane.appendChild(el);
+    this._pane.scrollTop = this._pane.scrollHeight;
   },
 
   /* ── Being in a room, or not ────────────────────────────────────── */
@@ -6733,11 +6755,21 @@ const ConversationTabs = {
     if (titleInput) titleInput.value = '';
 
     let contacts = [];
+    let nodeUsername = '';
     try {
       const resp = await this.rpc('contacts.list', {});
       contacts = (resp && (resp.contacts || resp)) || [];
     } catch (err) {
       console.error('[ConversationTabs] could not load contacts:', err);
+    }
+    try {
+      // The connection node enrols itself as a contact, so it shows up here
+      // looking like a person. It is the thing rooms travel *through*, not
+      // somebody to be in one with, and nothing requires it in a room.
+      const connection = await this.rpc('chain.connection_get', {});
+      nodeUsername = (connection && connection.connection && connection.connection.username) || '';
+    } catch (err) {
+      nodeUsername = '';
     }
 
     picker.innerHTML = '';
@@ -6751,13 +6783,15 @@ const ConversationTabs = {
       // the hybrid rule is what makes an unapproved participant possible,
       // and a denial is a decision that this person gets nothing.
       if (contact.status === 'denied') return;
+      const isNode = username === nodeUsername;
       const row = document.createElement('label');
       row.style.cssText = 'display:flex;align-items:center;gap:var(--space-2);padding:4px 0;';
       row.innerHTML = `
         <input type="checkbox" value="${escapeHtml(username)}" />
         <span>${escapeHtml(username)}</span>
-        <span style="opacity:0.6;font-size:0.85em;">${escapeHtml(contact.status || '')}</span>
+        <span style="opacity:0.6;font-size:0.85em;">${escapeHtml(isNode ? 'connection node — not needed in a room' : (contact.status || ''))}</span>
       `;
+      if (isNode) row.style.opacity = '0.6';
       picker.appendChild(row);
     });
 

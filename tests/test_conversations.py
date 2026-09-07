@@ -78,8 +78,10 @@ async def room(people):
 
 
 async def test_a_conversation_holds_more_than_two_people(room, people):
+    """Three named in the fixture, plus @me, who started it and is in it."""
     who = await conversations.participants(room)
-    assert len(who) == 3
+    assert len(who) == 4
+    assert {p["participant"] for p in who} >= {"@me", "tala-rp"}
 
 
 async def test_users_and_agents_are_both_participants(room):
@@ -208,3 +210,25 @@ async def test_someone_outside_the_room_cannot_speak_in_it(room, people):
 async def test_an_empty_message_is_not_a_message(room, people):
     result = await conversations.post(room, people["approved"], "   ")
     assert result["posted"] is False
+
+
+async def test_you_are_in_the_conversation_you_started(pool, people):
+    """
+    Not merely joined -- *in* it. `status` said you were in the room while
+    the participant list did not, so the first thing the person who started
+    a conversation tried to do in it was refused: `post` checks membership,
+    and the creator was the one identity never added.
+    """
+    convo = await conversations.create(
+        title="mine",
+        participants=[{"participant": people["approved"], "kind": "user"}],
+        created_by="@me",
+    )
+    try:
+        who = {p["participant"] for p in await conversations.participants(convo["id"])}
+        assert "@me" in who, "the person who started the room was not put in it"
+
+        said = await conversations.post(convo["id"], "@me", "first thing I said")
+        assert said["posted"] is True, said.get("reason")
+    finally:
+        await db.execute("DELETE FROM conversations WHERE id = $1", convo["id"])
