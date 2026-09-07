@@ -128,10 +128,17 @@ def test_disconnect_makes_a_peer_unreachable():
     assert registry.release(alice) is None  # idempotent
 
 
-def test_reconnect_replaces_the_stale_socket():
+def test_a_second_socket_is_used_and_the_first_is_kept():
     """
-    A peer that dropped and came back is the common case, and its old socket
-    is already dead -- so the new one wins rather than being refused.
+    A peer holds a socket open so it can be routed to, and opens short-lived
+    ones for its own outbound calls -- which authenticate as the same peer.
+    Replacing on bind, which is what this used to do, meant each of those
+    calls evicted the held socket and closing it took the peer offline: the
+    next relay came back "not connected to this node" while the peer sat
+    there connected.
+
+    So binds are additive. Routing uses the newest, because the most
+    recently established connection is the one least likely to be half-dead.
     """
     registry = PeerConnectionRegistry()
     old, new = FakeSocket("old"), FakeSocket("new")
@@ -139,8 +146,29 @@ def test_reconnect_replaces_the_stale_socket():
     registry.bind("@alice", new)
 
     assert registry.lookup("@alice") is new
-    assert registry.username_for(old) is None
-    assert len(registry.connected_peers()) == 1
+    assert registry.username_for(old) == "@alice", (
+        "the first socket was forgotten while it was still open"
+    )
+    assert len(registry.connected_peers()) == 1, "one peer, however many sockets"
+
+
+def test_a_peer_is_gone_only_when_its_last_socket_is():
+    """
+    The other half. An outbound call ending must not take the peer offline,
+    and the peer must still go offline when everything closes.
+    """
+    registry = PeerConnectionRegistry()
+    held, transient = FakeSocket("held"), FakeSocket("transient")
+    registry.bind("@alice", held)
+    registry.bind("@alice", transient)
+
+    registry.release(transient)
+    assert registry.is_connected("@alice"), "one call ending took the peer offline"
+    assert registry.lookup("@alice") is held
+
+    registry.release(held)
+    assert not registry.is_connected("@alice")
+    assert registry.lookup("@alice") is None
 
 
 def test_a_late_close_of_the_old_socket_does_not_evict_the_new_one():

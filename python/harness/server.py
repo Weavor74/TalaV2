@@ -36,6 +36,7 @@ import os
 import re
 import signal
 import sys
+import time
 import traceback
 import uuid
 from collections.abc import AsyncIterator
@@ -58,6 +59,7 @@ if _ROOT_DIR not in sys.path:
 
 from python.harness.config import settings
 from python.harness import db
+from python.harness import vps_mode as vps_mode_module
 from sdk.agent.exceptions import (
     SafetyGuardrailViolation,
     PiiAccessBlockedError,
@@ -5498,6 +5500,22 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
     peer_record = await db.fetchrow("SELECT peer_username FROM p2p_sessions WHERE endpoint_url = $1", endpoint)
     peer_username = peer_record["peer_username"] if peer_record else None
 
+    # Fall back to the contact row, which is the only thing that exists the
+    # FIRST time we dial somebody: `p2p_sessions` is written after a
+    # handshake succeeds, so resolving identity from it alone meant the
+    # opening call always went out anonymous and the far end refused it with
+    # a 401. A contact we hold a shared secret for is one we can prove
+    # ourselves to, session or no session.
+    if not peer_username:
+        try:
+            contact_row = await db.fetchrow(
+                "SELECT username FROM contacts WHERE endpoint_url = ANY($1::text[])",
+                list({endpoint, _normalize_peer_endpoint(endpoint)}),
+            )
+        except Exception:
+            contact_row = None
+        peer_username = contact_row["username"] if contact_row else None
+
     # ── VPS Write State Machine Gating ──
     is_vps = False
     if peer_username and "vps" in peer_username.lower():
@@ -5583,8 +5601,27 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
         additional_headers=connect_headers or None,
     ) as ws:
         await ws.send(request)
-        raw = await asyncio.wait_for(ws.recv(), timeout=15)
-        
+        # Read until OUR reply, not merely the next frame.
+        #
+        # The far end pushes notifications down the same socket, so taking
+        # the first frame as the answer meant a call could return whatever
+        # broadcast happened to land first -- `inference.providers_changed`
+        # was read as the result of an enrolment handshake, which then
+        # reported success:False with `{"result": None}` and no hint why.
+        raw = None
+        deadline = time.monotonic() + 15
+        while time.monotonic() < deadline:
+            frame = await asyncio.wait_for(ws.recv(), timeout=15)
+            try:
+                framed = json.loads(frame)
+            except Exception:
+                continue
+            if isinstance(framed, dict) and framed.get("id") == request_id:
+                raw = frame
+                break
+        if raw is None:
+            raise TimeoutError(f"peer never answered {method}")
+
     # Asynchronously attempt WebRTC upgrade to avoid future VPS relay costs
     if peer_username and method not in ("p2p.webrtc_offer", "p2p.webrtc_answer", "p2p.webrtc_ice_candidate"):
         asyncio.create_task(_negotiate_webrtc_upgrade(endpoint, peer_username))
@@ -6325,9 +6362,13 @@ async def handle_p2p_handshake(params: dict[str, Any], req_id: Any) -> str:
     if contact is None:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "Unknown contact")
 
+    # No address is the normal case, not an error. A laptop behind NAT has
+    # no socket anybody can open to it, so a handshake to one goes through
+    # the connection node both installs are already connected to -- which is
+    # how two clients get to know each other at all. Refusing here meant the
+    # only peers that could ever be introduced were the ones with a public
+    # address, i.e. servers.
     endpoint = endpoint_url or contact.get("endpoint_url")
-    if not endpoint:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "Contact has no endpoint_url")
 
     profile_config = await _get_master_profile_config()
     shared_profile = _profile_for_permissions(profile_config, contact["permissions"])
@@ -6365,7 +6406,12 @@ async def handle_p2p_handshake(params: dict[str, Any], req_id: Any) -> str:
     packet = _sign_packet(packet_body, secret)
 
     try:
-        response = await _call_peer_rpc(endpoint, "p2p.receive_handshake", {"packet": packet})
+        if endpoint:
+            response = await _call_peer_rpc(endpoint, "p2p.receive_handshake", {"packet": packet})
+        else:
+            response = await _send_via_relay(
+                contact["username"], "p2p.receive_handshake", {"packet": packet}
+            )
     except Exception as exc:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"Peer handshake failed: {exc}")
 
@@ -6386,12 +6432,30 @@ async def handle_p2p_handshake(params: dict[str, Any], req_id: Any) -> str:
         """,
         contact["username"],
         contact["wallet_address"],
-        _normalize_peer_endpoint(endpoint),
+        _normalize_optional_endpoint(endpoint),
         "connected" if response.get("accepted") else "rejected",
         json.dumps({"outbound": packet, "response": response}, ensure_ascii=False),
         caller="p2p.handshake",
     )
-    return _ok(req_id, {"success": True, "peer": contact["username"], "response": response})
+    # Whether the PEER accepted, not whether the call completed. These were
+    # the same value: a handshake the far end refused -- unknown sender, bad
+    # signature, denied contact -- still returned success:True, and
+    # `chain.connect_vps` keys "connected" off exactly this. So a refused
+    # enrolment was recorded as a connection, and the install then sat there
+    # unreachable while every screen said otherwise. The session row two
+    # lines above already knew better; nothing read it.
+    accepted = bool((response or {}).get("accepted"))
+    if not accepted:
+        logger.warning(
+            "handshake with %s was not accepted: %s",
+            contact["username"], (response or {}).get("reason") or response,
+        )
+    return _ok(req_id, {
+        "success": accepted,
+        "peer": contact["username"],
+        "reason": "" if accepted else str((response or {}).get("reason") or "refused"),
+        "response": response,
+    })
 
 
 async def handle_p2p_receive_handshake(params: dict[str, Any], req_id: Any) -> str:
@@ -6408,6 +6472,14 @@ async def handle_p2p_receive_handshake(params: dict[str, Any], req_id: Any) -> s
     except ValueError as exc:
         return _ok(req_id, {"accepted": False, "reason": str(exc)})
     if not _verify_packet(packet, secret):
+        # Say which contact the signature was checked against. "bad_signature"
+        # alone cannot distinguish a forgery from the far more common case:
+        # the two sides holding different secrets for each other because one
+        # of them re-enrolled and minted a new one.
+        logger.warning(
+            "handshake from %s (wallet %s) did not verify against the secret held for %s",
+            packet.get("sender_username"), packet.get("sender_wallet"), contact["username"],
+        )
         return _ok(req_id, {"accepted": False, "reason": "bad_signature"})
 
     await db.execute(
@@ -14799,17 +14871,21 @@ async def handle_conversation_set_membership(params: dict[str, Any], req_id: Any
 # joined it.
 
 
-async def _send_conversation_via_relay(
-    target_username: str, packet: dict[str, Any]
+async def _send_via_relay(
+    target_username: str, method: str, params: dict[str, Any]
 ) -> dict[str, Any]:
     """
-    Reach a participant who has no dialable address, through the node both
-    of us are connected to.
+    Reach a peer who has no dialable address, through the node both of us
+    are connected to.
 
     Most installs are behind NAT, so `endpoint_url` is empty for most
     contacts and there is no socket to open *to* them. The one that exists is
     the outbound socket they hold to the connection node, which is what
     `relay.send` routes over.
+
+    The method is the caller's; the node checks it against
+    `RELAYABLE_METHODS` and so does the receiving peer, so this cannot be
+    used to reach anything the peer surface does not already expose.
     """
     import uuid as _uuid
 
@@ -14831,11 +14907,7 @@ async def _send_conversation_via_relay(
         "jsonrpc": "2.0",
         "id": str(_uuid.uuid4()),
         "method": "relay.send",
-        "params": {
-            "to": target_username,
-            "method": "p2p.receive_conversation",
-            "params": {"packet": packet},
-        },
+        "params": {"to": target_username, "method": method, "params": params},
     }, ensure_ascii=False)
 
     async with websockets.connect(
@@ -14885,7 +14957,9 @@ async def _deliver_conversation_packet(
         if endpoint:
             response = await _call_peer_rpc(endpoint, "p2p.receive_conversation", {"packet": packet})
         else:
-            response = await _send_conversation_via_relay(target_username, packet)
+            response = await _send_via_relay(
+                target_username, "p2p.receive_conversation", {"packet": packet}
+            )
     except Exception as exc:
         logger.warning("could not deliver conversation %s to %s: %s", conversation_id, target_username, exc)
         return {"peer": target_username, "delivered": False, "reason": str(exc)}
@@ -15181,11 +15255,15 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
             ],
             created_by=sender,
         )
-        await _record_peer_event(
+        # Anchored in the background. The peer -- or the node relaying for it
+        # -- is blocked on this reply, and a chain write takes seconds: doing
+        # it inline pushed the answer past the relay's 12s timeout, so a
+        # delivery that had in fact succeeded was reported as a failure.
+        asyncio.create_task(_record_peer_event(
             "conversation", sender,
             document_ref=f"conversation:{conversation_id}",
             direction="inbound", event="invitation", outcome="recorded",
-        )
+        ))
         try:
             await broadcast_notification("conversation.invited", {
                 "id": conversation_id,
@@ -15212,11 +15290,11 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
         )
         if not recorded.get("ok"):
             return _ok(req_id, {"accepted": False, "reason": recorded.get("reason", "refused")})
-        await _record_peer_event(
+        asyncio.create_task(_record_peer_event(
             "conversation", sender,
             document_ref=f"conversation:{conversation_id}",
             direction="inbound", event="membership", outcome=decision,
-        )
+        ))
         try:
             await broadcast_notification("conversation.membership", {
                 "id": conversation_id, "participant": sender, "status": decision,
@@ -15235,12 +15313,12 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
     # `post` refuses a sender who is not a participant, which is the whole
     # check: room membership is what permits speaking here.
     result = await conversations.post(conversation_id, sender, str(packet.get("body") or ""))
-    await _record_peer_event(
+    asyncio.create_task(_record_peer_event(
         "conversation", sender,
         document_ref=f"conversation:{conversation_id}",
         direction="inbound", event="message",
         outcome="posted" if result.get("posted") else "refused",
-    )
+    ))
     if not result.get("posted"):
         return _ok(req_id, {"accepted": False, "reason": result.get("reason", "refused")})
 
@@ -17344,12 +17422,32 @@ async def _run_server() -> None:
     logger.info(
         "WebSocket JSON-RPC 2.0 server listening on %s", settings.ws_uri
     )
+    # Who this install says it is. Both halves collide silently when two
+    # installs share a checkout: the wallet comes from VAULT_PATH, which
+    # defaults to the repo root rather than the user-data directory, and a
+    # connection node looks contacts up by wallet -- so the second install to
+    # enrol is resolved as the first. Printing it makes that visible in a log
+    # instead of surfacing as an unexplained "bad_signature".
+    try:
+        _identity = await _peer_self_username()
+    except Exception:
+        _identity = "(unresolved)"
+    logger.info(
+        "Network identity: %s  wallet=%s  vault=%s",
+        _identity,
+        os.environ.get("TALA_WALLET_ADDRESS", "local-tala"),
+        settings.VAULT_PATH,
+    )
     logger.info("Registered methods: %s", ", ".join(sorted(_HANDLERS.keys())))
 
     # ── 1b. Launch the MCP server (discovery + gated tool execution for
     # external MCP clients) as a background task. Non-fatal: a bind failure
     # here must never take down the main WS harness.
     asyncio.create_task(_start_mcp_server_safe())
+
+    # ── 1c. Hold a socket open to the connection node, if one is configured.
+    # Enrolment makes this install findable; this is what makes it reachable.
+    asyncio.create_task(_hold_relay_connection())
 
     # ── 2. Pre-warm the embedded_engine module immediately (non-DB-gated) ──
     # The huggingface_hub import takes 5-15 s on a cold process.  We await this
@@ -17367,6 +17465,136 @@ async def _run_server() -> None:
     await _shutdown()
 
 
+# ---------------------------------------------------------------------------
+# Staying reachable through the connection node
+# ---------------------------------------------------------------------------
+#
+# Enrolling with a node makes an install findable. It does not make it
+# reachable, and that gap is the whole reason a relay exists.
+#
+# The node routes to a peer over the socket that peer opened -- there is no
+# other one, because a laptop behind NAT has no address anybody can dial. But
+# every call a client made was a *transient* socket: connect, ask, close. So
+# the registry knew a peer only for the instant it happened to be talking, and
+# a relay to anybody else came back "not connected to this node". Enrolment
+# worked, the directory listed everyone, and nothing could ever be delivered.
+#
+# So one socket is held open, deliberately, for as long as the install is
+# configured to use a node. Requests arrive down it -- `relay.deliver` is the
+# node handing over a call from another peer -- which is the one place in this
+# harness where a connection we opened as a client is also a connection we
+# serve requests on.
+
+#: How long to wait before dialling the node again after the socket drops.
+#: Backs off to a minute so an unreachable node is not hammered, and resets on
+#: every successful connection.
+RELAY_RECONNECT_SECONDS = 5
+RELAY_RECONNECT_MAX_SECONDS = 60
+
+
+async def _relay_connection_target() -> tuple[str, str, str]:
+    """
+    The node to stay connected to: (username, endpoint, secret).
+
+    Empty strings when this install is not using one, which is the default --
+    `--vps` is the only switch, and a desktop Tala that dialled a node it was
+    never told about would be federating on its own initiative.
+    """
+    try:
+        setting = await _get_client_setting(CHAIN_CONNECTION_SETTING_KEY)
+    except Exception:
+        return "", "", ""
+    if (setting or {}).get("mode") != "vps":
+        return "", "", ""
+
+    username = str(setting.get("username") or DEFAULT_VPS_PEER_USERNAME).strip()
+    contact = await _get_contact(username=username)
+    if contact is None:
+        return "", "", ""
+    endpoint = _normalize_optional_endpoint(
+        str(contact.get("endpoint_url") or setting.get("endpoint_url") or "")
+    )
+    secret = str(contact.get("shared_secret") or "").strip()
+    if not endpoint or not secret:
+        return "", "", ""
+    return username, endpoint, secret
+
+
+async def _serve_relayed_request(ws: Any, raw: Any) -> None:
+    """
+    Answer one call the node forwarded to us.
+
+    Only `relay.deliver` is served here. The node is trusted to route, not to
+    choose what runs, and this socket is one we opened outbound -- treating
+    it as a general RPC surface would make the node an operator of this
+    install rather than a post office. `handle_relay_deliver` then checks the
+    inner method against the allowlist a second time.
+    """
+    try:
+        message = json.loads(str(raw))
+    except Exception:
+        return
+    if not isinstance(message, dict) or "method" not in message:
+        return
+
+    req_id = message.get("id")
+    method = str(message.get("method") or "")
+    if method != vps_mode_module.RELAY_DELIVER_METHOD:
+        await ws.send(_err(req_id, JsonRpcError.INVALID_REQUEST,
+                           f"'{method}' is not accepted on a relay connection"))
+        return
+
+    try:
+        response = await handle_relay_deliver(message.get("params") or {}, req_id)
+    except Exception as exc:
+        logger.exception("relayed call failed")
+        response = _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    await ws.send(response)
+
+
+async def _hold_relay_connection() -> None:
+    """
+    Keep one socket open to the connection node, so peers can reach this
+    install through it. Runs for the life of the process.
+    """
+    delay = RELAY_RECONNECT_SECONDS
+    idle_reported = False
+    while True:
+        username, endpoint, secret = await _relay_connection_target()
+        if not endpoint:
+            # Said once per change of state rather than every few seconds: a
+            # loop that logs nothing is one nobody can tell is running, and
+            # one that logs every tick drowns the file it is in.
+            if not idle_reported:
+                logger.info("No connection node configured; not reachable through one")
+                idle_reported = True
+            await asyncio.sleep(RELAY_RECONNECT_SECONDS)
+            continue
+        idle_reported = False
+
+        try:
+            me = await _peer_self_username()
+            async with websockets.connect(
+                endpoint,
+                open_timeout=10,
+                ping_interval=20,
+                ping_timeout=20,
+                additional_headers=_peer_handshake_headers(me, secret),
+            ) as ws:
+                logger.info("Reachable through %s at %s", username, endpoint)
+                delay = RELAY_RECONNECT_SECONDS
+                async for raw in ws:
+                    await _serve_relayed_request(ws, raw)
+        except asyncio.CancelledError:
+            raise
+        except Exception as exc:
+            logger.info("Relay connection to %s dropped (%s); retrying in %ds",
+                        username or "the node", exc, delay)
+
+        await asyncio.sleep(delay)
+        delay = min(delay * 2, RELAY_RECONNECT_MAX_SECONDS)
+
+
 async def _start_mcp_server_safe() -> None:
     """Start the MCP server, logging (not raising) on failure. Optional
     subsystem -- external MCP clients losing connectivity to Tala must
@@ -17374,7 +17602,15 @@ async def _start_mcp_server_safe() -> None:
     try:
         from python.harness.mcp_server import start_mcp_server
         await start_mcp_server()
-    except Exception:
+    except asyncio.CancelledError:
+        raise
+    except (Exception, SystemExit):
+        # SystemExit is deliberate and load-bearing. uvicorn calls
+        # `sys.exit(1)` when it cannot bind, and SystemExit derives from
+        # BaseException -- so `except Exception` did not catch it and this
+        # "safe" wrapper took the whole harness down with it. Anything
+        # already holding MCP_PORT, a second install on one machine
+        # included, killed the process that serves the app.
         logger.exception("MCP server failed to start; continuing without it")
 
 

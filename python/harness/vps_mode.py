@@ -154,7 +154,17 @@ class PeerConnectionRegistry:
     """
 
     def __init__(self) -> None:
-        self._by_username: dict[str, Any] = {}
+        # Every live socket a peer has here, newest last -- not one each.
+        #
+        # One socket per name was wrong in a way that only showed up under
+        # real traffic. A peer holds a socket open so it can be routed to,
+        # but it also opens SHORT-LIVED sockets for its own outbound calls,
+        # and those authenticate as the same peer. Each one replaced the
+        # held socket, and closing it then unbound the name -- so making a
+        # call was a way to disappear from the directory while still
+        # connected, and the next relay came back "not connected to this
+        # node".
+        self._by_username: dict[str, list[Any]] = {}
         self._by_socket: dict[int, str] = {}
         self._pending: dict[str, asyncio.Future] = {}
         self._bound_at: dict[str, float] = {}
@@ -163,37 +173,49 @@ class PeerConnectionRegistry:
 
     def bind(self, username: str, socket: Any) -> None:
         """
-        Claim `username` for `socket`.
+        Record that `socket` belongs to `username`.
 
-        A second connection for the same name replaces the first rather than
-        being refused: a peer that dropped and reconnected is the common
-        case, and its old socket is already dead. The caller is responsible
-        for having authenticated the claim first -- this class does no
-        verification of its own.
+        Additive: a peer may legitimately hold several at once. The caller is
+        responsible for having authenticated the claim first -- this class
+        does no verification of its own.
         """
-        previous = self._by_username.get(username)
-        if previous is not None and previous is not socket:
-            self._by_socket.pop(id(previous), None)
-            log.info("Peer %s reconnected; replacing previous socket", username)
-
-        self._by_username[username] = socket
+        sockets = self._by_username.setdefault(username, [])
+        if socket not in sockets:
+            sockets.append(socket)
         self._by_socket[id(socket)] = username
-        self._bound_at[username] = time.time()
+        self._bound_at.setdefault(username, time.time())
 
     def release(self, socket: Any) -> str | None:
-        """Forget `socket`. Returns the username it held, if any."""
+        """
+        Forget one socket. Returns the username it held, if any.
+
+        The peer is only gone once its LAST socket is: releasing one of
+        several must not evict the name, or an outbound call ending would
+        take the peer offline.
+        """
         username = self._by_socket.pop(id(socket), None)
         if username is None:
             return None
-        # Only drop the forward mapping if it still points here; a
-        # reconnect may already have claimed the name for a newer socket.
-        if self._by_username.get(username) is socket:
+        sockets = self._by_username.get(username, [])
+        self._by_username[username] = [s for s in sockets if s is not socket]
+        if not self._by_username[username]:
             self._by_username.pop(username, None)
             self._bound_at.pop(username, None)
         return username
 
+    def is_connected(self, username: str) -> bool:
+        """Whether any socket for this peer is still open."""
+        return bool(self._by_username.get(username))
+
     def lookup(self, username: str) -> Any | None:
-        return self._by_username.get(username)
+        """
+        A socket to route over, newest first.
+
+        Newest because the most recently established connection is the one
+        least likely to be half-dead.
+        """
+        sockets = self._by_username.get(username) or []
+        return sockets[-1] if sockets else None
 
     def username_for(self, socket: Any) -> str | None:
         return self._by_socket.get(id(socket))
