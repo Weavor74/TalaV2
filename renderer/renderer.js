@@ -6774,9 +6774,46 @@ const ConversationTabs = {
       nodeUsername = '';
     }
 
+    let agents = [];
+    try {
+      const resp = await this.rpc('agent.get_agents', {});
+      agents = (resp && (resp.agents || resp)) || [];
+    } catch (err) {
+      console.error('[ConversationTabs] could not load agents:', err);
+    }
+
     picker.innerHTML = '';
-    if (!contacts.length) {
-      picker.innerHTML = '<p style="opacity:0.7;">No contacts yet. Connect with somebody first.</p>';
+
+    // An agent is a participant like anybody else -- "user to agent",
+    // "users to agent" and "agents to agents" are three of the five shapes,
+    // and none of them can be started from a picker that only lists people.
+    if (agents.length) {
+      const heading = document.createElement('div');
+      heading.style.cssText = 'opacity:0.6;font-size:0.8em;margin:4px 0;';
+      heading.textContent = 'AGENTS';
+      picker.appendChild(heading);
+    }
+    agents.forEach(agent => {
+      const id = agent.id || agent.name;
+      if (!id) return;
+      const row = document.createElement('label');
+      row.style.cssText = 'display:flex;align-items:center;gap:var(--space-2);padding:4px 0;';
+      row.innerHTML = `
+        <input type="checkbox" value="${escapeHtml(id)}" data-kind="agent" />
+        <span>${escapeHtml(agent.name || id)}</span>
+        <span style="opacity:0.6;font-size:0.85em;">${escapeHtml(agent.role || 'agent')}</span>
+      `;
+      picker.appendChild(row);
+    });
+
+    if (contacts.length) {
+      const heading = document.createElement('div');
+      heading.style.cssText = 'opacity:0.6;font-size:0.8em;margin:8px 0 4px;';
+      heading.textContent = 'PEOPLE';
+      picker.appendChild(heading);
+    }
+    if (!contacts.length && !agents.length) {
+      picker.innerHTML = '<p style="opacity:0.7;">No contacts or agents yet.</p>';
     }
     contacts.forEach(contact => {
       const username = contact.username || '';
@@ -6808,20 +6845,26 @@ const ConversationTabs = {
   async createConversation() {
     const picker = qs('#conversation-people-picker');
     const titleInput = qs('#input-conversation-title');
+    // Kind travels with the name. A participant recorded as a `user` is
+    // somebody the harness will try to dial; an agent is something it runs.
     const chosen = picker
-      ? Array.from(picker.querySelectorAll('input[type="checkbox"]:checked')).map(i => i.value)
+      ? Array.from(picker.querySelectorAll('input[type="checkbox"]:checked')).map(i => ({
+          participant: i.value,
+          kind: i.dataset.kind === 'agent' ? 'agent' : 'user',
+        }))
       : [];
 
     if (!chosen.length) {
-      IPCLog.append('info', 'Pick at least one person to be in the room with.');
+      IPCLog.append('info', 'Pick at least one person or agent to be in the room with.');
       return;
     }
 
     let created = null;
     try {
       created = await this.rpc('conversation.create', {
-        title: (titleInput && titleInput.value.trim()) || chosen.join(', '),
-        participants: chosen.map(username => ({ participant: username, kind: 'user' })),
+        title: (titleInput && titleInput.value.trim())
+          || chosen.map(c => c.participant).join(', '),
+        participants: chosen,
       });
     } catch (err) {
       IPCLog.append('error', `Could not start the conversation: ${err.message || err}`);

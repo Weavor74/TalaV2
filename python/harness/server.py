@@ -6547,6 +6547,115 @@ async def _send_a2a_message_helper(username: str, message: str) -> dict[str, Any
     return {"recipient": contact["username"], "response": response}
 
 
+async def _generate_reply(
+    inference_messages: list[dict[str, Any]],
+    max_tokens: int = 512,
+    temperature: float = 0.7,
+) -> str:
+    """
+    Run a prepared message list through whichever provider answers first.
+
+    Lifted out of `_handle_inbound_a2a`, which held the only copy of the
+    provider fallback chain. A second caller needed it -- an agent that is
+    a participant in a conversation has to be able to reply in it -- and
+    the alternative was a second copy of eighty lines that would drift the
+    first time a provider type was added to one of them.
+
+    Returns "" when every provider failed rather than raising: the caller
+    is always a background task, and a reply that could not be generated
+    is a reply that does not happen, not an error to propagate into a
+    room.
+    """
+    try:
+        rows = await load_inference_providers()
+    except Exception as e:
+        logger.error("inference: could not query providers: %s", e)
+        return ""
+
+    generated_text = None
+    errors = []
+    
+    for provider in rows:
+        if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
+            continue
+            
+        p_type = provider["type"]
+        p_name = provider["name"]
+        p_config = provider["config"] or {}
+        if isinstance(p_config, str):
+            p_config = json.loads(p_config)
+            
+        logger.info("inference: attempting generation with provider '%s' (%s)", p_name, p_type)
+        
+        try:
+            if p_type == "embedded":
+                from python.inference.embedded_engine import check_model_cached, generate_stream
+                if not check_model_cached():
+                    raise RuntimeError("Embedded model not cached.")
+                chunks = []
+                async for chunk in generate_stream(inference_messages, max_tokens, temperature):
+                    chunks.append(chunk)
+                generated_text = "".join(chunks)
+                break
+            elif p_type in ("local", "remote"):
+                endpoint = p_config.get("endpoint", "").strip()
+                model = p_config.get("model", "").strip()
+                api_key = p_config.get("apiKey", "").strip()
+                
+                if p_type == "local":
+                    engine = p_config.get("engine", "ollama")
+                    if not endpoint:
+                        endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
+                    if not model:
+                        model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
+                else:
+                    service = p_config.get("service", "openai")
+                    if service == "openai" and not endpoint:
+                        endpoint = "https://api.openai.com/v1"
+                    elif service == "gemini" and not endpoint:
+                        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
+                    elif service == "anthropic" and not endpoint:
+                        endpoint = "https://api.anthropic.com/v1"
+                        
+                import httpx
+                headers = {"Content-Type": "application/json"}
+                if api_key:
+                    if "anthropic" in endpoint or p_config.get("service") == "anthropic":
+                        headers["x-api-key"] = api_key
+                        headers["anthropic-version"] = "2023-06-01"
+                    else:
+                        headers["Authorization"] = f"Bearer {api_key}"
+                        
+                url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
+                payload = {
+                    "model": model,
+                    "messages": inference_messages,
+                    "max_tokens": max_tokens,
+                    "temperature": temperature,
+                    "stream": False
+                }
+                if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
+                    payload["options"] = {"num_ctx": 8192}
+                    
+                async with httpx.AsyncClient(timeout=90.0) as client:
+                    response = await client.post(url, headers=headers, json=payload)
+                    if response.status_code != 200:
+                        raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
+                    resp_json = response.json()
+                    choice = resp_json["choices"][0]["message"]
+                    generated_text = choice.get("content", "") or ""
+                    break
+        except Exception as e:
+            exc_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+            logger.warning("inference: provider '%s' failed: %s", p_name, exc_desc)
+            errors.append(f"Provider '{p_name}' failed: {exc_desc}")
+            
+    if not generated_text:
+        logger.error("inference: all providers failed: %s", errors)
+        return ""
+    return generated_text
+
+
 async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None:
     """
     NAME
@@ -6626,95 +6735,10 @@ async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None
         
     inference_messages.extend(history_messages)
 
-    # 4. Invoke inference engine
-    try:
-        rows = await load_inference_providers()
-    except Exception as e:
-        logger.error("A2A: Failed to query inference providers: %s", e)
+    generated_text = await _generate_reply(inference_messages)
+    if not generated_text:
         return
 
-    generated_text = None
-    errors = []
-    
-    for provider in rows:
-        if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
-            continue
-            
-        p_type = provider["type"]
-        p_name = provider["name"]
-        p_config = provider["config"] or {}
-        if isinstance(p_config, str):
-            p_config = json.loads(p_config)
-            
-        logger.info("A2A: Attempting generation with provider '%s' (%s)", p_name, p_type)
-        
-        try:
-            if p_type == "embedded":
-                from python.inference.embedded_engine import check_model_cached, generate_stream
-                if not check_model_cached():
-                    raise RuntimeError("Embedded model not cached.")
-                chunks = []
-                async for chunk in generate_stream(inference_messages, 512, 0.7):
-                    chunks.append(chunk)
-                generated_text = "".join(chunks)
-                break
-            elif p_type in ("local", "remote"):
-                endpoint = p_config.get("endpoint", "").strip()
-                model = p_config.get("model", "").strip()
-                api_key = p_config.get("apiKey", "").strip()
-                
-                if p_type == "local":
-                    engine = p_config.get("engine", "ollama")
-                    if not endpoint:
-                        endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
-                    if not model:
-                        model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
-                else:
-                    service = p_config.get("service", "openai")
-                    if service == "openai" and not endpoint:
-                        endpoint = "https://api.openai.com/v1"
-                    elif service == "gemini" and not endpoint:
-                        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
-                    elif service == "anthropic" and not endpoint:
-                        endpoint = "https://api.anthropic.com/v1"
-                        
-                import httpx
-                headers = {"Content-Type": "application/json"}
-                if api_key:
-                    if "anthropic" in endpoint or p_config.get("service") == "anthropic":
-                        headers["x-api-key"] = api_key
-                        headers["anthropic-version"] = "2023-06-01"
-                    else:
-                        headers["Authorization"] = f"Bearer {api_key}"
-                        
-                url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
-                payload = {
-                    "model": model,
-                    "messages": inference_messages,
-                    "max_tokens": 512,
-                    "temperature": 0.7,
-                    "stream": False
-                }
-                if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
-                    payload["options"] = {"num_ctx": 8192}
-                    
-                async with httpx.AsyncClient(timeout=90.0) as client:
-                    response = await client.post(url, headers=headers, json=payload)
-                    if response.status_code != 200:
-                        raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
-                    resp_json = response.json()
-                    choice = resp_json["choices"][0]["message"]
-                    generated_text = choice.get("content", "") or ""
-                    break
-        except Exception as e:
-            exc_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
-            logger.warning("A2A: Provider '%s' failed: %s", p_name, exc_desc)
-            errors.append(f"Provider '{p_name}' failed: {exc_desc}")
-            
-    if not generated_text:
-        logger.error("A2A: All inference providers failed: %s", errors)
-        return
-        
     # 5. Send reply
     try:
         await _send_a2a_message_helper(peer_username, generated_text)
@@ -14723,6 +14747,7 @@ async def handle_conversation_post(params: dict[str, Any], req_id: Any) -> str:
         conversation_id, sender=sender,
         packet_body={"kind": "message", "body": body.strip()},
     ))
+    asyncio.create_task(_agents_take_a_turn(conversation_id, sender))
     return _ok(req_id, result)
 
 
@@ -14939,6 +14964,165 @@ async def _fan_out_conversation(
     return results
 
 
+# ---------------------------------------------------------------------------
+# Agents in rooms
+# ---------------------------------------------------------------------------
+#
+# "User to agent. User to user. Users to users, users to agent, agents to
+# agents" -- Steven's five shapes. Four of them worked as soon as messages
+# were delivered; the fifth needs somebody to notice that an agent is in the
+# room and give it a turn, because an agent participant that nothing runs is
+# a name in a list.
+#
+# A room is not a pair, so the history handed to the model cannot be the
+# two-role transcript `_handle_inbound_a2a` builds. Three people saying
+# things become three "user" turns, and without a label the model cannot
+# tell who said what -- it reads as one person contradicting themselves.
+# Speakers are named in the text for exactly that reason.
+
+#: How many agent turns in a row before this install stops taking one.
+#:
+#: Agents-to-agents is a shape Steven asked for, so this is a bound rather
+#: than a ban. Two agents in a room will otherwise answer each other until
+#: something falls over, and each reply is a real inference call.
+MAX_CONSECUTIVE_AGENT_TURNS = 4
+
+
+async def _room_agents(conversation_id: str) -> list[str]:
+    """Agent participants still in the room."""
+    from python.harness import conversations
+
+    return [
+        p["participant"]
+        for p in await conversations.participants(conversation_id)
+        if p["kind"] == conversations.KIND_AGENT and p.get("present", True)
+    ]
+
+
+async def _agent_system_prompt(agent_id: str) -> str:
+    """
+    The persona this agent answers with.
+
+    Falls back to the active agent's prompt and then to a plain description,
+    so a participant naming an agent that no longer exists still speaks as
+    something rather than failing silently.
+    """
+    row = await db.fetchrow(
+        "SELECT config FROM agents WHERE id = $1 OR name = $1", agent_id
+    )
+    if row is None:
+        row = await db.fetchrow("SELECT config FROM agents WHERE is_active = TRUE")
+    if row is None:
+        return "You are Tala, the core offline cognitive agent."
+
+    config = row["config"]
+    if isinstance(config, str):
+        config = json.loads(config)
+    return (config or {}).get("system_prompt") or "You are Tala, the core offline cognitive agent."
+
+
+def _room_history_for(agent_id: str, said: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """
+    A multi-party transcript the model can actually read.
+
+    This agent's own lines are `assistant`; everybody else's are `user` with
+    the speaker named in the text. Collapsing several people into unlabelled
+    `user` turns is what makes a room read like one person changing their
+    mind mid-conversation.
+    """
+    history: list[dict[str, Any]] = []
+    for message in said:
+        body = str(message.get("body") or "").strip()
+        if not body:
+            continue
+        if message.get("sender") == agent_id:
+            history.append({"role": "assistant", "content": body})
+        else:
+            history.append({"role": "user", "content": f"{message.get('sender')}: {body}"})
+    return history
+
+
+async def _agents_take_a_turn(conversation_id: str, sender: str) -> None:
+    """
+    Give each agent in the room a chance to answer what was just said.
+
+    Never raises and never blocks the post: this runs as a background task
+    after the message is already recorded, so a model that is slow, absent
+    or broken costs a missing reply and nothing else.
+    """
+    from python.harness import conversations
+
+    try:
+        room_agents = await _room_agents(conversation_id)
+        agents = [a for a in room_agents if a != sender]
+        if not agents:
+            return
+
+        said = await conversations.messages(conversation_id, limit=40)
+
+        # Bound an agent-to-agent exchange rather than forbidding it.
+        #
+        # Counted over EVERY agent in the room, not the ones about to speak.
+        # Excluding the sender first was the bug: four turns from one agent
+        # left the other seeing a trailing run of zero, so the bound never
+        # applied to the case it exists for.
+        trailing = 0
+        for message in reversed(said):
+            if message.get("sender") not in room_agents:
+                break
+            trailing += 1
+        if trailing >= MAX_CONSECUTIVE_AGENT_TURNS:
+            logger.info(
+                "conversation %s: %d agent turns in a row, standing down",
+                conversation_id, trailing,
+            )
+            return
+
+        for agent_id in agents:
+            prompt = await _agent_system_prompt(agent_id)
+            when = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+            messages = [{
+                "role": "system",
+                "content": (
+                    f"[Current Date & Time: {when}]\n{prompt}\n\n"
+                    f"You are {agent_id}, one participant in a conversation with other "
+                    f"people. Each incoming line is prefixed with who said it. Reply as "
+                    f"yourself, to the room, without prefixing your own name."
+                ),
+            }]
+            messages.extend(_room_history_for(agent_id, said))
+
+            reply = await _generate_reply(messages)
+            if not reply:
+                logger.info("conversation %s: %s had nothing to say", conversation_id, agent_id)
+                continue
+
+            posted = await conversations.post(conversation_id, agent_id, reply)
+            if not posted.get("posted"):
+                logger.warning(
+                    "conversation %s: %s could not speak: %s",
+                    conversation_id, agent_id, posted.get("reason"),
+                )
+                continue
+
+            try:
+                await broadcast_notification("conversation.message", {
+                    "id": conversation_id, "sender": agent_id,
+                    "sender_approved": posted.get("sender_approved"), "body": reply,
+                })
+            except Exception:
+                logger.warning("could not announce %s's reply", agent_id, exc_info=True)
+
+            # The room includes people on other installs, and an agent's
+            # words are the room's traffic like anybody else's.
+            await _fan_out_conversation(
+                conversation_id, sender=agent_id,
+                packet_body={"kind": "message", "body": reply},
+            )
+    except Exception:
+        logger.exception("conversation %s: agent turn failed", conversation_id)
+
+
 async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -> str:
     """
     ``p2p.receive_conversation`` -- an invitation, or something said in a room.
@@ -15069,6 +15253,9 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
         })
     except Exception:
         logger.warning("could not announce a message in %s", conversation_id, exc_info=True)
+
+    # An agent in the room answers whoever spoke, wherever they spoke from.
+    asyncio.create_task(_agents_take_a_turn(conversation_id, sender))
 
     return _ok(req_id, {"accepted": True, "conversation": conversation_id})
 

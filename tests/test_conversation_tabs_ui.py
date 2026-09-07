@@ -237,3 +237,28 @@ def test_the_connection_node_is_not_offered_as_company(renderer):
     picker = module.split("async openNewModal()")[1].split("\n  },")[0]
     assert "chain.connection_get" in picker
     assert "connection node" in picker, "the node is listed as though it were a person"
+
+
+def test_an_agent_can_be_put_in_a_room_from_the_ui(renderer):
+    """
+    Three of the five shapes have an agent in them. A picker that lists only
+    contacts can start none of them.
+    """
+    module = renderer.split("const ConversationTabs = {")[1]
+    picker = module.split("async openNewModal()")[1].split("\n  },")[0]
+    assert "agent.get_agents" in picker, "agents cannot be added to a room"
+    assert "data-kind=\"agent\"" in picker
+
+
+def test_the_kind_survives_into_the_created_room(renderer):
+    """
+    A participant recorded as `user` is somebody the harness tries to dial.
+    An agent filed that way is a room that tries to open a socket to a
+    process, and an agent that never takes a turn.
+    """
+    module = renderer.split("const ConversationTabs = {")[1]
+    create = module.split("async createConversation()")[1].split("\n  },")[0]
+    assert "kind: 'user'" not in create.replace("? 'agent' : 'user'", ""), (
+        "every participant is sent as a user regardless of what was picked"
+    )
+    assert "dataset.kind" in create
