@@ -15197,6 +15197,20 @@ async def _agents_take_a_turn(conversation_id: str, sender: str) -> None:
         logger.exception("conversation %s: agent turn failed", conversation_id)
 
 
+async def _announce_quietly(method: str, params: dict[str, Any]) -> None:
+    """
+    Tell this install's UI, and never let that failure matter.
+
+    Used where a peer is waiting on the reply: a notification is
+    best-effort by design -- no queue, no replay -- so it belongs off the
+    path that answers somebody else.
+    """
+    try:
+        await broadcast_notification(method, params)
+    except Exception:
+        logger.warning("could not announce %s", method, exc_info=True)
+
+
 async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -> str:
     """
     ``p2p.receive_conversation`` -- an invitation, or something said in a room.
@@ -15264,15 +15278,15 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
             document_ref=f"conversation:{conversation_id}",
             direction="inbound", event="invitation", outcome="recorded",
         ))
-        try:
-            await broadcast_notification("conversation.invited", {
-                "id": conversation_id,
-                "title": str(packet.get("title") or ""),
-                "from": sender,
-                "participants": sorted(names),
-            })
-        except Exception:
-            logger.warning("could not announce the invitation to %s", conversation_id, exc_info=True)
+        # Announced in the background, like the anchoring above. The peer is
+        # blocked on this reply, and telling this install's own UI is not
+        # part of answering them.
+        asyncio.create_task(_announce_quietly("conversation.invited", {
+            "id": conversation_id,
+            "title": str(packet.get("title") or ""),
+            "from": sender,
+            "participants": sorted(names),
+        }))
         return _ok(req_id, {"accepted": True, "conversation": conversation_id, **recorded})
 
     status = await conversations.status_of(conversation_id)
@@ -15295,13 +15309,9 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
             document_ref=f"conversation:{conversation_id}",
             direction="inbound", event="membership", outcome=decision,
         ))
-        try:
-            await broadcast_notification("conversation.membership", {
-                "id": conversation_id, "participant": sender, "status": decision,
-            })
-        except Exception:
-            logger.warning("could not announce a membership change in %s",
-                           conversation_id, exc_info=True)
+        asyncio.create_task(_announce_quietly("conversation.membership", {
+            "id": conversation_id, "participant": sender, "status": decision,
+        }))
         return _ok(req_id, {"accepted": True, "conversation": conversation_id,
                             "participant": sender, "status": decision})
     if status != conversations.STATUS_JOINED:
@@ -15320,17 +15330,21 @@ async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -
         outcome="posted" if result.get("posted") else "refused",
     ))
     if not result.get("posted"):
+        # Said out loud. A room message that is silently dropped looks
+        # identical to one that never arrived, and the sender is told
+        # "delivered" either way.
+        logger.info(
+            "refused a message from %s in conversation %s: %s",
+            sender, conversation_id, result.get("reason"),
+        )
         return _ok(req_id, {"accepted": False, "reason": result.get("reason", "refused")})
 
-    try:
-        await broadcast_notification("conversation.message", {
-            "id": conversation_id,
-            "sender": sender,
-            "sender_approved": result.get("sender_approved"),
-            "body": str(packet.get("body") or ""),
-        })
-    except Exception:
-        logger.warning("could not announce a message in %s", conversation_id, exc_info=True)
+    asyncio.create_task(_announce_quietly("conversation.message", {
+        "id": conversation_id,
+        "sender": sender,
+        "sender_approved": result.get("sender_approved"),
+        "body": str(packet.get("body") or ""),
+    }))
 
     # An agent in the room answers whoever spoke, wherever they spoke from.
     asyncio.create_task(_agents_take_a_turn(conversation_id, sender))
@@ -15681,8 +15695,10 @@ async def handle_relay_announce(params: dict[str, Any], ws: Any, req_id: Any) ->
         logger.warning("relay.announce: bad signature for claimed identity %s", username)
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "Packet signature does not verify")
 
-    vps_mode.registry.bind(username, ws)
-    logger.info("Peer %s announced on this connection node", username)
+    # Announcing is the peer saying it will SERVE requests on this socket,
+    # which is what makes it routable. Connecting alone does not.
+    vps_mode.registry.bind(username, ws, routable=True)
+    logger.info("Peer %s is reachable on this connection node", username)
     return _ok(req_id, {
         "announced": username,
         "peers_online": len(vps_mode.registry.connected_peers()),
@@ -16475,8 +16491,13 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
     # extra round trip -- and means a peer is reachable through this node from
     # the moment it connects rather than only if it remembers to announce.
     if connection_class == ws_auth.CLASS_PEER and peer_username and vps_mode.is_enabled():
+        # Bound, but not routable. The peer proved who it is; it has not said
+        # it is listening for requests here, and most peer sockets are the
+        # peer's own outbound calls -- reply channels, not somewhere a
+        # request can be delivered. `relay.announce` is how a peer says
+        # otherwise.
         vps_mode.registry.bind(peer_username, ws)
-        logger.info("Peer %s is reachable through this node", peer_username)
+        logger.info("Peer %s connected", peer_username)
 
     async def handle_msg(raw_message: Any) -> None:
         response: str
@@ -16606,6 +16627,10 @@ _shutdown_event: asyncio.Event = asyncio.Event()
 _active_connections: set[WebSocketServerProtocol] = set()
 
 
+#: How long one client gets to accept a notification before it is skipped.
+BROADCAST_TIMEOUT_SECONDS = 5.0
+
+
 async def broadcast_notification(method: str, params: dict[str, Any] = None) -> int:
     """
     Send a JSON-RPC 2.0 notification to all connected WebSocket clients.
@@ -16625,10 +16650,29 @@ async def broadcast_notification(method: str, params: dict[str, Any] = None) -> 
         "method": method,
         "params": params or {},
     })
+
+    # A snapshot, and a deadline per client.
+    #
+    # `ws.send` can block indefinitely on a socket that is half-closed or
+    # whose buffer is full, and `gather` waits for the slowest -- so a single
+    # stuck client hung every caller of this. That was not a UI problem: the
+    # inbound conversation handler awaited a broadcast before replying to the
+    # peer, so one dead local socket stalled the answer past the relay's
+    # timeout and a delivery that had succeeded was reported as a failure.
+    #
+    # A notification has no queue and no replay by design. A client that
+    # cannot take one within a few seconds is not listening, and waiting
+    # longer helps nobody.
+    async def _deliver(ws: Any) -> None:
+        await asyncio.wait_for(ws.send(payload), timeout=BROADCAST_TIMEOUT_SECONDS)
+
     results = await asyncio.gather(
-        *(ws.send(payload) for ws in _active_connections),
+        *(_deliver(ws) for ws in list(_active_connections)),
         return_exceptions=True
     )
+    stalled = sum(1 for r in results if isinstance(r, (asyncio.TimeoutError, TimeoutError)))
+    if stalled:
+        logger.warning("%d client(s) did not accept the %s notification in time", stalled, method)
     return sum(1 for r in results if not isinstance(r, BaseException))
 
 
@@ -17539,17 +17583,32 @@ async def _serve_relayed_request(ws: Any, raw: Any) -> None:
 
     req_id = message.get("id")
     method = str(message.get("method") or "")
+    if not method:
+        return  # a reply to something we sent (the announce), not a request
     if method != vps_mode_module.RELAY_DELIVER_METHOD:
         await ws.send(_err(req_id, JsonRpcError.INVALID_REQUEST,
                            f"'{method}' is not accepted on a relay connection"))
         return
 
+    started = time.monotonic()
     try:
         response = await handle_relay_deliver(message.get("params") or {}, req_id)
     except Exception as exc:
         logger.exception("relayed call failed")
         response = _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    logger.debug("relayed %s handled in %.1fs; replying",
+                 (message.get("params") or {}).get("method"), time.monotonic() - started)
     await ws.send(response)
+
+    # The sender is blocked on this the whole time, and the node gives up at
+    # RELAY_TIMEOUT_SECONDS -- so anything slow here is a delivery that
+    # succeeded being reported to the sender as a failure.
+    elapsed = time.monotonic() - started
+    if elapsed > 2.0:
+        logger.warning(
+            "relayed %s took %.1fs to answer",
+            (message.get("params") or {}).get("method"), elapsed,
+        )
 
 
 async def _hold_relay_connection() -> None:
@@ -17581,6 +17640,22 @@ async def _hold_relay_connection() -> None:
                 ping_timeout=20,
                 additional_headers=_peer_handshake_headers(me, secret),
             ) as ws:
+                # Say so. The node cannot tell a held socket from one of our
+                # own outbound calls, and only this one is served below.
+                await ws.send(json.dumps({
+                    "jsonrpc": "2.0",
+                    "id": f"announce-{uuid.uuid4().hex[:12]}",
+                    "method": "relay.announce",
+                    "params": {"packet": _sign_packet(
+                        {
+                            "protocol": "tala-p2p/1.0",
+                            "type": "announce",
+                            "sender_username": me,
+                            "timestamp": datetime.now(timezone.utc).isoformat(),
+                        },
+                        secret,
+                    )},
+                }, ensure_ascii=False))
                 logger.info("Reachable through %s at %s", username, endpoint)
                 delay = RELAY_RECONNECT_SECONDS
                 async for raw in ws:

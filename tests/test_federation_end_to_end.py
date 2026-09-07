@@ -1,5 +1,5 @@
 """
-Two installs, two databases, two sockets, one room.
+Three installs, three databases, real sockets, one room.
 
 Everything else in this suite runs one harness against one database, which
 cannot see the class of fault that has cost the most on this project: nine
@@ -9,19 +9,28 @@ function calling itself -- the packet never crosses a socket, the receiving
 side reads rows the sending side wrote, and a conversation "delivered" to a
 peer is the same row read twice.
 
-So this starts a second harness with its own `TALA_DB_URL`, its own
-`TALA_USERNAME` and its own port, and drives both over WebSocket as a
-client would. What it can then observe:
+So this starts three harnesses -- two clients and the connection node
+between them -- each with its own `TALA_DB_URL`, `TALA_USERNAME`, vault and
+ports, and drives them over WebSocket as the app does. Three because two is
+not the topology: clients have no dialable address, so they cannot
+introduce themselves to each other at all without the node.
 
-* whether a peer that enrolled is reachable at all;
+What it can then observe:
+
+* whether a client can join the node without approval;
+* whether a stranger's relayed handshake enrols as pending and no more;
 * whether an invitation crosses and lands as an invitation;
 * whether a message crosses and lands in the room;
 * whether the rule survives the crossing -- an unapproved participant can
   speak in the room and still cannot reach anything outside it.
 
-Skipped when Postgres is not reachable or the second database cannot be
-made, because it is an integration test and a red suite on a laptop with
-no database teaches nothing.
+It earned its keep: seven defects that the whole in-process suite passed,
+and one missing piece -- enrolment made an install findable but nothing
+ever made it reachable. See the commit that added it.
+
+Skipped when Postgres is not reachable or the databases cannot be made,
+because it is an integration test and a red suite on a laptop with no
+database teaches nothing.
 """
 
 from __future__ import annotations
@@ -460,11 +469,20 @@ async def test_a_room_reaches_the_other_install(federation):
 
 async def test_the_rule_survives_the_crossing(federation):
     """
-    The whole design, end to end and over real sockets: somebody who was
-    never approved can speak in the room, and still cannot reach anything
-    outside it.
+    The whole design, end to end and over real sockets.
+
+    Note the direction. Alice initiated, so she has Bob as an approved
+    contact -- she chose him. Bob was enrolled by a stranger's handshake, so
+    on HIS install Alice is `pending`. That is where the rule has to hold:
+    somebody Bob never approved speaks in the room, is marked as such, and
+    gains nothing outside it.
+
+    The first version of this test asserted the opposite direction and
+    passed nothing: it checked whether an *approved* contact could speak,
+    which the strict rule would also allow.
     """
     alice, bob, node = federation
+
     room = await alice.rpc("conversation.create", {
         "title": "the rule",
         "participants": [{"participant": bob.username, "kind": "user"}],
@@ -476,17 +494,29 @@ async def test_the_rule_survives_the_crossing(federation):
 
     assert await _wait_for(bob_sees_it), "the invitation never arrived"
     await bob.rpc("conversation.set_membership", {"id": room["id"], "status": "joined"})
-    await bob.rpc("conversation.post", {"id": room["id"], "body": "hello from someone unapproved"})
 
-    async def alice_heard():
-        payload = await alice.rpc("conversation.messages", {"id": room["id"]})
-        return [m for m in payload["messages"] if m["sender"] == bob.username] or None
-
-    heard = await _wait_for(alice_heard)
-    assert heard, "an unapproved participant could not speak in the room"
-
-    contacts = await alice.rpc("contacts.list", {})
+    # Alice is the one Bob never approved.
+    contacts = await bob.rpc("contacts.list", {})
     standing = {c["username"]: c["status"] for c in contacts["contacts"]}
-    assert standing.get(bob.username) != "approved", (
+    assert standing.get(alice.username) == "pending", (
+        f"the premise does not hold: Bob has Alice as {standing.get(alice.username)}"
+    )
+
+    await alice.rpc("conversation.post", {"id": room["id"], "body": "from someone unapproved"})
+
+    async def bob_heard():
+        payload = await bob.rpc("conversation.messages", {"id": room["id"]})
+        return [m for m in payload["messages"] if m["sender"] == alice.username] or None
+
+    heard = await _wait_for(bob_heard)
+    assert heard, "an unapproved participant could not speak in the room"
+    assert heard[-1]["sender_approved"] is False, (
+        "an unapproved sender was recorded as approved"
+    )
+
+    # And the room granted nothing outside itself.
+    contacts = await bob.rpc("contacts.list", {})
+    standing = {c["username"]: c["status"] for c in contacts["contacts"]}
+    assert standing.get(alice.username) == "pending", (
         "speaking in the room upgraded the contact"
     )

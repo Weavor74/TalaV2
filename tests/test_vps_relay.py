@@ -109,7 +109,7 @@ async def test_neither_flag_nor_env_means_no_enrolment(clean_mode, monkeypatch):
 def test_bind_and_look_up_by_name():
     registry = PeerConnectionRegistry()
     alice = FakeSocket("alice")
-    registry.bind("@alice", alice)
+    registry.bind("@alice", alice, routable=True)
 
     assert registry.lookup("@alice") is alice
     assert registry.username_for(alice) == "@alice"
@@ -120,7 +120,7 @@ def test_disconnect_makes_a_peer_unreachable():
     """Presence is the socket. There is no lease to expire."""
     registry = PeerConnectionRegistry()
     alice = FakeSocket("alice")
-    registry.bind("@alice", alice)
+    registry.bind("@alice", alice, routable=True)
 
     assert registry.release(alice) == "@alice"
     assert registry.lookup("@alice") is None
@@ -142,8 +142,8 @@ def test_a_second_socket_is_used_and_the_first_is_kept():
     """
     registry = PeerConnectionRegistry()
     old, new = FakeSocket("old"), FakeSocket("new")
-    registry.bind("@alice", old)
-    registry.bind("@alice", new)
+    registry.bind("@alice", old, routable=True)
+    registry.bind("@alice", new, routable=True)
 
     assert registry.lookup("@alice") is new
     assert registry.username_for(old) == "@alice", (
@@ -159,8 +159,8 @@ def test_a_peer_is_gone_only_when_its_last_socket_is():
     """
     registry = PeerConnectionRegistry()
     held, transient = FakeSocket("held"), FakeSocket("transient")
-    registry.bind("@alice", held)
-    registry.bind("@alice", transient)
+    registry.bind("@alice", held, routable=True)
+    registry.bind("@alice", transient, routable=True)
 
     registry.release(transient)
     assert registry.is_connected("@alice"), "one call ending took the peer offline"
@@ -179,8 +179,8 @@ def test_a_late_close_of_the_old_socket_does_not_evict_the_new_one():
     """
     registry = PeerConnectionRegistry()
     old, new = FakeSocket("old"), FakeSocket("new")
-    registry.bind("@alice", old)
-    registry.bind("@alice", new)
+    registry.bind("@alice", old, routable=True)
+    registry.bind("@alice", new, routable=True)
 
     registry.release(old)
 
@@ -210,7 +210,7 @@ async def test_relay_forwards_and_returns_the_reply():
 
     registry = PeerConnectionRegistry()
     bob = FakeSocket("bob")
-    registry.bind("@bob", bob)
+    registry.bind("@bob", bob, routable=True)
 
     task = asyncio.create_task(
         registry.relay("@bob", "p2p.receive_message", {"body": "hi"}, "@alice")
@@ -235,7 +235,7 @@ async def test_a_reply_is_recognised_as_a_reply_not_a_new_request():
     """
     registry = PeerConnectionRegistry()
     bob = FakeSocket("bob")
-    registry.bind("@bob", bob)
+    registry.bind("@bob", bob, routable=True)
 
     task = asyncio.create_task(registry.relay("@bob", "p2p.semantic_search", {}, "@alice"))
     import json
@@ -265,7 +265,7 @@ async def test_relaying_a_non_allowlisted_method_is_refused():
     """
     registry = PeerConnectionRegistry()
     bob = FakeSocket("bob")
-    registry.bind("@bob", bob)
+    registry.bind("@bob", bob, routable=True)
 
     for forbidden in ("vault.read", "inference.generate", "contacts.delete", "task.submit"):
         with pytest.raises(PermissionError):
@@ -290,7 +290,7 @@ async def test_a_dead_socket_reports_as_a_connection_error():
     registry = PeerConnectionRegistry()
     bob = FakeSocket("bob")
     bob.fail_with = RuntimeError("socket closed")
-    registry.bind("@bob", bob)
+    registry.bind("@bob", bob, routable=True)
 
     with pytest.raises(ConnectionError):
         await registry.relay("@bob", "p2p.receive_message", {}, "@alice")
@@ -300,7 +300,7 @@ async def test_a_dead_socket_reports_as_a_connection_error():
 async def test_a_silent_peer_times_out_without_leaking_the_pending_entry():
     registry = PeerConnectionRegistry()
     bob = FakeSocket("bob")
-    registry.bind("@bob", bob)
+    registry.bind("@bob", bob, routable=True)
 
     with pytest.raises(TimeoutError):
         await registry.relay("@bob", "p2p.receive_message", {}, "@alice", timeout=0.15)
@@ -312,7 +312,7 @@ async def test_a_silent_peer_times_out_without_leaking_the_pending_entry():
 async def test_an_error_from_the_far_peer_propagates():
     registry = PeerConnectionRegistry()
     bob = FakeSocket("bob")
-    registry.bind("@bob", bob)
+    registry.bind("@bob", bob, routable=True)
 
     task = asyncio.create_task(registry.relay("@bob", "p2p.receive_message", {}, "@alice"))
     import json
@@ -551,3 +551,51 @@ def test_the_reference_never_carries_the_content():
     assert "medical" not in ref
 
     assert _relayed_document_ref("p2p.something_new", {"packet": {"secret": "x"}}) == ""
+
+
+def test_a_socket_nobody_serves_on_is_not_a_route():
+    """
+    The distinction the registry turns on, and the one that cost the most to
+    find.
+
+    A peer's own outbound calls authenticate as that peer, and those sockets
+    are reply channels: the peer sent a request and is waiting for the
+    answer. Routing a relayed call down one puts a REQUEST where a REPLY is
+    expected -- the waiting caller skips it as not its own, nobody ever
+    serves it, and both ends sit there until something times out. Relayed
+    deliveries were answered in milliseconds and then hung on the write.
+
+    So connecting is not announcing. Only a peer knows which of its sockets
+    it is serving requests on, so only a peer can say.
+    """
+    registry = PeerConnectionRegistry()
+    outbound, held = FakeSocket("outbound"), FakeSocket("held")
+
+    registry.bind("@alice", outbound)
+    assert registry.lookup("@alice") is None, "a bare connection was treated as a route"
+    assert not registry.is_connected("@alice")
+    assert registry.username_for(outbound) == "@alice", (
+        "the socket's owner should still be known -- relay.send needs it"
+    )
+    assert registry.connected_peers() == [], "an unreachable peer was listed as online"
+
+    registry.bind("@alice", held, routable=True)
+    assert registry.lookup("@alice") is held
+    assert registry.is_connected("@alice")
+    assert [p["username"] for p in registry.connected_peers()] == ["@alice"]
+
+
+def test_losing_the_served_socket_makes_a_peer_unreachable():
+    """
+    Even while its other sockets are open. Being present is not being
+    reachable, and reporting otherwise is what sends a relay into a socket
+    nobody answers.
+    """
+    registry = PeerConnectionRegistry()
+    outbound, held = FakeSocket("outbound"), FakeSocket("held")
+    registry.bind("@alice", outbound)
+    registry.bind("@alice", held, routable=True)
+
+    registry.release(held)
+    assert registry.lookup("@alice") is None
+    assert not registry.is_connected("@alice")

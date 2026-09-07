@@ -168,22 +168,39 @@ class PeerConnectionRegistry:
         self._by_socket: dict[int, str] = {}
         self._pending: dict[str, asyncio.Future] = {}
         self._bound_at: dict[str, float] = {}
+        #: Sockets whose owner said it is serving requests on them.
+        self._routable: set[int] = set()
 
     # -- identity ----------------------------------------------------------
 
-    def bind(self, username: str, socket: Any) -> None:
+    def bind(self, username: str, socket: Any, routable: bool = False) -> None:
         """
         Record that `socket` belongs to `username`.
 
-        Additive: a peer may legitimately hold several at once. The caller is
-        responsible for having authenticated the claim first -- this class
-        does no verification of its own.
+        `routable` says the peer is *serving requests* on this socket, not
+        merely that it opened it -- and only a peer can know that, which is
+        why announcing is a thing a peer does rather than something inferred
+        from the connection.
+
+        The distinction is load-bearing. A peer's own outbound calls
+        authenticate as that peer, and those sockets are reply channels: the
+        peer sends a request and waits for the answer. Routing a relayed
+        call down one puts a REQUEST into a channel where a REPLY is
+        expected -- the caller skips it as not its own, nobody ever serves
+        it, and both sides wait until something times out. That is exactly
+        what happened: relayed deliveries were answered in milliseconds and
+        then hung on the write.
+
+        Additive: a peer may hold several at once, and only one of them is
+        usually the held connection.
         """
         sockets = self._by_username.setdefault(username, [])
         if socket not in sockets:
             sockets.append(socket)
         self._by_socket[id(socket)] = username
         self._bound_at.setdefault(username, time.time())
+        if routable:
+            self._routable.add(id(socket))
 
     def release(self, socket: Any) -> str | None:
         """
@@ -196,6 +213,7 @@ class PeerConnectionRegistry:
         username = self._by_socket.pop(id(socket), None)
         if username is None:
             return None
+        self._routable.discard(id(socket))
         sockets = self._by_username.get(username, [])
         self._by_username[username] = [s for s in sockets if s is not socket]
         if not self._by_username[username]:
@@ -204,18 +222,22 @@ class PeerConnectionRegistry:
         return username
 
     def is_connected(self, username: str) -> bool:
-        """Whether any socket for this peer is still open."""
-        return bool(self._by_username.get(username))
+        """Whether this peer can be reached -- not merely whether it is here."""
+        return self.lookup(username) is not None
 
     def lookup(self, username: str) -> Any | None:
         """
-        A socket to route over, newest first.
+        A socket to route over: the newest one the peer is serving on.
 
-        Newest because the most recently established connection is the one
-        least likely to be half-dead.
+        Only routable sockets, never a bare connection. Newest among those
+        because the most recently established is the one least likely to be
+        half-dead.
         """
         sockets = self._by_username.get(username) or []
-        return sockets[-1] if sockets else None
+        for socket in reversed(sockets):
+            if id(socket) in self._routable:
+                return socket
+        return None
 
     def username_for(self, socket: Any) -> str | None:
         return self._by_socket.get(id(socket))
@@ -229,6 +251,11 @@ class PeerConnectionRegistry:
                     "connected_seconds": round(now - self._bound_at.get(name, now), 1),
                 }
                 for name in self._by_username
+                # Present means reachable. A peer that is connected but
+                # serving nothing cannot be routed to, and listing it as
+                # online is how a caller ends up relaying into a socket
+                # nobody answers.
+                if self.lookup(name) is not None
             ),
             key=lambda p: p["username"],
         )
