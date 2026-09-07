@@ -256,3 +256,82 @@ async def set_membership(conversation_id: str, status: str) -> dict[str, Any]:
         caller="conversations.set_membership",
     )
     return {"ok": True, "id": conversation_id, "status": status}
+
+
+# ---------------------------------------------------------------------------
+# The remote half
+# ---------------------------------------------------------------------------
+#
+# A room whose participants are all on this machine is the easy case. Once a
+# participant is somebody else's install, two things have to travel: the
+# invitation, and what gets said. Both arrive through
+# `p2p.receive_conversation`, which is a separate method from
+# `p2p.receive_message` for one reason worth stating plainly.
+#
+# `p2p.receive_message` refuses anybody who is not an *approved* contact. Sent
+# down that path, a room message from an unapproved participant would be
+# dropped -- and the hybrid rule would quietly become the strict one, with
+# rooms that only work between people who had already approved each other.
+# The conversation path asks a different question, the one Steven's rule
+# names: **are you in this room**. Reusing the existing handler was the
+# obvious move and it would have enforced the wrong rule silently.
+
+
+async def status_of(conversation_id: str) -> str:
+    """The room-level standing: invited, joined, declined, or "" if unknown."""
+    from python.harness import db
+
+    row = await db.fetchrow("SELECT status FROM conversations WHERE id = $1", conversation_id)
+    return str(row["status"]) if row else ""
+
+
+async def remote_participants(conversation_id: str, exclude: str = "") -> list[str]:
+    """
+    Participants who live in somebody else's install.
+
+    Agents are excluded because a local agent is reached by running it, not
+    by dialling it, and the sender is excluded because delivering somebody
+    their own message back is how an echo becomes a loop.
+    """
+    return [
+        p["participant"]
+        for p in await participants(conversation_id)
+        if p["kind"] == KIND_USER and p["participant"] and p["participant"] != exclude
+    ]
+
+
+async def record_remote_conversation(
+    conversation_id: str,
+    title: str,
+    people: list[dict[str, str]],
+    created_by: str,
+) -> dict[str, Any]:
+    """
+    Write down a room somebody else started, as an invitation.
+
+    Deliberately ``invited`` and never ``joined``: an invitation arriving is
+    not a decision to be somewhere, and the decision is a person's to make
+    through `set_membership`. Idempotent, because an invitation can be
+    re-sent and a second copy of a room is not a second room.
+    """
+    from python.harness import db
+
+    existing = await db.fetchrow("SELECT id, status FROM conversations WHERE id = $1", conversation_id)
+    if existing:
+        for person in people:
+            await _add_participant(
+                conversation_id, person["participant"], person.get("kind", KIND_USER)
+            )
+        return {"id": conversation_id, "status": existing["status"], "created": False}
+
+    await db.execute(
+        "INSERT INTO conversations (id, title, created_by, status) VALUES ($1, $2, $3, $4)",
+        conversation_id, title, created_by, STATUS_INVITED,
+        caller="conversations.record_remote",
+    )
+    for person in people:
+        await _add_participant(
+            conversation_id, person["participant"], person.get("kind", KIND_USER)
+        )
+    log.info("invited to conversation %s by %s", conversation_id, created_by or "<unknown>")
+    return {"id": conversation_id, "status": STATUS_INVITED, "created": True}

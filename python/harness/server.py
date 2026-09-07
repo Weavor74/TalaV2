@@ -14658,6 +14658,25 @@ async def handle_conversation_create(params: dict[str, Any], req_id: Any) -> str
     except Exception as exc:
         logger.exception("conversation.create error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+    # Everyone else has to learn the room exists, or they cannot be in it.
+    # The invitation carries the participant list because a person deciding
+    # whether to join needs to know who else is there.
+    asyncio.create_task(_fan_out_conversation(
+        created["id"],
+        sender=await _peer_self_username(),
+        packet_body={
+            "kind": "invitation",
+            "title": created.get("title", ""),
+            # Name and kind only. `participants()` also reports which of them
+            # this install has approved, and whose contacts I have approved
+            # is nobody else's business.
+            "participants": [
+                {"participant": p["participant"], "kind": p["kind"]}
+                for p in await conversations.participants(created["id"])
+            ],
+        },
+    ))
     return _ok(req_id, created)
 
 
@@ -14699,6 +14718,11 @@ async def handle_conversation_post(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
     if not result.get("posted"):
         return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "not posted"))
+
+    asyncio.create_task(_fan_out_conversation(
+        conversation_id, sender=sender,
+        packet_body={"kind": "message", "body": body.strip()},
+    ))
     return _ok(req_id, result)
 
 
@@ -14718,6 +14742,297 @@ async def handle_conversation_set_membership(params: dict[str, Any], req_id: Any
     if not result.get("ok"):
         return _err(req_id, JsonRpcError.INVALID_PARAMS, result.get("reason", "not set"))
     return _ok(req_id, result)
+
+
+# ---------------------------------------------------------------------------
+# Conversations across installs
+# ---------------------------------------------------------------------------
+#
+# Steven's rule for a room: **a room participant can only talk to you in that
+# room**. Membership permits speaking *there* and grants nothing anywhere
+# else, which is why this is a separate method from `p2p.receive_message`
+# rather than another packet type carried by it.
+#
+# `p2p.receive_message` gates on `_peer_interaction_allowed`, i.e. "have I
+# approved you". Routing room traffic through it would drop every message
+# from an unapproved participant, and the hybrid rule would silently collapse
+# into the strict one: rooms that only work between people who had already
+# approved each other, with no error to say so. The question this path asks
+# instead is the one the rule names -- are you in this room, and have I
+# joined it.
+
+
+async def _send_conversation_via_relay(
+    target_username: str, packet: dict[str, Any]
+) -> dict[str, Any]:
+    """
+    Reach a participant who has no dialable address, through the node both
+    of us are connected to.
+
+    Most installs are behind NAT, so `endpoint_url` is empty for most
+    contacts and there is no socket to open *to* them. The one that exists is
+    the outbound socket they hold to the connection node, which is what
+    `relay.send` routes over.
+    """
+    import uuid as _uuid
+
+    setting = await _get_client_setting(CHAIN_CONNECTION_SETTING_KEY)
+    node_username = str(setting.get("username") or DEFAULT_VPS_PEER_USERNAME).strip()
+    node_contact = await _get_contact(username=node_username)
+    if node_contact is None:
+        raise RuntimeError(
+            f"{target_username} has no address and this install is not enrolled with a connection node"
+        )
+
+    endpoint = _normalize_peer_endpoint(
+        str(node_contact.get("endpoint_url") or setting.get("endpoint_url") or "").strip()
+        or _default_vps_endpoint()
+    )
+    secret = _contact_secret(node_contact)
+
+    request = json.dumps({
+        "jsonrpc": "2.0",
+        "id": str(_uuid.uuid4()),
+        "method": "relay.send",
+        "params": {
+            "to": target_username,
+            "method": "p2p.receive_conversation",
+            "params": {"packet": packet},
+        },
+    }, ensure_ascii=False)
+
+    async with websockets.connect(
+        endpoint,
+        open_timeout=5,
+        close_timeout=2,
+        additional_headers=_peer_handshake_headers(await _peer_self_username(), secret),
+    ) as ws:
+        await ws.send(request)
+        raw = await asyncio.wait_for(ws.recv(), timeout=15)
+
+    response = json.loads(raw)
+    if response.get("error"):
+        raise RuntimeError(response["error"].get("message", response["error"]))
+    result = response.get("result")
+    return result if isinstance(result, dict) else {"result": result}
+
+
+async def _deliver_conversation_packet(
+    target_username: str, conversation_id: str, packet_body: dict[str, Any]
+) -> dict[str, Any]:
+    """Sign for this one recipient and send, directly or through the node."""
+    contact = await _get_contact(username=target_username)
+    if contact is None:
+        return {"peer": target_username, "delivered": False, "reason": "not a contact"}
+
+    try:
+        secret = _contact_secret(contact)
+    except ValueError as exc:
+        return {"peer": target_username, "delivered": False, "reason": str(exc)}
+
+    packet = _sign_packet(
+        {
+            "protocol": "tala-p2p/1.0",
+            "type": "conversation",
+            "sender_wallet": os.environ.get("TALA_WALLET_ADDRESS", "local-tala"),
+            "recipient_wallet": contact["wallet_address"],
+            "conversation_id": conversation_id,
+            "timestamp": datetime.now(timezone.utc).isoformat(),
+            **packet_body,
+        },
+        secret,
+    )
+
+    endpoint = str(contact.get("endpoint_url") or "").strip()
+    try:
+        if endpoint:
+            response = await _call_peer_rpc(endpoint, "p2p.receive_conversation", {"packet": packet})
+        else:
+            response = await _send_conversation_via_relay(target_username, packet)
+    except Exception as exc:
+        logger.warning("could not deliver conversation %s to %s: %s", conversation_id, target_username, exc)
+        return {"peer": target_username, "delivered": False, "reason": str(exc)}
+
+    accepted = bool((response or {}).get("accepted"))
+    return {
+        "peer": target_username,
+        "delivered": accepted,
+        "reason": "" if accepted else str((response or {}).get("reason") or "refused"),
+    }
+
+
+async def _fan_out_conversation(
+    conversation_id: str, sender: str, packet_body: dict[str, Any]
+) -> list[dict[str, Any]]:
+    """
+    Send one room event to every remote participant.
+
+    Best-effort by construction, and never raises: the message is already
+    recorded locally before this runs. A participant whose laptop is shut
+    must not be able to fail somebody else's post, and each outcome is
+    reported per peer rather than collapsed into one success flag.
+
+    Run in the background by the handlers, so posting into a room is not as
+    slow as the least reachable person in it, and the outcome comes back as
+    a `conversation.delivery` notification once every peer has answered or
+    timed out.
+    """
+    from python.harness import conversations
+
+    try:
+        targets = await conversations.remote_participants(conversation_id, exclude=sender)
+    except Exception:
+        logger.exception("could not list remote participants of %s", conversation_id)
+        return []
+
+    # Never to ourselves. `sender` covers the usual case, but a message
+    # posted on behalf of a local agent has somebody else's name on it, and
+    # delivering our own room event back to this install would record it
+    # twice.
+    me = await _peer_self_username()
+    targets = [t for t in targets if t != me]
+    if not targets:
+        return []
+
+    # Concurrently: one unreachable peer should cost its own timeout, not
+    # everybody else's turn in a queue behind it.
+    results = list(await asyncio.gather(*[
+        _deliver_conversation_packet(target, conversation_id, packet_body)
+        for target in targets
+    ]))
+
+    for result in results:
+        await _record_peer_event(
+            "conversation",
+            result["peer"],
+            document_ref=f"conversation:{conversation_id}",
+            direction="outbound",
+            event=str(packet_body.get("kind") or ""),
+            outcome="delivered" if result["delivered"] else "refused",
+        )
+
+    try:
+        await broadcast_notification("conversation.delivery", {
+            "id": conversation_id,
+            "kind": str(packet_body.get("kind") or ""),
+            "delivered": [r["peer"] for r in results if r["delivered"]],
+            "failed": [
+                {"peer": r["peer"], "reason": r["reason"]}
+                for r in results if not r["delivered"]
+            ],
+        })
+    except Exception:
+        logger.warning("could not report delivery for %s", conversation_id, exc_info=True)
+
+    return results
+
+
+async def handle_p2p_receive_conversation(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``p2p.receive_conversation`` -- an invitation, or something said in a room.
+
+    Gated on the room and not on approval. See the note above this section:
+    approval is the gate for reaching somebody *directly*, and applying it
+    here would make the hybrid rule unreachable. What is checked instead:
+
+    * the packet is signed by a contact we hold a secret for, so a stranger
+      with no enrolment still cannot reach this at all;
+    * for an invitation, that both we and the sender are in the participant
+      list it carries;
+    * for a message, that we have **joined** the room and the sender is in
+      it -- an invitation nobody has answered is not a room somebody is in
+      with us, so nobody can speak into it yet.
+    """
+    from python.harness import conversations
+
+    packet = params.get("packet")
+    if not isinstance(packet, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'packet' is required")
+
+    contact = await _get_contact(wallet_address=str(packet.get("sender_wallet", "")))
+    if contact is None:
+        return _ok(req_id, {"accepted": False, "reason": "unknown_sender"})
+    try:
+        secret = _contact_secret(contact)
+    except ValueError as exc:
+        return _ok(req_id, {"accepted": False, "reason": str(exc)})
+    if not _verify_packet(packet, secret):
+        return _ok(req_id, {"accepted": False, "reason": "bad_signature"})
+
+    sender = contact["username"]
+    conversation_id = str(packet.get("conversation_id") or "").strip()
+    if not conversation_id:
+        return _ok(req_id, {"accepted": False, "reason": "no_conversation"})
+
+    kind = str(packet.get("kind") or "message").strip()
+    me = await _peer_self_username()
+
+    if kind == "invitation":
+        people = [p for p in (packet.get("participants") or []) if isinstance(p, dict)]
+        names = {str(p.get("participant") or "") for p in people}
+        if me not in names:
+            return _ok(req_id, {"accepted": False, "reason": "not_invited"})
+        if sender not in names:
+            return _ok(req_id, {"accepted": False, "reason": "sender_not_in_room"})
+
+        recorded = await conversations.record_remote_conversation(
+            conversation_id,
+            str(packet.get("title") or ""),
+            [
+                {"participant": str(p.get("participant") or ""),
+                 "kind": str(p.get("kind") or "user")}
+                for p in people if p.get("participant")
+            ],
+            created_by=sender,
+        )
+        await _record_peer_event(
+            "conversation", sender,
+            document_ref=f"conversation:{conversation_id}",
+            direction="inbound", event="invitation", outcome="recorded",
+        )
+        try:
+            await broadcast_notification("conversation.invited", {
+                "id": conversation_id,
+                "title": str(packet.get("title") or ""),
+                "from": sender,
+                "participants": sorted(names),
+            })
+        except Exception:
+            logger.warning("could not announce the invitation to %s", conversation_id, exc_info=True)
+        return _ok(req_id, {"accepted": True, "conversation": conversation_id, **recorded})
+
+    status = await conversations.status_of(conversation_id)
+    if not status:
+        return _ok(req_id, {"accepted": False, "reason": "unknown_conversation"})
+    if status != conversations.STATUS_JOINED:
+        # Being invited somewhere is not being there. Until the room-level
+        # decision is made, nobody is in a room with this install, so nobody
+        # has the standing the rule grants.
+        return _ok(req_id, {"accepted": False, "reason": f"conversation_{status}"})
+
+    # `post` refuses a sender who is not a participant, which is the whole
+    # check: room membership is what permits speaking here.
+    result = await conversations.post(conversation_id, sender, str(packet.get("body") or ""))
+    await _record_peer_event(
+        "conversation", sender,
+        document_ref=f"conversation:{conversation_id}",
+        direction="inbound", event="message",
+        outcome="posted" if result.get("posted") else "refused",
+    )
+    if not result.get("posted"):
+        return _ok(req_id, {"accepted": False, "reason": result.get("reason", "refused")})
+
+    try:
+        await broadcast_notification("conversation.message", {
+            "id": conversation_id,
+            "sender": sender,
+            "sender_approved": result.get("sender_approved"),
+            "body": str(packet.get("body") or ""),
+        })
+    except Exception:
+        logger.warning("could not announce a message in %s", conversation_id, exc_info=True)
+
+    return _ok(req_id, {"accepted": True, "conversation": conversation_id})
 
 
 async def handle_chain_peers(params: dict[str, Any], req_id: Any) -> str:
@@ -15010,6 +15325,13 @@ def _relayed_document_ref(method: str, payload: dict[str, Any]) -> str:
     if method in ("p2p.receive_message", "p2p.encrypted_payload"):
         message_type = str(packet.get("type") or payload.get("type") or "").strip()
         return f"message:{message_type}" if message_type else "message"
+
+    if method == "p2p.receive_conversation":
+        # The room is the subject. Its title is the participants' words and
+        # the body is their message, so neither travels to a shared ledger --
+        # only which room, and whether it was an invitation or something said.
+        conversation_id = str(packet.get("conversation_id") or "").strip()
+        return f"conversation:{conversation_id}" if conversation_id else "conversation"
 
     if method in ("p2p.webrtc_offer", "p2p.webrtc_answer"):
         return "signalling:sdp"
@@ -15565,6 +15887,7 @@ _HANDLERS: dict[str, Any] = {
     "p2p.receive_handshake":  handle_p2p_receive_handshake,
     "p2p.send_message":       handle_p2p_send_message,
     "p2p.receive_message":    handle_p2p_receive_message,
+    "p2p.receive_conversation": handle_p2p_receive_conversation,
     "p2p.resolve_node_reference": handle_p2p_resolve_node_reference,
     "p2p.semantic_search": handle_p2p_semantic_search,
     "multimodal.capture_screen": handle_multimodal_capture_screen,

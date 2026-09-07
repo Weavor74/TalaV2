@@ -61,6 +61,7 @@ RELAY_DELIVER_METHOD = "relay.deliver"
 RELAYABLE_METHODS: frozenset[str] = frozenset({
     "p2p.receive_handshake",
     "p2p.receive_message",
+    "p2p.receive_conversation",
     "p2p.resolve_node_reference",
     "p2p.semantic_search",
     "p2p.encrypted_payload",
