@@ -265,8 +265,14 @@
 }
   </script>
 
-  <script type="application/json" id="node-state" data-cognitive-block="state">
-{
+<section id="contract-reconciliation">
+  <h2>Reconciliation</h2>
+  <p>This node was reconciled against <strong>system-architecture-contract</strong> on 2026-09-08 at commit <code>97d5a2519e35</code>. That contract is authoritative on:</p>
+  <ul><li>which stores own which records, and what backup and restore each requires</li><li>the three security layers — renderer isolation, the IPC surface, and host command execution — and which of them protects what</li><li>how chat, goals, workflows, DAGs, crews, swarms and scheduled jobs reach a tool, and what verifies the result</li><li>capability maturity: implemented, tested, live-verified, experimental, or unavailable, with the evidence named</li><li>which node types may execute, and the authority required to run them</li></ul>
+  <p>Where this node and the contract disagree on those subjects, the contract is current and this node is not. On everything else this node remains the better source — the deference is bounded deliberately, because a blanket one would discard what this document knows and the contract does not.</p>
+  <p>Regenerate the contract with <code>python scripts/generate_architecture_contract.py</code>, or call <code>docs.regenerate_contract</code>. It also refreshes daily on its own, writing only when the description actually changed.</p>
+</section>
+<script type="application/json" id="node-state" data-cognitive-block="state">{
   "title": "Self-Improvement Loop",
   "description": "Organizing protocol for using validated nodes, workflows, directors, and approved bridges to improve Tala safely.",
   "tags": [
@@ -311,9 +317,20 @@
     "self_improvement.execute_goal"
   ],
   "success_rule": "An improvement is complete only when the artifact exists, parses, validates, and has an audited result.",
-  "blocked_rule": "If a needed bridge is unavailable, report the missing bridge and do not claim the action completed."
-}
-  </script>
+  "blocked_rule": "If a needed bridge is unavailable, report the missing bridge and do not claim the action completed.",
+  "contract_reconciliation": {
+    "authority": "system-architecture-contract",
+    "authoritative_on": [
+      "which stores own which records, and what backup and restore each requires",
+      "the three security layers — renderer isolation, the IPC surface, and host command execution — and which of them protects what",
+      "how chat, goals, workflows, DAGs, crews, swarms and scheduled jobs reach a tool, and what verifies the result",
+      "capability maturity: implemented, tested, live-verified, experimental, or unavailable, with the evidence named",
+      "which node types may execute, and the authority required to run them"
+    ],
+    "reconciled_at": "2026-09-08",
+    "reconciled_commit": "97d5a2519e35df24ed1661acb1f814f903088fd8"
+  }
+}</script>
 </article>
 </body>
 </html>
