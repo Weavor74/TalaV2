@@ -2160,10 +2160,6 @@ async def registry_list_tool(prefix: str | None = None) -> dict[str, Any]:
         return {"success": False, "error": str(exc)}
 
 
-@register_tool(
-    name="workflow.generate_from_tot",
-    description="Generate a sequential workflow from ToT (Tree-of-Thought) ideation steps for a given goal.",
-)
 def _match_planned_tool(task_description: str) -> str | None:
     """
     The registered tool a planned step names, if it names one.
@@ -2183,6 +2179,10 @@ def _match_planned_tool(task_description: str) -> str | None:
     return max(matches, key=len)
 
 
+@register_tool(
+    name="workflow.generate_from_tot",
+    description="Generate a sequential workflow from ToT (Tree-of-Thought) ideation steps for a given goal.",
+)
 async def generate_workflow_from_tot_tool(
     prompt: str,
     name: str | None = None,

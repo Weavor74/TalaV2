@@ -8005,18 +8005,31 @@ async def handle_flow_node_types(params: dict[str, Any], req_id: Any) -> str:
         # offer real candidates. A free-text box invites a name that does not
         # exist, and a step naming a node that is not there fails at run time
         # having looked perfectly fine on the canvas.
+        # Only the types a step can actually name: something runnable for a
+        # Node or Decision step, and state for a State step. Tools come from
+        # the catalogue, and the rest of the wiki is documentation a flow has
+        # no way to invoke.
+        from sdk.agent.node_execution import EXECUTABLE_TYPES, STATE_TYPE
+
+        wanted = set(EXECUTABLE_TYPES) | {STATE_TYPE}
         referenceable: list[dict[str, Any]] = []
         try:
             nodes_dir = resolve_active_nodes_dir()
-            wanted = set(flow_schema.NODE_TYPES) | {
-                "workflow", "flow", "function", "decision", "service", "state"}
             for path in sorted(nodes_dir.glob("*.html")):
                 try:
-                    head = path.read_text(encoding="utf-8", errors="replace")[:4000]
+                    text = path.read_text(encoding="utf-8", errors="replace")
                 except OSError:
                     continue
-                match = _re.search(r'data-node-type="([^"]*)"', head)
-                node_type = (match.group(1).strip() if match else "")
+                # Both spellings, and the whole file. A node declares its type
+                # on the <article> and again as a meta tag, and which comes
+                # first depends on how long the document's <style> block is --
+                # reading a fixed prefix of one attribute found exactly one
+                # node out of three hundred.
+                match = (
+                    _re.search(r'data-node-type="([^"]*)"', text)
+                    or _re.search(r'name="tala-node-type"\s+content="([^"]*)"', text)
+                )
+                node_type = (match.group(1).strip().lower() if match else "")
                 if node_type in wanted:
                     referenceable.append({"id": path.stem, "type": node_type})
         except Exception as exc:

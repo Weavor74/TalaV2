@@ -452,3 +452,24 @@ def test_a_decision_that_answers_off_its_declared_list_stops(no_distillation, mo
     result = _run(flow)
     assert result["status"] == "FAILED"
     assert "does not declare" in result["variables"]["step_d"]["message"]
+
+
+def test_no_tool_is_registered_against_a_private_helper():
+    """
+    A decorator and the function it decorates must stay adjacent.
+
+    Inserting a helper between ``@register_tool(...)`` and its function
+    silently registers the helper instead: ``workflow.generate_from_tot``
+    briefly pointed at a name-matching helper, so calling it would have
+    returned a tool name rather than generating a workflow. Nothing failed --
+    the tool was registered, just at the wrong callable.
+    """
+    from sdk.agent.tools import ToolRegistry
+
+    misbound = {
+        name: entry["func"].__name__
+        for name, entry in ToolRegistry._tools.items()
+        if isinstance(entry, dict) and entry.get("func") is not None
+        and entry["func"].__name__.startswith("_")
+    }
+    assert not misbound, f"registered against private helpers: {misbound}"
