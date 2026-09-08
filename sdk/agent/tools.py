@@ -24,6 +24,43 @@ from sdk.agent.governance import RiskClassifier
 log = logging.getLogger(__name__)
 
 
+def _coerce_declared_numbers(sig, arguments: dict) -> dict:
+    """
+    Turn numeric strings into numbers where the tool declares a number.
+
+    Tool calls arrive from chat as XML attributes, and the parser keeps any
+    quoted value as a string -- only unquoted ones pass through json.loads. So
+    whether a tool works depends on whether the model wrote x=900 or x="900",
+    which is not something a model can be expected to get right and not
+    something worth failing a desktop action over. Observed directly: a model
+    sent x='1500', y='500' to desktop_action and was refused for passing
+    non-integers, having done everything else correctly.
+
+    Only parameters *annotated* as int or float are touched, and only when the
+    string actually parses as one, so a tool that wants the string "900" keeps
+    it. Anything ambiguous is left exactly as it arrived and allowed to fail on
+    the tool's own terms.
+    """
+    coerced = dict(arguments)
+    for key, value in arguments.items():
+        if not isinstance(value, str):
+            continue
+        param = sig.parameters.get(key)
+        if param is None or param.annotation is inspect.Parameter.empty:
+            continue
+        # str(...) covers both real types and string annotations from
+        # `from __future__ import annotations`, and matches "int | None".
+        declared = str(param.annotation)
+        text = value.strip()
+        try:
+            if "int" in declared and "str" not in declared:
+                coerced[key] = int(text)
+            elif "float" in declared and "str" not in declared:
+                coerced[key] = float(text)
+        except (TypeError, ValueError):
+            pass  # not a number after all; let the tool refuse it itself
+    return coerced
+
 
 class ToolRegistry:
     """
@@ -357,6 +394,8 @@ class ToolRegistry:
             else:
                 filtered_args = arguments
 
+            filtered_args = _coerce_declared_numbers(sig, filtered_args)
+
             log.info("ToolRegistry: executing tool %r with filtered args %s", name, filtered_args)
             try:
                 from sdk.agent.telemetry import LiveStatusReporter
@@ -400,13 +439,32 @@ class ToolRegistry:
                 except Exception as met_e:
                     log.debug("ToolRegistry: failed to record success metric: %s", met_e)
                     
-            workflow_failed = (name == "run_workflow_node" and
-                               isinstance(result, dict) and result.get("success") is False)
+            # A tool that says it failed, failed.
+            #
+            # This used to report success:True for any tool that returned
+            # normally, with one hand-added exception for run_workflow_node.
+            # Every other tool that reports failure in-band -- which is most of
+            # them, since the convention here is to return {"success": False,
+            # "error": ...} rather than raise -- was announced to the caller as
+            # a successful call carrying a failure inside it.
+            #
+            # What that cost, observed directly: a desktop run where every one
+            # of four actions was refused (a fabricated observation id, an
+            # unknown provider, string coordinates) and the model saw four
+            # successful tool calls. It had no unambiguous signal that anything
+            # was wrong, rationalised the ambiguity, and told the user it had
+            # typed text it had not typed. The laundering did not cause the
+            # false claim, but it removed the evidence that would have
+            # prevented it.
+            #
+            # The `output` is still returned in full either way, so a caller
+            # that wants the detail keeps it; only the verdict changes.
+            in_band_failure = isinstance(result, dict) and result.get("success") is False
             return {
-                "success": not workflow_failed,
+                "success": not in_band_failure,
                 "output": safe_result,
                 "risk_level": risk,
-                "error": result.get("error") if workflow_failed else None,
+                "error": result.get("error") if in_band_failure else None,
             }
         except Exception as exc:
             log.error("ToolRegistry: execution of %s failed: %s", name, exc)
@@ -4009,7 +4067,20 @@ async def _analyze_screen_image(shot, question, provider_id=None):
     if provider_id:
         candidates = [p for p in candidates if p["id"] == provider_id]
         if not candidates:
-            return {"success": False, "error": f"Provider '{provider_id}' not found."}
+            # Name the ones that exist. A caller guessing this parameter is the
+            # normal case, not an error case: the tool advertises provider_id
+            # and nothing tells the caller what a valid one looks like. A model
+            # guessed "default", got a bare "not found", and had nothing to
+            # correct itself with -- so it kept guessing.
+            vision = [p["id"] for p in providers if _provider_is_vision_capable(p)]
+            return {
+                "success": False,
+                "error": (
+                    f"Provider '{provider_id}' not found. Vision-capable "
+                    f"provider ids: {', '.join(vision) or 'none configured'}. "
+                    f"Omit provider_id to let one be chosen."
+                ),
+            }
     else:
         vision_ready = [p for p in candidates if await _provider_is_vision_capable(p)]
         candidates = vision_ready or candidates
