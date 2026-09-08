@@ -12413,6 +12413,31 @@ async def handle_wiki_self_document_phase(params: dict[str, Any], req_id: Any) -
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
+async def handle_docs_regenerate_contract(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``docs.regenerate_contract`` — rebuild the architecture contract now.
+
+    The same pass that runs daily, on demand. "At least every day" is a floor,
+    not a schedule to wait out: after changing something structural you should
+    be able to make the self-description catch up immediately rather than
+    reasoning against a stale one until tomorrow.
+
+    Writes only if the contract now says something different, so calling it
+    repeatedly costs nothing and leaves no churn.
+    """
+    from python.harness import doc_maintenance
+
+    try:
+        result = await doc_maintenance.regenerate_contract_if_changed()
+    except Exception as exc:
+        logger.exception("docs.regenerate_contract error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+    if not result.get("ran"):
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR,
+                    result.get("reason", "the contract could not be generated"))
+    return _ok(req_id, result)
+
+
 async def handle_telemetry_stream_subscribe(
     params: dict[str, Any],
     ws: WebSocketServerProtocol,
@@ -16280,6 +16305,7 @@ _HANDLERS: dict[str, Any] = {
         "docs.create_learning_node": handle_docs_create_learning_node,
         "docs.generate_program_nodes": handle_docs_generate_program_nodes,
     "docs.verify_documentation_nodes": handle_docs_verify_documentation_nodes,
+    "docs.regenerate_contract": handle_docs_regenerate_contract,
     "docs.generate_and_verify_program_nodes": handle_docs_generate_and_verify_program_nodes,
     "docs.register_program_target": handle_docs_register_program_target,
     "docs.generate_function_nodes": handle_docs_generate_function_nodes,
@@ -17492,6 +17518,14 @@ async def _run_server() -> None:
     # ── 1c. Hold a socket open to the connection node, if one is configured.
     # Enrolment makes this install findable; this is what makes it reachable.
     asyncio.create_task(_hold_relay_connection())
+
+    # ── 1d. Keep the self-description current. Tala reads her own
+    # documentation as context when reasoning about herself, and nothing else
+    # regenerates it on a change: there are no git hooks and no scheduled job,
+    # so it ran only when somebody asked. Daily, deterministic, and writes
+    # only when the description actually differs.
+    from python.harness import doc_maintenance
+    asyncio.create_task(doc_maintenance.run_forever())
 
     # ── 2. Pre-warm the embedded_engine module immediately (non-DB-gated) ──
     # The huggingface_hub import takes 5-15 s on a cold process.  We await this
