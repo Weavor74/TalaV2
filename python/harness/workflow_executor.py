@@ -637,9 +637,20 @@ class WorkflowExecutor:
                 # than a full stop: one says what the flow returns, the other
                 # says how completion is checked. Without the check, "the last
                 # step ran" was the only definition of success a flow had.
+                # Read from the *unresolved* config on purpose.
+                #
+                # Every node type gets its config resolved before dispatch, so
+                # by here `config["verify"]` is already the resolved value --
+                # and a check that resolved to False is falsy, so `if verify`
+                # skipped it as though no verification had been configured. A
+                # verification that silently does not run is worse than none.
+                # The same applies to `value`: resolving it a second time with
+                # a collector is what makes a broken reference reportable
+                # rather than passed on as literal "{{...}}" text.
                 unresolved: list[str] = []
-                value = self._resolve(config.get("value"), unresolved) if config.get("value") else None
-                verify = config.get("verify")
+                raw_value = raw_config.get("value")
+                value = self._resolve(raw_value, unresolved) if raw_value else None
+                verify = raw_config.get("verify")
                 result_data = {
                     "status": "SUCCESS",
                     "format": config.get("format") or "json",

@@ -1189,60 +1189,33 @@
                   </div>
 
                   <div class="builder-workspace">
-                    <!-- Left Sidebar Palette: Node Types -->
+                    <!-- Left Sidebar Palette: generated from flow.node_types -->
+                    <!-- The five static entries that used to live here covered
+                         five of the executor's node types and none of the 90+
+                         registered tools, and drifted from the executor in both
+                         directions. The palette is now built from the same
+                         registry the executors dispatch on. -->
                     <div class="builder-palette" id="workflow-palette">
-                      <div class="palette-group-title">spawner palette</div>
-                      <div class="palette-item" data-type="trigger" draggable="true" title="Drag onto canvas">
-                        <span class="palette-dot dot-trigger"></span>
-                        <div class="palette-item-text">
-                          <div class="palette-item-name">Trigger Node</div>
-                          <div class="palette-item-desc">Workflow entry point</div>
-                        </div>
+                      <input type="search" id="workflow-palette-search" placeholder="Filter blocks and tools…"
+                             autocomplete="off"
+                             style="width: 100%; margin-bottom: var(--space-2); padding: var(--space-2); background: rgba(255,255,255,0.03); border: 1px solid rgba(255,255,255,0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.72rem;" />
+                      <div id="workflow-palette-groups">
+                        <div class="palette-item-desc" style="padding: var(--space-2);">Loading blocks…</div>
                       </div>
-                      <div class="palette-item" data-type="auth" draggable="true" title="Drag onto canvas">
-                        <span class="palette-dot dot-auth"></span>
-                        <div class="palette-item-text">
-                          <div class="palette-item-name">Authentication Node</div>
-                          <div class="palette-item-desc">Store provider secrets</div>
-                        </div>
-                      </div>
-                      <div class="palette-item" data-type="email" draggable="true" title="Drag onto canvas">
-                        <span class="palette-dot dot-email"></span>
-                        <div class="palette-item-text">
-                          <div class="palette-item-name">Email Node</div>
-                          <div class="palette-item-desc">Send SMTP email alerts</div>
-                        </div>
-                      </div>
-                      <div class="palette-item" data-type="custom_script" draggable="true" title="Drag onto canvas">
-                        <span class="palette-dot dot-script"></span>
-                        <div class="palette-item-text">
-                          <div class="palette-item-name">Custom Script</div>
-                          <div class="palette-item-desc">Run Python instructions</div>
-                        </div>
-                      </div>
-                      <div class="palette-item" data-type="output" draggable="true" title="Drag onto canvas">
-                        <span class="palette-dot dot-output"></span>
-                        <div class="palette-item-text">
-                          <div class="palette-item-name">Output Node</div>
-                          <div class="palette-item-desc">Workflow results gatherer</div>
-                        </div>
-                      </div>
-                      <div class="palette-group-title" style="margin-top: var(--space-3);">
-                        tool palette <span id="workflow-tool-count" style="opacity: 0.6; font-weight: 400;"></span>
-                      </div>
-                      <input type="search" id="workflow-tool-search" placeholder="Filter tools…" autocomplete="off"
-                        style="width: 100%; padding: var(--space-2); margin-bottom: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem;" />
-                      <div id="workflow-tool-palette" style="max-height: 340px; overflow-y: auto;">
-                        <div class="palette-item-desc" style="padding: var(--space-2);">Loading tools…</div>
-                      </div>
-
                       <div class="palette-help-card">
-                        💡 <strong>Quick Tip:</strong> Click or drag a node to add it to the canvas. Select a node to configure properties on the right.
+                        💡 <strong>Quick Tip:</strong> Click or drag a block onto the canvas. Select it to
+                        configure properties on the right; drag from an output port to an input port to connect.
                       </div>
                     </div>
 
                     <!-- Center Area: Interactive Canvas OR JSON Editor -->
                     <div class="builder-center">
+                      <!-- Validation results. Nothing checked a workflow before
+                           it was saved, so a dangling connection or a tool step
+                           missing a required argument first showed up as a run
+                           that stopped in the middle. -->
+                      <div class="workflow-validation" id="workflow-validation" hidden></div>
+
                       <!-- Canvas Workspace -->
                       <div class="canvas-container" id="workflow-canvas-container">
                         <svg class="canvas-svg-layer" id="workflow-svg-layer">
@@ -1283,109 +1256,34 @@
                         
                         <form id="workflow-properties-form" class="settings-form">
                           <input type="hidden" id="prop-node-id" />
-                          
+
                           <div class="form-group" style="margin-bottom: var(--space-3);">
-                            <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Node Label</label>
-                            <input type="text" id="prop-node-label" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" required />
+                            <label class="prop-label">Step label</label>
+                            <input type="text" id="prop-node-label" class="prop-input" required />
                           </div>
 
-                          <!-- Dynamic Node Type Config Sections -->
-                          <div id="config-trigger-fields" class="dynamic-config-fields" style="display: none;">
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Source Node ID</label>
-                              <input type="text" id="prop-trigger-source" placeholder="e.g. concept-auth" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
-                            </div>
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Execution Authority</label>
-                              <input type="number" id="prop-trigger-auth" min="0" max="1" step="0.05" value="1.00" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
-                            </div>
+                          <div class="form-group" style="margin-bottom: var(--space-3);">
+                            <label class="prop-label">Description</label>
+                            <textarea id="prop-node-description" class="prop-input" rows="2"
+                                      placeholder="What this step is for."></textarea>
                           </div>
 
-                          <div id="config-interactive-fields" class="dynamic-config-fields" style="display: none;">
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Prompt Message</label>
-                              <textarea id="prop-interactive-message" rows="4" placeholder="What is the Node ID?" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; resize: vertical; font-family: inherit;"></textarea>
-                            </div>
-                          </div>
+                          <div class="palette-item-desc" id="prop-node-hint" style="margin-bottom: var(--space-3);"></div>
 
-                          <div id="config-auth-fields" class="dynamic-config-fields" style="display: none;">
-                            <div style="background: rgba(138, 92, 246, 0.08); border: 1px solid rgba(138, 92, 246, 0.2); border-radius: 4px; padding: 12px; margin-bottom: 12px;">
-                              <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0 0 10px 0; line-height: 1.4;">
-                                Authentication credentials and priority rules are managed directly within the global Auth section. The workflow runner executes this node using active/locked configurations.
-                              </p>
-                              <button type="button" class="btn btn-primary" id="btn-workflow-goto-auth" style="width: 100%; font-size: 0.75rem; padding: 6px; cursor: pointer;">Configure Auth tab</button>
-                            </div>
-                          </div>
+                          <!-- Config inputs, generated from the node type's declared
+                               fields so a key the executor reads is a key the user
+                               can set. -->
+                          <div id="prop-config-fields"></div>
 
-                          <div id="config-email-fields" class="dynamic-config-fields" style="display: none;">
-                            <div style="background: rgba(138, 92, 246, 0.08); border: 1px solid rgba(138, 92, 246, 0.2); border-radius: 4px; padding: 12px; margin-bottom: 12px;">
-                              <p style="font-size: 0.75rem; color: var(--text-secondary); margin: 0 0 10px 0; line-height: 1.4;">
-                                SMTP and mail delivery settings are resolved dynamically from active/locked email-capable credentials configured in the global Auth section.
-                              </p>
-                              <button type="button" class="btn btn-primary" id="btn-workflow-goto-auth-email" style="width: 100%; font-size: 0.75rem; padding: 6px; cursor: pointer;">Configure Auth tab</button>
-                            </div>
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Recipient (To)</label>
-                              <input type="email" id="prop-email-to" placeholder="recipient@example.com" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
-                            </div>
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Subject</label>
-                              <input type="text" id="prop-email-subject" placeholder="Tala Alert Subject" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
-                            </div>
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Message Body</label>
-                              <textarea id="prop-email-body" rows="4" placeholder="Enter email text content..." style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; resize: vertical; font-family: inherit;"></textarea>
-                            </div>
-                          </div>
-
-                          <div id="config-script-fields" class="dynamic-config-fields" style="display: none;">
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Python Script Instruction</label>
-                              <textarea id="prop-script-code" rows="8" placeholder="result = 10 + 20" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem; resize: vertical; font-family: 'JetBrains Mono', monospace;"></textarea>
-                              <small style="color: var(--text-muted); font-size: 0.6rem; display: block; margin-top: 4px;">Write simple expressions allocating variables or mathematical operations returning `result`.</small>
-                            </div>
-                          </div>
-
-                          <div id="config-tool-fields" class="dynamic-config-fields" style="display: none;">
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Tool</label>
-                              <input type="text" id="prop-tool-name" readonly style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; font-family: 'JetBrains Mono', monospace;" />
-                              <small id="prop-tool-signature" style="color: var(--text-muted); font-size: 0.6rem; display: block; margin-top: 4px; font-family: 'JetBrains Mono', monospace;"></small>
-                            </div>
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Arguments (JSON)</label>
-                              <textarea id="prop-tool-args" rows="6" placeholder='{"query": "example"}' style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem; resize: vertical; font-family: 'JetBrains Mono', monospace;"></textarea>
-                              <small id="prop-tool-args-error" style="color: var(--status-error); font-size: 0.6rem; display: none; margin-top: 4px;"></small>
-                              <small style="color: var(--text-muted); font-size: 0.6rem; display: block; margin-top: 4px;">Pass a previous step's output with <code>{{step_&lt;id&gt;.result.&lt;key&gt;}}</code>. Required arguments are pre-filled.</small>
-                            </div>
-                          </div>
-
-                          <div id="config-output-fields" class="dynamic-config-fields" style="display: none;">
-                            <div class="form-group" style="margin-bottom: var(--space-3);">
-                              <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">Output Format</label>
-                              <input type="text" id="prop-output-format" value="json" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;" />
-                            </div>
-                          </div>
-
-                          <!-- Connections Routing Dropdowns -->
                           <div class="properties-divider" style="margin: var(--space-4) 0; border-top: 1px solid rgba(255,255,255,0.05);"></div>
                           <div class="card-header-compact" style="margin-bottom: var(--space-2);">
                             <h4 style="margin: 0; font-size: 0.75rem; color: var(--text-secondary); letter-spacing: 0.05em;">CONNECTIONS</h4>
+                            <button type="button" class="btn-card-action" id="btn-add-branch"
+                                    title="Add a named branch this step can route to">+ branch</button>
                           </div>
-                          
-                          <div class="form-group" style="margin-bottom: var(--space-2);">
-                            <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">On Success (onSuccess)</label>
-                            <select id="prop-conn-success" style="width: 100%; padding: var(--space-2); background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
-                              <option value="">None (Stop)</option>
-                            </select>
-                          </div>
-                          
-                          <div class="form-group" style="margin-bottom: var(--space-3);">
-                            <label style="display: block; font-size: 0.7rem; color: var(--text-secondary); margin-bottom: 4px;">On Failure (onFailure)</label>
-                            <select id="prop-conn-failure" style="width: 100%; padding: var(--space-2); background: #0b0f19; border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem;">
-                              <option value="">None (Stop)</option>
-                            </select>
-                          </div>
+                          <div id="prop-connections"></div>
+
+                          <div id="prop-node-findings" class="prop-findings"></div>
                         </form>
                       </div>
                     </div>

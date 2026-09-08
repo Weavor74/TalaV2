@@ -6672,3 +6672,168 @@ button:focus:not(:focus-visible) {
 
 .browser-follow:hover,
 .browser-follow:focus-visible { background: rgba(240, 165, 82, 0.2); }
+
+/* ══════════════════════════════════════════════════════════════════════
+   Workflow builder — palette families, generated properties, validation
+   and run state.
+
+   Node colouring is by family rather than by type: the palette gained a
+   dozen types when it started reading the executor's registry, and a
+   per-type colour list is another hand-kept table that drifts.
+   ══════════════════════════════════════════════════════════════════════ */
+
+.node-family-start    { background: rgba(0, 242, 254, 0.12); color: #00f2fe; border-bottom: 1.5px solid rgba(0, 242, 254, 0.3); }
+.node-family-action   { background: rgba(155, 89, 182, 0.12); color: #b07cd0; border-bottom: 1.5px solid rgba(155, 89, 182, 0.3); }
+.node-family-decision { background: rgba(243, 156, 18, 0.12); color: #f39c12; border-bottom: 1.5px solid rgba(243, 156, 18, 0.3); }
+.node-family-state    { background: rgba(46, 204, 113, 0.12); color: #2ecc71; border-bottom: 1.5px solid rgba(46, 204, 113, 0.3); }
+.node-family-end      { background: rgba(231, 76, 60, 0.12); color: #e74c3c; border-bottom: 1.5px solid rgba(231, 76, 60, 0.3); }
+.node-family-unknown  { background: rgba(255, 255, 255, 0.06); color: var(--text-muted); border-bottom: 1.5px solid rgba(255,255,255,0.12); }
+
+.palette-dot-start    { background: #00f2fe; }
+.palette-dot-action   { background: #b07cd0; }
+.palette-dot-decision { background: #f39c12; }
+.palette-dot-state    { background: #2ecc71; }
+.palette-dot-end      { background: #e74c3c; }
+
+/* A card the validator has something to say about. Errors read louder than
+   the selection ring so a broken step is visible without clicking it. */
+.workflow-node-card.has-error   { border-color: var(--status-error, #e74c3c); box-shadow: 0 0 10px rgba(231, 76, 60, 0.3); }
+.workflow-node-card.has-warning { border-color: rgba(243, 156, 18, 0.7); }
+
+/* Run state. The step stream already carried these; only the console
+   listened, so a run was a wall of text and the canvas sat inert. */
+.workflow-node-card.is-running {
+  border-color: #00f2fe;
+  box-shadow: 0 0 0 2px rgba(0, 242, 254, 0.25), 0 8px 24px rgba(0, 0, 0, 0.4);
+  animation: workflow-node-pulse 1.2s ease-in-out infinite;
+}
+.workflow-node-card.is-ok     { border-color: rgba(46, 204, 113, 0.85); }
+.workflow-node-card.is-failed { border-color: rgba(231, 76, 60, 0.9); box-shadow: 0 0 12px rgba(231, 76, 60, 0.35); }
+
+@keyframes workflow-node-pulse {
+  0%, 100% { box-shadow: 0 0 0 2px rgba(0, 242, 254, 0.20), 0 8px 24px rgba(0, 0, 0, 0.4); }
+  50%      { box-shadow: 0 0 0 5px rgba(0, 242, 254, 0.10), 0 8px 24px rgba(0, 0, 0, 0.4); }
+}
+
+.node-step-status {
+  font-size: 0.58rem;
+  letter-spacing: 0.04em;
+  padding: 2px var(--space-2);
+  border-top: 1px solid rgba(255, 255, 255, 0.05);
+  color: var(--text-muted);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.node-step-status.ok     { color: #2ecc71; }
+.node-step-status.failed { color: #e74c3c; }
+
+/* Ports: one row per outgoing connection, so a decision's branches are
+   things you can see and drag from rather than two fixed sockets. */
+.node-port-row {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+  padding: 1px var(--space-2) 1px 0;
+  font-size: 0.55rem;
+  color: var(--text-muted);
+}
+.node-port-row .port-socket { flex: 0 0 auto; }
+.node-port-row .port-name {
+  flex: 1 1 auto;
+  text-align: right;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.port-socket.linking { box-shadow: 0 0 0 3px rgba(0, 242, 254, 0.35); }
+
+/* Validation bar */
+.workflow-validation {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+  background: rgba(0, 0, 0, 0.25);
+  max-height: 132px;
+  overflow-y: auto;
+  padding: var(--space-2) var(--space-3);
+  font-size: 0.68rem;
+}
+.workflow-validation .finding {
+  display: flex;
+  gap: var(--space-2);
+  align-items: baseline;
+  padding: 2px 0;
+  cursor: pointer;
+}
+.workflow-validation .finding:hover { text-decoration: underline; }
+.workflow-validation .finding.error   { color: #ff8b7d; }
+.workflow-validation .finding.warning { color: #f0c05a; }
+.workflow-validation .finding.ok      { color: #2ecc71; cursor: default; }
+.workflow-validation .finding-where {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.62rem;
+  opacity: 0.7;
+}
+
+/* Generated properties inputs */
+.prop-label {
+  display: block;
+  font-size: 0.7rem;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+}
+.prop-label .req { color: #ff8b7d; }
+.prop-input {
+  width: 100%;
+  padding: var(--space-2);
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px solid rgba(255, 255, 255, 0.1);
+  border-radius: 4px;
+  color: var(--text-primary);
+  font-size: 0.8rem;
+}
+.prop-input.code, .prop-input.json {
+  font-family: var(--font-mono, monospace);
+  font-size: 0.72rem;
+  white-space: pre;
+}
+.prop-input:focus { outline: none; border-color: rgba(0, 242, 254, 0.5); }
+.prop-help {
+  font-size: 0.62rem;
+  color: var(--text-muted);
+  margin-top: 3px;
+}
+.prop-error {
+  font-size: 0.65rem;
+  color: #ff8b7d;
+  margin-top: 3px;
+}
+.prop-findings { margin-top: var(--space-3); }
+.prop-findings .finding {
+  font-size: 0.66rem;
+  padding: 3px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.04);
+}
+.prop-findings .finding.error   { color: #ff8b7d; }
+.prop-findings .finding.warning { color: #f0c05a; }
+
+.palette-engine-tag {
+  font-size: 0.55rem;
+  letter-spacing: 0.04em;
+  padding: 0 4px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.07);
+  color: var(--text-muted);
+}
+
+/* The port row used to be a single fixed-height strip. A card now carries one
+   row per outgoing connection, so the strip has to grow with it. */
+.node-ports {
+  height: auto;
+  margin-top: 0;
+  padding-bottom: 4px;
+  align-items: flex-start;
+}
+.node-port-list { display: flex; flex-direction: column; gap: 2px; }
+.port-socket-branch { background: #f0c05a; }
+.workflow-cable-branch { stroke: rgba(240, 192, 90, 0.75); stroke-dasharray: 4 3; }

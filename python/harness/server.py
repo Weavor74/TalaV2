@@ -7994,8 +7994,36 @@ async def handle_flow_node_types(params: dict[str, Any], req_id: Any) -> str:
     branches and no palette entry, and a palette entry with no executor branch.
     """
     try:
+        import re as _re
+
         from sdk.agent import flow_schema
-        return _ok(req_id, flow_schema.describe_node_types())
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+
+        payload = flow_schema.describe_node_types()
+
+        # The nodes a step may point at, so the Node/Decision/State fields can
+        # offer real candidates. A free-text box invites a name that does not
+        # exist, and a step naming a node that is not there fails at run time
+        # having looked perfectly fine on the canvas.
+        referenceable: list[dict[str, Any]] = []
+        try:
+            nodes_dir = resolve_active_nodes_dir()
+            wanted = set(flow_schema.NODE_TYPES) | {
+                "workflow", "flow", "function", "decision", "service", "state"}
+            for path in sorted(nodes_dir.glob("*.html")):
+                try:
+                    head = path.read_text(encoding="utf-8", errors="replace")[:4000]
+                except OSError:
+                    continue
+                match = _re.search(r'data-node-type="([^"]*)"', head)
+                node_type = (match.group(1).strip() if match else "")
+                if node_type in wanted:
+                    referenceable.append({"id": path.stem, "type": node_type})
+        except Exception as exc:
+            logger.warning("flow.node_types: could not list referenceable nodes: %s", exc)
+        payload["nodes"] = referenceable
+
+        return _ok(req_id, payload)
     except Exception as exc:
         logger.exception("flow.node_types error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))

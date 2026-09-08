@@ -89,45 +89,58 @@ async def test_the_catalogue_is_read_from_the_nodes():
 
 
 # -- the palette markup -------------------------------------------------------
+#
+# The palette and the properties panel are generated from flow.node_types now,
+# so these check the generator and the registry rather than the hand-written
+# markup they replaced. The behaviours being asserted are unchanged: every tool
+# reachable, filterable, escaped, and a dropped tool carrying what the executor
+# reads.
+
 
 def test_the_palette_has_a_tool_section():
     html = INDEX.read_text(encoding="utf-8")
-    assert 'id="workflow-tool-palette"' in html
-    assert 'id="workflow-tool-search"' in html, "ninety tools need a filter"
-    assert 'id="workflow-tool-count"' in html
+    js = RENDERER.read_text(encoding="utf-8")
+    assert 'id="workflow-palette-groups"' in html, "nothing to render the palette into"
+    assert 'id="workflow-palette-search"' in html, "ninety tools need a filter"
+    assert 'id="workflow-tool-count"' in js, "the count tells the user the palette is complete"
 
 
 def test_a_tool_step_can_be_configured():
-    html = INDEX.read_text(encoding="utf-8")
-    assert 'id="config-tool-fields"' in html
-    assert 'id="prop-tool-args"' in html
-    assert 'id="prop-tool-name"' in html
-    # and the config group follows the existing convention so the
-    # hide-all-then-show-one logic covers it
-    assert 'id="config-tool-fields" class="dynamic-config-fields"' in html
+    """
+    The tool step's fields are declared once, in the registry, instead of as a
+    fieldset in the markup that somebody has to remember to add.
+    """
+    from sdk.agent import flow_schema
+
+    fields = {f.name: f for f in flow_schema.NODE_TYPES["tool"].fields}
+    assert fields["tool"].required
+    assert fields["tool"].kind == "tool_ref"
+    assert fields["args"].kind == "json"
 
 
 def test_the_renderer_loads_filters_and_drops_tools():
     js = RENDERER.read_text(encoding="utf-8")
     assert "tools.catalogue" in js, "the palette is not fed from the catalogue"
-    assert "loadToolPalette" in js
-    assert "renderToolPalette" in js
-    assert "data-type=\"tool\"" in js, "dropped tools must become tool nodes"
+    assert "flow.node_types" in js, "the blocks are not fed from the registry"
+    assert "loadPalette" in js
+    assert "renderPalette" in js
+    assert 'data-type="tool"' in js, "dropped tools must become tool nodes"
 
 
 def test_a_dropped_tool_carries_its_name_and_arguments():
     """config.tool and config.args are what the executor reads."""
     js = RENDERER.read_text(encoding="utf-8")
     block = js.split("addNodeAt(x, y) {", 1)[1].split("renderCanvasNodes()", 1)[0]
-    assert "tool: this._draggedTool.name" in block
-    assert "args: this.defaultArgsFor(this._draggedTool)" in block
+    assert "config.tool = this._draggedTool.name" in block
+    assert "config.args = this.defaultArgsFor(this._draggedTool)" in block
 
 
 def test_the_properties_panel_shows_the_live_signature():
     """A signature stored on the node goes stale when the tool changes, which
     is exactly how a step ends up sending arguments that no longer exist."""
     js = RENDERER.read_text(encoding="utf-8")
-    block = js.split("} else if (node.type === 'tool') {", 1)[1][:900]
+    block = js.split("renderConfigFields(node, spec) {", 1)[1]
+    block = block.split("_refreshRefLists", 1)[0]
     assert "this._tools || []" in block
     assert "known?.signature" in block
 
@@ -136,17 +149,16 @@ def test_unparseable_arguments_are_not_saved_as_empty():
     """Silently writing {} would strip the user's work and run the step with no
     arguments at all."""
     js = RENDERER.read_text(encoding="utf-8")
-    # the method definition, not the call sites in the input listeners
     save = js.split("\n  saveNodeProperties() {", 1)[1]
-    block = save.split("} else if (node.type === 'tool') {", 1)[1][:1400]
+    block = save.split("scheduleValidation", 1)[0]
     assert "catch" in block
     assert "Not saved" in block
-    assert "node.config.args = parsed" in block
+    assert "node.config[field.name] = parsed" in block
 
 
 def test_tool_names_are_escaped_into_the_palette():
     js = RENDERER.read_text(encoding="utf-8")
-    block = js.split("renderToolPalette() {", 1)[1].split("defaultArgsFor", 1)[0]
+    block = js.split("renderPalette() {", 1)[1].split("_paletteBlock(spec)", 1)[0]
     assert "escapeHtml(t.name)" in block
     assert "escapeHtml((t.description" in block
 
@@ -154,6 +166,19 @@ def test_tool_names_are_escaped_into_the_palette():
 def test_the_five_original_node_types_survive():
     """The tool palette is an addition, not a replacement -- trigger and output
     are structural and have no tool equivalent."""
+    from sdk.agent import flow_schema
+
+    for node_type in ("trigger", "auth", "email", "custom_script", "output"):
+        assert node_type in flow_schema.NODE_TYPES
+
+
+def test_the_palette_is_not_a_second_list_of_types():
+    """
+    The five entries that used to live in index.html were a hand-kept copy of
+    part of the executor's dispatch, and drifted from it in both directions.
+    """
     html = INDEX.read_text(encoding="utf-8")
     for node_type in ("trigger", "auth", "email", "custom_script", "output"):
-        assert f'data-type="{node_type}"' in html
+        assert f'data-type="{node_type}"' not in html, (
+            f"{node_type} is hardcoded in the markup again"
+        )

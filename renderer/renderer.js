@@ -10744,6 +10744,10 @@ const GuardrailsManager = {
 /* ═══════════════════════════════════════════════════════════════════
    WorkflowManager — visual builder, code editor, executor logs
    ═══════════════════════════════════════════════════════════════════ */
+//: Flow documents the editor opens. 1.0 is upgraded to 1.1 by the server's
+//: normaliser on the way through, so an older exported file still opens.
+const ACCEPTED_FLOW_SCHEMAS = ['tala-flow/1.0', 'tala-flow/1.1'];
+
 const WorkflowManager = {
   _initialized: false,
   _workflows: [],
@@ -10801,18 +10805,10 @@ const WorkflowManager = {
     // Properties Form inputs
     this._propNodeId = qs('#prop-node-id');
     this._propNodeLabel = qs('#prop-node-label');
-    this._propTriggerSource = qs('#prop-trigger-source');
-    this._propTriggerAuth = qs('#prop-trigger-auth');
-    this._propAuthProvider = qs('#prop-auth-provider');
-    this._propAuthApikey = qs('#prop-auth-apikey');
-    this._propEmailProvider = qs('#prop-email-provider');
-    this._propEmailTo = qs('#prop-email-to');
-    this._propEmailSubject = qs('#prop-email-subject');
-    this._propEmailBody = qs('#prop-email-body');
-    this._propScriptCode = qs('#prop-script-code');
-    this._propOutputFormat = qs('#prop-output-format');
-    this._propConnSuccess = qs('#prop-conn-success');
-    this._propConnFailure = qs('#prop-conn-failure');
+    // The per-type fieldsets these pointed at are gone: config inputs and
+    // connection selects are generated from the node type's declared fields
+    // (renderConfigFields / renderConnections), so adding a type to the
+    // registry no longer means remembering to add a form for it here.
 
     // Console logs panel
     this._logsPanel = qs('#workflow-logs-panel');
@@ -10855,28 +10851,23 @@ const WorkflowManager = {
       });
     }
 
-    // Palette drag initialization
-    if (this._palette) {
-      this._palette.querySelectorAll('.palette-item').forEach(item => {
-        item.addEventListener('dragstart', (e) => {
-          this._draggedNodeType = item.dataset.type;
-          this._draggedTool = null;
-        });
-      });
-    }
-
-    // The tool palette (UI-059). The five static palette items covered five
-    // node types while the registry held ninety tools, so "Every tool created
-    // in the html-nn should be available here" was not true of any of them.
-    this._toolPalette = qs('#workflow-tool-palette');
-    this._toolSearch = qs('#workflow-tool-search');
-    this._toolCount = qs('#workflow-tool-count');
+    // The palette and the properties panel are both generated from
+    // flow.node_types, which is the registry both executors dispatch on.
+    // They used to be hand-written markup: five palette entries against the
+    // executor's nine node types, and a fieldset per type that had to be
+    // remembered whenever a type changed. The two drifted in both directions.
+    this._paletteGroups = qs('#workflow-palette-groups');
+    this._paletteSearch = qs('#workflow-palette-search');
+    this._nodeTypes = {};
+    this._families = [];
     this._tools = [];
+    this._findings = [];
+    this._runState = {};
 
-    if (this._toolSearch) {
-      this._toolSearch.addEventListener('input', () => this.renderToolPalette());
+    if (this._paletteSearch) {
+      this._paletteSearch.addEventListener('input', () => this.renderPalette());
     }
-    this.loadToolPalette();
+    this.loadPalette();
 
     // Canvas drop setup
     if (this._canvasContainer) {
@@ -10893,22 +10884,19 @@ const WorkflowManager = {
       });
     }
 
-    // Form inputs real-time binding
-    if (this._propertiesForm) {
-      const inputs = [
-        this._propNodeLabel, this._propTriggerSource, this._propTriggerAuth,
-        this._propAuthProvider, this._propAuthApikey, this._propEmailProvider,
-        this._propEmailTo, this._propEmailSubject, this._propEmailBody,
-        this._propScriptCode, this._propOutputFormat, this._propConnSuccess,
-        this._propConnFailure, qs('#prop-tool-args')
-      ];
-      inputs.forEach(input => {
-        if (input) {
-          input.addEventListener('input', () => this.saveNodeProperties());
-          input.addEventListener('change', () => this.saveNodeProperties());
-        }
-      });
-    }
+    // Label, description and the generated config inputs all write straight
+    // back into the node. The generated inputs bind themselves as they are
+    // built (see renderConfigFields), so this covers only the fixed pair.
+    [this._propNodeLabel, qs('#prop-node-description')].forEach(input => {
+      if (!input) return;
+      input.addEventListener('input', () => this.saveNodeProperties());
+      input.addEventListener('change', () => this.saveNodeProperties());
+    });
+
+    const addBranchBtn = qs('#btn-add-branch');
+    if (addBranchBtn) addBranchBtn.addEventListener('click', () => this.addBranch());
+
+    this._validationBar = qs('#workflow-validation');
 
     // JSON editor sync
     if (this._jsonEditor) {
@@ -11034,17 +11022,30 @@ const WorkflowManager = {
   createNewWorkflow() {
     const flowId = crypto.randomUUID();
     const newFlow = {
-      schema: "tala-flow/1.0",
+      schema: "tala-flow/1.1",
       flow_id: flowId,
       name: "New Custom Workflow",
       nodes: [
         {
+          // A Start and a Result, because a flow with neither cannot be
+          // validated into a runnable shape and the first thing the editor
+          // would say about a new workflow is that it has no end.
           id: "trigger-" + flowId.substring(0, 4),
           type: "trigger",
-          label: "Start Trigger",
-          config: { source_node_id: "default", execution_authority: 1.0 },
-          connections: { onSuccess: null, onFailure: null },
+          label: "Start",
+          description: "",
+          config: { source_node_id: "default", inputs: {} },
+          connections: { onSuccess: "output-" + flowId.substring(0, 4), onFailure: null },
           position: { x: 100, y: 150 }
+        },
+        {
+          id: "output-" + flowId.substring(0, 4),
+          type: "output",
+          label: "Result",
+          description: "",
+          config: { format: "json" },
+          connections: {},
+          position: { x: 520, y: 150 }
         }
       ],
       metadata: {
@@ -11057,6 +11058,22 @@ const WorkflowManager = {
   openBuilder(workflow) {
     this._currentWorkflow = JSON.parse(JSON.stringify(workflow)); // deep copy
     this._selectedNodeId = null;
+    // Run marks belong to one run of one flow; carrying them into the next
+    // flow opened would show steps as passed that this flow never ran.
+    this._runState = {};
+    this._findings = [];
+
+    // Fill in what an older or hand-written document may not carry, so the
+    // canvas is never rendering against undefined. The server normalises the
+    // same fields on save, load and execute.
+    (this._currentWorkflow.nodes || []).forEach((node, index) => {
+      node.config = node.config || {};
+      node.connections = node.connections || {};
+      node.description = node.description || node.config.description || '';
+      if (!node.position || typeof node.position.x !== 'number') {
+        node.position = { x: 80 + 220 * (index % 5), y: 120 + 150 * Math.floor(index / 5) };
+      }
+    });
     
     // UI transition
     if (this._listView) this._listView.style.display = 'none';
@@ -11069,6 +11086,7 @@ const WorkflowManager = {
     this.switchTab('canvas');
     this.renderCanvasNodes();
     this.selectNode(null);
+    this.validateFlow();
 
     // Expand console to ready state
     if (this._logsPanel) {
@@ -11108,10 +11126,26 @@ const WorkflowManager = {
     }
   },
 
-  // Drag and drop palette handlers
-  /** Fetch the tool catalogue from the tool-*.html nodes. */
-  async loadToolPalette() {
-    if (!this._toolPalette) return;
+  /* ── Palette ────────────────────────────────────────────────────────
+     Built from flow.node_types (the shared registry) plus the live tool
+     catalogue. A block the executor cannot run cannot appear here, and a
+     type the executor gains appears without touching the renderer. */
+
+  async loadPalette() {
+    if (!this._paletteGroups) return;
+    try {
+      const registry = await invoke('python:rpc', { method: 'flow.node_types', params: {} });
+      this._families = registry?.families || [];
+      (registry?.types || []).forEach(t => { this._nodeTypes[t.type] = t; });
+      this._knownNodes = (registry?.nodes || []).map(n => n.id);
+    } catch (err) {
+      this._paletteGroups.innerHTML =
+        `<div class="palette-item-desc" style="padding: 8px; color: var(--status-error);">
+           Could not load the block palette: ${escapeHtml(String(err?.message || err))}
+         </div>`;
+      return;
+    }
+
     try {
       const response = await invoke('python:rpc', { method: 'tools.catalogue', params: {} });
       this._tools = response?.tools || [];
@@ -11120,58 +11154,91 @@ const WorkflowManager = {
         IPCLog.append('warn',
           `${response.unreadable} tool node(s) could not be read and are missing from the palette.`);
       }
-      this.renderToolPalette();
     } catch (err) {
-      this._toolPalette.innerHTML =
-        `<div class="palette-item-desc" style="padding: 8px; color: var(--status-error);">
-           Could not load tools: ${escapeHtml(String(err?.message || err))}
-         </div>`;
+      IPCLog.append('warn', `Tool palette unavailable: ${err.message}`);
     }
+    this.renderPalette();
   },
 
-  renderToolPalette() {
-    if (!this._toolPalette) return;
-    const filter = (this._toolSearch?.value || '').trim().toLowerCase();
-    const matches = filter
-      ? this._tools.filter(t =>
-          t.name.toLowerCase().includes(filter) ||
-          (t.description || '').toLowerCase().includes(filter))
-      : this._tools;
+  /** Human ordering for the families, matching the way a flow reads. */
+  _familyTitle(family) {
+    return {
+      start: 'start / input', action: 'action', decision: 'decision',
+      state: 'state', end: 'end / result',
+    }[family] || family;
+  },
 
-    if (this._toolCount) {
-      this._toolCount.textContent = filter
-        ? `(${matches.length} of ${this._tools.length})`
-        : `(${this._tools.length})`;
-    }
+  renderPalette() {
+    if (!this._paletteGroups) return;
+    const filter = (this._paletteSearch?.value || '').trim().toLowerCase();
+    const matches = (haystack) => !filter || haystack.toLowerCase().includes(filter);
 
-    if (!matches.length) {
-      this._toolPalette.innerHTML =
-        `<div class="palette-item-desc" style="padding: 8px;">No tool matches “${escapeHtml(filter)}”.</div>`;
-      return;
-    }
+    // Joined rather than interpolated into a template literal: this is a
+    // search haystack, never markup, but the repository's XSS ratchets
+    // read any field interpolated into a backtick string as unescaped
+    // markup and cannot tell the two apart. Keeping that check simple is
+    // worth more than the syntax here.
+    const blocks = Object.values(this._nodeTypes).filter(t =>
+      matches([t.type, t.label, t.description].join(' ')));
+    const tools = this._tools.filter(t =>
+      matches([t.name, t.description || ''].join(' ')));
 
-    this._toolPalette.innerHTML = matches.map(t => `
-      <div class="palette-item" data-type="tool" data-tool="${escapeHtml(t.name)}"
-           draggable="true" title="${escapeHtml(t.signature)}">
-        <span class="palette-dot dot-script"></span>
+    const groups = this._families.map(family => {
+      const inFamily = blocks.filter(t => t.family === family);
+      if (!inFamily.length) return '';
+      return `
+        <div class="palette-group-title">${this._familyTitle(family)}</div>
+        ${inFamily.map(t => this._paletteBlock(t)).join('')}`;
+    }).join('');
+
+    const toolGroup = `
+      <div class="palette-group-title" style="margin-top: var(--space-3);">
+        tools <span id="workflow-tool-count" style="opacity: 0.6; font-weight: 400;">${
+          filter ? `(${tools.length} of ${this._tools.length})` : `(${this._tools.length})`}</span>
+      </div>
+      ${tools.length
+        ? tools.map(t => `
+          <div class="palette-item" data-type="tool" data-tool="${escapeHtml(t.name)}"
+               draggable="true" title="${escapeHtml(t.signature || t.name)}">
+            <span class="palette-dot palette-dot-action"></span>
+            <div class="palette-item-text">
+              <div class="palette-item-name" style="font-family: var(--font-mono, monospace); font-size: 0.7rem;">${escapeHtml(t.name)}</div>
+              <div class="palette-item-desc">${escapeHtml((t.description || '').slice(0, 70))}</div>
+            </div>
+          </div>`).join('')
+        : `<div class="palette-item-desc" style="padding: 8px;">No tool matches “${escapeHtml(filter)}”.</div>`}`;
+
+    this._paletteGroups.innerHTML = (groups || '') + toolGroup;
+    this._wirePaletteItems();
+  },
+
+  _paletteBlock(spec) {
+    // Goal-engine phases are tagged, because which engine runs a block
+    // decides what it can be combined with — a flow holding both would
+    // execute half of itself.
+    const tag = spec.engine === 'dag'
+      ? '<span class="palette-engine-tag">goal</span>' : '';
+    return `
+      <div class="palette-item" data-type="${escapeHtml(spec.type)}" draggable="true"
+           title="${escapeHtml(spec.description)}">
+        <span class="palette-dot palette-dot-${escapeHtml(spec.family)}"></span>
         <div class="palette-item-text">
-          <div class="palette-item-name" style="font-family: var(--font-mono, monospace); font-size: 0.7rem;">${escapeHtml(t.name)}</div>
-          <div class="palette-item-desc">${escapeHtml((t.description || '').slice(0, 70))}</div>
+          <div class="palette-item-name">${escapeHtml(spec.label)} ${tag}</div>
+          <div class="palette-item-desc">${escapeHtml(spec.description.slice(0, 80))}</div>
         </div>
-      </div>`).join('');
+      </div>`;
+  },
 
-    this._toolPalette.querySelectorAll('.palette-item').forEach(item => {
-      const tool = this._tools.find(t => t.name === item.dataset.tool);
-      item.addEventListener('dragstart', () => {
-        this._draggedNodeType = 'tool';
-        this._draggedTool = tool || null;
-      });
-      // Click to add, matching the five static items.
-      item.addEventListener('click', () => {
-        this._draggedNodeType = 'tool';
-        this._draggedTool = tool || null;
-        this.addNodeAt(60, 60);
-      });
+  _wirePaletteItems() {
+    this._paletteGroups.querySelectorAll('.palette-item').forEach(item => {
+      const pick = () => {
+        this._draggedNodeType = item.dataset.type;
+        this._draggedTool = item.dataset.tool
+          ? this._tools.find(t => t.name === item.dataset.tool) || null
+          : null;
+      };
+      item.addEventListener('dragstart', pick);
+      item.addEventListener('click', () => { pick(); this.addNodeAt(80, 80); });
     });
   },
 
@@ -11186,174 +11253,154 @@ const WorkflowManager = {
   handleCanvasDrop(e) {
     e.preventDefault();
     if (!this._draggedNodeType) return;
-
     const rect = this._canvasSurface.getBoundingClientRect();
     this.addNodeAt(e.clientX - rect.left, e.clientY - rect.top);
   },
 
   /** Create a node of the currently dragged type at canvas coordinates. */
   addNodeAt(x, y) {
-    if (!this._draggedNodeType) return;
+    if (!this._draggedNodeType || !this._currentWorkflow) return;
 
-    const nodeShortId = crypto.randomUUID().substring(0, 4);
-    const nodeId = `${this._draggedNodeType}-${nodeShortId}`;
-    
-    // Build default configs
-    const defaults = {
-      trigger: { label: "Trigger Step", config: { source_node_id: "default", execution_authority: 1.0 } },
-      interactive_prompt: { label: "Interactive Prompt", config: { message: "What is your input?" } },
-      auth: { label: "Auth Credentials", config: { provider: "smtp", apiKey: "" } },
-      email: { label: "Send Alert Mail", config: { provider: "SMTP", to: "alert@example.com", subject: "Workflow Alert", body: "Warning: step triggered." } },
-      custom_script: { label: "Run Script", config: { code: "result = 10 + 20" } },
-      output: { label: "Gather Result", config: { format: "json" } }
-    };
+    const type = this._draggedNodeType;
+    const spec = this._nodeTypes[type];
+    const nodeId = `${type}-${crypto.randomUUID().substring(0, 4)}`;
 
-    let nodeMeta = defaults[this._draggedNodeType] || { label: "Action Node", config: {} };
-
-    // A tool step carries the tool name and its arguments; the executor reads
-    // both (config.tool / config.args) and resolves {{...}} references in the
-    // arguments against previous steps' output.
-    if (this._draggedNodeType === 'tool' && this._draggedTool) {
-      nodeMeta = {
-        label: this._draggedTool.name,
-        config: {
-          tool: this._draggedTool.name,
-          args: this.defaultArgsFor(this._draggedTool),
-          signature: this._draggedTool.signature || ''
-        }
-      };
+    // Defaults come from the type's own field declarations, so a new block
+    // starts with exactly the configuration its executor branch reads.
+    const config = { ...(spec?.defaults || {}) };
+    let label = spec?.label || 'Step';
+    if (type === 'tool' && this._draggedTool) {
+      label = this._draggedTool.name;
+      config.tool = this._draggedTool.name;
+      config.args = this.defaultArgsFor(this._draggedTool);
+      config.signature = this._draggedTool.signature || '';
     }
 
-    const newNode = {
-      id: nodeId,
-      type: this._draggedNodeType,
-      label: nodeMeta.label,
-      config: nodeMeta.config,
-      connections: { onSuccess: null, onFailure: null },
-      position: { x: Math.max(20, x - 80), y: Math.max(20, y - 25) }
-    };
+    const connections = {};
+    (spec?.ports || []).forEach(port => { connections[port] = null; });
 
-    this._currentWorkflow.nodes.push(newNode);
+    this._currentWorkflow.nodes.push({
+      id: nodeId,
+      type,
+      label,
+      description: '',
+      config,
+      connections,
+      depends_on: [],
+      position: { x: Math.max(20, x - 80), y: Math.max(20, y - 25) },
+    });
+
     this._draggedNodeType = null;
     this._draggedTool = null;
     this.renderCanvasNodes();
     this.selectNode(nodeId);
+    this.scheduleValidation();
   },
 
   // Dynamic canvas drawing
+
+  /** The registry entry for a node, or a stand-in that renders as unknown. */
+  specFor(node) {
+    return this._nodeTypes[node.type] || {
+      type: node.type, family: 'unknown', label: node.type,
+      description: '', fields: [], ports: ['onSuccess', 'onFailure'],
+      dynamic_branches: false, terminal: false, defaults: {},
+    };
+  },
+
+  /**
+   * Every outgoing connection this node has: the ports its type declares,
+   * the branches it names, and anything already wired.
+   *
+   * Unioned rather than one replacing the other. A decision names its
+   * branches in its own config, so the canvas cannot know them from the type
+   * alone; and a branch the user removed from the config but left connected
+   * must stay visible, or the cable on screen would have no socket to
+   * explain it.
+   */
+  outgoingPorts(node) {
+    const spec = this.specFor(node);
+    const branches = Array.isArray(node.config?.branches)
+      ? node.config.branches.map(String) : [];
+    const wired = Object.keys(node.connections || {});
+    return [...new Set([...(spec.ports || []), ...branches, ...wired])];
+  },
+
+  _portClass(port) {
+    if (port === 'onSuccess') return 'port-socket-success';
+    if (port === 'onFailure') return 'port-socket-failure';
+    return 'port-socket-branch';
+  },
+
   renderCanvasNodes() {
     if (!this._canvasSurface) return;
     this._canvasSurface.innerHTML = '';
-
     if (!this._currentWorkflow || !this._currentWorkflow.nodes) return;
 
+    const problems = {};
+    (this._findings || []).forEach(f => {
+      if (!f.node_id) return;
+      if (f.severity === 'error' || !problems[f.node_id]) problems[f.node_id] = f.severity;
+    });
+
     this._currentWorkflow.nodes.forEach(node => {
+      const spec = this.specFor(node);
       const card = document.createElement('div');
-      card.className = `workflow-node-card${node.id === this._selectedNodeId ? ' selected' : ''}`;
+      const run = this._runState[node.id];
+      card.className = [
+        'workflow-node-card',
+        node.id === this._selectedNodeId ? 'selected' : '',
+        problems[node.id] === 'error' ? 'has-error' : (problems[node.id] ? 'has-warning' : ''),
+        run ? `is-${run.state}` : '',
+      ].filter(Boolean).join(' ');
       card.style.left = `${node.position.x}px`;
       card.style.top = `${node.position.y}px`;
       card.dataset.id = node.id;
 
+      const ports = this.outgoingPorts(node);
+      const portRows = ports.length
+        ? ports.map(port => `
+              <div class="node-port-row">
+                <span class="port-name">${escapeHtml(port)}</span>
+                <div class="port-socket ${this._portClass(port)}" data-port="${escapeHtml(port)}"
+                     title="Connect ${escapeHtml(port)}"></div>
+              </div>`).join('')
+        : '<div class="node-port-row"><span class="port-name">end of path</span></div>';
+      const statusRow = run
+        ? `<div class="node-step-status ${run.state === 'ok' ? 'ok' : (run.state === 'failed' ? 'failed' : '')}">${escapeHtml(run.message || run.state)}</div>`
+        : '';
+
       card.innerHTML = `
-        <div class="node-header-compact node-header-${node.type}">
-          <span>${node.type}</span>
-          <button class="btn-card-action btn-node-delete" style="padding:1px; margin:-2px;" title="Remove Step">×</button>
+        <div class="node-header-compact node-family-${escapeHtml(spec.family)}">
+          <span>${escapeHtml(spec.label)}</span>
+          <button class="btn-card-action btn-node-delete" style="padding:1px; margin:-2px;" title="Remove Step">&times;</button>
         </div>
-        <div class="node-body-compact">${node.label}</div>
+        <div class="node-body-compact" title="${escapeHtml(node.description || node.label)}">${escapeHtml(node.label)}</div>
+        ${statusRow}
         <div class="node-ports">
-          <!-- Left: Input port socket (receives connection) -->
-          <div class="port-socket port-socket-input" data-port="input" title="Input Port"></div>
-          <!-- Right: Output connections success/failure -->
-          <div style="display: flex; gap: 8px;">
-            <div class="port-socket port-socket-success" data-port="success" title="Link onSuccess (Success)"></div>
-            <div class="port-socket port-socket-failure" data-port="failure" title="Link onFailure (Failure)"></div>
-          </div>
-        </div>
-      `;
+          <div class="port-socket port-socket-input" data-port="input" title="Input — click to receive a connection"></div>
+          <div class="node-port-list" style="flex: 1 1 auto;">${portRows}</div>
+        </div>`;
 
-      // Wire dragging logic
-      card.addEventListener('mousedown', (e) => {
-        if (e.target.classList.contains('port-socket') || e.target.classList.contains('btn-node-delete')) return;
-        this._draggingNodeId = node.id;
-        const rect = card.getBoundingClientRect();
-        this._dragOffset.x = e.clientX - rect.left;
-        this._dragOffset.y = e.clientY - rect.top;
-        this.selectNode(node.id);
-        
-        const onMouseMove = (moveEvt) => {
-          if (this._draggingNodeId !== node.id) return;
-          const canvasRect = this._canvasSurface.getBoundingClientRect();
-          let posX = moveEvt.clientX - canvasRect.left - this._dragOffset.x;
-          let posY = moveEvt.clientY - canvasRect.top - this._dragOffset.y;
-          
-          // boundary checks
-          posX = Math.max(10, Math.min(2300, posX));
-          posY = Math.max(10, Math.min(2300, posY));
+      this._wireCardDrag(card, node);
+      this._wireCardPorts(card, node);
 
-          node.position.x = posX;
-          node.position.y = posY;
-          card.style.left = `${posX}px`;
-          card.style.top = `${posY}px`;
-          this.drawCables();
-        };
-
-        const onMouseUp = () => {
-          this._draggingNodeId = null;
-          document.removeEventListener('mousemove', onMouseMove);
-          document.removeEventListener('mouseup', onMouseUp);
-        };
-
-        document.addEventListener('mousemove', onMouseMove);
-        document.addEventListener('mouseup', onMouseUp);
-      });
-
-      // Wire ports click connectivity
-      const sockets = card.querySelectorAll('.port-socket');
-      sockets.forEach(sock => {
-        sock.addEventListener('click', (e) => {
-          e.stopPropagation();
-          const portType = sock.dataset.port;
-          
-          if (portType === 'success' || portType === 'failure') {
-            // Start connection link
-            this._connectingSourceNodeId = node.id;
-            this._connectingPortType = portType;
-            IPCLog.append('info', `Connecting Node "${node.label}" onSuccess/onFailure → Select target node's blue input socket.`);
-          } else if (portType === 'input' && this._connectingSourceNodeId) {
-            // Complete link connection
-            if (this._connectingSourceNodeId === node.id) {
-              IPCLog.append('warning', 'Cannot link node to itself.');
-              return;
-            }
-            const sourceNode = this._currentWorkflow.nodes.find(n => n.id === this._connectingSourceNodeId);
-            if (sourceNode) {
-              if (this._connectingPortType === 'success') {
-                sourceNode.connections.onSuccess = node.id;
-              } else {
-                sourceNode.connections.onFailure = node.id;
-              }
-              IPCLog.append('ok', `Connected: ${sourceNode.label} (${this._connectingPortType}) → ${node.label}`);
-              this.renderCanvasNodes();
-            }
-            this._connectingSourceNodeId = null;
-            this._connectingPortType = null;
-          }
-        });
-      });
-
-      // Wire delete node button
       const deleteBtn = card.querySelector('.btn-node-delete');
       if (deleteBtn) {
         deleteBtn.addEventListener('click', (e) => {
           e.stopPropagation();
-          // Remove connections pointing to this node
-          this._currentWorkflow.nodes.forEach(n => {
-            if (n.connections.onSuccess === node.id) n.connections.onSuccess = null;
-            if (n.connections.onFailure === node.id) n.connections.onFailure = null;
+          // Connections into the removed step go with it. Leaving them would
+          // turn a deletion into a flow that fails validation for a reason
+          // the user did not cause.
+          this._currentWorkflow.nodes.forEach(other => {
+            Object.keys(other.connections || {}).forEach(key => {
+              if (other.connections[key] === node.id) other.connections[key] = null;
+            });
           });
           this._currentWorkflow.nodes = this._currentWorkflow.nodes.filter(n => n.id !== node.id);
           this.renderCanvasNodes();
           this.selectNode(null);
+          this.scheduleValidation();
         });
       }
 
@@ -11363,56 +11410,141 @@ const WorkflowManager = {
     this.drawCables();
   },
 
-  drawCables() {
-    if (!this._svgLayer) return;
-    this._svgLayer.innerHTML = '';
+  _wireCardDrag(card, node) {
+    card.addEventListener('mousedown', (e) => {
+      if (e.target.classList.contains('port-socket') || e.target.classList.contains('btn-node-delete')) return;
+      this._draggingNodeId = node.id;
+      const rect = card.getBoundingClientRect();
+      this._dragOffset.x = e.clientX - rect.left;
+      this._dragOffset.y = e.clientY - rect.top;
+      this.selectNode(node.id);
 
-    if (!this._currentWorkflow || !this._currentWorkflow.nodes) return;
-
-    this._currentWorkflow.nodes.forEach(node => {
-      const onSuccessTarget = node.connections.onSuccess;
-      const onFailureTarget = node.connections.onFailure;
-
-      if (onSuccessTarget) {
-        const targetNode = this._currentWorkflow.nodes.find(n => n.id === onSuccessTarget);
-        if (targetNode) {
-          this.drawBezierLink(node.position, targetNode.position, 'success');
-        }
-      }
-      if (onFailureTarget) {
-        const targetNode = this._currentWorkflow.nodes.find(n => n.id === onFailureTarget);
-        if (targetNode) {
-          this.drawBezierLink(node.position, targetNode.position, 'failure');
-        }
-      }
+      const onMouseMove = (moveEvt) => {
+        if (this._draggingNodeId !== node.id) return;
+        const canvasRect = this._canvasSurface.getBoundingClientRect();
+        const posX = Math.max(10, Math.min(2300, moveEvt.clientX - canvasRect.left - this._dragOffset.x));
+        const posY = Math.max(10, Math.min(2300, moveEvt.clientY - canvasRect.top - this._dragOffset.y));
+        node.position.x = posX;
+        node.position.y = posY;
+        card.style.left = `${posX}px`;
+        card.style.top = `${posY}px`;
+        this.drawCables();
+      };
+      const onMouseUp = () => {
+        this._draggingNodeId = null;
+        document.removeEventListener('mousemove', onMouseMove);
+        document.removeEventListener('mouseup', onMouseUp);
+      };
+      document.addEventListener('mousemove', onMouseMove);
+      document.addEventListener('mouseup', onMouseUp);
     });
   },
 
-  drawBezierLink(pos1, pos2, type) {
-    // Port offsets
-    const cardWidth = 170;
-    const cardHeight = 42;
-    
-    // Source port (x1, y1)
-    const x1 = pos1.x + cardWidth - 8;
-    const y1 = pos1.y + cardHeight + 4; // approximate height position of right socket port
+  _wireCardPorts(card, node) {
+    card.querySelectorAll('.port-socket').forEach(socket => {
+      socket.addEventListener('click', (e) => {
+        e.stopPropagation();
+        const port = socket.dataset.port;
 
-    // Target input port (x2, y2)
-    const x2 = pos2.x + 8;
-    const y2 = pos2.y + cardHeight + 4;
+        if (port !== 'input') {
+          this._connectingSourceNodeId = node.id;
+          this._connectingPortType = port;
+          this._canvasSurface.querySelectorAll('.port-socket.linking')
+            .forEach(el => el.classList.remove('linking'));
+          socket.classList.add('linking');
+          IPCLog.append('info', `Connecting "${node.label}" (${port}) — click a step's input socket.`);
+          return;
+        }
 
-    // Bezier control points
-    const cp1x = x1 + 60;
-    const cp1y = y1;
-    const cp2x = x2 - 60;
-    const cp2y = y2;
+        if (!this._connectingSourceNodeId) return;
+        if (this._connectingSourceNodeId === node.id) {
+          IPCLog.append('warning', 'A step cannot connect to itself.');
+          this._connectingSourceNodeId = null;
+          this.renderCanvasNodes();
+          return;
+        }
+        const source = this._currentWorkflow.nodes.find(n => n.id === this._connectingSourceNodeId);
+        if (source) {
+          source.connections = source.connections || {};
+          source.connections[this._connectingPortType] = node.id;
+          IPCLog.append('ok', `Connected: ${source.label} (${this._connectingPortType}) → ${node.label}`);
+        }
+        this._connectingSourceNodeId = null;
+        this._connectingPortType = null;
+        this.renderCanvasNodes();
+        this.updatePropertiesForm();
+        this.scheduleValidation();
+      });
+    });
+  },
 
+  drawCables() {
+    if (!this._svgLayer) return;
+    // Keep <defs>: the arrow markers live there, and wiping them on every
+    // redraw is what would leave the cables headless mid-drag.
+    const defs = this._svgLayer.querySelector('defs');
+    this._svgLayer.innerHTML = '';
+    if (defs) this._svgLayer.appendChild(defs);
+    if (!this._currentWorkflow || !this._currentWorkflow.nodes) return;
+
+    const byId = {};
+    this._currentWorkflow.nodes.forEach(n => { byId[n.id] = n; });
+
+    this._currentWorkflow.nodes.forEach(node => {
+      this.outgoingPorts(node).forEach(port => {
+        const target = (node.connections || {})[port];
+        if (!target || !byId[target]) return;
+        const from = this._socketPoint(node.id, port);
+        const to = this._socketPoint(target, 'input');
+        if (!from || !to) return;
+        this.drawBezierLink(from, to, port);
+      });
+    });
+  },
+
+  /**
+   * Where a socket actually is on the canvas.
+   *
+   * Measured from the DOM rather than computed from the card's position and a
+   * table of pixel offsets. The offsets were guesses at a fixed card height,
+   * and a card's height now varies — a decision has a row per branch, a step
+   * mid-run has a status line — so any constant would be wrong for most cards
+   * and the cables would leave from thin air.
+   */
+  _socketPoint(nodeId, port) {
+    const card = this._canvasSurface?.querySelector(`.workflow-node-card[data-id="${nodeId}"]`);
+    if (!card) return null;
+    const socket = card.querySelector(`.port-socket[data-port="${CSS.escape(port)}"]`);
+    if (!socket) return null;
+    const canvasRect = this._canvasSurface.getBoundingClientRect();
+    const rect = socket.getBoundingClientRect();
+    return {
+      x: rect.left - canvasRect.left + rect.width / 2,
+      y: rect.top - canvasRect.top + rect.height / 2,
+    };
+  },
+
+  drawBezierLink(from, to, port) {
     const path = document.createElementNS('http://www.w3.org/2000/svg', 'path');
-    path.setAttribute('d', `M ${x1} ${y1} C ${cp1x} ${cp1y}, ${cp2x} ${cp2y}, ${x2} ${y2}`);
-    path.setAttribute('class', `workflow-cable workflow-cable-${type}`);
-    path.setAttribute('marker-end', `url(#arrow-${type})`);
-
+    const bend = Math.max(40, Math.abs(to.x - from.x) / 2);
+    path.setAttribute('d',
+      `M ${from.x} ${from.y} C ${from.x + bend} ${from.y}, ${to.x - bend} ${to.y}, ${to.x} ${to.y}`);
+    const kind = port === 'onFailure' ? 'failure' : (port === 'onSuccess' ? 'success' : 'branch');
+    path.setAttribute('class', `workflow-cable workflow-cable-${kind}`);
+    path.setAttribute('marker-end', `url(#arrow-${kind === 'branch' ? 'success' : kind})`);
     this._svgLayer.appendChild(path);
+
+    if (kind === 'branch') {
+      // A branch cable means nothing unless you can read which branch it is.
+      const label = document.createElementNS('http://www.w3.org/2000/svg', 'text');
+      label.setAttribute('x', String((from.x + to.x) / 2));
+      label.setAttribute('y', String((from.y + to.y) / 2 - 5));
+      label.setAttribute('text-anchor', 'middle');
+      label.setAttribute('fill', 'rgba(240, 192, 90, 0.9)');
+      label.setAttribute('font-size', '9');
+      label.textContent = port;
+      this._svgLayer.appendChild(label);
+    }
   },
 
   selectNode(nodeId) {
@@ -11433,7 +11565,7 @@ const WorkflowManager = {
 
   updatePropertiesForm() {
     if (!this._currentWorkflow) return;
-    
+
     if (!this._selectedNodeId) {
       if (this._propertiesEmpty) this._propertiesEmpty.style.display = 'block';
       if (this._propertiesContainer) this._propertiesContainer.style.display = 'none';
@@ -11442,174 +11574,341 @@ const WorkflowManager = {
 
     const node = this._currentWorkflow.nodes.find(n => n.id === this._selectedNodeId);
     if (!node) return;
+    const spec = this.specFor(node);
 
     if (this._propertiesEmpty) this._propertiesEmpty.style.display = 'none';
     if (this._propertiesContainer) this._propertiesContainer.style.display = 'block';
+    if (this._nodeTypeTitle) this._nodeTypeTitle.textContent = spec.label.toUpperCase();
+    // The node id badge, not the workflow id badge. These two were crossed,
+    // so selecting a step overwrote the flow id in the toolbar with it.
+    if (this._nodeIdBadge) this._nodeIdBadge.textContent = node.id;
 
-    if (this._nodeTypeTitle) this._nodeTypeTitle.textContent = `${node.type.toUpperCase()} CONFIG`;
-    if (this._nodeIdBadge) this._idBadge.textContent = `ID: ${node.id}`;
-
-    // Fill form metadata
     if (this._propNodeId) this._propNodeId.value = node.id;
-    if (this._propNodeLabel) this._propNodeLabel.value = node.label;
+    if (this._propNodeLabel) this._propNodeLabel.value = node.label || '';
+    const descEl = qs('#prop-node-description');
+    if (descEl) descEl.value = node.description || '';
 
-    // Hide all dynamic config fieldsets
-    const fields = document.querySelectorAll('.dynamic-config-fields');
-    fields.forEach(f => f.style.display = 'none');
-
-    const config = node.config || {};
-
-    // Show matching section and populate values
-    if (node.type === 'trigger') {
-      const trigSec = qs('#config-trigger-fields');
-      if (trigSec) trigSec.style.display = 'block';
-      if (this._propTriggerSource) this._propTriggerSource.value = config.source_node_id || '';
-      if (this._propTriggerAuth) this._propTriggerAuth.value = config.execution_authority || 1.0;
-      
-    } else if (node.type === 'auth') {
-      const authSec = qs('#config-auth-fields');
-      if (authSec) authSec.style.display = 'block';
-      
-    } else if (node.type === 'interactive_prompt') {
-      const intSec = qs('#config-interactive-fields');
-      if (intSec) intSec.style.display = 'block';
-      this._propInteractiveMessage = qs('#prop-interactive-message');
-      if (this._propInteractiveMessage) this._propInteractiveMessage.value = config.message || '';
-      
-    } else if (node.type === 'email') {
-      const emailSec = qs('#config-email-fields');
-      if (emailSec) emailSec.style.display = 'block';
-      if (this._propEmailTo) this._propEmailTo.value = config.to || '';
-      if (this._propEmailSubject) this._propEmailSubject.value = config.subject || '';
-      if (this._propEmailBody) this._propEmailBody.value = config.body || '';
-      
-    } else if (node.type === 'custom_script') {
-      const scriptSec = qs('#config-script-fields');
-      if (scriptSec) scriptSec.style.display = 'block';
-      if (this._propScriptCode) this._propScriptCode.value = config.code || '';
-      
-    } else if (node.type === 'tool') {
-      const toolSec = qs('#config-tool-fields');
-      if (toolSec) toolSec.style.display = 'block';
-      const nameEl = qs('#prop-tool-name');
-      const sigEl = qs('#prop-tool-signature');
-      const argsEl = qs('#prop-tool-args');
-      const errEl = qs('#prop-tool-args-error');
-
-      if (nameEl) nameEl.value = config.tool || '';
-      if (sigEl) {
-        // Prefer the live catalogue's signature over the one stored in the
-        // node: a tool's arguments can change, and the stale copy is exactly
-        // what would send a step out with parameters that no longer exist.
-        const known = (this._tools || []).find(t => t.name === config.tool);
-        sigEl.textContent = known?.signature || config.signature || '';
-      }
-      if (argsEl) argsEl.value = JSON.stringify(config.args || {}, null, 2);
-      if (errEl) errEl.style.display = 'none';
-
-    } else if (node.type === 'output') {
-      const outSec = qs('#config-output-fields');
-      if (outSec) outSec.style.display = 'block';
-      if (this._propOutputFormat) this._propOutputFormat.value = config.format || 'json';
+    const hint = qs('#prop-node-hint');
+    if (hint) {
+      hint.textContent = spec.description
+        + (spec.engine === 'dag' ? ' Runs under the goal engine.' : '');
     }
 
-    // Populate Connection Select dropdowns
-    this.updateConnectionDropdowns(node);
+    this.renderConfigFields(node, spec);
+    this.renderConnections(node, spec);
+    this.renderNodeFindings(node);
   },
 
-  updateConnectionDropdowns(currentNode) {
-    if (!this._propConnSuccess || !this._propConnFailure) return;
+  /**
+   * Build the config inputs from the node type's declared fields.
+   *
+   * Generated rather than written out per type: a hand-built fieldset only
+   * covers the types somebody remembered to add one for, which is how
+   * `bash`, `node` and `mcp_tool` ended up executable but unconfigurable,
+   * and how `interactive_prompt` ended up configurable but unexecutable.
+   */
+  renderConfigFields(node, spec) {
+    const host = qs('#prop-config-fields');
+    if (!host) return;
+    host.innerHTML = '';
+    node.config = node.config || {};
 
-    // Reset dropdowns
-    this._propConnSuccess.innerHTML = '<option value="">None (Stop)</option>';
-    this._propConnFailure.innerHTML = '<option value="">None (Stop)</option>';
+    (spec.fields || []).forEach(field => {
+      const wrap = document.createElement('div');
+      wrap.className = 'form-group';
+      wrap.style.marginBottom = 'var(--space-3)';
 
-    // Add other nodes in workflow
-    this._currentWorkflow.nodes.forEach(node => {
-      if (node.id === currentNode.id) return;
-      const optText = `${node.label} (${node.id})`;
-      
-      const optSuccess = document.createElement('option');
-      optSuccess.value = node.id;
-      optSuccess.textContent = optText;
-      if (currentNode.connections.onSuccess === node.id) optSuccess.selected = true;
-      this._propConnSuccess.appendChild(optSuccess);
+      const label = document.createElement('label');
+      label.className = 'prop-label';
+      label.innerHTML = escapeHtml(field.label)
+        + (field.required ? ' <span class="req" title="Required">*</span>' : '');
+      wrap.appendChild(label);
 
-      const optFailure = document.createElement('option');
-      optFailure.value = node.id;
-      optFailure.textContent = optText;
-      if (currentNode.connections.onFailure === node.id) optFailure.selected = true;
-      this._propConnFailure.appendChild(optFailure);
+      const value = node.config[field.name];
+      let input;
+      if (field.kind === 'select') {
+        input = document.createElement('select');
+        input.className = 'prop-input';
+        (field.options || []).forEach(option => {
+          const el = document.createElement('option');
+          el.value = option;
+          el.textContent = option;
+          if (String(value ?? field.default ?? '') === option) el.selected = true;
+          input.appendChild(el);
+        });
+      } else if (field.kind === 'json') {
+        input = document.createElement('textarea');
+        input.className = 'prop-input json';
+        input.rows = 4;
+        input.value = JSON.stringify(value ?? field.default ?? {}, null, 2);
+      } else if (field.kind === 'code' || field.kind === 'textarea') {
+        input = document.createElement('textarea');
+        input.className = `prop-input ${field.kind === 'code' ? 'code' : ''}`;
+        input.rows = field.kind === 'code' ? 8 : 3;
+        input.value = value ?? field.default ?? '';
+      } else if (field.kind === 'number') {
+        input = document.createElement('input');
+        input.type = 'number';
+        input.className = 'prop-input';
+        input.value = value ?? field.default ?? '';
+      } else {
+        input = document.createElement('input');
+        input.type = 'text';
+        input.className = 'prop-input';
+        input.value = value ?? field.default ?? '';
+        if (field.kind === 'tool_ref') input.setAttribute('list', 'workflow-tool-names');
+        if (field.kind === 'node_ref') input.setAttribute('list', 'workflow-node-names');
+      }
+      input.dataset.field = field.name;
+      input.dataset.kind = field.kind;
+      input.addEventListener('input', () => this.saveNodeProperties());
+      input.addEventListener('change', () => this.saveNodeProperties());
+      wrap.appendChild(input);
+
+      // A tool's live signature, not the copy stored in the step: a tool's
+      // arguments can change, and the stale copy is exactly what would send
+      // a step out with parameters that no longer exist.
+      if (field.kind === 'tool_ref') {
+        const known = (this._tools || []).find(t => t.name === (value || ''));
+        const sig = document.createElement('div');
+        sig.className = 'prop-help';
+        sig.style.fontFamily = 'var(--font-mono, monospace)';
+        sig.textContent = known?.signature || node.config.signature || '';
+        wrap.appendChild(sig);
+      }
+      if (field.help) {
+        const help = document.createElement('div');
+        help.className = 'prop-help';
+        help.textContent = field.help;
+        wrap.appendChild(help);
+      }
+      const error = document.createElement('div');
+      error.className = 'prop-error';
+      error.dataset.errorFor = field.name;
+      error.style.display = 'none';
+      wrap.appendChild(error);
+
+      host.appendChild(wrap);
     });
+
+    this._refreshRefLists();
+  },
+
+  /** Autocomplete sources for tool and node references. */
+  _refreshRefLists() {
+    const ensure = (id, values) => {
+      let list = qs(`#${id}`);
+      if (!list) {
+        list = document.createElement('datalist');
+        list.id = id;
+        document.body.appendChild(list);
+      }
+      list.innerHTML = values.map(v => `<option value="${escapeHtml(v)}"></option>`).join('');
+    };
+    ensure('workflow-tool-names', (this._tools || []).map(t => t.name));
+    ensure('workflow-node-names', this._knownNodes || []);
+  },
+
+  /**
+   * One row per outgoing connection.
+   *
+   * The panel used to hold exactly two dropdowns, onSuccess and onFailure, so
+   * a decision's branches — which the executor has routed on all along —
+   * could not be expressed anywhere in the UI.
+   */
+  renderConnections(node, spec) {
+    const host = qs('#prop-connections');
+    if (!host) return;
+    host.innerHTML = '';
+    node.connections = node.connections || {};
+
+    const ports = this.outgoingPorts(node);
+    if (!ports.length) {
+      host.innerHTML = `<div class="prop-help">${escapeHtml(spec.label)} ends its path; nothing runs after it.</div>`;
+      return;
+    }
+
+    ports.forEach(port => {
+      const wrap = document.createElement('div');
+      wrap.className = 'form-group';
+      wrap.style.marginBottom = 'var(--space-2)';
+
+      const label = document.createElement('label');
+      label.className = 'prop-label';
+      const fixed = (spec.ports || []).includes(port);
+      label.textContent = fixed ? port : `branch: ${port}`;
+      wrap.appendChild(label);
+
+      const select = document.createElement('select');
+      select.className = 'prop-input';
+      select.dataset.port = port;
+      const none = document.createElement('option');
+      none.value = '';
+      none.textContent = 'None (stop here)';
+      select.appendChild(none);
+      this._currentWorkflow.nodes.forEach(other => {
+        if (other.id === node.id) return;
+        const option = document.createElement('option');
+        option.value = other.id;
+        option.textContent = `${other.label} (${other.id})`;
+        if (node.connections[port] === other.id) option.selected = true;
+        select.appendChild(option);
+      });
+      select.addEventListener('change', () => this.saveNodeProperties());
+      wrap.appendChild(select);
+      host.appendChild(wrap);
+    });
+  },
+
+  /**
+   * Name a branch this step can route to.
+   *
+   * Branch names live in the step's own config as well as its connections,
+   * because the executor refuses a branch the flow does not connect — being
+   * able to declare one is what lets the validator say so before the run
+   * rather than during it.
+   */
+  addBranch() {
+    if (!this._selectedNodeId) return;
+    const node = this._currentWorkflow.nodes.find(n => n.id === this._selectedNodeId);
+    if (!node) return;
+    const name = (prompt('Branch name (the answer the decision gives):') || '').trim();
+    if (!name) return;
+    if (['onSuccess', 'onFailure'].includes(name)) {
+      IPCLog.append('warning', `${name} is a built-in port, not a branch.`);
+      return;
+    }
+    node.config = node.config || {};
+    const branches = Array.isArray(node.config.branches) ? node.config.branches.map(String) : [];
+    if (!branches.includes(name)) branches.push(name);
+    node.config.branches = branches;
+    node.connections = node.connections || {};
+    if (!(name in node.connections)) node.connections[name] = null;
+    this.renderCanvasNodes();
+    this.updatePropertiesForm();
+    this.scheduleValidation();
+  },
+
+  /** The validator's findings for the selected step, beside its fields. */
+  renderNodeFindings(node) {
+    const host = qs('#prop-node-findings');
+    if (!host) return;
+    const mine = (this._findings || []).filter(f => f.node_id === node.id);
+    host.innerHTML = mine.length
+      ? mine.map(f => `<div class="finding ${escapeHtml(f.severity)}">${escapeHtml(f.message)}</div>`).join('')
+      : '';
   },
 
   saveNodeProperties() {
     if (!this._currentWorkflow || !this._selectedNodeId) return;
-
     const node = this._currentWorkflow.nodes.find(n => n.id === this._selectedNodeId);
     if (!node) return;
+    const spec = this.specFor(node);
 
-    // Save label
-    node.label = this._propNodeLabel.value.trim() || node.label;
-    
-    // Save connections
-    node.connections.onSuccess = this._propConnSuccess.value || null;
-    node.connections.onFailure = this._propConnFailure.value || null;
+    node.label = (this._propNodeLabel?.value || '').trim() || node.label;
+    const descEl = qs('#prop-node-description');
+    if (descEl) node.description = descEl.value;
 
-    // Save dynamic config
     node.config = node.config || {};
-    if (node.type === 'trigger') {
-      node.config.source_node_id = this._propTriggerSource.value.trim();
-      node.config.execution_authority = parseFloat(this._propTriggerAuth.value) || 1.0;
-      
-    } else if (node.type === 'auth') {
-      // Configured directly from the auth section
-      
-    } else if (node.type === 'interactive_prompt') {
-      this._propInteractiveMessage = qs('#prop-interactive-message');
-      if (this._propInteractiveMessage) node.config.message = this._propInteractiveMessage.value.trim();
-      
-    } else if (node.type === 'email') {
-      // provider config is resolved dynamically from auth tab settings
-      node.config.to = this._propEmailTo.value.trim();
-      node.config.subject = this._propEmailSubject.value.trim();
-      node.config.body = this._propEmailBody.value;
-      
-    } else if (node.type === 'custom_script') {
-      node.config.code = this._propScriptCode.value;
-      
-    } else if (node.type === 'tool') {
-      const argsEl = qs('#prop-tool-args');
-      const errEl = qs('#prop-tool-args-error');
-      if (argsEl) {
-        const raw = argsEl.value.trim();
+    const host = qs('#prop-config-fields');
+    (spec.fields || []).forEach(field => {
+      const input = host?.querySelector(`[data-field="${field.name}"]`);
+      if (!input) return;
+      const errorEl = host.querySelector(`[data-error-for="${field.name}"]`);
+      const raw = input.value;
+
+      if (field.kind === 'json') {
         try {
-          const parsed = raw ? JSON.parse(raw) : {};
-          if (parsed === null || typeof parsed !== 'object' || Array.isArray(parsed)) {
-            throw new Error('Arguments must be a JSON object.');
-          }
-          node.config.args = parsed;
-          if (errEl) errEl.style.display = 'none';
+          const parsed = raw.trim() ? JSON.parse(raw) : (Array.isArray(field.default) ? [] : {});
+          node.config[field.name] = parsed;
+          if (errorEl) errorEl.style.display = 'none';
         } catch (err) {
-          // Keep the last good arguments rather than writing a broken step:
-          // silently saving unparseable JSON as {} would strip the user's work
-          // and the flow would run with no arguments at all.
-          if (errEl) {
-            errEl.textContent = `Not saved — ${err.message}`;
-            errEl.style.display = 'block';
+          // The last good value is kept. Writing {} for unparseable JSON
+          // would silently strip the user's work and send the step out with
+          // no arguments at all.
+          if (errorEl) {
+            errorEl.textContent = `Not saved — ${err.message}`;
+            errorEl.style.display = 'block';
           }
         }
+        return;
       }
+      if (field.kind === 'number') {
+        const num = Number(raw);
+        node.config[field.name] = Number.isFinite(num) ? num : field.default;
+        return;
+      }
+      node.config[field.name] = raw;
+    });
 
-    } else if (node.type === 'output') {
-      node.config.format = this._propOutputFormat.value.trim();
+    const connectionHost = qs('#prop-connections');
+    if (connectionHost) {
+      connectionHost.querySelectorAll('select[data-port]').forEach(select => {
+        node.connections[select.dataset.port] = select.value || null;
+      });
     }
 
-    // Refresh canvas labels & lines
-    const cardBody = this._canvasSurface.querySelector(`.workflow-node-card[data-id="${node.id}"] .node-body-compact`);
-    if (cardBody) cardBody.textContent = node.label;
-    
-    this.drawCables();
+    this.renderCanvasNodes();
+    this.scheduleValidation();
+  },
+
+  /* ── Validation ─────────────────────────────────────────────────────
+     The same call workflow.save makes, so what the editor warns about and
+     what the server refuses cannot disagree. Debounced because it runs on
+     every keystroke in the properties panel. */
+
+  scheduleValidation() {
+    clearTimeout(this._validateTimer);
+    this._validateTimer = setTimeout(() => this.validateFlow(), 400);
+  },
+
+  async validateFlow() {
+    if (!this._currentWorkflow || !this._validationBar) return;
+    try {
+      const result = await invoke('python:rpc', {
+        method: 'flow.validate',
+        params: { workflow: this._currentWorkflow },
+      });
+      this._findings = result?.findings || [];
+      this._knownNodes = this._knownNodes || [];
+    } catch (err) {
+      // A validator that cannot be reached must say so. Showing nothing
+      // would read exactly like a flow with nothing wrong with it.
+      this._findings = [{
+        severity: 'warning', code: 'unchecked', node_id: null,
+        message: `Could not check this workflow: ${err.message}`,
+      }];
+    }
+    this.renderValidation();
+    this.renderCanvasNodes();
+    if (this._selectedNodeId) {
+      const node = this._currentWorkflow.nodes.find(n => n.id === this._selectedNodeId);
+      if (node) this.renderNodeFindings(node);
+    }
+  },
+
+  renderValidation() {
+    if (!this._validationBar) return;
+    const findings = this._findings || [];
+    this._validationBar.hidden = false;
+
+    if (!findings.length) {
+      this._validationBar.innerHTML =
+        '<div class="finding ok">Ready to run — no problems found.</div>';
+      return;
+    }
+
+    this._validationBar.innerHTML = findings.map(f => `
+      <div class="finding ${escapeHtml(f.severity)}" data-node="${escapeHtml(f.node_id || '')}">
+        <span class="finding-where">${escapeHtml(f.node_id || 'flow')}</span>
+        <span>${escapeHtml(f.message)}</span>
+      </div>`).join('');
+
+    this._validationBar.querySelectorAll('.finding[data-node]').forEach(row => {
+      const target = row.dataset.node;
+      if (!target) return;
+      row.addEventListener('click', () => this.selectNode(target));
+    });
   },
 
   syncJsonToWorkflow() {
@@ -11617,9 +11916,11 @@ const WorkflowManager = {
     try {
       const parsed = JSON.parse(this._jsonEditor.value);
       
-      // Basic schema validations
-      if (parsed.schema !== 'tala-flow/1.0') {
-        this.showJsonError('Invalid schema validation header. Must be "tala-flow/1.0".');
+      // Shape only. What is *wrong* with the flow is the validator's
+      // answer, and it is the same one the server gives — checking it twice
+      // in two places is how the editor and the server come to disagree.
+      if (!ACCEPTED_FLOW_SCHEMAS.includes(parsed.schema)) {
+        this.showJsonError(`Unknown schema ${parsed.schema}. Expected one of ${ACCEPTED_FLOW_SCHEMAS.join(', ')}.`);
         return;
       }
       if (!parsed.flow_id || !parsed.name || !Array.isArray(parsed.nodes)) {
@@ -11630,6 +11931,7 @@ const WorkflowManager = {
       this._currentWorkflow = parsed;
       if (this._jsonError) this._jsonError.style.display = 'none';
       if (this._nameInput) this._nameInput.value = this._currentWorkflow.name;
+      this.scheduleValidation();
     } catch (err) {
       this.showJsonError(`JSON Syntax Error: ${err.message}`);
     }
@@ -11658,9 +11960,22 @@ const WorkflowManager = {
         }
       });
 
+      if (result && result.success === false) {
+        // Refused by the same validator the editor has been showing all
+        // along, so this is a confirmation rather than a surprise.
+        this._findings = result.findings || [];
+        this.renderValidation();
+        this.renderCanvasNodes();
+        IPCLog.append('error',
+          `Not saved — ${this._findings.length} problem(s) must be fixed first.`);
+        return;
+      }
+
       if (result && result.success) {
+        this._currentWorkflow.flow_id = result.flow_id;
         IPCLog.append('info', `Saved workflow: "${this._currentWorkflow.name}" and attached HTML Neural Node flow-${result.flow_id}`);
         await this.load();
+        await this.validateFlow();
         
         // Update browser/wiki sidebar explorer to show new nodes
         if (typeof Explorer !== 'undefined' && Explorer._initialized) {
@@ -11698,6 +12013,11 @@ const WorkflowManager = {
   async runWorkflow() {
     if (!this._currentWorkflow) return;
 
+    // A previous run's marks cleared before this one starts, so a step that
+    // is not reached this time does not keep showing last time's result.
+    this._runState = {};
+    this.renderCanvasNodes();
+
     // Clear logs console
     if (this._logsConsole) {
       this._logsConsole.innerHTML = `
@@ -11716,8 +12036,11 @@ const WorkflowManager = {
 
       if (result) {
         const row = document.createElement('div');
-        row.className = `log-row ${result.status === 'COMPLETED' ? 'success-row' : 'fail-row'}`;
-        row.textContent = `[COMPLETED] Pipeline finished with status ${result.status}. Final output returned.`;
+        const finished = result.status === 'COMPLETED';
+        row.className = `log-row ${finished ? 'success-row' : 'fail-row'}`;
+        row.textContent = finished
+          ? `[COMPLETED] Ran ${(result.execution_path || []).length} step(s); status ${result.status}.`
+          : `[${result.status}] Stopped after ${(result.execution_path || []).length} step(s). See the failed step above.`;
         if (this._logsConsole) {
           this._logsConsole.appendChild(row);
           this._logsConsole.scrollTop = this._logsConsole.scrollHeight;
@@ -11736,9 +12059,24 @@ const WorkflowManager = {
   },
 
   handleStepExecutionProgress(stepParams) {
-    if (!this._logsConsole) return;
-    
     const nodeId = stepParams.node_id;
+
+    // The canvas, not only the console. This stream already carried the node
+    // id and its outcome; nothing but the log rows listened, so watching a run
+    // meant reading a wall of text to work out where it had got to.
+    if (nodeId && this._runState) {
+      this._runState[nodeId] = {
+        state: stepParams.status === 'SUCCESS' ? 'ok' : 'failed',
+        message: stepParams.message || '',
+      };
+      const next = this._currentWorkflow?.nodes?.find(n => n.id === nodeId)?.connections?.onSuccess;
+      if (stepParams.status === 'SUCCESS' && next && !this._runState[next]) {
+        this._runState[next] = { state: 'running', message: 'running…' };
+      }
+      this.renderCanvasNodes();
+    }
+
+    if (!this._logsConsole) return;
     const status = stepParams.status;
     const msg = stepParams.message;
     const logs = stepParams.logs || [];
@@ -11787,11 +12125,11 @@ const WorkflowManager = {
     reader.onload = (event) => {
       try {
         const parsed = JSON.parse(event.target.result);
-        if (parsed.schema === 'tala-flow/1.0' && parsed.flow_id) {
+        if (ACCEPTED_FLOW_SCHEMAS.includes(parsed.schema) && parsed.flow_id) {
           this.openBuilder(parsed);
           IPCLog.append('ok', `Workflow JSON imported successfully: "${parsed.name}"`);
         } else {
-          alert('Invalid file schema. Must be a valid tala-flow/1.0 JSON.');
+          alert(`Invalid file schema. Expected one of ${ACCEPTED_FLOW_SCHEMAS.join(', ')}.`);
         }
       } catch (err) {
         alert(`Failed to parse file: ${err.message}`);
