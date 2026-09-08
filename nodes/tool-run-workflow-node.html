@@ -22,10 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="run_workflow_node"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:444AC7DF77D65F667D8E3BAB1847943C7AF38DA9E3258B5575D4D167A77222E3"
-  data-source-digest="sha256:A7656A8BFFF3EE0D14D31E2C95B87B7F87F8DFF68E7C694A84102341F002D70A"
+  data-source-fingerprint="sha256:B7DD2005A0A34794119FB775CFCC0C459327D6028556D4F54C5FEBD7F37E170C"
+  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
   data-document-purpose="description"
-  data-generated-at="2026-09-08T01:43:17Z"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-08T14:16:38Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -34,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;run_workflow_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Execute a multi-step JSON workflow graph defined in an HTML Neural Node. Use this tool to progress through interactive node-based workflows step-by-step. Actions available: 1. &#x27;start&#x27;: Starts the workflow. Requires &#x27;node_id&#x27;. 2. &#x27;step&#x27;: Submit data for the current step. Requires &#x27;node_id&#x27; and &#x27;value&#x27;. IMPORTANT: You MUST follow the instructions returned by each step! If a step asks you to prompt the user, DO NOT guess the answer. Ask the user!&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_workflow_node(action, node_id, value)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;action&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;value&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;run_workflow_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Execute a multi-step JSON workflow graph defined in an HTML Neural Node. Use this tool to progress through interactive node-based workflows step-by-step. Actions available: 1. &#x27;execute&#x27; or &#x27;start&#x27;: Runs a saved workflow. node_id accepts its exact name, flow ID or HTML-NN ID. Pass inputs as a JSON object. 2. &#x27;step&#x27;: Submit data for the current step. Requires &#x27;node_id&#x27; and &#x27;value&#x27;. For saved workflows, always pass the user&#x27;s inputs explicitly, for example inputs={&quot;numbers&quot;: [11, 4, -3]}. A JSON-encoded object in value is also accepted. Never omit user-supplied inputs or substitute the script&#x27;s defaults. IMPORTANT: You MUST follow the instructions returned by each step! If a step asks you to prompt the user, DO NOT guess the answer. Ask the user!&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_workflow_node(action, node_id, value, inputs)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;action&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;value&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;inputs&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -97,20 +100,24 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:17Z",
+    "created_or_updated": "2026-09-08T14:16:38Z",
     "schema": "neural-node/v2",
     "doc_target": "run_workflow_node",
-    "source_fingerprint": "sha256:444AC7DF77D65F667D8E3BAB1847943C7AF38DA9E3258B5575D4D167A77222E3",
+    "source_fingerprint": "sha256:B7DD2005A0A34794119FB775CFCC0C459327D6028556D4F54C5FEBD7F37E170C",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:A7656A8BFFF3EE0D14D31E2C95B87B7F87F8DFF68E7C694A84102341F002D70A",
-    "document_purpose": "description"
+    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
   },
   "tool": {
     "name": "run_workflow_node",
-    "description": "Execute a multi-step JSON workflow graph defined in an HTML Neural Node. Use this tool to progress through interactive node-based workflows step-by-step. Actions available: 1. 'start': Starts the workflow. Requires 'node_id'. 2. 'step': Submit data for the current step. Requires 'node_id' and 'value'. IMPORTANT: You MUST follow the instructions returned by each step! If a step asks you to prompt the user, DO NOT guess the answer. Ask the user!",
-    "signature": "run_workflow_node(action, node_id, value)",
+    "description": "Execute a multi-step JSON workflow graph defined in an HTML Neural Node. Use this tool to progress through interactive node-based workflows step-by-step. Actions available: 1. 'execute' or 'start': Runs a saved workflow. node_id accepts its exact name, flow ID or HTML-NN ID. Pass inputs as a JSON object. 2. 'step': Submit data for the current step. Requires 'node_id' and 'value'. For saved workflows, always pass the user's inputs explicitly, for example inputs={\"numbers\": [11, 4, -3]}. A JSON-encoded object in value is also accepted. Never omit user-supplied inputs or substitute the script's defaults. IMPORTANT: You MUST follow the instructions returned by each step! If a step asks you to prompt the user, DO NOT guess the answer. Ask the user!",
+    "signature": "run_workflow_node(action, node_id, value, inputs)",
     "schema": {
       "type": "object",
       "properties": {
@@ -121,6 +128,9 @@
           "type": "string"
         },
         "value": {
+          "type": "string"
+        },
+        "inputs": {
           "type": "string"
         }
       },
