@@ -1,0 +1,80 @@
+{
+  "schema": "tala-flow/1.1",
+  "flow_id": "8cedcb9e-5fee-4ea0-9ff8-65c5c5882ea5",
+  "name": "QA Canvas 2026-09-08",
+  "description": "",
+  "tags": [],
+  "trigger_keywords": [],
+  "nodes": [
+    {
+      "id": "trigger-8ced",
+      "type": "trigger",
+      "label": "Start",
+      "description": "",
+      "config": {
+        "source_node_id": "default",
+        "inputs": {}
+      },
+      "connections": {
+        "onSuccess": "tool-d5ae",
+        "onFailure": null
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 100.0,
+        "y": 150.0
+      }
+    },
+    {
+      "id": "output-8ced",
+      "type": "output",
+      "label": "Result",
+      "description": "",
+      "config": {
+        "format": "json",
+        "value": "{{step_tool-d5ae.result.result.output}}",
+        "verify": "{{step_tool-d5ae.success}}"
+      },
+      "connections": {},
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 761.0,
+        "y": 264.0
+      }
+    },
+    {
+      "id": "tool-d5ae",
+      "type": "tool",
+      "label": "get_system_info",
+      "description": "",
+      "config": {
+        "args": {},
+        "tool": "get_system_info",
+        "signature": "get_system_info()"
+      },
+      "connections": {
+        "onSuccess": "output-8ced",
+        "onFailure": null
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 362.0,
+        "y": 142.640625
+      }
+    }
+  ],
+  "policy": {
+    "on_failure": {},
+    "on_success": {}
+  },
+  "metadata": {
+    "created_at": "2026-09-08T13:06:31.884Z"
+  },
+  "engine": "flow"
+}

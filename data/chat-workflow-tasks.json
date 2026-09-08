@@ -1,0 +1,50 @@
+[
+  {
+    "id": "cae69c3d-b798-5c00-a145-e1e41a8faefa",
+    "parent_id": "473685ba-ce01-5ca6-9e7d-dfa518f49328",
+    "description": "Run the saved workflow QA Custom Scripts 2026-09-08 with inputs numbers = [11, 4, -3]",
+    "status": "complete",
+    "assigned_agent_id": null,
+    "model_override": null,
+    "worktree_path": null,
+    "branch_name": null,
+    "payload": {
+      "id": "run-workflow",
+      "description": "Run the saved workflow QA Custom Scripts 2026-09-08 with inputs numbers = [11, 4, -3]",
+      "dependencies": [],
+      "tool": "run_workflow_node",
+      "tool_params": {
+        "action": "execute",
+        "node_id": "QA Custom Scripts 2026-09-08",
+        "value": {
+          "numbers": [
+            11,
+            4,
+            -3
+          ]
+        }
+      },
+      "priority": 0,
+      "goal": "Run my saved workflow QA Custom Scripts 2026-09-08 with inputs numbers = [11, 4, -3]. Execute the workflow and return its actual Result value here in chat."
+    },
+    "result": {
+      "output": "Error: Unknown action. Use 'start' or 'step'."
+    }
+  },
+  {
+    "id": "473685ba-ce01-5ca6-9e7d-dfa518f49328",
+    "parent_id": null,
+    "description": "Run my saved workflow QA Custom Scripts 2026-09-08 with inputs numbers = [11, 4, -3]. Execute the workflow and return its actual Result value here in chat.",
+    "status": "complete",
+    "assigned_agent_id": null,
+    "model_override": null,
+    "worktree_path": null,
+    "branch_name": null,
+    "payload": {},
+    "result": {
+      "phases_completed": [
+        "Run the saved workflow QA Custom Scripts 2026-09-08 with inputs numbers = [11, 4, -3]"
+      ]
+    }
+  }
+]

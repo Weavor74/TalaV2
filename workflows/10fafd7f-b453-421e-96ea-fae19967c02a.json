@@ -1,0 +1,110 @@
+{
+  "schema": "tala-flow/1.1",
+  "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+  "name": "QA Custom Scripts 2026-09-08",
+  "description": "",
+  "tags": [],
+  "trigger_keywords": [],
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "label": "Start",
+      "description": "",
+      "config": {},
+      "connections": {
+        "onSuccess": "calculate"
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 40.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "calculate",
+      "type": "custom_script",
+      "label": "Calculate",
+      "description": "",
+      "config": {
+        "code": "numbers = variables.get('numbers', [2, 3, 5])\nprint('QA input:', numbers)\nresult = {'sum': sum(numbers), 'count': len(numbers)}",
+        "timeout": 3
+      },
+      "connections": {
+        "onSuccess": "double",
+        "onFailure": "recovery"
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 270.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "double",
+      "type": "custom_script",
+      "label": "Double and check",
+      "description": "",
+      "config": {
+        "code": "prior = variables['step_calculate']['result']['script_result']\nresult = {'total': prior['sum'] * 2, 'count': prior['count'], 'checked': prior['sum'] == sum(variables.get('numbers', [2, 3, 5]))}",
+        "timeout": 3
+      },
+      "connections": {
+        "onSuccess": "result"
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 510.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "result",
+      "type": "output",
+      "label": "Result",
+      "description": "",
+      "config": {
+        "value": "{{step_double.result.script_result}}",
+        "verify": "{{step_double.result.script_result.checked}}"
+      },
+      "connections": {},
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 750.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "recovery",
+      "type": "custom_script",
+      "label": "Failure handler",
+      "description": "",
+      "config": {
+        "code": "result = {'handled': True, 'error': variables['step_calculate']['message']}",
+        "timeout": 3
+      },
+      "connections": {},
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 270.0,
+        "y": 280.0
+      }
+    }
+  ],
+  "policy": {
+    "on_failure": {},
+    "on_success": {}
+  },
+  "metadata": {},
+  "engine": "flow"
+}

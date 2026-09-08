@@ -1,0 +1,157 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v1">
+  <meta name="tala-node-id" content="flow-8cedcb9e-5fee-4ea0-9ff8-65c5c5882ea5">
+  <meta name="tala-node-type" content="workflow">
+  <meta name="tala-authority" content="1.00">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-09-08T13:20:49.334442+00:00">
+  <title>Workflow: QA Canvas 2026-09-08</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; color: #e2e8f0; background-color: #04060b; }
+    article { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 1.5rem; background-color: #0b0f19; }
+    section { margin-top: 1.5rem; }
+    code { background: rgba(255, 255, 255, 0.1); padding: 0.1rem 0.3rem; border-radius: 3px; font-family: monospace; }
+  </style>
+</head>
+<body>
+
+<article
+  data-node-id="flow-8cedcb9e-5fee-4ea0-9ff8-65c5c5882ea5"
+  data-node-type="workflow"
+  data-execution-authority="1.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00">
+
+  <header id="node-identity">
+    <h1 id="node-title">Workflow: QA Canvas 2026-09-08</h1>
+    <dl>
+      <dt>Flow ID</dt>
+      <dd><code>flow-8cedcb9e-5fee-4ea0-9ff8-65c5c5882ea5</code></dd>
+      <dt>Type</dt>
+      <dd><code>workflow</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>1.00</code></dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-09-08T13:20:49.334442+00:00">2026-09-08T13:20:49.334442+00:00</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>
+      This is a compiled workflow node named 'QA Canvas 2026-09-08'.
+      
+      When activated in the cognitive net, it allows the agent to execute a sequential pipeline of actions.
+
+      **Workflow Nodes Checklist:**
+      * **Start** (Type: `trigger`, ID: `trigger-8ced`): Connects to onSuccess -> `tool-d5ae`.
+      * **Result** (Type: `output`, ID: `output-8ced`): Connects to nothing (end of this path).
+      * **get_system_info** (Type: `tool`, ID: `tool-d5ae`): Connects to onSuccess -> `output-8ced`.
+
+      This workflow can be executed by invoking the RPC method `workflow.execute` with the Flow ID `flow-8cedcb9e-5fee-4ea0-9ff8-65c5c5882ea5`.
+      It carries operational authority and runs tasks in the defined sequence.
+    </p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="../../sdk/identity/whoami.html" data-relationship-type="implements" data-relationship-weight="1.00">
+          Whoami Master Identity Node
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state">
+  {
+  "schema": "tala-flow/1.1",
+  "flow_id": "8cedcb9e-5fee-4ea0-9ff8-65c5c5882ea5",
+  "name": "QA Canvas 2026-09-08",
+  "description": "",
+  "tags": [],
+  "trigger_keywords": [],
+  "nodes": [
+    {
+      "id": "trigger-8ced",
+      "type": "trigger",
+      "label": "Start",
+      "description": "",
+      "config": {
+        "source_node_id": "default",
+        "inputs": {}
+      },
+      "connections": {
+        "onSuccess": "tool-d5ae",
+        "onFailure": null
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 100.0,
+        "y": 150.0
+      }
+    },
+    {
+      "id": "output-8ced",
+      "type": "output",
+      "label": "Result",
+      "description": "",
+      "config": {
+        "format": "json",
+        "value": "{{step_tool-d5ae.result.result.output}}",
+        "verify": "{{step_tool-d5ae.success}}"
+      },
+      "connections": {},
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 761.0,
+        "y": 264.0
+      }
+    },
+    {
+      "id": "tool-d5ae",
+      "type": "tool",
+      "label": "get_system_info",
+      "description": "",
+      "config": {
+        "args": {},
+        "tool": "get_system_info",
+        "signature": "get_system_info()"
+      },
+      "connections": {
+        "onSuccess": "output-8ced",
+        "onFailure": null
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 362.0,
+        "y": 142.640625
+      }
+    }
+  ],
+  "policy": {
+    "on_failure": {},
+    "on_success": {}
+  },
+  "metadata": {
+    "created_at": "2026-09-08T13:06:31.884Z"
+  },
+  "engine": "flow"
+}
+  </script>
+
+</article>
+
+</body>
+</html>

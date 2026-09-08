@@ -1,0 +1,189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="tala-schema" content="neural-node/v1">
+  <meta name="tala-node-id" content="flow-10fafd7f-b453-421e-96ea-fae19967c02a">
+  <meta name="tala-node-type" content="workflow">
+  <meta name="tala-authority" content="1.00">
+  <meta name="tala-version" content="1.0.0">
+  <meta name="tala-created" content="2026-09-08T13:27:34.144388+00:00">
+  <title>Workflow: QA Custom Scripts 2026-09-08</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 900px; margin: 2rem auto; color: #e2e8f0; background-color: #04060b; }
+    article { border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 6px; padding: 1.5rem; background-color: #0b0f19; }
+    section { margin-top: 1.5rem; }
+    code { background: rgba(255, 255, 255, 0.1); padding: 0.1rem 0.3rem; border-radius: 3px; font-family: monospace; }
+  </style>
+</head>
+<body>
+
+<article
+  data-node-id="flow-10fafd7f-b453-421e-96ea-fae19967c02a"
+  data-node-type="workflow"
+  data-execution-authority="1.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00">
+
+  <header id="node-identity">
+    <h1 id="node-title">Workflow: QA Custom Scripts 2026-09-08</h1>
+    <dl>
+      <dt>Flow ID</dt>
+      <dd><code>flow-10fafd7f-b453-421e-96ea-fae19967c02a</code></dd>
+      <dt>Type</dt>
+      <dd><code>workflow</code></dd>
+      <dt>Execution Authority</dt>
+      <dd><code>1.00</code></dd>
+      <dt>Created</dt>
+      <dd><time datetime="2026-09-08T13:27:34.144388+00:00">2026-09-08T13:27:34.144388+00:00</time></dd>
+    </dl>
+  </header>
+
+  <section id="semantic-memory">
+    <h2>Semantic Memory</h2>
+    <p>
+      This is a compiled workflow node named 'QA Custom Scripts 2026-09-08'.
+      
+      When activated in the cognitive net, it allows the agent to execute a sequential pipeline of actions.
+
+      **Workflow Nodes Checklist:**
+      * **Start** (Type: `trigger`, ID: `start`): Connects to onSuccess -> `calculate`.
+      * **Calculate** (Type: `custom_script`, ID: `calculate`): Connects to onSuccess -> `double`, onFailure -> `recovery`.
+      * **Double and check** (Type: `custom_script`, ID: `double`): Connects to onSuccess -> `result`.
+      * **Result** (Type: `output`, ID: `result`): Connects to nothing (end of this path).
+      * **Failure handler** (Type: `custom_script`, ID: `recovery`): Connects to nothing (end of this path).
+
+      This workflow can be executed by invoking the RPC method `workflow.execute` with the Flow ID `flow-10fafd7f-b453-421e-96ea-fae19967c02a`.
+      It carries operational authority and runs tasks in the defined sequence.
+    </p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li>
+        <a href="../../sdk/identity/whoami.html" data-relationship-type="implements" data-relationship-weight="1.00">
+          Whoami Master Identity Node
+        </a>
+      </li>
+    </ul>
+  </nav>
+
+  <script type="application/json" id="node-state">
+  {
+  "schema": "tala-flow/1.1",
+  "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+  "name": "QA Custom Scripts 2026-09-08",
+  "description": "",
+  "tags": [],
+  "trigger_keywords": [],
+  "nodes": [
+    {
+      "id": "start",
+      "type": "trigger",
+      "label": "Start",
+      "description": "",
+      "config": {},
+      "connections": {
+        "onSuccess": "calculate"
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 40.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "calculate",
+      "type": "custom_script",
+      "label": "Calculate",
+      "description": "",
+      "config": {
+        "code": "numbers = variables.get('numbers', [2, 3, 5])\nprint('QA input:', numbers)\nresult = {'sum': sum(numbers), 'count': len(numbers)}",
+        "timeout": 3
+      },
+      "connections": {
+        "onSuccess": "double",
+        "onFailure": "recovery"
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 270.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "double",
+      "type": "custom_script",
+      "label": "Double and check",
+      "description": "",
+      "config": {
+        "code": "prior = variables['step_calculate']['result']['script_result']\nresult = {'total': prior['sum'] * 2, 'count': prior['count'], 'checked': prior['sum'] == sum(variables.get('numbers', [2, 3, 5]))}",
+        "timeout": 3
+      },
+      "connections": {
+        "onSuccess": "result"
+      },
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 510.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "result",
+      "type": "output",
+      "label": "Result",
+      "description": "",
+      "config": {
+        "value": "{{step_double.result.script_result}}",
+        "verify": "{{step_double.result.script_result.checked}}"
+      },
+      "connections": {},
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 750.0,
+        "y": 80.0
+      }
+    },
+    {
+      "id": "recovery",
+      "type": "custom_script",
+      "label": "Failure handler",
+      "description": "",
+      "config": {
+        "code": "result = {'handled': True, 'error': variables['step_calculate']['message']}",
+        "timeout": 3
+      },
+      "connections": {},
+      "depends_on": [],
+      "success_criteria": {},
+      "max_retries": 3,
+      "position": {
+        "x": 270.0,
+        "y": 280.0
+      }
+    }
+  ],
+  "policy": {
+    "on_failure": {},
+    "on_success": {}
+  },
+  "metadata": {},
+  "engine": "flow"
+}
+  </script>
+
+</article>
+
+</body>
+</html>

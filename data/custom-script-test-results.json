@@ -1,0 +1,526 @@
+{
+  "reopened_default": {
+    "seconds": 0.28,
+    "response": {
+      "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+      "name": "QA Custom Scripts 2026-09-08",
+      "status": "COMPLETED",
+      "execution_path": [
+        "start",
+        "calculate",
+        "double",
+        "result"
+      ],
+      "variables": {
+        "step_start": {
+          "success": true,
+          "result": {
+            "trigger_inputs": {}
+          },
+          "message": "Trigger captured input payload."
+        },
+        "step_calculate": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "sum": 10,
+              "count": 3
+            },
+            "stdout": "QA input: [2, 3, 5]"
+          },
+          "message": "Script executed."
+        },
+        "step_double": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "total": 20,
+              "count": 3,
+              "checked": true
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        },
+        "step_result": {
+          "success": true,
+          "result": {
+            "status": "SUCCESS",
+            "format": "json",
+            "value": {
+              "total": 20,
+              "count": 3,
+              "checked": true
+            },
+            "final_data": {
+              "step_start": {
+                "success": true,
+                "result": {
+                  "trigger_inputs": {}
+                },
+                "message": "Trigger captured input payload."
+              },
+              "step_calculate": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "sum": 10,
+                    "count": 3
+                  },
+                  "stdout": "QA input: [2, 3, 5]"
+                },
+                "message": "Script executed."
+              },
+              "step_double": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "total": 20,
+                    "count": 3,
+                    "checked": true
+                  },
+                  "stdout": ""
+                },
+                "message": "Script executed."
+              }
+            },
+            "verified": true
+          },
+          "message": "Workflow outputs compiled and verified."
+        }
+      },
+      "distilled_skill_node": "D:\\src\\TalaV2\\nodes\\skill-workflow_qa_custom_scripts_2026_09_08.html",
+      "executed_from": "html-nn"
+    }
+  },
+  "different_inputs": {
+    "seconds": 0.27,
+    "response": {
+      "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+      "name": "QA Custom Scripts 2026-09-08",
+      "status": "COMPLETED",
+      "execution_path": [
+        "start",
+        "calculate",
+        "double",
+        "result"
+      ],
+      "variables": {
+        "numbers": [
+          7,
+          -2,
+          10
+        ],
+        "step_start": {
+          "success": true,
+          "result": {
+            "trigger_inputs": {
+              "numbers": [
+                7,
+                -2,
+                10
+              ]
+            }
+          },
+          "message": "Trigger captured input payload."
+        },
+        "step_calculate": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "sum": 15,
+              "count": 3
+            },
+            "stdout": "QA input: [7, -2, 10]"
+          },
+          "message": "Script executed."
+        },
+        "step_double": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "total": 30,
+              "count": 3,
+              "checked": true
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        },
+        "step_result": {
+          "success": true,
+          "result": {
+            "status": "SUCCESS",
+            "format": "json",
+            "value": {
+              "total": 30,
+              "count": 3,
+              "checked": true
+            },
+            "final_data": {
+              "numbers": [
+                7,
+                -2,
+                10
+              ],
+              "step_start": {
+                "success": true,
+                "result": {
+                  "trigger_inputs": {
+                    "numbers": [
+                      7,
+                      -2,
+                      10
+                    ]
+                  }
+                },
+                "message": "Trigger captured input payload."
+              },
+              "step_calculate": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "sum": 15,
+                    "count": 3
+                  },
+                  "stdout": "QA input: [7, -2, 10]"
+                },
+                "message": "Script executed."
+              },
+              "step_double": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "total": 30,
+                    "count": 3,
+                    "checked": true
+                  },
+                  "stdout": ""
+                },
+                "message": "Script executed."
+              }
+            },
+            "verified": true
+          },
+          "message": "Workflow outputs compiled and verified."
+        }
+      },
+      "distilled_skill_node": "D:\\src\\TalaV2\\nodes\\skill-workflow_qa_custom_scripts_2026_09_08.html",
+      "executed_from": "html-nn"
+    }
+  },
+  "exception": {
+    "seconds": 0.2,
+    "response": {
+      "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+      "name": "QA Custom Scripts 2026-09-08",
+      "status": "FAILED",
+      "execution_path": [
+        "start",
+        "calculate",
+        "recovery"
+      ],
+      "variables": {
+        "step_start": {
+          "success": true,
+          "result": {
+            "trigger_inputs": {}
+          },
+          "message": "Trigger captured input payload."
+        },
+        "step_calculate": {
+          "success": false,
+          "result": {},
+          "message": "Script failed: ValueError: QA deliberate failure"
+        },
+        "step_recovery": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "handled": true,
+              "error": "Script failed: ValueError: QA deliberate failure"
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        }
+      },
+      "executed_from": "html-nn"
+    }
+  },
+  "timeout": {
+    "seconds": 1.12,
+    "response": {
+      "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+      "name": "QA Custom Scripts 2026-09-08",
+      "status": "FAILED",
+      "execution_path": [
+        "start",
+        "calculate",
+        "recovery"
+      ],
+      "variables": {
+        "step_start": {
+          "success": true,
+          "result": {
+            "trigger_inputs": {}
+          },
+          "message": "Trigger captured input payload."
+        },
+        "step_calculate": {
+          "success": false,
+          "result": {},
+          "message": "Script failed: the script did not finish within 1s"
+        },
+        "step_recovery": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "handled": true,
+              "error": "Script failed: the script did not finish within 1s"
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        }
+      },
+      "executed_from": "html-nn"
+    }
+  },
+  "process_exit": {
+    "seconds": 0.19,
+    "response": {
+      "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+      "name": "QA Custom Scripts 2026-09-08",
+      "status": "FAILED",
+      "execution_path": [
+        "start",
+        "calculate",
+        "recovery"
+      ],
+      "variables": {
+        "step_start": {
+          "success": true,
+          "result": {
+            "trigger_inputs": {}
+          },
+          "message": "Trigger captured input payload."
+        },
+        "step_calculate": {
+          "success": false,
+          "result": {},
+          "message": "Script failed: exit code 7"
+        },
+        "step_recovery": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "handled": true,
+              "error": "Script failed: exit code 7"
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        }
+      },
+      "executed_from": "html-nn"
+    }
+  },
+  "host_file_access": {
+    "seconds": 0.41,
+    "response": {
+      "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+      "name": "QA Custom Scripts 2026-09-08",
+      "status": "COMPLETED",
+      "execution_path": [
+        "start",
+        "calculate",
+        "double",
+        "result"
+      ],
+      "variables": {
+        "qa_marker": "C:\\Users\\steve\\AppData\\Local\\Temp\\tala_qa_permissions_gddx6hyr\\marker.txt",
+        "step_start": {
+          "success": true,
+          "result": {
+            "trigger_inputs": {
+              "qa_marker": "C:\\Users\\steve\\AppData\\Local\\Temp\\tala_qa_permissions_gddx6hyr\\marker.txt"
+            }
+          },
+          "message": "Trigger captured input payload."
+        },
+        "step_calculate": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "sum": 10,
+              "count": 3,
+              "outside_workspace_read_write": true
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        },
+        "step_double": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "total": 20,
+              "count": 3,
+              "checked": true
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        },
+        "step_result": {
+          "success": true,
+          "result": {
+            "status": "SUCCESS",
+            "format": "json",
+            "value": {
+              "total": 20,
+              "count": 3,
+              "checked": true
+            },
+            "final_data": {
+              "qa_marker": "C:\\Users\\steve\\AppData\\Local\\Temp\\tala_qa_permissions_gddx6hyr\\marker.txt",
+              "step_start": {
+                "success": true,
+                "result": {
+                  "trigger_inputs": {
+                    "qa_marker": "C:\\Users\\steve\\AppData\\Local\\Temp\\tala_qa_permissions_gddx6hyr\\marker.txt"
+                  }
+                },
+                "message": "Trigger captured input payload."
+              },
+              "step_calculate": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "sum": 10,
+                    "count": 3,
+                    "outside_workspace_read_write": true
+                  },
+                  "stdout": ""
+                },
+                "message": "Script executed."
+              },
+              "step_double": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "total": 20,
+                    "count": 3,
+                    "checked": true
+                  },
+                  "stdout": ""
+                },
+                "message": "Script executed."
+              }
+            },
+            "verified": true
+          },
+          "message": "Workflow outputs compiled and verified."
+        }
+      },
+      "distilled_skill_node": "D:\\src\\TalaV2\\nodes\\skill-workflow_qa_custom_scripts_2026_09_08.html",
+      "executed_from": "html-nn"
+    },
+    "marker_confirmed": true
+  },
+  "restored_success": {
+    "seconds": 0.31,
+    "response": {
+      "flow_id": "10fafd7f-b453-421e-96ea-fae19967c02a",
+      "name": "QA Custom Scripts 2026-09-08",
+      "status": "COMPLETED",
+      "execution_path": [
+        "start",
+        "calculate",
+        "double",
+        "result"
+      ],
+      "variables": {
+        "step_start": {
+          "success": true,
+          "result": {
+            "trigger_inputs": {}
+          },
+          "message": "Trigger captured input payload."
+        },
+        "step_calculate": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "sum": 10,
+              "count": 3
+            },
+            "stdout": "QA input: [2, 3, 5]"
+          },
+          "message": "Script executed."
+        },
+        "step_double": {
+          "success": true,
+          "result": {
+            "script_result": {
+              "total": 20,
+              "count": 3,
+              "checked": true
+            },
+            "stdout": ""
+          },
+          "message": "Script executed."
+        },
+        "step_result": {
+          "success": true,
+          "result": {
+            "status": "SUCCESS",
+            "format": "json",
+            "value": {
+              "total": 20,
+              "count": 3,
+              "checked": true
+            },
+            "final_data": {
+              "step_start": {
+                "success": true,
+                "result": {
+                  "trigger_inputs": {}
+                },
+                "message": "Trigger captured input payload."
+              },
+              "step_calculate": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "sum": 10,
+                    "count": 3
+                  },
+                  "stdout": "QA input: [2, 3, 5]"
+                },
+                "message": "Script executed."
+              },
+              "step_double": {
+                "success": true,
+                "result": {
+                  "script_result": {
+                    "total": 20,
+                    "count": 3,
+                    "checked": true
+                  },
+                  "stdout": ""
+                },
+                "message": "Script executed."
+              }
+            },
+            "verified": true
+          },
+          "message": "Workflow outputs compiled and verified."
+        }
+      },
+      "distilled_skill_node": "D:\\src\\TalaV2\\nodes\\skill-workflow_qa_custom_scripts_2026_09_08.html",
+      "executed_from": "html-nn"
+    }
+  }
+}

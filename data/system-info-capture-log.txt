@@ -1,0 +1,244 @@
+{
+  "jsonrpc": "2.0",
+  "id": "qa-info",
+  "result": {
+    "flow_id": "8cedcb9e-5fee-4ea0-9ff8-65c5c5882ea5",
+    "name": "QA Canvas 2026-09-08",
+    "status": "COMPLETED",
+    "execution_path": [
+      "trigger-8ced",
+      "tool-d5ae",
+      "output-8ced"
+    ],
+    "variables": {
+      "step_trigger-8ced": {
+        "success": true,
+        "result": {
+          "trigger_inputs": {}
+        },
+        "message": "Trigger captured input payload."
+      },
+      "step_tool-d5ae": {
+        "success": true,
+        "result": {
+          "tool": "get_system_info",
+          "result": {
+            "success": true,
+            "output": {
+              "os": {
+                "system": "Windows",
+                "release": "11",
+                "version": "10.0.26200",
+                "machine": "AMD64",
+                "processor": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
+                "node": "Kagura"
+              },
+              "cpu": {
+                "logical_cores": 16,
+                "physical_cores": 8,
+                "freq_mhz": 3801,
+                "usage_percent": 16.4
+              },
+              "ram": {
+                "total_gb": 127.93,
+                "used_gb": 32.57,
+                "percent": 25.5
+              },
+              "disk": {
+                "total_gb": 9314.0,
+                "used_gb": 234.1,
+                "percent": 2.5
+              },
+              "gpu": {
+                "available": false,
+                "devices": [],
+                "torch_version": "2.13.0+cpu",
+                "backend": "cpu",
+                "nvidia_smi_detected": [
+                  "NVIDIA GeForce RTX 3050, 6144 MiB"
+                ]
+              },
+              "software": {
+                "python": "3.12.9",
+                "node": "22.15.0",
+                "npm": "not found",
+                "electron": "42.5.0",
+                "postgresql_client": "17.10",
+                "postgresql_server": "17.10"
+              },
+              "python_packages": {
+                "asyncpg": "0.31.0",
+                "websockets": "16.0",
+                "tiktoken": "0.13.0",
+                "pydantic": "2.13.4",
+                "httpx": "0.28.1",
+                "lxml": "6.1.1",
+                "pyswisseph": "2.10.3.2",
+                "cryptography": "49.0.0",
+                "python-dotenv": "1.2.2"
+              },
+              "services": {
+                "harness_ws": "online",
+                "postgresql": "online",
+                "blockchain": "online"
+              }
+            },
+            "risk_level": "low",
+            "error": null
+          }
+        },
+        "message": "Tool 'get_system_info' executed."
+      },
+      "step_output-8ced": {
+        "success": true,
+        "result": {
+          "status": "SUCCESS",
+          "format": "json",
+          "value": {
+            "os": {
+              "system": "Windows",
+              "release": "11",
+              "version": "10.0.26200",
+              "machine": "AMD64",
+              "processor": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
+              "node": "Kagura"
+            },
+            "cpu": {
+              "logical_cores": 16,
+              "physical_cores": 8,
+              "freq_mhz": 3801,
+              "usage_percent": 16.4
+            },
+            "ram": {
+              "total_gb": 127.93,
+              "used_gb": 32.57,
+              "percent": 25.5
+            },
+            "disk": {
+              "total_gb": 9314.0,
+              "used_gb": 234.1,
+              "percent": 2.5
+            },
+            "gpu": {
+              "available": false,
+              "devices": [],
+              "torch_version": "2.13.0+cpu",
+              "backend": "cpu",
+              "nvidia_smi_detected": [
+                "NVIDIA GeForce RTX 3050, 6144 MiB"
+              ]
+            },
+            "software": {
+              "python": "3.12.9",
+              "node": "22.15.0",
+              "npm": "not found",
+              "electron": "42.5.0",
+              "postgresql_client": "17.10",
+              "postgresql_server": "17.10"
+            },
+            "python_packages": {
+              "asyncpg": "0.31.0",
+              "websockets": "16.0",
+              "tiktoken": "0.13.0",
+              "pydantic": "2.13.4",
+              "httpx": "0.28.1",
+              "lxml": "6.1.1",
+              "pyswisseph": "2.10.3.2",
+              "cryptography": "49.0.0",
+              "python-dotenv": "1.2.2"
+            },
+            "services": {
+              "harness_ws": "online",
+              "postgresql": "online",
+              "blockchain": "online"
+            }
+          },
+          "final_data": {
+            "step_trigger-8ced": {
+              "success": true,
+              "result": {
+                "trigger_inputs": {}
+              },
+              "message": "Trigger captured input payload."
+            },
+            "step_tool-d5ae": {
+              "success": true,
+              "result": {
+                "tool": "get_system_info",
+                "result": {
+                  "success": true,
+                  "output": {
+                    "os": {
+                      "system": "Windows",
+                      "release": "11",
+                      "version": "10.0.26200",
+                      "machine": "AMD64",
+                      "processor": "AMD64 Family 25 Model 33 Stepping 2, AuthenticAMD",
+                      "node": "Kagura"
+                    },
+                    "cpu": {
+                      "logical_cores": 16,
+                      "physical_cores": 8,
+                      "freq_mhz": 3801,
+                      "usage_percent": 16.4
+                    },
+                    "ram": {
+                      "total_gb": 127.93,
+                      "used_gb": 32.57,
+                      "percent": 25.5
+                    },
+                    "disk": {
+                      "total_gb": 9314.0,
+                      "used_gb": 234.1,
+                      "percent": 2.5
+                    },
+                    "gpu": {
+                      "available": false,
+                      "devices": [],
+                      "torch_version": "2.13.0+cpu",
+                      "backend": "cpu",
+                      "nvidia_smi_detected": [
+                        "NVIDIA GeForce RTX 3050, 6144 MiB"
+                      ]
+                    },
+                    "software": {
+                      "python": "3.12.9",
+                      "node": "22.15.0",
+                      "npm": "not found",
+                      "electron": "42.5.0",
+                      "postgresql_client": "17.10",
+                      "postgresql_server": "17.10"
+                    },
+                    "python_packages": {
+                      "asyncpg": "0.31.0",
+                      "websockets": "16.0",
+                      "tiktoken": "0.13.0",
+                      "pydantic": "2.13.4",
+                      "httpx": "0.28.1",
+                      "lxml": "6.1.1",
+                      "pyswisseph": "2.10.3.2",
+                      "cryptography": "49.0.0",
+                      "python-dotenv": "1.2.2"
+                    },
+                    "services": {
+                      "harness_ws": "online",
+                      "postgresql": "online",
+                      "blockchain": "online"
+                    }
+                  },
+                  "risk_level": "low",
+                  "error": null
+                }
+              },
+              "message": "Tool 'get_system_info' executed."
+            }
+          },
+          "verified": true
+        },
+        "message": "Workflow outputs compiled and verified."
+      }
+    },
+    "distilled_skill_node": "D:\\src\\TalaV2\\nodes\\skill-workflow_qa_canvas_2026_09_08.html",
+    "executed_from": "html-nn"
+  }
+}
