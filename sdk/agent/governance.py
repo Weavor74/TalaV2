@@ -84,7 +84,19 @@ class RiskClassifier:
 
         # Tool execution
         if action_type == "execute_tool":
-            if resource in ("run_workspace_command", "write_workspace_file", "submit_agent_goal"):
+            # desktop_action drives the real mouse and keyboard: one call can
+            # click anything on screen, type into whatever holds focus, or send
+            # a hotkey to the shell. It reaches further than
+            # run_workspace_command, which at least runs inside a workspace, so
+            # it belongs no lower.
+            #
+            # It matters that this is stated here rather than left to the
+            # default. Everything not named in these two tuples falls through
+            # to "low", so a tool is unclassified and safe-looking by omission
+            # -- and the gates read this, not the tool's own description. A
+            # capability nobody classified is a capability nobody gated.
+            if resource in ("run_workspace_command", "write_workspace_file",
+                            "submit_agent_goal", "desktop_action"):
                 return "high"
             if resource in ("send_telegram_message", "verify_and_heal_documentation", "update_neural_node"):
                 return "medium"
