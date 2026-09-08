@@ -7969,11 +7969,60 @@ async def handle_workflow_save(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'workflow' (dict) is required")
 
     try:
-        from python.harness.workflows_util import save_workflow_data
+        from python.harness.workflows_util import InvalidWorkflow, save_workflow_data
         flow_id = await save_workflow_data(workflow)
         return _ok(req_id, {"success": True, "flow_id": flow_id})
+    except InvalidWorkflow as invalid:
+        # Refused, with the reasons, rather than a 500. The renderer shows
+        # these against the steps they belong to, so "it would not save" is
+        # never the whole of what the user is told.
+        return _ok(req_id, {
+            "success": False,
+            "findings": [f.as_dict() for f in invalid.findings],
+        })
     except Exception as exc:
         logger.exception("workflow.save error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_flow_node_types(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``flow.node_types`` — The palette, from the registry both engines dispatch on.
+
+    Served rather than hardcoded in the renderer because the two lists drifted
+    in both directions when they were kept separately: types with executor
+    branches and no palette entry, and a palette entry with no executor branch.
+    """
+    try:
+        from sdk.agent import flow_schema
+        return _ok(req_id, flow_schema.describe_node_types())
+    except Exception as exc:
+        logger.exception("flow.node_types error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
+async def handle_flow_validate(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``flow.validate`` — What is wrong with a workflow, without saving it.
+
+    The same call ``workflow.save`` makes, so the editor's warnings and the
+    server's refusals cannot disagree.
+    """
+    workflow = params.get("workflow")
+    if not isinstance(workflow, dict):
+        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'workflow' (dict) is required")
+    try:
+        from sdk.agent import flow_schema
+        from python.harness.workflows_util import check_workflow
+
+        findings = check_workflow(workflow)
+        return _ok(req_id, {
+            "findings": [f.as_dict() for f in findings],
+            "ok": not flow_schema.errors(findings),
+            "flow": flow_schema.normalize(workflow),
+        })
+    except Exception as exc:
+        logger.exception("flow.validate error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
@@ -16201,6 +16250,8 @@ _HANDLERS: dict[str, Any] = {
     "agent.set_chat_mode": handle_agent_set_chat_mode,
     "workflow.list":      handle_workflow_list,
     "workflow.save":      handle_workflow_save,
+    "flow.node_types":    handle_flow_node_types,
+    "flow.validate":      handle_flow_validate,
     "workflow.delete":    handle_workflow_delete,
     "workflow.execute":   handle_workflow_execute,
     "workflow.generate_from_tot": handle_workflow_generate_from_tot,

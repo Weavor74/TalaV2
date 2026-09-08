@@ -178,42 +178,64 @@ class DAGExecutionEngine:
                 )
                 return None
 
-            spec = (parsed.state_data or {}).get("workflow")
-            if not isinstance(spec, dict):
-                log.warning("Workflow node %s has no 'workflow' object in #node-state — using built-in chain", node_path)
+            # One representation, read through the shared schema.
+            #
+            # This chain and the visual builder's flows were two documents that
+            # could not read each other -- steps joined by depends_on here,
+            # nodes joined by connections there -- so a chain Tala authored
+            # autonomously could not be opened in the editor and a flow the
+            # user drew could not drive a goal. normalize() accepts either and
+            # to_dag_spec() renders back into the steps this engine builds
+            # from, so the node on disk may be written in either shape and the
+            # chain is unchanged.
+            from sdk.agent import flow_schema
+
+            flow = flow_schema.normalize(parsed.state_data or {})
+            if not flow["nodes"]:
+                log.warning(
+                    "Workflow node %s has no runnable steps in #node-state — using built-in chain",
+                    node_path,
+                )
                 return None
 
-            steps = spec.get("steps")
-            if not isinstance(steps, list) or not steps:
-                log.warning("Workflow node spec has no steps — using built-in chain")
+            problems = flow_schema.errors(flow_schema.validate(flow))
+            if problems:
+                log.warning(
+                    "Workflow node spec is not valid (%s) — using built-in chain",
+                    "; ".join(p.message for p in problems[:3]),
+                )
                 return None
 
+            spec = flow_schema.to_dag_spec(flow)
+            steps = spec["steps"]
+
+            # Three checks the shared validator deliberately does not make,
+            # because they are this engine's requirements rather than the
+            # document's: a step id becomes a graph node id, a database row key
+            # and part of a worktree path, so it must be a plain token; every
+            # step must be a phase *this* engine implements; and the list must
+            # already be in dependency order, since the chain is built in the
+            # order it is read. The validator treats a decorative id as a
+            # warning on purpose -- the editor should not refuse to save a flow
+            # over the shape of a name.
             seen: set[str] = set()
             for step in steps:
-                if not isinstance(step, dict):
-                    log.warning("Workflow node spec: step is not an object — using built-in chain")
-                    return None
-                step_id = str(step.get("step") or "").strip()
-                node_type = str(step.get("node_type") or "").strip()
+                step_id = step["step"]
                 if not re.fullmatch(r"[a-z][a-z0-9_-]*", step_id):
-                    log.warning("Workflow node spec: bad step id %r — using built-in chain", step_id)
+                    log.warning(
+                        "Workflow node spec: bad step id %r — using built-in chain", step_id)
                     return None
-                if step_id in seen:
-                    log.warning("Workflow node spec: duplicate step id %r — using built-in chain", step_id)
-                    return None
-                if node_type not in self.SUPPORTED_STEP_TYPES:
+                if step["node_type"] not in self.SUPPORTED_STEP_TYPES:
                     log.warning(
                         "Workflow node spec: step %r has unsupported node_type %r (supported: %s) — using built-in chain",
-                        step_id, node_type, sorted(self.SUPPORTED_STEP_TYPES),
+                        step_id, step["node_type"], sorted(self.SUPPORTED_STEP_TYPES),
                     )
                     return None
-                deps = step.get("depends_on") or []
-                if not isinstance(deps, list) or any(d not in seen for d in deps):
-                    # Steps must be listed in dependency order; a forward or
-                    # unknown reference is either a typo or a cycle.
+                late = [d for d in step["depends_on"] if d not in seen]
+                if late:
                     log.warning(
                         "Workflow node spec: step %r depends on undefined/later step(s) %s — using built-in chain",
-                        step_id, [d for d in deps if d not in seen],
+                        step_id, late,
                     )
                     return None
                 seen.add(step_id)

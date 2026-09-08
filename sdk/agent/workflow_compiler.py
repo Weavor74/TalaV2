@@ -43,14 +43,21 @@ def compile_workflow_to_html(workflow: dict[str, Any]) -> str:
         node_type = node.get("type", "unknown")
         node_label = node.get("label", f"Node ({node_type})")
         node_id = node.get("id", "unknown")
-        node_cfg_desc = node.get("config", {}).get("description", "")
+        # 1.1 gives a step's prose a field of its own; 1.0 kept it in config.
+        # Both are read, so a node compiled from either shape still describes
+        # its steps rather than listing bare ids for the index to chew on.
+        node_desc_desc = node.get("description") or node.get("config", {}).get("description", "")
 
-        line = (
-            f"* **{node_label}** (Type: `{node_type}`, ID: `{node_id}`): "
-            f"Connects to onSuccess -> `{node.get('connections', {}).get('onSuccess')}`."
-        )
-        if node_cfg_desc:
-            line += f" {node_cfg_desc}"
+        connections = node.get("connections") or {}
+        # Every connection, not just onSuccess. A decision's branches are named
+        # connections, so listing only onSuccess described a fork as a dead end
+        # -- to the retrieval index and to anyone reading the node.
+        routes = ", ".join(
+            f"{key} -> `{target}`" for key, target in connections.items() if target
+        ) or "nothing (end of this path)"
+        line = f"* **{node_label}** (Type: `{node_type}`, ID: `{node_id}`): Connects to {routes}."
+        if node_desc_desc:
+            line += f" {node_desc_desc}"
         node_desc_lines.append(line)
 
     nodes_summary = "\n      ".join(node_desc_lines)

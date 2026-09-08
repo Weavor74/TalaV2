@@ -15,9 +15,12 @@ import re
 import asyncio
 import json
 import logging
+import sys
 import uuid
 from pathlib import Path
 from typing import Any, Callable, Awaitable
+
+from sdk.agent import flow_schema
 
 logger = logging.getLogger(__name__)
 
@@ -30,11 +33,30 @@ class _Missing:
 
 _MISSING = _Missing()
 
-#: Node types the executor actually implements. Named so the failure message
-#: for an unknown type can say what is available instead of just refusing.
-SUPPORTED_NODE_TYPES = (
-    "trigger", "auth", "email", "custom_script", "tool", "mcp_tool", "bash", "output",
-)
+#: Node types this executor implements.
+#:
+#: Derived from the shared registry rather than written out here. The hand-kept
+#: tuple had omitted ``node`` — a type with a working branch six lines below —
+#: so the refusal message for a typo told the user a real type did not exist.
+#: A list maintained in two places disagrees with itself eventually; this one
+#: cannot, because the palette, the validator and this dispatch all read the
+#: same table.
+SUPPORTED_NODE_TYPES = tuple(sorted(flow_schema.FLOW_TYPES))
+
+#: Marks where a script step's return value starts, so the script's own prints
+#: stay logs and do not have to be parsed as data.
+_RESULT_SENTINEL = "\x00TALA-STEP-RESULT\x00"
+
+#: Runs one workflow script step. Reads a JSON context on stdin, executes the
+#: user's code with the workflow's variables in scope, and writes whatever the
+#: code assigned to ``result`` after the sentinel.
+_SCRIPT_RUNNER = r"""
+import json, sys
+_ctx = json.loads(sys.stdin.read())
+_ns = {"variables": _ctx["variables"], "result": None, "__name__": "__workflow_step__"}
+exec(compile(_ctx["code"], "<workflow-step>", "exec"), _ns)
+sys.stdout.write({sentinel!r} + json.dumps(_ns.get("result"), default=str))
+""".replace("{sentinel!r}", repr(_RESULT_SENTINEL))
 
 class WorkflowExecutor:
     """
@@ -60,9 +82,13 @@ class WorkflowExecutor:
             Async function signature: callback(node_id, status, message, logs)
             Used to stream execution telemetry in real-time.
         """
-        self.workflow = workflow
+        # Normalised on the way in, so a flow reaching this executor as a 1.0
+        # document, a 1.1 document or a node's whole state object is the same
+        # object by the time anything dispatches on it. Every caller used to
+        # hand over whatever shape it happened to hold.
+        self.workflow = flow_schema.normalize(workflow)
         self.step_callback = step_callback
-        self.nodes = {n["id"]: n for n in workflow.get("nodes", [])}
+        self.nodes = {n["id"]: n for n in self.workflow.get("nodes", [])}
         self.variables: dict[str, Any] = {}
         self.root_dir = Path(root_dir) if root_dir else Path(__file__).resolve().parents[2]
 
@@ -131,6 +157,59 @@ class WorkflowExecutor:
             return [self._resolve(v, unresolved) for v in value]
         return value
 
+    async def _run_python_step(
+        self, code: str, timeout: int
+    ) -> tuple[bool, Any, str, str]:
+        """
+        Run a script step, returning ``(ok, result, stdout, error)``.
+
+        Out of process for two reasons: a step that loops forever is killable,
+        and a step that calls ``sys.exit`` or corrupts module state takes its
+        own interpreter down rather than the harness. The workflow's variables
+        go in as JSON and the value assigned to ``result`` comes back the same
+        way, so a step cannot hand the next one an object that only exists
+        inside it.
+        """
+        payload = json.dumps({"code": code, "variables": self.variables}, default=str)
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                sys.executable, "-c", _SCRIPT_RUNNER,
+                cwd=str(self.root_dir),
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+        except OSError as exc:
+            return False, None, "", f"could not start the interpreter ({exc})"
+
+        try:
+            raw_out, raw_err = await asyncio.wait_for(
+                proc.communicate(payload.encode("utf-8")), timeout=timeout
+            )
+        except asyncio.TimeoutError:
+            proc.kill()
+            await proc.wait()
+            return False, None, "", f"the script did not finish within {timeout}s"
+
+        stdout = raw_out.decode("utf-8", "replace")
+        stderr = raw_err.decode("utf-8", "replace").strip()
+        printed, _, encoded = stdout.partition(_RESULT_SENTINEL)
+
+        if proc.returncode != 0:
+            # The traceback is the useful part; the last line names the error.
+            reason = stderr.splitlines()[-1] if stderr else f"exit code {proc.returncode}"
+            return False, None, (printed + ("\n" + stderr if stderr else "")).strip(), reason
+        try:
+            value = json.loads(encoded) if encoded else None
+        except json.JSONDecodeError:
+            # Reached only if `result` held something json could not represent
+            # even with default=str, so say so rather than pass on a truncation.
+            return False, None, printed.strip(), "the script's result could not be serialised"
+        combined = printed.strip()
+        if stderr:
+            combined = (combined + "\n" + stderr).strip()
+        return True, value, combined, ""
+
     async def run_single_node(
         self, current_node: dict[str, Any]
     ) -> tuple[bool, str, dict[str, Any], list[str]]:
@@ -168,7 +247,12 @@ class WorkflowExecutor:
         try:
             if node_type == "trigger":
                 node_logs.append("Trigger matched. Ingesting input context.")
-                result_data = {"trigger_inputs": self.variables}
+                # A copy, not the live dict. Storing `self.variables` here put
+                # the variables dict inside itself as soon as the step's result
+                # was recorded, and every consumer that serialises the run --
+                # the workflow.execute reply, the script-step context, skill
+                # distillation -- died on "Circular reference detected".
+                result_data = {"trigger_inputs": dict(self.variables)}
                 message = "Trigger captured input payload."
                 
             elif node_type == "auth":
@@ -265,42 +349,64 @@ class WorkflowExecutor:
                     node_logs.append(message)
 
             elif node_type == "custom_script":
-                script_code = config.get("code", "")
-                node_logs.append("Parsing script instructions...")
-                node_logs.append(f"Script: {script_code[:200]}")
-                
-                # Sandbox: simple expression eval, or mock run
-                # If script contains simple math expressions, let's eval them safely
-                # e.g. "result = 5 + 10" or similar
-                local_scope = {"variables": self.variables, "result": None}
-                try:
-                    # Clean code of comments and basic formatting
-                    sanitized_code = script_code.strip()
-                    if sanitized_code:
-                        # If it starts with result =, execute it
-                        # Otherwise mock execute it
-                        node_logs.append("Running sandbox executor...")
-                        # Safe execution mockup: we don't call raw exec() on user input
-                        # unless we parse it or mock it. Let's do simple math evaluations safely.
-                        if "result =" in sanitized_code:
-                            expr = sanitized_code.split("result =")[1].strip()
-                            # Allow only numbers, operators, space
-                            if all(c in "0123456789+-*/(). " for c in expr):
-                                local_scope["result"] = eval(expr, {"__builtins__": None}, {})
-                                node_logs.append(f"Evaluated math expression: {expr} -> {local_scope['result']}")
-                            else:
-                                node_logs.append("Script expression contains non-math characters, skipping execution.")
-                                local_scope["result"] = "Executed code snippet successfully (mocked)."
-                        else:
-                            local_scope["result"] = "Executed custom script logic."
-                    else:
-                        local_scope["result"] = "Empty script executed."
-                        
-                    result_data = {"script_result": local_scope["result"]}
-                    message = "Custom script executed successfully."
-                except Exception as expr_exc:
+                # Really runs the script.
+                #
+                # This branch used to eval() only a pure-arithmetic expression
+                # after "result =" and, for anything else, set the result to
+                # the string "Executed custom script logic." and report
+                # SUCCESS. A step that ran nothing was indistinguishable from
+                # one that worked -- and it was the type Tala's own workflow
+                # generator emitted for every step it planned, so an entire
+                # generated flow could run green having executed nothing.
+                #
+                # Now it runs in a subprocess under the same interpreter, with
+                # the accumulated variables in scope and `result` as the return
+                # channel. That is the same trust level as the `bash` step
+                # beside it -- both run code the flow's author wrote, on this
+                # host -- rather than a sandbox this codebase does not have.
+                script_code = str(config.get("code") or "").strip()
+                if not script_code:
                     success = False
-                    message = f"Script execution error: {expr_exc}"
+                    message = "Script step has no code."
+                    node_logs.append(message)
+                else:
+                    node_logs.append(f"Running script ({len(script_code)} chars).")
+                    ok, value, output, error = await self._run_python_step(
+                        script_code, int(config.get("timeout", 60) or 60)
+                    )
+                    for line in output.splitlines()[:50]:
+                        node_logs.append(f"  {line}")
+                    if ok:
+                        result_data = {"script_result": value, "stdout": output}
+                        message = "Script executed."
+                    else:
+                        success = False
+                        message = f"Script failed: {error}"
+                        node_logs.append(message)
+
+            elif node_type == "interactive_prompt":
+                # A question, in a run with nobody to ask.
+                #
+                # The chat driver (run_workflow_node) suspends here and puts
+                # the question to whoever is talking to Tala. Reached from an
+                # unattended run there is no such person, so the answer must
+                # already be among the inputs. Refusing beats supplying a
+                # default: an unanswered question that proceeds anyway makes
+                # every step after it act on a value nobody chose.
+                question = str(config.get("message") or "").strip()
+                key = str(config.get("input_key") or node_id)
+                answer = self.variables.get(key)
+                if answer in (None, ""):
+                    success = False
+                    message = (
+                        f"{node_label} asks {question!r} and no answer was supplied. "
+                        f"Pass it as the input {key!r}, or run this flow from a "
+                        f"conversation where it can be asked."
+                    )
+                    node_logs.append(message)
+                else:
+                    result_data = {"question": question, "answer": answer}
+                    message = f"Answered from input {key!r}."
                     node_logs.append(message)
 
             elif node_type == "mcp_tool":
@@ -438,10 +544,132 @@ class WorkflowExecutor:
                     if not success:
                         node_logs.append(str(ran.get("error") or "no reason given"))
 
+            elif node_type == "decision":
+                # A fork, asked of a decision node.
+                #
+                # Identical machinery to a `node` step -- it is the same call
+                # through the same gates -- but declared separately because a
+                # step that routes is a different thing to read than a step
+                # that acts, and the editor must draw it differently. The
+                # branch it answers with is carried out to the routing below.
+                from sdk.agent.node_execution import execute_node_by_id
+
+                target = str(self._resolve(config.get("node_id") or "")).strip()
+                declared = config.get("branches")
+                declared = [str(b) for b in declared] if isinstance(declared, list) else []
+                if not target:
+                    success = False
+                    message = "A decision step must name the node that decides."
+                    result_data = {"status": "error", "error": message}
+                else:
+                    node_inputs = self._resolve(config.get("inputs") or {})
+                    if not isinstance(node_inputs, dict):
+                        node_inputs = {"value": node_inputs}
+                    node_logs.append(f"Asking {target} which way to go.")
+                    ran = await execute_node_by_id(target, node_inputs)
+                    success = bool(ran.get("success"))
+                    result_data = dict(ran)
+                    branch = str(ran.get("branch") or "")
+                    if success and not branch:
+                        # Without an answer there is nothing to route on, and
+                        # falling through to onSuccess would run one arm of a
+                        # fork chosen by nobody.
+                        success = False
+                        message = f"{target} ran but named no branch, so there is nothing to route on."
+                        node_logs.append(message)
+                    elif success and declared and branch not in declared:
+                        success = False
+                        message = (
+                            f"{target} answered {branch!r}, which this step does not "
+                            f"declare. Declared: {', '.join(declared)}."
+                        )
+                        node_logs.append(message)
+                    else:
+                        message = f"{target} chose {branch}." if success else str(
+                            ran.get("error") or f"{target} failed.")
+                        node_logs.append(message)
+
+            elif node_type == "state":
+                # Read or write what is currently true.
+                #
+                # State nodes hold data, not code: they are deliberately not
+                # executable, so this goes through the read/write tools rather
+                # than the node executor. That is why a state step cannot be
+                # spelled as a `node` step -- running one is not a thing you
+                # can do.
+                from sdk.agent.node_execution import read_state_node, write_state_node
+
+                target = str(self._resolve(config.get("node_id") or "")).strip()
+                mode = str(config.get("mode") or "read").strip().lower()
+                if not target:
+                    success = False
+                    message = "A state step must name the state node it uses."
+                elif mode == "write":
+                    values = self._resolve(config.get("values") or {})
+                    if not isinstance(values, dict):
+                        success = False
+                        message = "A state write needs an object of values."
+                    else:
+                        written = await write_state_node(
+                            target, values, str(config.get("title") or ""))
+                        success = bool(written.get("success"))
+                        result_data = written
+                        message = (
+                            f"Wrote {len(values)} value(s) to {target}." if success
+                            else str(written.get("error") or f"Could not write {target}.")
+                        )
+                elif mode == "read":
+                    read = await read_state_node(target)
+                    success = bool(read.get("success"))
+                    result_data = read
+                    message = (
+                        f"Read {len(read.get('values') or {})} value(s) from {target}."
+                        if success else str(read.get("error") or f"Could not read {target}.")
+                    )
+                else:
+                    success = False
+                    message = f"A state step's mode is 'read' or 'write', not {mode!r}."
+                node_logs.append(message)
+
             elif node_type == "output":
                 node_logs.append("Output node reached. Consolidating workflow result.")
-                result_data = {"status": "SUCCESS", "final_data": self.variables}
+                # `value` and `verify` are what make this a Result step rather
+                # than a full stop: one says what the flow returns, the other
+                # says how completion is checked. Without the check, "the last
+                # step ran" was the only definition of success a flow had.
+                unresolved: list[str] = []
+                value = self._resolve(config.get("value"), unresolved) if config.get("value") else None
+                verify = config.get("verify")
+                result_data = {
+                    "status": "SUCCESS",
+                    "format": config.get("format") or "json",
+                    "value": value,
+                    "final_data": dict(self.variables),
+                }
                 message = "Workflow outputs compiled."
+                if unresolved:
+                    success = False
+                    message = (
+                        "The result references values that do not exist: "
+                        f"{', '.join(sorted(set(unresolved)))}."
+                    )
+                    node_logs.append(message)
+                elif verify:
+                    checked: list[str] = []
+                    outcome = self._resolve(verify, checked)
+                    if checked:
+                        success = False
+                        message = (
+                            f"Verification references {', '.join(sorted(set(checked)))}, "
+                            f"which the run never produced."
+                        )
+                    elif not _truthy(outcome):
+                        success = False
+                        message = f"Verification failed: {verify!r} resolved to {outcome!r}."
+                    else:
+                        message = "Workflow outputs compiled and verified."
+                    result_data["verified"] = success
+                    node_logs.append(message)
 
             else:
                 # This branch used to log "Custom action node type X logic
@@ -674,6 +902,19 @@ class WorkflowExecutor:
             )
 
         raise ValueError(f"Unsupported bash backend '{backend}'. Expected local, docker, or ssh.")
+
+def _truthy(value: Any) -> bool:
+    """
+    Whether a verification expression passed.
+
+    Strings are compared by meaning rather than by emptiness, because a
+    reference resolving to the text "false" is a failed check that Python's
+    own truthiness would happily call a pass.
+    """
+    if isinstance(value, str):
+        return value.strip().lower() not in ("", "false", "0", "none", "null", "no")
+    return bool(value)
+
 
 def datetime_now_iso() -> str:
     from datetime import datetime, timezone

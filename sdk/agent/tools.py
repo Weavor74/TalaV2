@@ -2164,6 +2164,25 @@ async def registry_list_tool(prefix: str | None = None) -> dict[str, Any]:
     name="workflow.generate_from_tot",
     description="Generate a sequential workflow from ToT (Tree-of-Thought) ideation steps for a given goal.",
 )
+def _match_planned_tool(task_description: str) -> str | None:
+    """
+    The registered tool a planned step names, if it names one.
+
+    Deliberately literal: the tool's own name has to appear in the step's text.
+    A fuzzier match would turn "check the search index" into a call to some
+    tool with "search" in its name, and a plausible wrong tool in a generated
+    workflow is worse than an honest gap, because nobody reads the step that
+    looks already filled in.
+    """
+    text = str(task_description or "").lower()
+    matches = [name for name in ToolRegistry._tools if name and name in text]
+    if not matches:
+        return None
+    # Longest wins, so a step naming `read_workspace_file` is not matched by a
+    # shorter tool whose name is a substring of it.
+    return max(matches, key=len)
+
+
 async def generate_workflow_from_tot_tool(
     prompt: str,
     name: str | None = None,
@@ -2198,22 +2217,50 @@ async def generate_workflow_from_tot_tool(
         })
 
         # Intermediate Nodes: Step Tasks
+        #
+        # A planned step becomes a real tool call when the plan names a tool
+        # that exists, and a draft that refuses to run when it does not.
+        #
+        # Every step used to be emitted as a custom_script holding
+        # `result = 'Completed step N'`. Back when custom_script quietly
+        # mocked everything, that ran green, so a generated workflow reported
+        # success having done nothing -- and generated workflows are the ones
+        # nobody reads before running. Now that scripts really execute, the
+        # same placeholder would still be a step that does nothing while
+        # reporting success, which is the worse half of the old behaviour.
+        # A draft step says out loud that it is unfinished.
         tasks_list = top_approach.get("tasks", [])
         for idx, task_desc in enumerate(tasks_list):
             node_id = f"step-{idx}"
             next_node_id = f"step-{idx+1}" if idx < len(tasks_list) - 1 else "output-node"
-            nodes.append({
-                "id": node_id,
-                "type": "custom_script",
-                "label": f"Step {idx+1}: {task_desc[:40]}...",
-                "config": {
+            tool_name = _match_planned_tool(task_desc)
+            if tool_name:
+                node = {
+                    "id": node_id,
+                    "type": "tool",
+                    "label": f"Step {idx+1}: {tool_name}",
                     "description": task_desc,
-                    "code": f"result = 'Completed step {idx+1}'"
-                },
-                "connections": {
-                    "onSuccess": next_node_id
+                    "config": {"tool": tool_name, "args": {}},
                 }
-            })
+            else:
+                node = {
+                    "id": node_id,
+                    "type": "custom_script",
+                    "label": f"Step {idx+1}: {task_desc[:40]}",
+                    "description": task_desc,
+                    "config": {
+                        "code": (
+                            "raise NotImplementedError(\n"
+                            f"    {task_desc!r}\n"
+                            "    ' — this step was planned but not implemented.'\n"
+                            "    ' Open the workflow editor and replace it with the'\n"
+                            "    ' tool call or script that does it.'\n"
+                            ")"
+                        ),
+                    },
+                }
+            node["connections"] = {"onSuccess": next_node_id}
+            nodes.append(node)
 
         # Node N: Output Node
         nodes.append({
