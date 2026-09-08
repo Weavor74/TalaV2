@@ -6097,8 +6097,10 @@ const AgentChat = {
     // (or names a registered tool), route it through the normal chat path so
     // the model emits a <call:tool /> tag and it executes inline & fast.
     const toolIntentPhrases = ['run a tool script', 'run_tool_script', 'use the ', 'call the ', 'using the ', ' tool to ', 'tool call'];
-    const isDirectToolIntent = toolIntentPhrases.some(p => lowerText.includes(p));
-    const isActionPrompt = !isDirectToolIntent && actionVerbs.some(verb => lowerText.includes(verb));
+    const isWorkflowRun = /\b(run|execute|start)\b[\s\S]*\bworkflow\b/.test(lowerText);
+    const isDirectToolIntent = isWorkflowRun || toolIntentPhrases.some(p => lowerText.includes(p));
+    const isActionPrompt = !isDirectToolIntent && actionVerbs.some(verb =>
+      new RegExp(`\\b${verb.trim()}\\b`).test(lowerText));
 
     if (isActionPrompt) {
       const loadingId = 'chat-loading-' + Date.now();

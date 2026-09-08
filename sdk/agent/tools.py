@@ -397,11 +397,13 @@ class ToolRegistry:
                 except Exception as met_e:
                     log.debug("ToolRegistry: failed to record success metric: %s", met_e)
                     
+            workflow_failed = (name == "run_workflow_node" and
+                               isinstance(result, dict) and result.get("success") is False)
             return {
-                "success": True,
+                "success": not workflow_failed,
                 "output": safe_result,
                 "risk_level": risk,
-                "error": None,
+                "error": result.get("error") if workflow_failed else None,
             }
         except Exception as exc:
             log.error("ToolRegistry: execution of %s failed: %s", name, exc)
@@ -3110,16 +3112,69 @@ __PROV_PLACEHOLDER__
 Use this tool to progress through interactive node-based workflows step-by-step.
 
 Actions available:
-1. 'start': Starts the workflow. Requires 'node_id'.
+1. 'execute' or 'start': Runs a saved workflow. node_id accepts its exact name, flow ID or HTML-NN ID. Pass inputs as a JSON object.
 2. 'step': Submit data for the current step. Requires 'node_id' and 'value'.
+
+For saved workflows, always pass the user's inputs explicitly, for example
+inputs={"numbers": [11, 4, -3]}. A JSON-encoded object in value is also accepted.
+Never omit user-supplied inputs or substitute the script's defaults.
 
 IMPORTANT: You MUST follow the instructions returned by each step! If a step asks you to prompt the user, DO NOT guess the answer. Ask the user!
 """,
 )
-async def run_workflow_node(action: str = "auto", node_id: str = "workflow-node_builder", value: str = "", **kwargs) -> dict[str, Any]:
+async def run_workflow_node(action: str = "auto", node_id: str = "workflow-node_builder", value: str = "", inputs: dict | None = None, **kwargs) -> dict[str, Any]:
     import json
     import re
     from pathlib import Path
+
+    if action not in ("auto", "start", "execute", "step"):
+        return {"success": False, "error": "Unknown action. Use execute, start or step."}
+
+    # Saved editor flows use the same runner and variable namespace as the UI.
+    # Keep the interview driver below for workflows containing user prompts.
+    from sdk.agent.node_execution import load_workflow_spec
+    from python.harness.workflows_util import get_all_workflows
+    reference = str(node_id).strip()
+    spec = load_workflow_spec(reference)
+    if spec is None:
+        matches = [f for f in get_all_workflows()
+                   if str(f.get("name", "")).casefold() == reference.casefold()]
+        if len(matches) > 1:
+            return {"success": False, "error": "Workflow name is ambiguous; use its flow ID."}
+        if matches:
+            reference = matches[0]["flow_id"]
+            spec = load_workflow_spec(reference)
+    if spec and not any(n.get("type") == "interactive_prompt" for n in spec.get("nodes", [])):
+        from python.harness.workflow_executor import WorkflowExecutor
+        supplied = inputs if inputs is not None else value
+        if supplied == "" or supplied is None:
+            supplied = dict(kwargs)
+        if isinstance(supplied, str):
+            try:
+                supplied = json.loads(supplied)
+            except json.JSONDecodeError:
+                return {"success": False, "error": "Workflow inputs must be a JSON object; supplied input text was not valid JSON."}
+        if not isinstance(supplied, dict):
+            return {"success": False, "error": "inputs must be a JSON object."}
+        execution = await WorkflowExecutor(spec).execute(supplied)
+        outputs = [execution["variables"].get(f"step_{nid}", {}).get("result", {})
+                   for nid in execution.get("execution_path", [])
+                   if any(n.get("id") == nid and n.get("type") == "output" for n in spec["nodes"])]
+        ok = execution.get("status") == "COMPLETED"
+        failures = [v.get("message", "Workflow step failed") for v in execution.get("variables", {}).values()
+                    if isinstance(v, dict) and v.get("success") is False]
+        return {"success": ok, "status": execution.get("status"),
+                "value": outputs[-1].get("value") if outputs else None,
+                "verified": outputs[-1].get("verified") if outputs else None,
+                "error": "; ".join(failures) if not ok else None,
+                "inputs": supplied, "executed_from": "html-nn", "execution": execution}
+    if action == "execute":
+        if spec:
+            action = "start"
+        else:
+            return {"success": False, "error": f"No executable saved workflow found: {node_id}"}
+    if spec is None and action in ("auto", "start"):
+        return {"success": False, "error": f"No executable saved workflow found: {node_id}"}
     
     # resolve_active_nodes_dir(), not Path("nodes/..."): Tala is meant to run
     # from a USB stick on any OS, and a cwd-relative path puts her state
@@ -3141,6 +3196,8 @@ async def run_workflow_node(action: str = "auto", node_id: str = "workflow-node_
             
     # Helper to parse workflow JSON from HTML
     def _parse_workflow_json(nid: str) -> dict:
+        if spec is not None:
+            return spec
         node_file = _nodes_root / f"{nid}.html"
         if not node_file.exists():
             return {}
@@ -3909,6 +3966,16 @@ async def analyze_screen(question: str = "Describe what is on the screen.", prov
     from python.harness.voice import _get_providers, _normalize_endpoint_url
 
     shot = await get_screen_context()
+    return await _analyze_screen_image(shot, question, provider_id)
+
+
+async def _analyze_screen_image(shot, question, provider_id=None):
+    """NAME
+           _analyze_screen_image - analyze an already captured desktop image
+    DESCRIPTION
+           Keeps vision coordinates accountable to the image actually observed.
+    """
+    from python.harness.voice import _get_providers, _normalize_endpoint_url
     if "error" in shot:
         return {"success": False, "error": shot["error"]}
 
@@ -4857,6 +4924,7 @@ from sdk.agent import vault_tools  # noqa: E402,F401
 # module because it imports register_tool from here -- doing it at the bottom
 # keeps the cycle resolvable.
 from sdk.agent import agent_authoring  # noqa: E402,F401
+from sdk.agent import desktop_control  # noqa: E402,F401
 
 
 

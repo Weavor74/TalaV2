@@ -90,7 +90,7 @@ async def test_a_tool_step_actually_runs(workspace, monkeypatch):
     out = await run_workflow_node(action="start", node_id="flow-x")
 
     assert called == [("do_it", {"a": 1})], "the step was not executed"
-    assert "WORKFLOW COMPLETE" in out
+    assert out["success"] is True
 
 
 @pytest.mark.asyncio
@@ -110,9 +110,8 @@ async def test_a_failing_step_does_not_report_completion(workspace, monkeypatch)
 
     out = await run_workflow_node(action="start", node_id="flow-y")
 
-    assert "WORKFLOW FAILED" in out
-    assert "WORKFLOW COMPLETE" not in out
-    assert "it broke" in out
+    assert out["success"] is False
+    assert "it broke" in out["error"]
 
 
 @pytest.mark.asyncio
@@ -126,8 +125,8 @@ async def test_an_unknown_step_type_fails_instead_of_passing_through(workspace):
 
     out = await run_workflow_node(action="start", node_id="flow-z")
 
-    assert "WORKFLOW FAILED" in out
-    assert "not_a_real_type" in out
+    assert out["success"] is False
+    assert "not_a_real_type" in out["error"]
 
 
 @pytest.mark.asyncio
@@ -147,8 +146,9 @@ async def test_a_failed_step_follows_its_failure_branch(workspace, monkeypatch):
     ))
 
     out = await run_workflow_node(action="start", node_id="flow-r")
-    # It recovered rather than stopping, so this one does complete.
-    assert "WORKFLOW COMPLETE" in out
+    # The failure handler runs, but the original failure remains visible.
+    assert out["success"] is False
+    assert "recover" in out["execution"]["execution_path"]
 
 
 def test_there_is_one_node_dispatch_not_two():
