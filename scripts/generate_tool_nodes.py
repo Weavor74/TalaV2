@@ -98,6 +98,29 @@ def _signature(schema: dict) -> str:
     )
 
 
+def _source_files_for(tool: dict) -> list[str]:
+    """
+    The file a registered tool is defined in, relative to the repository.
+
+    Empty when the function cannot be located -- a tool bridged from an MCP
+    server has no local source, and claiming one would make a description
+    look checkable when nothing can check it.
+    """
+    func = tool.get("func")
+    if func is None:
+        return []
+    try:
+        source_file = inspect.getsourcefile(func) or inspect.getfile(func)
+    except (TypeError, OSError):
+        return []
+    if not source_file:
+        return []
+    try:
+        return [Path(source_file).resolve().relative_to(_ROOT).as_posix()]
+    except ValueError:
+        return []
+
+
 def _prose(tool: dict) -> str:
     """
     The node's semantic memory: what retrieval will match on.
@@ -197,6 +220,14 @@ def build(dry_run: bool = False, prune: bool = False) -> int:
                 doc_target=name,
                 node_type="function-doc",
                 semantic_memory=_prose(tool),
+                # Where the tool actually lives, so this description can be
+                # checked against it later. These nodes carried an empty
+                # source-files attribute, which put 99 of them -- the largest
+                # block of current operational documentation in the store --
+                # permanently beyond any freshness check. The registry knows
+                # the function; the function knows its file.
+                source_files=_source_files_for(tool),
+                purpose="description",
                 tags=["tool", "registry", "capability", name],
                 state_extra={
                     # The machine-readable half. The prose above is what

@@ -164,9 +164,14 @@ def test_unknown_is_not_reported_as_current():
     """
     report = documentation_staleness()
     assert "unknown" in report
-    assert report["current"] + len(report["unknown"]) + len(report["stale"]) \
-        + len(report["source_missing"]) == report["checked"]
-    assert "not a claim that the node is current" in report["note"]
+    # `records` joined these buckets when purpose became explicit metadata: a
+    # benchmark run is neither current nor unknown, it is out of scope, and
+    # every node has to land in exactly one bucket or the numbers mean nothing.
+    assert (
+        report["current"] + len(report["unknown"]) + len(report["stale"])
+        + len(report["source_missing"]) + len(report["records"])
+    ) == report["checked"]
+    assert "coverage gap" in report["note"]
 
 
 def test_a_documented_module_actually_describes_itself():

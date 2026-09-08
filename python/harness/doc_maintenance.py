@@ -154,7 +154,9 @@ async def regenerate_contract_if_changed() -> dict[str, Any]:
         if str(root) not in sys.path:
             sys.path.insert(0, str(root))
         sys.path.insert(0, str(root / "scripts"))
-        from generate_architecture_contract import _prose, build_contract
+        from generate_architecture_contract import (
+            CONTRACT_SOURCES, _prose, build_contract,
+        )
     except Exception as exc:
         log.warning("doc maintenance: could not load the contract generator: %s", exc)
         return {"ran": False, "reason": str(exc)}
@@ -183,6 +185,13 @@ async def regenerate_contract_if_changed() -> dict[str, Any]:
             doc_target="tala.architecture",
             node_type="documentation",
             semantic_memory=_prose(contract),
+            # Taken from the generator rather than restated. This pass writes
+            # the same node the command line does, and a second argument list
+            # here meant the daily refresh quietly STRIPPED the contract's own
+            # source references — the document telling everything else to be
+            # checkable, made uncheckable by the thing maintaining it.
+            source_files=CONTRACT_SOURCES,
+            purpose="description",
             tags=["architecture", "contract", "ontology", "system",
                   "defaults", "orientation", "read-first"],
             state_extra={"architecture_contract": contract},
@@ -223,7 +232,7 @@ async def refresh_stale_documentation() -> dict[str, Any]:
     the point is that nothing describing changed code stays unexamined.
     """
     try:
-        from sdk.agent.documentation_nodes import documentation_staleness
+        from sdk.agent.documentation_nodes import documentation_staleness, purpose_of
     except Exception as exc:
         log.warning("doc maintenance: staleness check unavailable: %s", exc)
         return {"ran": False, "reason": str(exc)}
@@ -233,6 +242,17 @@ async def refresh_stale_documentation() -> dict[str, Any]:
     except Exception as exc:
         log.exception("doc maintenance: staleness check failed")
         return {"ran": False, "reason": str(exc)}
+
+    # Records are outside freshness by purpose, and the log should say so
+    # rather than leaving a reader to wonder what happened to them.
+    records = report.get("records") or []
+    if records:
+        log.info(
+            "doc maintenance: %d record(s) left alone — %s are evidence of what "
+            "happened, not descriptions of what is true now",
+            len(records),
+            ", ".join(sorted({purpose_of(r["node_id"]) for r in records})),
+        )
 
     stale = report.get("stale") or []
     if not stale:

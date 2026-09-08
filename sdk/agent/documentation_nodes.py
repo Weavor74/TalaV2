@@ -387,6 +387,48 @@ def _render_paragraphs(text: str) -> str:
 #: is regenerated, and the description comes out byte-identical, still
 #: describing Amazon. Source-current and quietly wrong is worse than stale,
 #: because stale at least says so.
+#: What a document is FOR, which decides whether freshness applies to it.
+#:
+#: A benchmark run from August is not stale — it is a record of what happened
+#: in August, and regenerating it against today's code would destroy the
+#: evidence. A description of how the tool registry works today is stale the
+#: moment the registry changes. Treating both as "documentation" made the
+#: second look like the first: 139 nodes sat in one undifferentiated
+#: "unknown" pile, so the number could not say which of them anybody should
+#: do anything about.
+#:
+#:     record       what happened, or what was learned. Preserve content and
+#:                  provenance; never regenerate against current code, and
+#:                  never count as stale.
+#:     description  what is true of the system now. Needs source references,
+#:                  freshness checking and a refresh path.
+#:     mixed        carries both, and the historical half should be separated
+#:                  out rather than dragged along by a refresh.
+PURPOSE_RECORD = "record"
+PURPOSE_DESCRIPTION = "description"
+PURPOSE_MIXED = "mixed"
+DOCUMENT_PURPOSES = (PURPOSE_RECORD, PURPOSE_DESCRIPTION, PURPOSE_MIXED)
+
+#: Families whose nodes are records of something that happened. Matched on the
+#: node id prefix, which is how this store names families.
+RECORD_PREFIXES = ("benchmark-", "learning-", "swarm-run-", "goal-", "session-")
+
+
+def purpose_of(node_id: str, declared: str = "") -> str:
+    """
+    A document's purpose: what it declares, or what its family implies.
+
+    The declaration wins. The prefix is only a default for the nodes written
+    before there was anything to declare, and it is a guess — stated as one
+    rather than stamped as fact.
+    """
+    if declared in DOCUMENT_PURPOSES:
+        return declared
+    if any(node_id.startswith(prefix) for prefix in RECORD_PREFIXES):
+        return PURPOSE_RECORD
+    return PURPOSE_DESCRIPTION
+
+
 UNVERIFIED_MARK = "[Behaviour unverified]"
 
 UNVERIFIED_NOTICE = (
@@ -549,6 +591,7 @@ def create_documentation_node(
     semantic_memory: str,
     node_type: str = "documentation",
     source_files: Any = None,
+    purpose: str = "",
     relationships: Any = None,
     references: Any = None,
     tags: Any = None,
@@ -591,6 +634,7 @@ def create_documentation_node(
     # What the code looked like when this was written, so that "the code has
     # changed since" becomes a question anything can answer later.
     digest = _source_digest(source_files_list)
+    document_purpose = purpose_of(safe_node_id, purpose)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     nodes_dir = resolve_active_nodes_dir()
@@ -653,6 +697,7 @@ def create_documentation_node(
             # alone cannot be recomputed without knowing what to hash.
             "source_files": list(source_files_list),
             "source_digest": digest,
+            "document_purpose": document_purpose,
         },
     }
 
@@ -692,6 +737,7 @@ def create_documentation_node(
   data-source-files="{escape(';'.join(source_files_list))}"
   data-source-fingerprint="{escape(fingerprint)}"
   data-source-digest="{escape(digest)}"
+  data-document-purpose="{escape(document_purpose)}"
   data-generated-at="{generated_at}"
   data-source="local"
   data-trust-tier="system">
@@ -1583,7 +1629,8 @@ def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
                 "errors": [f"no nodes directory at {nodes_dir}"]}
 
     stale: list[dict[str, Any]] = []
-    unknown: list[str] = []
+    unknown: list[dict[str, Any]] = []
+    records: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
     current = 0
     errors: list[str] = []
@@ -1599,15 +1646,25 @@ def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
         if requested and node_id not in requested:
             continue
 
+        declared = _get_article_attribute(path, "data-document-purpose") or ""
+        purpose = purpose_of(node_id, declared)
+        if purpose == PURPOSE_RECORD:
+            # Not stale, not unknown: out of scope. A benchmark run is a
+            # record of what happened, and checking it against today's code
+            # asks a question that has no meaning.
+            records.append({"node_id": node_id, "declared": bool(declared)})
+            continue
+
         recorded = re.search(r'data-source-digest="([^"]*)"', html)
         files_attr = re.search(r'data-source-files="([^"]*)"', html)
         source_files = [f for f in (files_attr.group(1).split(";") if files_attr else []) if f]
 
         if not recorded or not source_files:
-            # A node that documents nothing in particular -- a persona, a
-            # learning note -- is not unknown, it is simply out of scope.
+            # A description with nothing to check against. This is the
+            # coverage gap, and it is the number that should be driven down.
             if source_files or _get_article_attribute(path, "data-doc-target"):
-                unknown.append(node_id)
+                unknown.append({"node_id": node_id, "purpose": purpose,
+                                "declared": bool(declared)})
             continue
 
         present = [f for f in source_files if (_REPO_ROOT / f).exists()]
@@ -1626,17 +1683,30 @@ def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
                 "path": str(path),
             })
 
+    undeclared = sum(1 for r in records if not r["declared"])
+    undeclared += sum(1 for u in unknown if not u["declared"])
     return {
-        "checked": current + len(stale) + len(unknown) + len(missing),
+        "checked": current + len(stale) + len(unknown) + len(missing) + len(records),
         "current": current,
         "stale": stale,
         "unknown": unknown,
+        "records": records,
         "source_missing": missing,
         "errors": errors,
+        "coverage": {
+            "descriptions": current + len(stale) + len(unknown) + len(missing),
+            "with_source": current + len(stale),
+            "without_source": len(unknown),
+            "records_excluded": len(records),
+            "purpose_inferred_not_declared": undeclared,
+        },
         "note": (
-            "'unknown' means the node records no source digest and predates this "
-            "check -- it is not a claim that the node is current. Regenerating it "
-            "gives it one."
+            "'records' are outside freshness by purpose: a benchmark run or a "
+            "lesson is what happened, and regenerating it against today's code "
+            "would destroy the evidence. 'unknown' is the coverage gap -- a "
+            "DESCRIPTION with no source reference, which is neither current nor "
+            "checkable. Driving that to zero is the milestone; eliminating "
+            "records is not."
         ),
     }
 

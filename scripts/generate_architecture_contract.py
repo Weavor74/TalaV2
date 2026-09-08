@@ -44,6 +44,22 @@ if str(_ROOT) not in sys.path:
 
 NODE_ID = "system-architecture-contract"
 
+#: What the contract reads to build itself. Changing any of these can change
+#: what it says, so a digest over them is exactly the right staleness signal.
+CONTRACT_SOURCES = [
+    "python/harness/architecture_facts.py",
+    "sdk/agent/node_execution.py",
+    "electron/main.js",
+    "electron/preload.js",
+    "python/harness/server.py",
+    "sdk/agent/goal_engine.py",
+    "sdk/agent/graph_engine.py",
+    "sdk/agent/swarm_engine.py",
+    "python/harness/crews.py",
+    "python/harness/workflow_executor.py",
+    "python/harness/heartbeat_scheduler.py",
+]
+
 
 def _count_nodes() -> tuple[int, dict[str, int]]:
     from collections import Counter
@@ -408,6 +424,12 @@ async def main(show: bool) -> int:
         doc_target="tala.architecture",
         node_type="documentation",
         semantic_memory=_prose(contract),
+        # The files this contract is derived FROM, so its own freshness can be
+        # checked like any other description. A document that tells everything
+        # else to be checkable and is not itself is the weakest link in the
+        # chain it is at the top of.
+        source_files=CONTRACT_SOURCES,
+        purpose="description",
         tags=["architecture", "contract", "ontology", "system",
               "defaults", "orientation", "read-first"],
         state_extra={"architecture_contract": contract},
