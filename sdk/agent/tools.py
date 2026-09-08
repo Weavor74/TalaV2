@@ -4064,24 +4064,42 @@ async def _analyze_screen_image(shot, question, provider_id=None):
 
     providers = await _get_providers()
     candidates = [p for p in providers if p.get("type") in ("remote", "local")]
+    unknown_provider_note = None
     if provider_id:
-        candidates = [p for p in candidates if p["id"] == provider_id]
-        if not candidates:
-            # Name the ones that exist. A caller guessing this parameter is the
-            # normal case, not an error case: the tool advertises provider_id
-            # and nothing tells the caller what a valid one looks like. A model
-            # guessed "default", got a bare "not found", and had nothing to
-            # correct itself with -- so it kept guessing.
-            vision = [p["id"] for p in providers if _provider_is_vision_capable(p)]
-            return {
-                "success": False,
-                "error": (
-                    f"Provider '{provider_id}' not found. Vision-capable "
-                    f"provider ids: {', '.join(vision) or 'none configured'}. "
-                    f"Omit provider_id to let one be chosen."
-                ),
-            }
-    else:
+        named = [p for p in candidates if p["id"] == provider_id]
+        if named:
+            candidates = named
+        else:
+            # An unknown provider_id is a bad hint, not a reason to fail.
+            #
+            # This is an optional expert knob, and models guess at it: one sent
+            # "default", another sent "tool-desktop-observe" -- the id of the
+            # tool's own documentation node, which its context had just been
+            # given. Each wrong guess killed the whole observation, which is a
+            # screenshot and a window list thrown away over a parameter that
+            # did not need to be set at all.
+            #
+            # So: fall back to automatic selection and say so. Silently
+            # ignoring a caller's explicit choice would be worse than failing;
+            # the returned `provider` names what actually ran, and
+            # provider_note says the request was not honoured and why.
+            vision = [p["id"] for p in providers if await _provider_is_vision_capable(p)]
+            log.warning(
+                "vision: provider_id %r does not exist; choosing automatically", provider_id
+            )
+            unknown_provider_note = (
+                f"provider_id {provider_id!r} does not exist and was ignored; "
+                f"chose a provider automatically. Valid vision-capable ids: "
+                f"{', '.join(vision) or 'none configured'}. Omitting provider_id "
+                f"is the normal case."
+            )
+            provider_id = None
+
+    if not provider_id:
+        # Reached both when no provider was named and when a named one did not
+        # exist, so the fallback narrows to vision-capable providers exactly
+        # like the ordinary path -- rather than leaving every embedding model
+        # in the running.
         vision_ready = [p for p in candidates if await _provider_is_vision_capable(p)]
         candidates = vision_ready or candidates
 
@@ -4145,12 +4163,18 @@ async def _analyze_screen_image(shot, question, provider_id=None):
                 data = resp.json()
                 text = (data.get("choices") or [{}])[0].get("message", {}).get("content", "")
                 if text:
-                    return {
+                    result: dict[str, Any] = {
                         "success": True,
                         "analysis": text,
                         "provider": provider["name"],
                         "model": model,
                     }
+                    if unknown_provider_note:
+                        # The caller asked for a provider that does not exist.
+                        # It got an answer anyway, and is told plainly that its
+                        # choice was not the one used.
+                        result["provider_note"] = unknown_provider_note
+                    return result
                 errors.append(f"{provider['name']}: empty response")
         except Exception as exc:
             errors.append(f"{provider['name']}: {exc}")
