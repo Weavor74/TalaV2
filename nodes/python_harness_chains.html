@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Chains</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_chains"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.chains"
+  data-source-files="python/harness/chains.py"
+  data-source-fingerprint="sha256:B6D0A71655826712E39A561B5E76B76D1E587FFB6E45F053511A1F7D53118922"
+  data-source-digest="sha256:3F8E908359730631703FA872FC11E0E6DB8A7AE51CC1B780E221F8F7EBDEBE18"
+  data-generated-at="2026-09-08T00:43:40Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Chains</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>chains.py — Ghost and Real are two chains, split by audience.</p>
+    <p>It lives at python/harness/chains.py within the Python harness, the backend that runs the system.</p>
+    <p>Functions it exposes: is_external() — Whether this belongs on the Real chain as well as the Ghost chain.; classify() — Which chains this transaction is written to.; record() — Record one transaction on the chains it belongs to.; index() — Record which chain a transaction belongs to.; index_sync() — Index a transaction from synchronous code.; ghost_endpoint() — The local chain node.; real_endpoint() — The configured shared-chain endpoint, or empty if there is none.; authorities() — Every signer whose blocks this install recognises.; cutoffs() — Signers that may no longer sign, and the block they stopped at.; set_authorities() — Set which signers may sign from now on.; active_authorities() — Signers that may sign right now.; flush() — Write every queued Real transaction, oldest first.; summary() — Counts for both chains, so the difference between them is visible.; reconcile() — Pull the shared chain and index what is on it that is not indexed here..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/chains.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_chains"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.chains"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Chains",
+  "description": "Program documentation for python.harness.chains.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "chains"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:40Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.chains",
+    "source_fingerprint": "sha256:B6D0A71655826712E39A561B5E76B76D1E587FFB6E45F053511A1F7D53118922",
+    "source_files": [
+      "python/harness/chains.py"
+    ],
+    "source_digest": "sha256:3F8E908359730631703FA872FC11E0E6DB8A7AE51CC1B780E221F8F7EBDEBE18"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

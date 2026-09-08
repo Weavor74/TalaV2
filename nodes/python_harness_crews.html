@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Crews</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_crews"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.crews"
+  data-source-files="python/harness/crews.py"
+  data-source-fingerprint="sha256:367C8F39BDB75A76055FFD7E6F073EC49AC20F750FBFEE1109EFAA252B3C5787"
+  data-source-digest="sha256:62AD901EF736A8F0BB9C7B210161BCE38182978E837DE41930894642404C7E1C"
+  data-generated-at="2026-09-08T00:43:46Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Crews</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>crews.py — the organisation: who reports to whom, and what that does.</p>
+    <p>It lives at python/harness/crews.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: CrewError — A structural change that would not make sense..</p>
+    <p>Functions it exposes: create() — Create a team or a department.; update() — Rename a crew, move it under another, or change what it is for.; delete() — Disband a crew.; listing() — Every crew, with its headcount.; set_membership() — Put an agent in a crew and under a manager.; members() — Everyone in one crew.; chain_of_command() — Everyone this agent reports to, nearest manager first.; subordinates() — Everyone who reports to this agent, directly or below.; chart() — The whole organisation, for drawing.; find_cycles() — Reporting loops, if any exist.; assign() — Route a task into a crew.; escalate() — Send a task up the reporting line.; owns() — Whether one agent is anywhere above another.; pick_manager() — Decide who, if anyone, is the crew&#x27;s manager.; run_crew() — Run every member of a crew on the same goal at once.; list_runs() — Recent crew runs, newest first, optionally filtered to one crew.; get_run() — One crew run in full, including per-member outputs and the final..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/crews.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_crews"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.crews"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Crews",
+  "description": "Program documentation for python.harness.crews.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "crews"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:46Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.crews",
+    "source_fingerprint": "sha256:367C8F39BDB75A76055FFD7E6F073EC49AC20F750FBFEE1109EFAA252B3C5787",
+    "source_files": [
+      "python/harness/crews.py"
+    ],
+    "source_digest": "sha256:62AD901EF736A8F0BB9C7B210161BCE38182978E837DE41930894642404C7E1C"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

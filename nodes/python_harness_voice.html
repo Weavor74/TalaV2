@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Voice</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_voice"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.voice"
+  data-source-files="python/harness/voice.py"
+  data-source-fingerprint="sha256:95AE9F8CEBD38909846750AC71F8BC6824DE026FEB22FAB230183CF4F7EA3E16"
+  data-source-digest="sha256:40F681AF7C9A223BED18D24AE3FA83A3C2FB6FDA8E6ADCFEBD1932C7036B3134"
+  data-generated-at="2026-09-08T00:44:18Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Voice</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>python/harness/voice.py — Text-to-speech backends ================================================= Synthesises speech and hands it back as base64 audio; the caller (``speak_text`` in sdk/agent/tools.py, ``voice.speak`` over RPC) broadcasts a ``voice.play`` notification so every connected UI plays it.</p>
+    <p>It lives at python/harness/voice.py within the Python harness, the backend that runs the system.</p>
+    <p>Functions it exposes: list_backends() — Which TTS backends are usable right now, in resolution order.; synthesize_speech() — Synthesise `text` and return base64 audio..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/voice.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_voice"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.voice"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Voice",
+  "description": "Program documentation for python.harness.voice.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "voice"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:44:18Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.voice",
+    "source_fingerprint": "sha256:95AE9F8CEBD38909846750AC71F8BC6824DE026FEB22FAB230183CF4F7EA3E16",
+    "source_files": [
+      "python/harness/voice.py"
+    ],
+    "source_digest": "sha256:40F681AF7C9A223BED18D24AE3FA83A3C2FB6FDA8E6ADCFEBD1932C7036B3134"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

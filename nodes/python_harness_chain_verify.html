@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Chain Verify</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_chain_verify"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.chain_verify"
+  data-source-files="python/harness/chain_verify.py"
+  data-source-fingerprint="sha256:B899D5FE7B033FC9FF098584197B85C68D6515AEE6010086563E0623C148D8F8"
+  data-source-digest="sha256:8E8D06BEAD174F0F47E76E1C837B1B8F5289710ADE3FE615FDCA26C30B841BF6"
+  data-generated-at="2026-09-08T00:43:39Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Chain Verify</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>chain_verify.py — verify a chain without trusting whoever handed it over.</p>
+    <p>It lives at python/harness/chain_verify.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: Verdict — The outcome of verifying a chain, and why..</p>
+    <p>Functions it exposes: block_hash() — Recompute one block&#x27;s hash from its contents.; fingerprint() — A short, stable handle for a signer.; revocation_message() — The message a key signs to retire itself.; verify_revocation() — Check a revocation transaction.; revocations_in() — Keys that retired themselves, mapped to the block they did it in.; verify() — Verify a chain end to end.; transactions_of() — Flatten a verified chain into its transactions, each carrying its position..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/chain_verify.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_chain_verify"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.chain_verify"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Chain Verify",
+  "description": "Program documentation for python.harness.chain_verify.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "chain_verify"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:39Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.chain_verify",
+    "source_fingerprint": "sha256:B899D5FE7B033FC9FF098584197B85C68D6515AEE6010086563E0623C148D8F8",
+    "source_files": [
+      "python/harness/chain_verify.py"
+    ],
+    "source_digest": "sha256:8E8D06BEAD174F0F47E76E1C837B1B8F5289710ADE3FE615FDCA26C30B841BF6"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

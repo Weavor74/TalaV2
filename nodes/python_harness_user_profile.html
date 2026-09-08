@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: User Profile</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_user_profile"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.user_profile"
+  data-source-files="python/harness/user_profile.py"
+  data-source-fingerprint="sha256:EC95797F64FF440FE218967853AD216166D90ED7114A6E1003C8B7D7D318FFFF"
+  data-source-digest="sha256:ADD4CD4334A7D466995E8F2774180F51C21C8734A209324E5261D33CD5F67FED"
+  data-generated-at="2026-09-08T00:44:16Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: User Profile</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>user_profile.py — one gated way to read who the user is.</p>
+    <p>It lives at python/harness/user_profile.py within the Python harness, the backend that runs the system.</p>
+    <p>Functions it exposes: load_config_from_node() — Read the profile out of its HTML-NN, which is the authored source of truth.; load_config_from_db() — Read the master user&#x27;s profile config from Postgres.; load_config() — The user&#x27;s profile, node first.; name_from() — The user&#x27;s preferred display name.; pronouns_from(); visibility_of() — The configured visibility for *section*.; system_prompt_line() — The single line injected into the system prompt, or ``&quot;&quot;``.; lookup() — Read one section of the user&#x27;s profile, subject to its visibility.; available_sections() — ``{section: &#x27;readable&#x27; | visibility}`` — what a lookup would allow..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/user_profile.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_user_profile"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.user_profile"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: User Profile",
+  "description": "Program documentation for python.harness.user_profile.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "user_profile"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:44:16Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.user_profile",
+    "source_fingerprint": "sha256:EC95797F64FF440FE218967853AD216166D90ED7114A6E1003C8B7D7D318FFFF",
+    "source_files": [
+      "python/harness/user_profile.py"
+    ],
+    "source_digest": "sha256:ADD4CD4334A7D466995E8F2774180F51C21C8734A209324E5261D33CD5F67FED"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

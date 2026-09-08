@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Ws Auth</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_ws_auth"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.ws_auth"
+  data-source-files="python/harness/ws_auth.py"
+  data-source-fingerprint="sha256:42D71218FFE323C2B140A0914DF00C5CF93B9A8C27FFEED0F782E55B496654FD"
+  data-source-digest="sha256:7B9FD741FB1A020B7D16E1A781E4D6E93AF60A7A6E7BFAB32E6BDBBF33280F3B"
+  data-generated-at="2026-09-08T00:44:26Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Ws Auth</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>ws_auth.py — who is allowed to talk to the JSON-RPC socket on 8765.</p>
+    <p>It lives at python/harness/ws_auth.py within the Python harness, the backend that runs the system.</p>
+    <p>Functions it exposes: load_or_create_token() — The shared secret for 8765.; check() — Decide one handshake on the token alone.; make_process_request() — Build the ``process_request`` callback for ``websockets.serve``.; peer_signature() — HMAC binding the claimed identity to this one handshake.; classify() — Decide one handshake fully: which class, whose identity, or why not..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/ws_auth.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_ws_auth"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.ws_auth"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Ws Auth",
+  "description": "Program documentation for python.harness.ws_auth.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "ws_auth"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:44:26Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.ws_auth",
+    "source_fingerprint": "sha256:42D71218FFE323C2B140A0914DF00C5CF93B9A8C27FFEED0F782E55B496654FD",
+    "source_files": [
+      "python/harness/ws_auth.py"
+    ],
+    "source_digest": "sha256:7B9FD741FB1A020B7D16E1A781E4D6E93AF60A7A6E7BFAB32E6BDBBF33280F3B"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

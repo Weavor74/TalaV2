@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Retrieval</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_retrieval"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.retrieval"
+  data-source-files="python/harness/retrieval.py"
+  data-source-fingerprint="sha256:80EF62DD26A08DDA12E37B02EADD67C315FCC88ADAFDBC4C887884D3378B53E3"
+  data-source-digest="sha256:9F2F592891C17BC0A061CD562F1D8CFE300FE2093CB170CD1FEAF6BE9085EF97"
+  data-generated-at="2026-09-08T00:44:04Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Retrieval</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>retrieval.py — Tala Cognitive Engine Room: Semantic Node Retrieval Engine ======================================================================= Crawls the nodes directory, parses HTML Neural Nodes, and performs a local, offline-first Semantic RAG similarity search using ChromaDB.</p>
+    <p>It lives at python/harness/retrieval.py within the Python harness, the backend that runs the system.</p>
+    <p>Functions it exposes: index_nodes() — Parse new or modified HTML Neural Nodes and embed them into ChromaDB incrementally.; retrieve_relevant_nodes() — Search for relevant nodes using ChromaDB vector similarity, and multiply the raw cosine similarity score by the node&#x27;s confidence and relevance weights..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/retrieval.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_retrieval"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.retrieval"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Retrieval",
+  "description": "Program documentation for python.harness.retrieval.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "retrieval"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:44:04Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.retrieval",
+    "source_fingerprint": "sha256:80EF62DD26A08DDA12E37B02EADD67C315FCC88ADAFDBC4C887884D3378B53E3",
+    "source_files": [
+      "python/harness/retrieval.py"
+    ],
+    "source_digest": "sha256:9F2F592891C17BC0A061CD562F1D8CFE300FE2093CB170CD1FEAF6BE9085EF97"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

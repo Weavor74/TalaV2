@@ -87,18 +87,33 @@ def test_nothing_published_yet_counts_as_a_change():
 
 
 @pytest.mark.asyncio
-async def test_the_first_pass_writes_and_the_second_does_not(contract_node):
+async def test_it_settles_and_then_stops_writing(contract_node):
+    """
+    Convergence, which is the property that matters — not stillness on the
+    second pass exactly.
+
+    The contract publishes a node count, and publishing the contract IS a
+    node, so in an empty store the first write moves the number it just
+    reported. That settles on the following pass and must then stay settled.
+    A pass that kept finding a difference would rewrite the file and anchor a
+    chain transaction every single day, which is the churn this comparison
+    exists to prevent.
+    """
     first = await doc_maintenance.regenerate_contract_if_changed()
     assert first["ran"] is True, first.get("reason")
     assert first["wrote"] is True, "nothing was published on a first run"
     assert contract_node.exists()
 
-    stamp = contract_node.stat().st_mtime
+    # Allow it to settle: at most one further write, for the count it changed
+    # by existing.
+    settling = await doc_maintenance.regenerate_contract_if_changed()
+    assert settling["ran"] is True
 
-    second = await doc_maintenance.regenerate_contract_if_changed()
-    assert second["ran"] is True
-    assert second["changed"] is False, "an unchanged system reported as changed"
-    assert second["wrote"] is False, "the node was rewritten with identical content"
+    stamp = contract_node.stat().st_mtime
+    for _ in range(3):
+        again = await doc_maintenance.regenerate_contract_if_changed()
+        assert again["changed"] is False, "an unchanged system reported as changed"
+        assert again["wrote"] is False, "the node was rewritten with identical content"
     assert contract_node.stat().st_mtime == stamp
 
 

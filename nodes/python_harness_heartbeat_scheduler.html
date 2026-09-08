@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Heartbeat Scheduler</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_heartbeat_scheduler"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.heartbeat_scheduler"
+  data-source-files="python/harness/heartbeat_scheduler.py"
+  data-source-fingerprint="sha256:8CCB1ECA11B286E148470E08115DD780E383EBD63481C9222C63EF7CDEECF803"
+  data-source-digest="sha256:FE776D0116D5B6233B10D27FBB1391A923591B9C0300D09687793934B7479AF6"
+  data-generated-at="2026-09-08T00:43:55Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Heartbeat Scheduler</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>heartbeat_scheduler.py — Tala Cognitive Engine Room: Proactive Heartbeat Loop ============================================================================== Implements a **time-based autonomous agent loop** that fires configured goals on a cron schedule without waiting for a user message.</p>
+    <p>It lives at python/harness/heartbeat_scheduler.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: CronExpression — Parses and evaluates a 5-field cron expression. (methods: matches()); HeartbeatJob — Represents one scheduled heartbeat goal loaded from the DB. (methods: is_valid(), is_startup(), is_due()); HeartbeatScheduler — Singleton asyncio-native cron scheduler. (methods: get(), start(), stop(), reload_from_db(), get_jobs(), get_job(), fire_now()).</p>
+    <p>Functions it exposes: register_broadcast() — Register the server-level broadcast coroutine factory..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/heartbeat_scheduler.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_heartbeat_scheduler"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.heartbeat_scheduler"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Heartbeat Scheduler",
+  "description": "Program documentation for python.harness.heartbeat_scheduler.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "heartbeat_scheduler"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:55Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.heartbeat_scheduler",
+    "source_fingerprint": "sha256:8CCB1ECA11B286E148470E08115DD780E383EBD63481C9222C63EF7CDEECF803",
+    "source_files": [
+      "python/harness/heartbeat_scheduler.py"
+    ],
+    "source_digest": "sha256:FE776D0116D5B6233B10D27FBB1391A923591B9C0300D09687793934B7479AF6"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

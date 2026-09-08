@@ -23,6 +23,10 @@ from sdk.agent.parser import parse_file
 
 log = logging.getLogger(__name__)
 
+#: Source paths on a documentation node are recorded relative to the
+#: repository, so they stay meaningful on a portable install.
+_REPO_ROOT = Path(__file__).resolve().parents[2]
+
 
 ALLOWED_NODE_TYPES = {"documentation", "program-doc", "function-doc"}
 
@@ -374,6 +378,43 @@ def _render_paragraphs(text: str) -> str:
     return "\n".join(f"    <p>{escape(paragraph)}</p>" for paragraph in paragraphs)
 
 
+def _source_digest(source_files: list[str]) -> str:
+    """
+    A hash of the CONTENT of the files this document describes.
+
+    Not the same thing as `_source_fingerprint` below, and the difference is
+    the whole point. That one hashes the file NAMES, the generated prose and
+    the target -- it identifies the document, and it is what decides whether
+    a regeneration needs to be written to disk. Useful, correctly named for
+    what it does inside that decision, and stored on every node under the
+    name ``source_fingerprint``.
+
+    Which meant nothing anywhere could answer the question that matters: has
+    the code moved on since this was written? Change a function from calling
+    Amazon to using an API key and the file names are identical, the stored
+    prose is identical, so the fingerprint is identical -- and the document
+    goes on describing the Amazon call, confidently, forever. Tala reads
+    these to understand her own code before modifying it or explaining it to
+    somebody.
+
+    `function_documenter` had this right from the start: it hashes the source
+    of the function it documents and regenerates when that changes. This is
+    the same idea applied to the documents that describe whole modules.
+
+    A file that has been deleted is recorded as absent rather than skipped,
+    so a source disappearing counts as a change instead of passing silently.
+    """
+    digest = hashlib.sha256()
+    for name in sorted(set(source_files)):
+        digest.update(name.encode("utf-8"))
+        path = _REPO_ROOT / name
+        try:
+            digest.update(path.read_bytes())
+        except OSError:
+            digest.update(b"<absent>")
+    return f"sha256:{digest.hexdigest().upper()}"
+
+
 def _source_fingerprint(source_files: list[str], semantic_memory: str, doc_target: str) -> str:
     payload = json.dumps(
         {
@@ -501,6 +542,9 @@ def create_documentation_node(
 
     relationship_list = _normalize_relationships(relationships)
     fingerprint = _source_fingerprint(source_files_list, semantic_memory, doc_target)
+    # What the code looked like when this was written, so that "the code has
+    # changed since" becomes a question anything can answer later.
+    digest = _source_digest(source_files_list)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     nodes_dir = resolve_active_nodes_dir()
@@ -545,6 +589,11 @@ def create_documentation_node(
             "schema": "neural-node/v2",
             "doc_target": doc_target,
             "source_fingerprint": fingerprint,
+            # The files described, and what they contained at the time. Both
+            # are needed: the list alone cannot detect an edit, and the digest
+            # alone cannot be recomputed without knowing what to hash.
+            "source_files": list(source_files_list),
+            "source_digest": digest,
         },
     }
 
@@ -583,6 +632,7 @@ def create_documentation_node(
   data-doc-target="{escape(doc_target)}"
   data-source-files="{escape(';'.join(source_files_list))}"
   data-source-fingerprint="{escape(fingerprint)}"
+  data-source-digest="{escape(digest)}"
   data-generated-at="{generated_at}"
   data-source="local"
   data-trust-tier="system">
@@ -1438,6 +1488,98 @@ def _get_article_attribute(path: Path, attribute: str) -> str:
     doc = lxml_html.fromstring(path.read_text(encoding="utf-8"))
     value = doc.xpath(f"string(.//article/@{attribute})")
     return str(value or "").strip()
+
+
+def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
+    """
+    Which documents no longer match the code they describe.
+
+    `verify_documentation_nodes` answers a different question and is easily
+    mistaken for this one: it checks that a node is well-FORMED -- schema
+    version, node type, execution and memory authority. A document can pass
+    every one of those checks while describing code that was rewritten months
+    ago, and it will report as verified.
+
+    This asks whether the source has moved. Tala reads these nodes to
+    understand her own code before modifying it or explaining it to somebody,
+    so a document that is confidently out of date is worse than a missing one:
+    a gap prompts a look at the source, and a wrong answer does not.
+
+    Four states, deliberately distinguished:
+
+        current        the source is byte-identical to when this was written
+        stale          the source has changed; the document describes the old
+                       shape and should be regenerated
+        unknown        the node records no source files, so nothing can be
+                       compared -- not the same as current
+        source_missing every file it documented is gone
+
+    "unknown" exists because most nodes predate the digest. Reporting them as
+    current would be a guess wearing the clothes of a measurement.
+    """
+    requested = set(_safe_node_id(n) for n in _normalize_string_list(node_ids))
+    nodes_dir = resolve_active_nodes_dir()
+    if not nodes_dir.exists():
+        return {"checked": 0, "stale": [], "unknown": [], "current": 0,
+                "errors": [f"no nodes directory at {nodes_dir}"]}
+
+    stale: list[dict[str, Any]] = []
+    unknown: list[str] = []
+    missing: list[dict[str, Any]] = []
+    current = 0
+    errors: list[str] = []
+
+    for path in sorted(nodes_dir.glob("*.html")):
+        try:
+            html = path.read_text(encoding="utf-8", errors="replace")
+        except OSError as exc:
+            errors.append(f"{path.name}: {exc}")
+            continue
+
+        node_id = _get_article_attribute(path, "data-node-id") or path.stem
+        if requested and node_id not in requested:
+            continue
+
+        recorded = re.search(r'data-source-digest="([^"]*)"', html)
+        files_attr = re.search(r'data-source-files="([^"]*)"', html)
+        source_files = [f for f in (files_attr.group(1).split(";") if files_attr else []) if f]
+
+        if not recorded or not source_files:
+            # A node that documents nothing in particular -- a persona, a
+            # learning note -- is not unknown, it is simply out of scope.
+            if source_files or _get_article_attribute(path, "data-doc-target"):
+                unknown.append(node_id)
+            continue
+
+        present = [f for f in source_files if (_REPO_ROOT / f).exists()]
+        if not present:
+            missing.append({"node_id": node_id, "source_files": source_files})
+            continue
+
+        if _source_digest(source_files) == recorded.group(1):
+            current += 1
+        else:
+            stale.append({
+                "node_id": node_id,
+                "doc_target": _get_article_attribute(path, "data-doc-target") or "",
+                "source_files": source_files,
+                "documented_at": _get_article_attribute(path, "data-generated-at") or "",
+                "path": str(path),
+            })
+
+    return {
+        "checked": current + len(stale) + len(unknown) + len(missing),
+        "current": current,
+        "stale": stale,
+        "unknown": unknown,
+        "source_missing": missing,
+        "errors": errors,
+        "note": (
+            "'unknown' means the node records no source digest and predates this "
+            "check -- it is not a claim that the node is current. Regenerating it "
+            "gives it one."
+        ),
+    }
 
 
 def verify_documentation_nodes(

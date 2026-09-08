@@ -14,7 +14,7 @@
   data-weight-relevance="1.00"
   data-weight-confidence="0.80"
   data-chaincode-id="unanchored"
-  data-content-hash="cb8a4c6c02482ac89faa7070514078f763e1872f04e371f940a82e2bb17ad3f6"
+  data-content-hash="5a68b8f072b7745c672056e580918a36dcc24756be1c000e3c824ce6b42129af"
   data-source="local"
   data-trust-tier="system"
   data-privacy="private">
@@ -26,24 +26,24 @@
   <section id="semantic-memory">
 
     <p>Goal: Workflow: Test</p>
-    <p>Phases: t (trigger): Trigger captured input payload. | a (tool): Tool 'echo' executed.</p>
-    <p>Keywords: captured, executed, input, payload, trigger, workflow</p>
+    <p>Phases: t (trigger): Trigger captured input payload. | a (tool): Tool 'first' executed. | b (tool): Tool 'second' executed.</p>
+    <p>Keywords: captured, executed, first, input, payload, second, trigger, workflow</p>
     <p>Tests: Workflow completed successfully</p>
     
     <h2>Procedure (Latest Recipe)</h2>
     <ol>
-      <li>t (trigger): Trigger captured input payload.</li><li>a (tool): Tool 'echo' executed.</li>
+      <li>t (trigger): Trigger captured input payload.</li><li>a (tool): Tool 'first' executed.</li><li>b (tool): Tool 'second' executed.</li>
     </ol>
     
     <h2>Run History</h2>
     
-  <article class="skill-run" data-task-id="workflow-flow-test" data-recorded="2026-08-28T10:33:41.663195+00:00">
-    <h3>Run: <time datetime="2026-08-28T10:33:41.663195+00:00">2026-08-28 10:33:41 UTC</time></h3>
+  <article class="skill-run" data-task-id="workflow-flow-test" data-recorded="2026-09-08T01:03:31.417416+00:00">
+    <h3>Run: <time datetime="2026-09-08T01:03:31.417416+00:00">2026-09-08 01:03:31 UTC</time></h3>
     <p><strong>Task ID:</strong> <code>workflow-flow-test</code></p>
-    <p><strong>Phases (2):</strong> t (trigger): Trigger captured input payload. | a (tool): Tool 'echo' executed.</p>
+    <p><strong>Phases (3):</strong> t (trigger): Trigger captured input payload. | a (tool): Tool 'first' executed. | b (tool): Tool 'second' executed.</p>
     <p><strong>Tests:</strong> Workflow completed successfully</p>
     <ol>
-      <li>t (trigger): Trigger captured input payload.</li><li>a (tool): Tool 'echo' executed.</li>
+      <li>t (trigger): Trigger captured input payload.</li><li>a (tool): Tool 'first' executed.</li><li>b (tool): Tool 'second' executed.</li>
     </ol>
     <p><strong>Artifacts:</strong></p>
     <ul>
@@ -62,15 +62,16 @@
   "goal": "Workflow: Test",
   "phases": [
     "t (trigger): Trigger captured input payload.",
-    "a (tool): Tool 'echo' executed."
+    "a (tool): Tool 'first' executed.",
+    "b (tool): Tool 'second' executed."
   ],
   "task_id": "workflow-flow-test",
-  "phase_count": 2,
+  "phase_count": 3,
   "changed_files": [
     "workflows/flow-test.json"
   ],
   "tests_status": "Workflow completed successfully",
-  "recorded_at": "2026-08-28T10:33:41.663195+00:00",
+  "recorded_at": "2026-09-08T01:03:31.417416+00:00",
   "metrics": {
     "version": 1,
     "success_count": 0,
@@ -94,15 +95,15 @@
 
   <script type="application/json" id="node-provenance" data-cognitive-block="provenance">
 {
-  "core_hash": "sha256:cb8a4c6c02482ac89faa7070514078f763e1872f04e371f940a82e2bb17ad3f6",
+  "core_hash": "sha256:5a68b8f072b7745c672056e580918a36dcc24756be1c000e3c824ce6b42129af",
   "chaincode_id": "unanchored",
   "anchoring_status": "failed",
   "raw_response": "<urlopen error timed out>",
   "key_fingerprint": "unanchored",
   "parent_chaincode_ids": [],
   "created_by": "tala-goal-engine",
-  "created_at": "2026-08-28T10:33:41.663195+00:00",
-  "wrapper_hash": "sha256:bace3048e6ccd3b690e0a8a7b5aa6c19c5f77ec0ac058b03bdb8101d905acd2e"
+  "created_at": "2026-09-08T01:03:31.417416+00:00",
+  "wrapper_hash": "sha256:b15587d76fd6995f514b0d1547fdda0063b6d96e84cf373d559a10db4fc23704"
 }
   </script>
 

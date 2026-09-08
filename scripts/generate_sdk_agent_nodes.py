@@ -2,9 +2,16 @@
 scripts/generate_sdk_agent_nodes.py — regenerate the SDK self-documentation nodes
 =================================================================================
 
-Walks every module under ``sdk/agent/`` and writes one HTML-NN
-documentation node per module (``sdk_agent_<module>.html``), so Tala's
-retrieval can see the architecture of her own engine room.
+Walks every module under ``sdk/agent/`` and ``python/harness/`` and writes
+one HTML-NN documentation node per module, so Tala's retrieval can see the
+architecture of her own engine room and of the harness that runs it.
+
+The harness was absent for a long time. There was a node for each of the 53
+SDK modules and, for the seventeen-thousand-line backend, a single brief
+saying that harness documentation "should explain method dispatch" -- a
+description of what someone ought to write, stored where the writing should
+have been. Reading it taught you nothing about the code, which is the whole
+purpose these nodes serve.
 
 Why this exists as a committed script rather than a one-off: these 53
 nodes were originally produced by an ad-hoc script that lived only in a
@@ -17,6 +24,7 @@ Usage
 -----
     python scripts/generate_sdk_agent_nodes.py            # write nodes
     python scripts/generate_sdk_agent_nodes.py --dry-run  # list, write nothing
+    python scripts/generate_sdk_agent_nodes.py --package python.harness
 
 TALA_USER_DATA is pinned to the repository root for the duration of the
 run. ``create_documentation_node`` resolves its output through
@@ -103,6 +111,15 @@ def _describe_module(path: Path) -> dict[str, object] | None:
     return {"doc": module_doc, "classes": classes, "functions": functions}
 
 
+def _home_of(rel_path: str) -> str:
+    """Where a module lives, in words. Not everything is in the SDK."""
+    if rel_path.startswith("python/harness/"):
+        return "within the Python harness, the backend that runs the system"
+    if rel_path.startswith("sdk/agent/"):
+        return "within the agent SDK"
+    return "in this repository"
+
+
 def _semantic_memory(module_name: str, rel_path: str, info: dict[str, object]) -> str:
     parts: list[str] = []
     doc = str(info.get("doc") or "").strip()
@@ -110,7 +127,7 @@ def _semantic_memory(module_name: str, rel_path: str, info: dict[str, object]) -
         doc
         or f"{module_name} is a module of Tala's agent SDK, defined in {rel_path}."
     )
-    parts.append(f"It lives at {rel_path} within the agent SDK.")
+    parts.append(f"It lives at {rel_path} {_home_of(rel_path)}.")
 
     classes = list(info.get("classes") or [])
     functions = list(info.get("functions") or [])
@@ -127,20 +144,42 @@ def _semantic_memory(module_name: str, rel_path: str, info: dict[str, object]) -
     return "\n\n".join(parts)
 
 
-def main() -> int:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--dry-run", action="store_true", help="list modules, write nothing")
-    args = parser.parse_args()
+#: Every package whose modules get a documentation node, and how to name them.
+#:
+#: `python/harness` was missing entirely. Tala had a node for each of the 53
+#: modules in her SDK and, for the seventeen-thousand-line harness that runs
+#: the whole system, one hand-written brief saying that "harness documentation
+#: should explain method dispatch". She reads these to understand her own code
+#: before changing it or explaining it to somebody, and about the largest part
+#: of herself there was nothing to read.
+DOCUMENTED_PACKAGES = (
+    {
+        "directory": ("sdk", "agent"),
+        "module_prefix": "sdk.agent",
+        "node_prefix": "sdk_agent",
+        "title_prefix": "SDK Agent",
+        "tags": ["sdk", "agent"],
+    },
+    {
+        "directory": ("python", "harness"),
+        "module_prefix": "python.harness",
+        "node_prefix": "python_harness",
+        "title_prefix": "Harness",
+        "tags": ["harness", "backend"],
+    },
+)
 
-    agent_dir = REPO_ROOT / "sdk" / "agent"
-    modules = sorted(p for p in agent_dir.glob("*.py") if p.stem not in SKIP_MODULES)
+
+def _document_package(spec: dict, dry_run: bool) -> tuple[int, int]:
+    directory = REPO_ROOT.joinpath(*spec["directory"])
+    modules = sorted(p for p in directory.glob("*.py") if p.stem not in SKIP_MODULES)
     if not modules:
-        print(f"no modules found under {agent_dir}")
-        return 1
+        print(f"no modules found under {directory}")
+        return 0, 0
 
-    print(f"documenting {len(modules)} module(s) from {agent_dir}")
-    written = 0
-    failed = 0
+    rel_dir = "/".join(spec["directory"])
+    print(f"documenting {len(modules)} module(s) from {rel_dir}")
+    written = failed = 0
 
     for path in modules:
         info = _describe_module(path)
@@ -148,12 +187,12 @@ def main() -> int:
             failed += 1
             continue
 
-        module_name = f"sdk.agent.{path.stem}"
-        rel_path = f"sdk/agent/{path.name}"
-        node_id = f"sdk_agent_{path.stem}"
-        title = f"SDK Agent: {path.stem.replace('_', ' ').title()}"
+        module_name = f"{spec['module_prefix']}.{path.stem}"
+        rel_path = f"{rel_dir}/{path.name}"
+        node_id = f"{spec['node_prefix']}_{path.stem}"
+        title = f"{spec['title_prefix']}: {path.stem.replace('_', ' ').title()}"
 
-        if args.dry_run:
+        if dry_run:
             print(f"  - {node_id}")
             continue
 
@@ -164,12 +203,29 @@ def main() -> int:
                 doc_target=module_name,
                 semantic_memory=_semantic_memory(module_name, rel_path, info),
                 source_files=[rel_path],
-                tags=["html-nn", "documentation", "sdk", "agent", path.stem],
+                tags=["html-nn", "documentation", *spec["tags"], path.stem],
             )
             written += 1
         except Exception as exc:
             print(f"  ! {node_id}: {type(exc).__name__}: {exc}")
             failed += 1
+
+    return written, failed
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument("--dry-run", action="store_true", help="list modules, write nothing")
+    parser.add_argument("--package", default="", help="only this module_prefix")
+    args = parser.parse_args()
+
+    written = failed = 0
+    for spec in DOCUMENTED_PACKAGES:
+        if args.package and spec["module_prefix"] != args.package:
+            continue
+        w, f = _document_package(spec, args.dry_run)
+        written += w
+        failed += f
 
     print(f"\nwritten: {written}   failed: {failed}   (nodes dir: {REPO_ROOT / 'nodes'})")
     return 1 if failed else 0

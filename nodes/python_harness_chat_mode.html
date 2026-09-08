@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Chat Mode</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_chat_mode"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.chat_mode"
+  data-source-files="python/harness/chat_mode.py"
+  data-source-fingerprint="sha256:7B15F5AF7380241641798A083BB0CA004646A3984FAC1EA6DFF1B674CFEB0240"
+  data-source-digest="sha256:E701BD5D2EDA25ED3A830E23B8BA4FA1EC0B32905051D9BEF599B0C6B0713AB4"
+  data-generated-at="2026-09-08T00:43:42Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Chat Mode</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>python/harness/chat_mode.py — Active chat mode (rp / hybrid / assistant) ======================================================================= The single source of truth for which conversational mode Tala is in.</p>
+    <p>It lives at python/harness/chat_mode.py within the Python harness, the backend that runs the system.</p>
+    <p>Functions it exposes: get_chat_mode_file_path() — Absolute path of chat_mode.json under the active user-data root.; normalize_chat_mode() — Coerce arbitrary input to a valid mode, falling back to the default.; get_current_chat_mode() — Current chat mode, always one of VALID_CHAT_MODES.; save_current_chat_mode() — Persist `mode` and return the normalized value actually written.; is_emotional_mode() — Whether the given mode (default: the current one) carries the astrology-derived emotional state..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/chat_mode.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_chat_mode"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.chat_mode"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Chat Mode",
+  "description": "Program documentation for python.harness.chat_mode.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "chat_mode"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:42Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.chat_mode",
+    "source_fingerprint": "sha256:7B15F5AF7380241641798A083BB0CA004646A3984FAC1EA6DFF1B674CFEB0240",
+    "source_files": [
+      "python/harness/chat_mode.py"
+    ],
+    "source_digest": "sha256:E701BD5D2EDA25ED3A830E23B8BA4FA1EC0B32905051D9BEF599B0C6B0713AB4"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

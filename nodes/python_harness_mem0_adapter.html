@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Mem0 Adapter</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_mem0_adapter"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.mem0_adapter"
+  data-source-files="python/harness/mem0_adapter.py"
+  data-source-fingerprint="sha256:D077676356DBF32720EB80CC743857F786F8353CF8E4A0ACDA90853623F5B49E"
+  data-source-digest="sha256:66C3D8ADED22A545542B33A2F96DE8118A3F2304D66E57E69E0F73FE874D1D5B"
+  data-generated-at="2026-09-08T00:43:58Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Mem0 Adapter</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>mem0_adapter.py — Tala Cognitive Engine Room: mem0 Read-Only Restriction Adapter ================================================================================= Architectural Invariant ----------------------- mem0 is NEVER a durable authority for state in the Tala system.</p>
+    <p>It lives at python/harness/mem0_adapter.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: Mem0WriteBlockedError — Raised when code attempts to call a mutating method on the mem0 client.; Mem0ReadOnlyAdapter — Proxy wrapper around a mem0 client that enforces read-only access..</p>
+    <p>Functions it exposes: wrap_mem0_client() — Wrap *client* in a :class:`Mem0ReadOnlyAdapter`..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/mem0_adapter.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_mem0_adapter"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.mem0_adapter"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Mem0 Adapter",
+  "description": "Program documentation for python.harness.mem0_adapter.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "mem0_adapter"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:58Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.mem0_adapter",
+    "source_fingerprint": "sha256:D077676356DBF32720EB80CC743857F786F8353CF8E4A0ACDA90853623F5B49E",
+    "source_files": [
+      "python/harness/mem0_adapter.py"
+    ],
+    "source_digest": "sha256:66C3D8ADED22A545542B33A2F96DE8118A3F2304D66E57E69E0F73FE874D1D5B"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

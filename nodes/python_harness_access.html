@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Access</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_access"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.access"
+  data-source-files="python/harness/access.py"
+  data-source-fingerprint="sha256:A217272A5FFB9DCC414F51056AAD599C0C51452BF58510740E16369404338189"
+  data-source-digest="sha256:AD36CB74362E5E56A49518CB849AA396A4A256B069CE07690D6980F0552DD7C7"
+  data-generated-at="2026-09-08T00:43:32Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Access</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>access.py — one grant model, so the three access systems can compose.</p>
+    <p>It lives at python/harness/access.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: Principal — Who is acting. (methods: is_owner()); Decision — Whether an action is permitted, and why..</p>
+    <p>Functions it exposes: check_constraints() — Whether a grant&#x27;s constraints are satisfied right now.; validate_constraints() — Whether a set of constraints is *well formed*, without evaluating it.; check() — Decide whether *principal* may do *permission* on *resource*.; grant() — Record a grant.; revoke() — Withdraw a grant.; list_grants() — Every grant, or every grant held by one principal.; resolve() — Compose an explicit grant with a subsystem&#x27;s own rule..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/access.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_access"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.access"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Access",
+  "description": "Program documentation for python.harness.access.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "access"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:32Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.access",
+    "source_fingerprint": "sha256:A217272A5FFB9DCC414F51056AAD599C0C51452BF58510740E16369404338189",
+    "source_files": [
+      "python/harness/access.py"
+    ],
+    "source_digest": "sha256:AD36CB74362E5E56A49518CB849AA396A4A256B069CE07690D6980F0552DD7C7"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

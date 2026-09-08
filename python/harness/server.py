@@ -12438,6 +12438,30 @@ async def handle_docs_regenerate_contract(params: dict[str, Any], req_id: Any) -
     return _ok(req_id, result)
 
 
+async def handle_docs_stale(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``docs.stale`` — which documents no longer match the code they describe.
+
+    Distinct from `docs.verify_documentation_nodes`, which is easily mistaken
+    for it: that one checks a node is well-FORMED. A document can pass every
+    structural check while describing code that was rewritten months ago.
+
+    Pass ``refresh: true`` to rewrite the ones that can be rebuilt from source
+    rather than only listing them.
+    """
+    from python.harness import doc_maintenance
+
+    try:
+        if params.get("refresh"):
+            return _ok(req_id, await doc_maintenance.refresh_stale_documentation())
+        from sdk.agent.documentation_nodes import documentation_staleness
+
+        return _ok(req_id, documentation_staleness(node_ids=params.get("node_ids")))
+    except Exception as exc:
+        logger.exception("docs.stale error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+
 async def handle_telemetry_stream_subscribe(
     params: dict[str, Any],
     ws: WebSocketServerProtocol,
@@ -16306,6 +16330,7 @@ _HANDLERS: dict[str, Any] = {
         "docs.generate_program_nodes": handle_docs_generate_program_nodes,
     "docs.verify_documentation_nodes": handle_docs_verify_documentation_nodes,
     "docs.regenerate_contract": handle_docs_regenerate_contract,
+    "docs.stale": handle_docs_stale,
     "docs.generate_and_verify_program_nodes": handle_docs_generate_and_verify_program_nodes,
     "docs.register_program_target": handle_docs_register_program_target,
     "docs.generate_function_nodes": handle_docs_generate_function_nodes,

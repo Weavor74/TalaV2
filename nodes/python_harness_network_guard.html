@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Network Guard</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_network_guard"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.network_guard"
+  data-source-files="python/harness/network_guard.py"
+  data-source-fingerprint="sha256:03E7A9D1B155960B623CF42F59C78F6E9E6B6D4BAD0CFE376D083A8296DF729C"
+  data-source-digest="sha256:CE997DD971FDFB1AD8723C63445EAEF2092A6433B57653FCDDA2583602AD99DB"
+  data-generated-at="2026-09-08T00:44:01Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Network Guard</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>network_guard.py — guardrails that govern the harness, not just the text.</p>
+    <p>It lives at python/harness/network_guard.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: NetDecision; NetworkBlocked — Raised when an outbound connection is refused..</p>
+    <p>Functions it exposes: split_target() — A URL or ``host:port`` into a host and a port.; load_rules() — Network rules from the guardrails row, defaulted and never raising.; check() — Whether this outbound connection is permitted.; assert_may_reach() — :func:`check`, but raising, for call sites that cannot carry a decision..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/network_guard.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_network_guard"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.network_guard"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Network Guard",
+  "description": "Program documentation for python.harness.network_guard.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "network_guard"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:44:01Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.network_guard",
+    "source_fingerprint": "sha256:03E7A9D1B155960B623CF42F59C78F6E9E6B6D4BAD0CFE376D083A8296DF729C",
+    "source_files": [
+      "python/harness/network_guard.py"
+    ],
+    "source_digest": "sha256:CE997DD971FDFB1AD8723C63445EAEF2092A6433B57653FCDDA2583602AD99DB"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

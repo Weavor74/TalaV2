@@ -1,0 +1,115 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Channels</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_channels"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.channels"
+  data-source-files="python/harness/channels.py"
+  data-source-fingerprint="sha256:D40BA48D385DE7202A00159CBB776DC3517716A990D70EFE89B2006A9C0A434D"
+  data-source-digest="sha256:19ED4B500739023DA692BAEA866A5CA1221DECD8F0FB794CAC12A50AADC6B191"
+  data-generated-at="2026-09-08T00:43:41Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Channels</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>python/harness/channels.py — Outside messaging channels ======================================================= Lets Tala be reached from outside the desktop app.</p>
+    <p>It lives at python/harness/channels.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: BaseAdapter — One configured channel. (methods: allowlist(), is_allowed(), start(), stop(), poll(), send(), status()); TelegramAdapter — Long-polls getUpdates; no public URL or webhook required. (methods: poll(), send()); DiscordAdapter — Discord Gateway, drained through poll() so the base loop still owns policy. (methods: start(), stop(), poll(), send()); ChannelManager — Singleton owning every configured channel adapter. (methods: get(), register_broadcast(), start(), reload(), send(), status()).</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/channels.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_channels"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.channels"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Channels",
+  "description": "Program documentation for python.harness.channels.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "channels"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:41Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.channels",
+    "source_fingerprint": "sha256:D40BA48D385DE7202A00159CBB776DC3517716A990D70EFE89B2006A9C0A434D",
+    "source_files": [
+      "python/harness/channels.py"
+    ],
+    "source_digest": "sha256:19ED4B500739023DA692BAEA866A5CA1221DECD8F0FB794CAC12A50AADC6B191"
+  }
+}
+  </script>
+</article>
+</body>
+</html>

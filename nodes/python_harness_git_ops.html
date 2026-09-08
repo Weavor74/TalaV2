@@ -1,0 +1,116 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Git Ops</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_git_ops"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.git_ops"
+  data-source-files="python/harness/git_ops.py"
+  data-source-fingerprint="sha256:C809DF80CD81930CB6C75E17361245A994317053F1E52850E726505B551B9DB9"
+  data-source-digest="sha256:1CE93B888AB194A14E9371EE3F8E44075C61D296B4C5246461726BE76C73A55A"
+  data-generated-at="2026-09-08T00:43:53Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Git Ops</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>git_ops.py — the git panel does clone, pull and push, for the user&#x27;s repos.</p>
+    <p>It lives at python/harness/git_ops.py within the Python harness, the backend that runs the system.</p>
+    <p>Classes it defines: GitError — A git operation failed, with output fit to show a person..</p>
+    <p>Functions it exposes: git_available(); workspace_root() — Where clones are allowed to live.; resolve_path() — Resolve a caller-supplied repository path inside the workspace.; run_git() — Run one git command and return its result.; providers_for() — Configured providers that could serve this URL, highest priority first.; clone() — Clone into the repository workspace..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/git_ops.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_git_ops"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.git_ops"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Git Ops",
+  "description": "Program documentation for python.harness.git_ops.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "git_ops"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-08T00:43:53Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.git_ops",
+    "source_fingerprint": "sha256:C809DF80CD81930CB6C75E17361245A994317053F1E52850E726505B551B9DB9",
+    "source_files": [
+      "python/harness/git_ops.py"
+    ],
+    "source_digest": "sha256:1CE93B888AB194A14E9371EE3F8E44075C61D296B4C5246461726BE76C73A55A"
+  }
+}
+  </script>
+</article>
+</body>
+</html>
