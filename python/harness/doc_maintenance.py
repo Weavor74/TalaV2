@@ -269,7 +269,12 @@ async def refresh_stale_documentation() -> dict[str, Any]:
         target = entry.get("doc_target") or ""
         before = _semantic_memory_of(Path(entry["path"])) if entry.get("path") else ""
         if not _regenerate_module_node(target):
-            unhandled.append({"node_id": entry["node_id"], "doc_target": target})
+            unhandled.append({
+                "node_id": entry["node_id"],
+                "doc_target": target,
+                "why": "its source changed and nothing can rebuild it from that "
+                       "source — a person owes it a documentation review",
+            })
             continue
 
         rewritten.append(entry["node_id"])
@@ -373,6 +378,28 @@ def _regenerate_module_node(doc_target: str) -> bool:
     except Exception as exc:
         log.warning("doc maintenance: module documenter unavailable: %s", exc)
         return False
+
+    # Program documentation is generated from a spec table rather than from a
+    # module, so it needs its own route. Without one the daily pass reported
+    # every stale program doc as "no generator exists", which was true of this
+    # function and false of the system: `generate_program_nodes` had been
+    # there the whole time.
+    try:
+        from sdk.agent.documentation_nodes import (
+            generate_program_nodes,
+            list_program_documentation_targets,
+        )
+
+        listed = list_program_documentation_targets()
+        known = {
+            (t["doc_target"] if isinstance(t, dict) else t)
+            for t in (listed.get("targets") if isinstance(listed, dict) else listed) or []
+        }
+        if doc_target in known:
+            result = generate_program_nodes([doc_target])
+            return bool(result.get("created") or result.get("updated"))
+    except Exception:
+        log.exception("doc maintenance: could not rebuild program doc %s", doc_target)
 
     for spec in DOCUMENTED_PACKAGES:
         prefix = spec["module_prefix"] + "."

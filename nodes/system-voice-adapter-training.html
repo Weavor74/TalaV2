@@ -16,6 +16,11 @@
   data-node-id="system-voice-adapter-training"
   data-node-type="documentation"
   data-schema-version="neural-node/v2"
+  data-source-digest="sha256:F8315D0A6AA5E2B56924BDDA4FD83F1A7EC39212A82C2A30474C3A99263E9C77"
+  data-review-owner=""
+  data-conforming-implementations=""
+  data-document-accountability="descriptive"
+  data-document-purpose="description"
   data-execution-authority="0.00"
   data-memory-authority="0.60"
   data-provider-authority="0.00"
@@ -27,7 +32,7 @@
   data-weight-governance-importance="0.80"
   data-governance-status="context-only"
   data-doc-target="voice-adapter-training"
-  data-source-files="scripts/train_voice_adapter.py;python/inference/lora_trainer.py;python/inference/embedded_engine.py;python/harness/server.py;data/training_corpus"
+  data-source-files="scripts/train_voice_adapter.py;python/inference/lora_trainer.py;python/inference/embedded_engine.py"
   data-generated-at="2026-08-15T15:05:00Z"
   data-source="local"
   data-trust-tier="system"
@@ -104,11 +109,17 @@
     </ul>
   </section>
 
-  <script type="application/json" id="node-state">
-{
+  <script type="application/json" id="node-state">{
   "title": "Voice Adapter Training",
   "description": "Training Tala's LoRA adapters on her own story corpus, for voice and behaviour rather than knowledge.",
-  "tags": ["lora", "training", "voice", "behavior", "corpus", "self-knowledge"],
+  "tags": [
+    "lora",
+    "training",
+    "voice",
+    "behavior",
+    "corpus",
+    "self-knowledge"
+  ],
   "config": {
     "trains": "voice and behaviour",
     "does_not_train": "facts, which are the retrieval path's responsibility",
@@ -119,20 +130,36 @@
     "default_base_model": "Qwen/Qwen2.5-0.5B-Instruct",
     "lora_rank": 8,
     "lora_alpha": 16,
-    "target_modules": ["q_proj", "v_proj"],
+    "target_modules": [
+      "q_proj",
+      "v_proj"
+    ],
     "max_sequence_length": 512,
     "adapters_currently_trained": false,
     "adapter_selection_wired": true,
-    "adapter_applied_on_providers": ["embedded"]
+    "adapter_applied_on_providers": [
+      "embedded"
+    ]
   },
   "metadata": {
     "author": "tala-system",
     "schema": "neural-node/v2",
     "source_of_truth": "scripts/train_voice_adapter.py",
-    "known_gap": "peft/trl are not installed and the corpus yields only ~25 turns, so no adapter has been trained; adapter application does not reach the Ollama provider that serves chat"
+    "known_gap": "peft/trl are not installed and the corpus yields only ~25 turns, so no adapter has been trained; adapter application does not reach the Ollama provider that serves chat",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": "",
+    "classification_reason": "First read as conceptual — it argues that adapters shape voice and not knowledge. But it already named the whole training pipeline, and all of those files exist: it describes a path that is implemented, so it answers to that path.",
+    "source_files": [
+      "scripts/train_voice_adapter.py",
+      "python/inference/lora_trainer.py",
+      "python/inference/embedded_engine.py"
+    ],
+    "source_digest": "sha256:F8315D0A6AA5E2B56924BDDA4FD83F1A7EC39212A82C2A30474C3A99263E9C77"
   }
-}
-  </script>
+}</script>
 </article>
 </body>
 </html>

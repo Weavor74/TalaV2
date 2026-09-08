@@ -16,6 +16,11 @@
   data-node-id="system-ollama-adapter-deployment"
   data-node-type="documentation"
   data-schema-version="neural-node/v2"
+  data-source-digest="sha256:688D85B12C0DD3E7F85E988214AAE51FD709A64138F3D533971325969DD8BECF"
+  data-review-owner=""
+  data-conforming-implementations=""
+  data-document-accountability="descriptive"
+  data-document-purpose="description"
   data-execution-authority="0.00"
   data-memory-authority="0.60"
   data-provider-authority="0.00"
@@ -96,13 +101,23 @@
     </ul>
   </section>
 
-  <script type="application/json" id="node-state">
-{
+  <script type="application/json" id="node-state">{
   "title": "Deploying a LoRA Adapter to Ollama",
   "description": "Baking a trained adapter into an Ollama model variant, because Ollama cannot load one per request.",
-  "tags": ["lora", "ollama", "deployment", "adapter", "voice", "self-knowledge"],
+  "tags": [
+    "lora",
+    "ollama",
+    "deployment",
+    "adapter",
+    "voice",
+    "self-knowledge"
+  ],
   "config": {
-    "runtime_adapter_swapping_supported": {"embedded": true, "ollama": false, "remote": false},
+    "runtime_adapter_swapping_supported": {
+      "embedded": true,
+      "ollama": false,
+      "remote": false
+    },
     "ollama_mechanism": "Modelfile ADAPTER directive baked into a named model variant",
     "adapter_format_required_by_ollama": "gguf",
     "conversion_tool": "llama.cpp convert_lora_to_gguf.py",
@@ -115,10 +130,21 @@
     "author": "tala-system",
     "schema": "neural-node/v2",
     "source_of_truth": "python/harness/server.py adapter selection; Ollama Modelfile ADAPTER",
-    "known_gap": "an adapter trained on the 0.5B cannot be baked into the 4B chat model; training for chat requires fetching its HuggingFace weights"
+    "known_gap": "an adapter trained on the 0.5B cannot be baked into the 4B chat model; training for chat requires fetching its HuggingFace weights",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": "",
+    "classification_reason": "The constraint it records is external, but what it describes is the local adapter-selection path that runs into it, and it already named those files.",
+    "source_files": [
+      "python/harness/server.py",
+      "python/inference/embedded_engine.py",
+      "scripts/train_voice_adapter.py"
+    ],
+    "source_digest": "sha256:688D85B12C0DD3E7F85E988214AAE51FD709A64138F3D533971325969DD8BECF"
   }
-}
-  </script>
+}</script>
 </article>
 </body>
 </html>

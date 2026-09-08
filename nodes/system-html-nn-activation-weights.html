@@ -16,6 +16,11 @@
   data-node-id="system-html-nn-activation-weights"
   data-node-type="documentation"
   data-schema-version="neural-node/v2"
+  data-source-digest="sha256:D05E92CCA092EC71E6F6FC54C5F4D7FA78909D19C95F78533852F3F531CB1172"
+  data-review-owner=""
+  data-conforming-implementations="sdk/agent/activation.py"
+  data-document-accountability="normative"
+  data-document-purpose="description"
   data-execution-authority="0.00"
   data-memory-authority="0.60"
   data-provider-authority="0.00"
@@ -123,11 +128,16 @@
     </ul>
   </section>
 
-  <script type="application/json" id="node-state">
-{
+  <script type="application/json" id="node-state">{
   "title": "HTML-NN Weights and Activation",
   "description": "Exact arithmetic behind node weights, activation scoring, propagation and injection.",
-  "tags": ["activation", "weights", "memory", "retrieval", "self-knowledge"],
+  "tags": [
+    "activation",
+    "weights",
+    "memory",
+    "retrieval",
+    "self-knowledge"
+  ],
   "config": {
     "activation_formula": "semantic_match * relevance_weight * confidence_weight * freshness_weight * provider_trust_multiplier * governance_multiplier",
     "propagation_formula": "source_activation * relationship_weight * decay_factor",
@@ -135,22 +145,35 @@
     "propagation_hops": 2,
     "activation_epsilon": 1e-09,
     "injection_threshold": 0.01,
-    "injected_node_count": {"rp": 2, "hybrid": 2, "assistant": 5},
+    "injected_node_count": {
+      "rp": 2,
+      "hybrid": 2,
+      "assistant": 5
+    },
     "governance_is_a_gate": true,
     "weights_are_learned": false,
     "lora_intent": "an activated node's weights are meant to temporarily modulate the model by attaching that node's LoRA adapter for the turn",
     "lora_selection_wired": true,
-    "lora_applied_on_providers": ["embedded"],
+    "lora_applied_on_providers": [
+      "embedded"
+    ],
     "lora_applied_on_ollama_or_remote": false
   },
   "metadata": {
     "author": "tala-system",
     "schema": "neural-node/v2",
     "source_of_truth": "sdk/agent/activation.py::ActivationEngine",
-    "known_defect": "weight_relevance and weight_confidence are applied twice - once inside retrieve_relevant_nodes and again as score() arguments - so they act as squares. Masked while 113 of 115 nodes carry 1.00."
+    "known_defect": "weight_relevance and weight_confidence are applied twice - once inside retrieve_relevant_nodes and again as score() arguments - so they act as squares. Masked while 113 of 115 nodes carry 1.00.",
+    "document_purpose": "description",
+    "document_accountability": "normative",
+    "conforming_implementations": [
+      "sdk/agent/activation.py"
+    ],
+    "scope": "",
+    "review_owner": "",
+    "classification_reason": "It states what weights ARE — static attributes, never learned and never updated by inference. The activation engine is answerable to that statement; if the engine started training them, the engine would be wrong, not this document."
   }
-}
-  </script>
+}</script>
 </article>
 </body>
 </html>

@@ -10,6 +10,11 @@
   data-node-id="system-program-documentation-generator"
   data-node-type="documentation"
   data-schema-version="neural-node/v2"
+  data-source-digest="sha256:6208B4832ECE0C35A0407266FEA67BA4B846B51014883E8A0CAFC8991CA6F413"
+  data-review-owner=""
+  data-conforming-implementations=""
+  data-document-accountability="descriptive"
+  data-document-purpose="description"
   data-execution-authority="0.00"
   data-memory-authority="0.60"
   data-provider-authority="0.00"
@@ -21,7 +26,7 @@
   data-weight-governance-importance="1.00"
   data-governance-status="context-only"
   data-doc-target="docs.generate_program_nodes"
-  data-source-files="nodes/system-neural-node-v2-schema.html;nodes/system-html-nn-authoring-guide.html;renderer/renderer.js;python/harness/server.py;sdk/agent/parser.py"
+  data-source-files="sdk/agent/documentation_nodes.py;scripts/generate_sdk_agent_nodes.py"
   data-source-fingerprint="sha256:schema-FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8-guide-4DE51B2E3AF504EFBF4586233919D91B1429234DE3C1011EFA8A606C74DF82E2"
   data-generated-at="2026-06-04T12:20:41Z"
   data-source="local"
@@ -263,8 +268,7 @@
 }
   </script>
 
-  <script type="application/json" id="node-state" data-cognitive-block="state">
-{
+  <script type="application/json" id="node-state" data-cognitive-block="state">{
   "title": "Program Documentation Generator Contract",
   "description": "Contract for intentionally generating program documentation HTML-NNs through a registered Tala bridge.",
   "tags": [
@@ -283,7 +287,18 @@
     "version": "1.0.0",
     "schema": "neural-node/v2",
     "doc_target": "docs.generate_program_nodes",
-    "source_fingerprint": "sha256:schema-FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8-guide-4DE51B2E3AF504EFBF4586233919D91B1429234DE3C1011EFA8A606C74DF82E2"
+    "source_fingerprint": "sha256:schema-FB4CE887969BAD1203C741A765786329E5E434FA2D433D8EF0DC5918531C0CB8-guide-4DE51B2E3AF504EFBF4586233919D91B1429234DE3C1011EFA8A606C74DF82E2",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": "",
+    "classification_reason": "It describes what the generator does, and the generator is the authority on that.",
+    "source_files": [
+      "sdk/agent/documentation_nodes.py",
+      "scripts/generate_sdk_agent_nodes.py"
+    ],
+    "source_digest": "sha256:6208B4832ECE0C35A0407266FEA67BA4B846B51014883E8A0CAFC8991CA6F413"
   },
   "entry_points": [
     "Settings -> System -> Generate Documentation Nodes",
@@ -307,8 +322,7 @@
     "side_effects": "request-only",
     "target": "docs.generate_program_nodes"
   }
-}
-  </script>
+}</script>
 </article>
 </body>
 </html>

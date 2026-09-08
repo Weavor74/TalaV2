@@ -404,6 +404,47 @@ def _render_paragraphs(text: str) -> str:
 #:                  freshness checking and a refresh path.
 #:     mixed        carries both, and the historical half should be separated
 #:                  out rather than dragged along by a refresh.
+#: Which way accountability runs between a document and the code.
+#:
+#: Purpose says whether freshness applies. Accountability says what a change
+#: MEANS, and the two are not the same question. Both of these are
+#: "descriptions" in the purpose sense and they want opposite handling:
+#:
+#:     normative     the document defines intended behaviour and the code is
+#:                   accountable to IT. The schema, the authoring standard.
+#:                   A change in an implementation triggers a conformance
+#:                   review — the standard is not rewritten to match whatever
+#:                   the code now does, because that would let an
+#:                   implementation bug redefine the rule it violated.
+#:     descriptive   the document describes implemented behaviour and is
+#:                   accountable to the CODE. A change triggers regeneration
+#:                   or a documentation review.
+#:     conceptual    the document explains an idea. It has a scope and a
+#:                   review owner and no source files, deliberately: attaching
+#:                   arbitrary files to one of these would improve a coverage
+#:                   number and tell a reader something false about what the
+#:                   document is answerable to.
+ACCOUNTABILITY_NORMATIVE = "normative"
+ACCOUNTABILITY_DESCRIPTIVE = "descriptive"
+ACCOUNTABILITY_CONCEPTUAL = "conceptual"
+ACCOUNTABILITIES = (
+    ACCOUNTABILITY_NORMATIVE,
+    ACCOUNTABILITY_DESCRIPTIVE,
+    ACCOUNTABILITY_CONCEPTUAL,
+)
+
+
+def accountability_of(declared: str = "") -> str:
+    """
+    Which way accountability runs, defaulting to descriptive.
+
+    Descriptive is the safe default: it means the document answers to the
+    code, so a mismatch shows up as a stale document rather than as a silent
+    claim that the code is wrong.
+    """
+    return declared if declared in ACCOUNTABILITIES else ACCOUNTABILITY_DESCRIPTIVE
+
+
 PURPOSE_RECORD = "record"
 PURPOSE_DESCRIPTION = "description"
 PURPOSE_MIXED = "mixed"
@@ -592,6 +633,10 @@ def create_documentation_node(
     node_type: str = "documentation",
     source_files: Any = None,
     purpose: str = "",
+    accountability: str = "",
+    conforming_implementations: Any = None,
+    scope: str = "",
+    review_owner: str = "",
     relationships: Any = None,
     references: Any = None,
     tags: Any = None,
@@ -635,6 +680,15 @@ def create_documentation_node(
     # changed since" becomes a question anything can answer later.
     digest = _source_digest(source_files_list)
     document_purpose = purpose_of(safe_node_id, purpose)
+    document_accountability = accountability_of(accountability)
+    conforming = _normalize_string_list(conforming_implementations)
+
+    # A normative document is checked against the things that must conform to
+    # it, so those are what its digest covers. The relationship is inverted
+    # from a description's, and the digest is the same mechanism either way:
+    # what changed, and does somebody need to look.
+    if document_accountability == ACCOUNTABILITY_NORMATIVE and conforming:
+        digest = _source_digest(conforming)
     generated_at = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
 
     nodes_dir = resolve_active_nodes_dir()
@@ -698,6 +752,10 @@ def create_documentation_node(
             "source_files": list(source_files_list),
             "source_digest": digest,
             "document_purpose": document_purpose,
+            "document_accountability": document_accountability,
+            "conforming_implementations": conforming,
+            "scope": scope,
+            "review_owner": review_owner,
         },
     }
 
@@ -738,6 +796,9 @@ def create_documentation_node(
   data-source-fingerprint="{escape(fingerprint)}"
   data-source-digest="{escape(digest)}"
   data-document-purpose="{escape(document_purpose)}"
+  data-document-accountability="{escape(document_accountability)}"
+  data-conforming-implementations="{escape(';'.join(conforming))}"
+  data-review-owner="{escape(review_owner)}"
   data-generated-at="{generated_at}"
   data-source="local"
   data-trust-tier="system">
@@ -1631,6 +1692,8 @@ def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
     stale: list[dict[str, Any]] = []
     unknown: list[dict[str, Any]] = []
     records: list[dict[str, Any]] = []
+    conceptual: list[dict[str, Any]] = []
+    conformance_due: list[dict[str, Any]] = []
     missing: list[dict[str, Any]] = []
     current = 0
     errors: list[str] = []
@@ -1655,7 +1718,46 @@ def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
             records.append({"node_id": node_id, "declared": bool(declared)})
             continue
 
+        accountability = accountability_of(
+            _get_article_attribute(path, "data-document-accountability") or ""
+        )
+
+        if accountability == ACCOUNTABILITY_CONCEPTUAL:
+            # Explains an idea. It has a scope and an owner instead of source
+            # files, and attaching files to one of these would lift a coverage
+            # number while telling a reader something false about what the
+            # document answers to.
+            conceptual.append({
+                "node_id": node_id,
+                "review_owner": _get_article_attribute(path, "data-review-owner") or "",
+            })
+            continue
+
         recorded = re.search(r'data-source-digest="([^"]*)"', html)
+        if accountability == ACCOUNTABILITY_NORMATIVE:
+            # The document defines the rule; these are the things that must
+            # obey it. A change here is not the document going stale -- it is
+            # a conformance question, and answering it by rewriting the
+            # standard would let an implementation bug redefine the rule it
+            # broke.
+            impl_attr = re.search(r'data-conforming-implementations="([^"]*)"', html)
+            implementations = [f for f in (impl_attr.group(1).split(";") if impl_attr else []) if f]
+            if not recorded or not implementations:
+                unknown.append({"node_id": node_id, "purpose": purpose,
+                                "accountability": accountability,
+                                "declared": bool(declared)})
+                continue
+            if _source_digest(implementations) == recorded.group(1):
+                current += 1
+            else:
+                conformance_due.append({
+                    "node_id": node_id,
+                    "implementations": implementations,
+                    "why": "an implementation changed; review it against this "
+                           "standard rather than rewriting the standard",
+                })
+            continue
+
         files_attr = re.search(r'data-source-files="([^"]*)"', html)
         source_files = [f for f in (files_attr.group(1).split(";") if files_attr else []) if f]
 
@@ -1664,6 +1766,7 @@ def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
             # coverage gap, and it is the number that should be driven down.
             if source_files or _get_article_attribute(path, "data-doc-target"):
                 unknown.append({"node_id": node_id, "purpose": purpose,
+                                "accountability": accountability,
                                 "declared": bool(declared)})
             continue
 
@@ -1685,28 +1788,56 @@ def documentation_staleness(node_ids: Any = None) -> dict[str, Any]:
 
     undeclared = sum(1 for r in records if not r["declared"])
     undeclared += sum(1 for u in unknown if not u["declared"])
+    accountable = current + len(stale) + len(unknown) + len(missing) + len(conformance_due)
     return {
-        "checked": current + len(stale) + len(unknown) + len(missing) + len(records),
+        "checked": accountable + len(records) + len(conceptual),
         "current": current,
         "stale": stale,
         "unknown": unknown,
         "records": records,
+        "conceptual": conceptual,
+        "conformance_review_due": conformance_due,
         "source_missing": missing,
         "errors": errors,
-        "coverage": {
-            "descriptions": current + len(stale) + len(unknown) + len(missing),
-            "with_source": current + len(stale),
-            "without_source": len(unknown),
-            "records_excluded": len(records),
+
+        # Three different questions. Reporting them as one number is how a
+        # coverage figure gets read as an assurance it was never measuring.
+        "source_coverage": {
+            "measures": "does the document name what it is accountable to",
+            "accountable_documents": accountable,
+            "with_reference": current + len(stale) + len(conformance_due),
+            "without_reference": len(unknown),
+            "excluded_records": len(records),
+            "excluded_conceptual": len(conceptual),
             "purpose_inferred_not_declared": undeclared,
         },
+        "source_freshness": {
+            "measures": "has what it is accountable to changed since it was written",
+            "current": current,
+            "stale": len(stale),
+            "conformance_review_due": len(conformance_due),
+            "source_missing": len(missing),
+        },
+        "behavioural_verification": {
+            "measures": "does the document describe what the code actually does",
+            "verified": 0,
+            "note": (
+                "Nothing measures this. The derived prose covers docstrings and "
+                "public names, so a change inside a function body can leave a "
+                "description source-current and wrong; those are marked "
+                "behaviour-unverified when a rewrite produces identical text. "
+                "Source coverage is not verification and must not be read as it."
+            ),
+        },
         "note": (
-            "'records' are outside freshness by purpose: a benchmark run or a "
-            "lesson is what happened, and regenerating it against today's code "
-            "would destroy the evidence. 'unknown' is the coverage gap -- a "
-            "DESCRIPTION with no source reference, which is neither current nor "
-            "checkable. Driving that to zero is the milestone; eliminating "
-            "records is not."
+            "Four outcomes, deliberately distinct. 'records' are outside "
+            "freshness by purpose -- a benchmark run is what happened, and "
+            "regenerating it would destroy the evidence. 'conceptual' documents "
+            "have a scope and an owner instead of source files. "
+            "'conformance_review_due' means an implementation changed under a "
+            "NORMATIVE document: review the implementation against the "
+            "standard, never rewrite the standard to match it. 'unknown' is the "
+            "coverage gap -- a document that names nothing it answers to."
         ),
     }
 

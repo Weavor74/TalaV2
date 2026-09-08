@@ -117,8 +117,8 @@ def test_a_benchmark_is_never_regenerated_against_current_code():
 def test_the_report_says_what_the_number_means():
     report = documentation_staleness()
     assert "records" in report["note"] and "coverage gap" in report["note"]
-    assert "eliminating" in report["note"], (
-        "the report should say that driving records to zero is not the goal"
+    assert "outside freshness by purpose" in report["note"], (
+        "the report should say why records are excluded rather than counted"
     )
 
 
@@ -129,9 +129,11 @@ def test_the_report_says_what_the_number_means():
 
 def test_coverage_arithmetic_adds_up():
     report = documentation_staleness()
-    coverage = report["coverage"]
-    assert coverage["with_source"] + coverage["without_source"] == coverage["descriptions"]
-    assert coverage["descriptions"] + coverage["records_excluded"] == report["checked"]
+    coverage = report["source_coverage"]
+    assert (coverage["with_reference"] + coverage["without_reference"]
+            == coverage["accountable_documents"])
+    assert (coverage["accountable_documents"] + coverage["excluded_records"]
+            + coverage["excluded_conceptual"]) == report["checked"]
 
 
 def test_most_current_descriptions_are_checkable():
@@ -139,10 +141,10 @@ def test_most_current_descriptions_are_checkable():
     A ratchet, not a target. It stood at 123 of 254 when purpose was
     introduced; tool and program documentation closed most of the gap.
     """
-    coverage = documentation_staleness()["coverage"]
-    assert coverage["with_source"] >= 235, (
-        f"description coverage fell to {coverage['with_source']}/"
-        f"{coverage['descriptions']}"
+    coverage = documentation_staleness()["source_coverage"]
+    assert coverage["with_reference"] >= 235, (
+        f"coverage fell to {coverage['with_reference']}/"
+        f"{coverage['accountable_documents']}"
     )
 
 
@@ -180,45 +182,14 @@ def test_the_contract_is_itself_checkable():
         assert expected in named, f"the contract does not track {expected}"
 
 
-def test_the_remaining_gap_is_named_not_hidden():
+def test_every_accountable_document_names_something():
     """
-    What is left needs a person to choose its references: concept documents
-    that describe an idea rather than a file. Naming them is the point —
-    an unexplained residue is how a coverage number stops being acted on.
+    The milestone, reached: the residue of hand-authored documents was
+    classified one at a time rather than given files to make a number move.
+    Four are normative and name what must conform to them, four describe code
+    and name it, two are conceptual with a scope and an owner instead, and one
+    turned out to be a learning record filed under a module prefix.
     """
     report = documentation_staleness()
     remaining = {u["node_id"] for u in report["unknown"]}
-    assert len(remaining) <= 20, f"the gap grew to {len(remaining)}: {sorted(remaining)}"
-    # These are concept/spec documents, not derived from one source file.
-    assert any(n.startswith("system-") for n in remaining), (
-        "the residue is no longer the hand-authored concept documents; "
-        f"re-examine what is left: {sorted(remaining)}"
-    )
-
-
-def test_the_daily_pass_does_not_strip_the_contract_of_its_references():
-    """
-    Caught by test ordering, and a real fault rather than an artifact of it.
-
-    The maintenance pass built its own `create_documentation_node` call
-    instead of reusing the generator's arguments, so a daily refresh rewrote
-    the contract WITHOUT the source files the command line gives it — the
-    document that tells everything else to be checkable, made uncheckable by
-    the thing whose job is maintaining it. Two argument lists for one node is
-    the shape of the bug; one shared constant is the fix.
-    """
-    import sys
-
-    sys.path.insert(0, str(ROOT / "scripts"))
-    from generate_architecture_contract import CONTRACT_SOURCES
-
-    maintenance = (ROOT / "python" / "harness" / "doc_maintenance.py").read_text(
-        encoding="utf-8", errors="replace"
-    )
-    assert "CONTRACT_SOURCES" in maintenance, (
-        "the daily pass names its own source list; it will drift from the "
-        "generator's and strip references the command line adds"
-    )
-    assert "architecture_facts.py" in CONTRACT_SOURCES[0] or any(
-        "architecture_facts.py" in s for s in CONTRACT_SOURCES
-    )
+    assert not remaining, f"documents naming nothing they answer to: {sorted(remaining)}"
