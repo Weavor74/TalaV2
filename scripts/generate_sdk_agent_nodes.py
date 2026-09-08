@@ -26,10 +26,15 @@ Usage
     python scripts/generate_sdk_agent_nodes.py --dry-run  # list, write nothing
     python scripts/generate_sdk_agent_nodes.py --package python.harness
 
-TALA_USER_DATA is pinned to the repository root for the duration of the
-run. ``create_documentation_node`` resolves its output through
-``resolve_active_nodes_dir()``, so without the pin an unpinned run on a
-machine with that variable set writes somewhere else entirely.
+TALA_USER_DATA is pinned to the repository root by ``main()`` — by the
+COMMAND LINE, not at import. ``create_documentation_node`` resolves its
+output through ``resolve_active_nodes_dir()``, so a bare run on a machine
+with that variable set would otherwise write somewhere else entirely.
+
+The pin deliberately does not happen on import. The harness imports these
+functions to refresh documentation on a schedule, and an import that
+rewrites its importer's data root sends every later read of that variable
+somewhere the operator never configured.
 """
 
 from __future__ import annotations
@@ -43,10 +48,25 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(REPO_ROOT))
 
-# Pin before importing anything that resolves the nodes directory.
-os.environ["TALA_USER_DATA"] = str(REPO_ROOT)
-
 from sdk.agent.documentation_nodes import create_documentation_node  # noqa: E402
+
+
+def _pin_nodes_dir_to_repo() -> None:
+    """
+    Point node writes at this checkout, for a command-line run only.
+
+    This used to run at import time, which was fine while the only caller was
+    this script's own `python scripts/...` invocation and became a real fault
+    the moment the harness started importing these functions for its daily
+    refresh: importing a module silently rewrote the running application's
+    TALA_USER_DATA to the repository. Every later read of that variable — not
+    only documentation writes — then pointed somewhere the operator had not
+    configured, for the life of the process.
+
+    An import must not reconfigure its importer. The pin belongs to the
+    entrypoint that wants it.
+    """
+    os.environ["TALA_USER_DATA"] = str(REPO_ROOT)
 
 SKIP_MODULES = {"__init__"}
 
@@ -218,6 +238,10 @@ def main() -> int:
     parser.add_argument("--dry-run", action="store_true", help="list modules, write nothing")
     parser.add_argument("--package", default="", help="only this module_prefix")
     args = parser.parse_args()
+
+    # Command line: write into this checkout. Callers that import these
+    # functions keep whatever data root they were configured with.
+    _pin_nodes_dir_to_repo()
 
     written = failed = 0
     for spec in DOCUMENTED_PACKAGES:

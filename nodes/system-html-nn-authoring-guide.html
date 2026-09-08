@@ -55,6 +55,10 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Reconciled] On data ownership, security layers, execution paths, capability maturity and which node types may execute, <strong>system-architecture-contract</strong> is authoritative and current as of 2026-09-08; where this document disagrees with it on those subjects, it is out of date. On everything else this document remains the better source.</p>
+
+
+
     <h2>Semantic Memory</h2>
     <p>Tala authors HTML Neural Nodes by preparing a structured node specification and passing that specification through a deterministic generator and validator. Tala must not invent raw node wrappers, must not use a custom <code>&lt;node&gt;</code> element, and must not report success until a file exists on disk and parses successfully.</p>
     <p>The root format is an HTML document containing a parser-readable <code>&lt;article&gt;</code> element with <code>data-node-id</code>, <code>data-node-type</code>, and <code>data-execution-authority</code>. Documentation nodes use <code>data-node-type="documentation"</code>, zero execution authority, zero memory authority unless explicitly justified, and source metadata that explains what files or sources produced the node.</p>
@@ -348,7 +352,7 @@
 
 <section id="contract-reconciliation">
   <h2>Reconciliation</h2>
-  <p>This node was reconciled against <strong>system-architecture-contract</strong> on 2026-09-08 at commit <code>97d5a2519e35</code>. That contract is authoritative on:</p>
+  <p>This node was reconciled against <strong>system-architecture-contract</strong> on 2026-09-08 at commit <code>b043043f45d0</code>. That contract is authoritative on:</p>
   <ul><li>which stores own which records, and what backup and restore each requires</li><li>the three security layers — renderer isolation, the IPC surface, and host command execution — and which of them protects what</li><li>how chat, goals, workflows, DAGs, crews, swarms and scheduled jobs reach a tool, and what verifies the result</li><li>capability maturity: implemented, tested, live-verified, experimental, or unavailable, with the evidence named</li><li>which node types may execute, and the authority required to run them</li></ul>
   <p>Where this node and the contract disagree on those subjects, the contract is current and this node is not. On everything else this node remains the better source — the deference is bounded deliberately, because a blanket one would discard what this document knows and the contract does not.</p>
   <p>Regenerate the contract with <code>python scripts/generate_architecture_contract.py</code>, or call <code>docs.regenerate_contract</code>. It also refreshes daily on its own, writing only when the description actually changed.</p>
@@ -425,7 +429,7 @@
       "which node types may execute, and the authority required to run them"
     ],
     "reconciled_at": "2026-09-08",
-    "reconciled_commit": "97d5a2519e35df24ed1661acb1f814f903088fd8"
+    "reconciled_commit": "b043043f45d035f7072e461c17b6aef35090f653"
   }
 }</script>
 </article>

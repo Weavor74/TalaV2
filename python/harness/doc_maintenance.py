@@ -55,6 +55,10 @@ FIRST_RUN_DELAY_SECONDS = 300
 
 CONTRACT_NODE_ID = "system-architecture-contract"
 
+#: Defined where every regeneration path can see it, so a rewrite cannot
+#: quietly clear a warning that is still true.
+from sdk.agent.documentation_nodes import UNVERIFIED_MARK, UNVERIFIED_NOTICE
+
 
 def _published_contract(node_path: Path) -> dict[str, Any] | None:
     """The contract as it currently stands on disk, or None."""
@@ -240,24 +244,90 @@ async def refresh_stale_documentation() -> dict[str, Any]:
                 "current": report.get("current", 0),
                 "unknown": len(report.get("unknown") or [])}
 
-    rewritten, unhandled = [], []
+    rewritten, unhandled, unverified = [], [], []
     for entry in stale:
         target = entry.get("doc_target") or ""
-        if _regenerate_module_node(target):
-            rewritten.append(entry["node_id"])
-        else:
+        before = _semantic_memory_of(Path(entry["path"])) if entry.get("path") else ""
+        if not _regenerate_module_node(target):
             unhandled.append({"node_id": entry["node_id"], "doc_target": target})
+            continue
+
+        rewritten.append(entry["node_id"])
+
+        # The distinction that matters, and the one a digest alone hides.
+        #
+        # The digest covers the whole file; the derived prose covers the
+        # module docstring and its public names and their docstrings. Change
+        # a function BODY and leave its docstring alone -- swap an Amazon
+        # call for an API key, say -- and the digest moves, this rewrites the
+        # node, and the description comes out byte-identical, still
+        # describing Amazon. The node is then honestly source-current and
+        # quietly wrong, which is worse than being marked stale.
+        after = _semantic_memory_of(Path(entry["path"])) if entry.get("path") else ""
+        if before and after and before == after:
+            unverified.append({
+                "node_id": entry["node_id"],
+                "doc_target": target,
+                "why": "the source changed inside code this description does not cover",
+            })
+            _mark_description_unverified(Path(entry["path"]))
 
     log.info(
-        "doc maintenance: %d document(s) had changed code — rewrote %d, %d need a "
-        "generator that does not exist yet: %s",
-        len(stale), len(rewritten), len(unhandled),
-        ", ".join(u["node_id"] for u in unhandled) or "none",
+        "doc maintenance: %d document(s) had changed code — rewrote %d, %d came "
+        "out unchanged and need a human or a model to look (%s), %d have no "
+        "generator (%s)",
+        len(stale), len(rewritten), len(unverified),
+        ", ".join(u["node_id"] for u in unverified) or "none",
+        len(unhandled), ", ".join(u["node_id"] for u in unhandled) or "none",
     )
     return {"ran": True, "stale": len(stale), "rewritten": len(rewritten),
             "rewritten_nodes": rewritten, "unhandled": unhandled,
+            "description_unverified": unverified,
             "current": report.get("current", 0),
             "unknown": len(report.get("unknown") or [])}
+
+
+def _semantic_memory_of(path: Path) -> str:
+    """The recalled text of a node, for comparing one generation to the next."""
+    try:
+        html = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return ""
+    match = re.search(r'<section id="semantic-memory">(.*?)</section>', html, re.DOTALL)
+    return " ".join(match.group(1).split()) if match else ""
+
+
+def _mark_description_unverified(path: Path) -> None:
+    """
+    Say so on the node, and say it where recall will see it.
+
+    Recording this only in an attribute would repeat the mistake the
+    reconciliation block made: perfectly stored, and invisible to the path
+    that actually feeds a model. A document describing behaviour that has
+    since changed must announce that in its own text.
+    """
+    try:
+        html = path.read_text(encoding="utf-8", errors="replace")
+    except OSError:
+        return
+
+    if UNVERIFIED_MARK in html:
+        return
+
+    html = re.sub(
+        r'(<section id="semantic-memory">)',
+        lambda m: m.group(1) + "\n" + UNVERIFIED_NOTICE, html, count=1,
+    )
+    if 'data-description-verified=' in html:
+        html = re.sub(r'data-description-verified="[^"]*"',
+                      'data-description-verified="false"', html, count=1)
+    else:
+        html = re.sub(r'(data-source-digest="[^"]*")',
+                      r'\1\n  data-description-verified="false"', html, count=1)
+    try:
+        path.write_text(html, encoding="utf-8")
+    except OSError:
+        log.warning("could not mark %s as unverified", path.stem)
 
 
 def _regenerate_module_node(doc_target: str) -> bool:

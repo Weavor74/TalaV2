@@ -12,7 +12,7 @@ import re
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from html import escape
+from html import escape, unescape
 from pathlib import Path
 from typing import Any
 
@@ -378,6 +378,52 @@ def _render_paragraphs(text: str) -> str:
     return "\n".join(f"    <p>{escape(paragraph)}</p>" for paragraph in paragraphs)
 
 
+#: Marks a description whose code moved underneath it in a way that
+#: re-deriving could not see.
+#:
+#: The derived prose covers a module's docstring and its public names and
+#: their docstrings. Change a function BODY and leave the docstring alone --
+#: swap an Amazon call for an API key -- and the file digest moves, the node
+#: is regenerated, and the description comes out byte-identical, still
+#: describing Amazon. Source-current and quietly wrong is worse than stale,
+#: because stale at least says so.
+UNVERIFIED_MARK = "[Behaviour unverified]"
+
+UNVERIFIED_NOTICE = (
+    f"  <p>{UNVERIFIED_MARK} The source of this module has changed since this "
+    "description was derived, and re-deriving produced the same text — the "
+    "change was inside code this description does not cover (a function body, "
+    "not a name or a docstring). Treat the behaviour described here as "
+    "unverified and read the source before relying on it.</p>\n"
+)
+
+
+def _strip_unverified_notice(html: str) -> str:
+    return re.sub(rf"\s*<p>\s*{re.escape(UNVERIFIED_MARK)}.*?</p>", "", html, flags=re.DOTALL)
+
+
+def _carried_unverified_notice(previous_content: str | None) -> bool:
+    return bool(previous_content) and UNVERIFIED_MARK in previous_content
+
+
+def _semantic_memory_text(html: str) -> str:
+    """
+    The stored prose as plain words, for comparing against what was just
+    derived.
+
+    Tags have to come out. What is passed in is raw prose; what is stored has
+    been rendered into paragraphs, so comparing them with the markup left in
+    never matches — which silently disabled the notice-preservation below
+    until a test caught it.
+    """
+    match = re.search(r'<section id="semantic-memory">(.*?)</section>', html, re.DOTALL)
+    if not match:
+        return ""
+    text = _strip_unverified_notice(match.group(1))
+    text = re.sub(r"<[^>]+>", " ", text)
+    return " ".join(unescape(text).split())
+
+
 def _source_digest(source_files: list[str]) -> str:
     """
     A hash of the CONTENT of the files this document describes.
@@ -578,6 +624,19 @@ def create_documentation_node(
             and previous_fingerprint.group(1) == fingerprint
         ):
             generated_at = previous_generated.group(1)
+
+    # A regeneration that produces the same words must not launder an
+    # existing behaviour warning.
+    #
+    # Without this, running the bulk generator cleared every unverified mark
+    # in the store -- including the ones still true -- because each node is
+    # rewritten from the template. The warning would survive exactly until
+    # somebody regenerated, which is the one thing guaranteed to happen.
+    if (
+        _carried_unverified_notice(previous_content)
+        and _semantic_memory_text(previous_content or "") == " ".join(semantic_memory.split())
+    ):
+        semantic_memory = UNVERIFIED_NOTICE + semantic_memory
 
     state_data = {
         "title": title,

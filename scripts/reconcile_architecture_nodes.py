@@ -114,11 +114,56 @@ def _block(commit: str, when: str) -> str:
     )
 
 
+#: The one sentence that has to survive into recall.
+#:
+#: The full block below sits in its own <section>, and the parser's
+#: `_extract_semantic_memory` reads ONLY the element with id
+#: "semantic-memory". So the reconciliation was perfectly well recorded and
+#: perfectly invisible to the context-injection path that actually feeds a
+#: model -- a deference notice nothing deferring would ever read. It has to be
+#: inside the recalled text, not merely inside the file.
+_DEFERENCE_MARK = "[Reconciled]"
+_DEFERENCE_RE = re.compile(
+    r"\s*<p>\s*\[Reconciled\].*?</p>", re.DOTALL
+)
+
+
+def _deference_sentence(when: str) -> str:
+    return (
+        f"  <p>{_DEFERENCE_MARK} On data ownership, security layers, execution "
+        "paths, capability maturity and which node types may execute, "
+        f"<strong>{AUTHORITY_NODE}</strong> is authoritative and current as of "
+        f"{when}; where this document disagrees with it on those subjects, it "
+        "is out of date. On everything else this document remains the better "
+        "source.</p>\n"
+    )
+
+
+def _add_deference_to_semantic_memory(html: str, when: str) -> str:
+    """
+    Put the deference where a model will actually see it.
+
+    Replaces a previous mark rather than stacking, so repeated runs leave one
+    sentence.
+    """
+    match = re.search(r'(<section id="semantic-memory">)(.*?)(</section>)',
+                      html, re.DOTALL)
+    if not match:
+        return html
+    body = _DEFERENCE_RE.sub("", match.group(2))
+    return (
+        html[:match.start()]
+        + match.group(1) + "\n" + _deference_sentence(when) + body + match.group(3)
+        + html[match.end():]
+    )
+
+
 def _reconcile(path: Path, commit: str, when: str) -> str:
     """Stamp one node. Returns what happened."""
     html = path.read_text(encoding="utf-8", errors="replace")
     had_block = bool(_SECTION_RE.search(html))
     html = _SECTION_RE.sub("", html)
+    html = _add_deference_to_semantic_memory(html, when)
 
     anchor = html.find('<script type="application/json" id="node-state"')
     if anchor == -1:
