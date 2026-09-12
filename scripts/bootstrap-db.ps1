@@ -76,8 +76,46 @@ if ($TestDbExists -eq "1") {
     Write-Host "Test database '$TestDbName' created." -ForegroundColor Green
 }
 
+# pgvector, in both databases.
+#
+# Creating an extension needs superuser, which the app's own role is not, so
+# the harness cannot do this for itself -- it can only report that it could
+# not. Provisioning is this script's job, and it is not optional: without the
+# extension there is no `vector` type, so the embeddings table cannot be
+# created, so the VPS write gate finds no approved context and DENIES every
+# write to a connection node. A fresh install could not connect to the VPS,
+# and said only "Memory context validation failed".
+#
+# Note: the winget/EDB PostgreSQL packages do NOT ship pgvector binaries, so
+# CREATE EXTENSION can fail even as superuser. In that case point the user at
+# the install instructions instead of silently continuing.
+$VectorOk = $true
+foreach ($Db in @($DbName, $TestDbName)) {
+    psql -U postgres -d $Db -c "CREATE EXTENSION IF NOT EXISTS vector;" 2>$null | Out-Null
+    if ($LASTEXITCODE -eq 0) {
+        Write-Host "pgvector ready in '$Db'." -ForegroundColor Green
+    } else {
+        $VectorOk = $false
+        Write-Host "Could not enable pgvector in '$Db'." -ForegroundColor Red
+    }
+}
+if (-not $VectorOk) {
+    Write-Host "The pgvector extension is not installed in this PostgreSQL server." -ForegroundColor Red
+    Write-Host "The Windows PostgreSQL packages do not bundle it. To install:" -ForegroundColor Yellow
+    Write-Host "  1. Download a pgvector release for your PostgreSQL major version:" -ForegroundColor Yellow
+    Write-Host "     https://github.com/pgvector/pgvector/releases (or build per its README)" -ForegroundColor Yellow
+    Write-Host "  2. Copy vector.dll into the PostgreSQL 'lib' directory and the" -ForegroundColor Yellow
+    Write-Host "     vector.control / vector--*.sql files into 'share\extension'." -ForegroundColor Yellow
+    Write-Host "  3. Re-run this script: scripts\bootstrap-db.ps1" -ForegroundColor Yellow
+    Write-Host "Until then, peer writes to a connection node will be DENIED (embeddings table cannot be created)." -ForegroundColor Red
+}
+
 # Clear password from env to be safe
 $env:PGPASSWORD = ""
 
+if (-not $VectorOk) {
+    Write-Host "Database bootstrap finished with warnings (pgvector missing)." -ForegroundColor Yellow
+    exit 1
+}
 Write-Host "Database bootstrap complete." -ForegroundColor Green
 exit 0

@@ -3,6 +3,7 @@ base.py - Auto-generated documentation base.
 """
 
 import abc
+import os
 import shlex
 import uuid
 import logging
@@ -21,13 +22,34 @@ class BaseEnvironment(abc.ABC):
     Creates an initial shell snapshot, and wraps subsequent commands
     to restore state and capture CWD changes.
     """
-    def __init__(self, cwd: str = "/root", timeout: int = 120):
-        self.cwd = cwd
+    def __init__(self, cwd: Optional[str] = None, timeout: int = 120):
+        # No hardcoded /root: that is a container-ism. Remote backends
+        # (docker/ssh) pass their own cwd explicitly; the local backend must
+        # default to something that exists on the host.
+        self.cwd = cwd or os.getcwd()
         self.timeout = timeout
         self._session_id = uuid.uuid4().hex[:12]
-        self._snapshot_path = f"/tmp/tala-snap-{self._session_id}.sh"
+        self._snapshot_path = self._make_snapshot_path()
         self._cwd_marker = f"__TALA_CWD_{self._session_id}__"
         self._snapshot_ready = False
+
+    def _make_snapshot_path(self) -> str:
+        """Where the env snapshot lives, *inside the shell's filesystem*.
+
+        Docker/SSH backends run the snapshot inside a remote POSIX shell, so
+        /tmp is correct for them regardless of the host OS. LocalEnvironment
+        overrides this with the host's real temp directory.
+        """
+        return f"/tmp/tala-snap-{self._session_id}.sh"
+
+    def _remove_snapshot(self):
+        """Best-effort snapshot cleanup, run inside the backend's shell."""
+        if not self._snapshot_ready:
+            return
+        try:
+            self._run_bash(f"rm -f {shlex.quote(self._snapshot_path)}", timeout=10)
+        except Exception:
+            pass
 
     @abc.abstractmethod
     def _run_bash(self, cmd_string: str, login: bool = False, timeout: int = 120) -> ProcessResult:

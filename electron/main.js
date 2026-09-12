@@ -86,6 +86,43 @@ function venvPythonPath(basePath) {
 }
 
 /**
+ * Resolves a working system Python interpreter, preferring `python3`.
+ *
+ * A bare `python` does not exist on modern macOS or most Linux distros, and on
+ * Windows it can hit the Microsoft Store stub (which exits non-zero), so each
+ * candidate is probed with `--version` before being trusted. Returns null when
+ * no interpreter is found so callers can surface a real error instead of a
+ * confusing ENOENT.
+ */
+let cachedSystemPython;
+function systemPythonCommand() {
+  if (cachedSystemPython !== undefined) return cachedSystemPython;
+  cachedSystemPython = null;
+  for (const candidate of ['python3', 'python']) {
+    try {
+      const probe = spawnSync(candidate, ['--version'], { stdio: 'ignore' });
+      if (!probe.error && probe.status === 0) {
+        cachedSystemPython = candidate;
+        break;
+      }
+    } catch { /* keep looking */ }
+  }
+  return cachedSystemPython;
+}
+
+/**
+ * Resolves the POSIX shell to spawn, via PATH rather than a hardcoded
+ * /bin/bash (which does not exist on NixOS). Falls back to `sh`.
+ */
+let cachedPosixShell;
+function posixShellCommand() {
+  if (cachedPosixShell !== undefined) return cachedPosixShell;
+  const probe = spawnSync('bash', ['-c', 'true'], { stdio: 'ignore' });
+  cachedPosixShell = (!probe.error && probe.status === 0) ? 'bash' : 'sh';
+  return cachedPosixShell;
+}
+
+/**
  * Resolves the directory Tala's data (.venv, .env, nodes/, workflows/,
  * vault/, chat_mode.json, ...) lives under. Tala is portable by default:
  * installed on a USB stick, it must behave identically on any machine/OS
@@ -184,10 +221,14 @@ function ensureFirstRun(appPath) {
   const firstRunScript = path.join(appPath, 'scripts', 'first_run.py');
   if (!fs.existsSync(firstRunScript)) {
     console.warn(`[main] first-run script not found: ${firstRunScript}`);
-    return fs.existsSync(pythonPath) ? pythonPath : 'python';
+    return fs.existsSync(pythonPath) ? pythonPath : (systemPythonCommand() ?? 'python3');
   }
 
-  const runner = fs.existsSync(pythonPath) ? pythonPath : 'python';
+  const runner = fs.existsSync(pythonPath) ? pythonPath : systemPythonCommand();
+  if (!runner) {
+    console.error('[main] No Python interpreter found (tried the venv, python3 and python). Cannot run first-run setup.');
+    return pythonPath; // spawn will fail loudly with the venv path in the message
+  }
   const args = [firstRunScript, '--skip-node'];
   console.log(`[main] Running first-run setup: "${runner}" ${args.join(' ')}`);
   const result = spawnSync(runner, args, {
@@ -203,6 +244,7 @@ function ensureFirstRun(appPath) {
 
   return fs.existsSync(pythonPath) ? pythonPath : runner;
 }
+
 
 /* ──────────────────────────────────────────────────────────────────
    State
@@ -817,18 +859,42 @@ exit
                     return reject('Downloaded update failed integrity check (hash mismatch).');
                   }
                 }
+                // The script runs after the app quits, so any failure inside
+                // it is invisible. Verify an extractor exists NOW (unzip is
+                // absent on many minimal installs) and refuse the update with
+                // a real error instead of dying silently later; the script
+                // itself also falls back to Python's zipfile module and logs
+                // to a file for post-mortem.
+                const shellCmd = posixShellCommand();
+                const haveUnzip = spawnSync(shellCmd, ['-c', 'command -v unzip'], { stdio: 'ignore' }).status === 0;
+                const updaterPython = systemPythonCommand();
+                if (!haveUnzip && !updaterPython) {
+                  try { fs.unlinkSync(zipPath); } catch { /* already gone */ }
+                  return reject('Cannot apply the update: neither "unzip" nor a Python interpreter is available to extract it. Install one (e.g. `sudo apt install unzip`) and retry.');
+                }
+
                 const scriptPath = path.join(os.tmpdir(), 'tala-update.sh');
+                const logPath = path.join(os.tmpdir(), 'tala-update.log');
                 const startScript = path.join(appRoot, 'scripts', 'start-tala.sh');
-                const scriptContent = `#!/bin/bash
+                const scriptContent = `#!/bin/sh
+exec > "${logPath}" 2>&1
 sleep 3
-unzip -o "${zipPath}" -d "${appRoot}"
+if command -v unzip >/dev/null 2>&1; then
+  unzip -o "${zipPath}" -d "${appRoot}" || exit 1
+elif command -v ${updaterPython || 'python3'} >/dev/null 2>&1; then
+  ${updaterPython || 'python3'} -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "${zipPath}" "${appRoot}" || exit 1
+else
+  echo "No extractor available (unzip or python3); update NOT applied."
+  exit 1
+fi
+rm -f "${zipPath}"
 chmod +x "${startScript}"
 cd "${appRoot}"
-bash "${startScript}" &
+${shellCmd} "${startScript}" &
 `;
                 fs.writeFileSync(scriptPath, scriptContent);
                 fs.chmodSync(scriptPath, '755');
-                const child = spawn('bash', [scriptPath], { detached: true, stdio: 'ignore' });
+                const child = spawn(shellCmd, [scriptPath], { detached: true, stdio: 'ignore' });
                 child.unref();
                 resolve({ success: true });
                 setTimeout(() => { app.quit(); }, 500);
@@ -949,8 +1015,9 @@ function spawnTerminalShell() {
   }
 
   const appPath = app.getAppPath();
-  const shell = process.platform === 'win32' ? 'powershell.exe' : '/bin/bash';
-  // Win32: -NoExit launches powershell persistently. Unix: -i launches an interactive bash.
+  // PATH lookup, not a hardcoded /bin/bash — that path does not exist on NixOS.
+  const shell = process.platform === 'win32' ? 'powershell.exe' : posixShellCommand();
+  // Win32: -NoExit launches powershell persistently. Unix: -i launches an interactive shell.
   const shellArgs = process.platform === 'win32' ? ['-NoProfile', '-NoExit'] : ['-i'];
 
   const venvBinDir = process.platform === 'win32' ? 'Scripts' : 'bin';
@@ -1046,26 +1113,91 @@ function registerTerminalHandlers() {
     }
   });
 
-  ipcMain.handle('system:apply_update', async (_event, payload) => {
+  // The renderer may ASK for an update to be applied; it may not SUPPLY one.
+  // The old contract took base64 zip bytes from the renderer and extracted
+  // them over the app directory with no signature, no hash and no member-path
+  // validation -- any code running in the renderer (XSS being the usual way)
+  // could replace the entire application and relaunch it. Now the main
+  // process fetches the payload itself from the local harness's
+  // `system.download_update`, which is gated on the harness admin secret the
+  // renderer never sees, and refuses zip members that would land outside the
+  // app directory or arrive as symlinks.
+  ipcMain.handle('system:apply_update', async (_event, _payload) => {
     try {
       const fs = require('node:fs');
       const path = require('node:path');
       const { spawn } = require('node:child_process');
-      const base64Data = payload.zipBase64;
-      if (!base64Data) throw new Error("Missing zipBase64 in payload");
-      
-      const buffer = Buffer.from(base64Data, 'base64');
-      const zipPath = path.join(__dirname, '..', 'update_client_payload.zip');
-      
+
+      if (!wsConnected || !wsClient || wsClient.readyState !== (WebSocket?.OPEN ?? 1)) {
+        return { ok: false, error: 'Python harness WebSocket is not connected.' };
+      }
+
+      console.log('[main] Fetching update payload from the local harness...');
+      const download = await new Promise((resolve) => {
+        const id = rpcIdCounter++;
+        const timer = setTimeout(() => {
+          pendingRpcCalls.delete(id);
+          resolve({ __rpcError: true, error: 'system.download_update timed out' });
+        }, 300_000);
+        pendingRpcCalls.set(id, { resolve, timer });
+        try {
+          wsClient.send(JSON.stringify({
+            jsonrpc: '2.0',
+            id,
+            method: 'system.download_update',
+            params: { harness_secret: getHarnessAdminSecret() },
+          }));
+        } catch (err) {
+          clearTimeout(timer);
+          pendingRpcCalls.delete(id);
+          resolve({ __rpcError: true, error: `Failed to request update payload: ${err.message}` });
+        }
+      });
+
+      if (!download || download.__rpcError || download.status !== 'success' || !download.zipBase64) {
+        const why = (download && (download.error || download.status)) || 'no payload';
+        return { ok: false, error: `Could not fetch the update payload from the harness: ${why}` };
+      }
+
+      const buffer = Buffer.from(download.zipBase64, 'base64');
+      const appRoot = path.resolve(__dirname, '..');
+      const zipPath = path.join(appRoot, 'update_client_payload.zip');
       fs.writeFileSync(zipPath, buffer);
       console.log('[main] Applying OTA update from zip...');
-      
-      return new Promise((resolve, reject) => {
-        const pythonCommand = 'import zipfile; import os; zipfile.ZipFile("update_client_payload.zip").extractall(os.getcwd()); os.remove("update_client_payload.zip")';
-        const extractor = spawn('python', ['-c', pythonCommand], {
-          cwd: path.join(__dirname, '..')
+
+      // Extraction refuses zip-slip (members resolving outside the app root)
+      // and symlink members, which extractall() would happily write.
+      const extractorScript = [
+        'import zipfile, os, sys',
+        'zip_path, dest = sys.argv[1], os.path.realpath(sys.argv[2])',
+        'zf = zipfile.ZipFile(zip_path)',
+        'for info in zf.infolist():',
+        '    target = os.path.realpath(os.path.join(dest, info.filename))',
+        '    if target != dest and not target.startswith(dest + os.sep):',
+        '        sys.exit("refusing zip member outside the app root: " + info.filename)',
+        '    if (info.external_attr >> 16) & 0o170000 == 0o120000:',
+        '        sys.exit("refusing symlink zip member: " + info.filename)',
+        'zf.extractall(dest)',
+        'zf.close()',
+        'os.remove(zip_path)',
+      ].join('\n');
+
+      // Prefer the venv interpreter (always present on an installed system);
+      // fall back to a probed system python3/python. A bare 'python' does not
+      // exist on modern macOS/Linux.
+      const venvPy = venvPythonPath(resolveDataRoot(app.getAppPath()));
+      const extractorPython = fs.existsSync(venvPy) ? venvPy : systemPythonCommand();
+      if (!extractorPython) {
+        try { fs.unlinkSync(zipPath); } catch { /* already gone */ }
+        return { ok: false, error: 'No Python interpreter available to extract the update (tried the venv, python3 and python).' };
+      }
+
+      return await new Promise((resolve) => {
+        const extractor = spawn(extractorPython, ['-c', extractorScript, zipPath, appRoot], {
+          cwd: appRoot,
         });
-        
+        let stderr = '';
+        extractor.stderr?.on('data', (chunk) => { stderr += String(chunk); });
         extractor.on('close', (code) => {
           if (code === 0) {
             console.log('[main] Update applied successfully. Relaunching app...');
@@ -1073,8 +1205,9 @@ function registerTerminalHandlers() {
             app.exit(0);
             resolve({ ok: true });
           } else {
-            console.error(`[main] Update extraction failed with code ${code}`);
-            reject(new Error(`Extraction failed with code ${code}`));
+            try { fs.unlinkSync(zipPath); } catch { /* already gone */ }
+            console.error(`[main] Update extraction refused or failed (code ${code}): ${stderr.trim()}`);
+            resolve({ ok: false, error: `Extraction failed (code ${code}): ${stderr.trim()}` });
           }
         });
       });
@@ -1101,8 +1234,12 @@ function killProcessOnPort(port) {
           }
         }
       }
+    } else if (spawnSync('sh', ['-c', 'command -v lsof'], { stdio: 'ignore' }).status === 0) {
+      execSync(`lsof -t -i:${port} | xargs -r kill -9 2>/dev/null || true`);
+    } else if (spawnSync('sh', ['-c', 'command -v fuser'], { stdio: 'ignore' }).status === 0) {
+      execSync(`fuser -k ${port}/tcp 2>/dev/null || true`);
     } else {
-      execSync(`lsof -t -i:${port} | xargs kill -9`);
+      console.warn(`[main] Neither lsof nor fuser is available; skipping stale-process cleanup on port ${port}.`);
     }
   } catch (err) {
     // Ignore error

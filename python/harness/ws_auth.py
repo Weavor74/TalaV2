@@ -185,6 +185,33 @@ CONNECTION_CLASS_ATTR = "tala_connection_class"
 CONNECTION_PEER_ATTR = "tala_peer_username"
 
 
+#: Sliding-window handshake counter per remote IP. Loopback is exempt: a
+#: local process that wants to hammer the socket can already read the token
+#: off disk, and the renderer's reconnect storms must never lock it out.
+_HANDSHAKE_HITS: dict[str, list[float]] = {}
+HANDSHAKE_RATE_LIMIT = 60
+HANDSHAKE_RATE_WINDOW = 60.0
+
+
+def _handshake_rate_limited(remote_ip: str) -> bool:
+    import ipaddress
+    import time as _time
+
+    try:
+        if ipaddress.ip_address(remote_ip).is_loopback:
+            return False
+    except ValueError:
+        pass
+    now = _time.monotonic()
+    hits = _HANDSHAKE_HITS.setdefault(remote_ip, [])
+    while hits and now - hits[0] > HANDSHAKE_RATE_WINDOW:
+        hits.pop(0)
+    if len(hits) >= HANDSHAKE_RATE_LIMIT:
+        return True
+    hits.append(now)
+    return False
+
+
 def make_process_request(token: str, secret_for: Any = None, bootstrap_allowed: bool = False):
     """
     Build the ``process_request`` callback for ``websockets.serve``.
@@ -211,6 +238,14 @@ def make_process_request(token: str, secret_for: Any = None, bootstrap_allowed: 
             request = second
             path = getattr(request, "path", "") or ""
             headers = getattr(request, "headers", None)
+            # Per-IP handshake throttle. Every rejected handshake below is
+            # free to retry forever otherwise -- token guessing, peer-claim
+            # replay probing, enrolment hammering all start with a handshake.
+            remote = getattr(first, "remote_address", None)
+            remote_ip = str(remote[0]) if isinstance(remote, (tuple, list)) and remote else ""
+            if remote_ip and _handshake_rate_limited(remote_ip):
+                logger.warning("ws_auth: rate-limited handshakes from %s", remote_ip)
+                return first.respond(HTTPStatus(429), "too many requests\n")
 
         try:
             connection_class, peer_username, verdict = await classify(

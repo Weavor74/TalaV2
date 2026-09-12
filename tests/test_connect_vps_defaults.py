@@ -61,15 +61,19 @@ def captured(monkeypatch):
 def test_the_default_endpoint_is_a_hostname():
     endpoint = server._default_vps_endpoint()
     assert "talacore.app" in endpoint
-    assert endpoint.startswith("ws://")
-    assert not any(part.isdigit() for part in endpoint.split("//")[1].split(":")[0].split(".")), (
+    # wss, not ws: the peer socket carries handshake HMACs and relayed
+    # payloads, and the plaintext bare-port default shipped them across the
+    # internet in the clear (P0 item 6, 2026-09-12).
+    assert endpoint.startswith("wss://")
+    host = endpoint.split("//")[1].split("/")[0].split(":")[0]
+    assert not any(part.isdigit() for part in host.split(".")), (
         "the default endpoint is an IP address"
     )
 
 
 def test_the_default_endpoint_follows_a_move(monkeypatch):
     monkeypatch.setenv("TALA_VPS_HOST", "tala.example.net")
-    assert server._default_vps_endpoint() == "ws://tala.example.net:8765"
+    assert server._default_vps_endpoint() == "wss://tala.example.net/ws"
 
 
 @pytest.mark.asyncio
@@ -224,7 +228,7 @@ async def test_an_accepted_handshake_does_report_connected(connection_state, mon
 
     stored = connection_state.get(server.CHAIN_CONNECTION_SETTING_KEY, {})
     assert stored.get("mode") == "vps"
-    assert stored.get("endpoint_url", "").startswith("ws://talacore.app")
+    assert stored.get("endpoint_url", "").startswith("wss://talacore.app")
 
 
 @pytest.mark.asyncio

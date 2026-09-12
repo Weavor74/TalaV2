@@ -59,6 +59,25 @@ LIST_IGNORED_DIRS = {
 
 _RENDERER_DIR = Path(__file__).resolve().parents[2] / "renderer"
 
+#: Sliding-window per-IP limiter for /api/bridge. The bridge writes and
+#: deletes files; an unthrottled caller with the token could still be a
+#: runaway loop, and one without it should not get unlimited guesses.
+_BRIDGE_HITS: dict[str, list[float]] = {}
+_BRIDGE_RATE_LIMIT = 120       # requests
+_BRIDGE_RATE_WINDOW = 60.0     # per this many seconds
+
+
+def _rate_limited(key: str) -> bool:
+    import time as _time
+    now = _time.monotonic()
+    hits = _BRIDGE_HITS.setdefault(key, [])
+    while hits and now - hits[0] > _BRIDGE_RATE_WINDOW:
+        hits.pop(0)
+    if len(hits) >= _BRIDGE_RATE_LIMIT:
+        return True
+    hits.append(now)
+    return False
+
 # Both are external files, not an inline <script>. index.html sets a strict
 # Content-Security-Policy of script-src 'self', so an injected inline block is
 # refused by the browser and never runs. That failed almost invisibly: the shim
@@ -99,7 +118,31 @@ def _safe_path(root: Path, candidate: str) -> Path:
         raise PermissionError(
             f"path {candidate!r} resolves outside the data root and was refused"
         )
+    _refuse_secret_path(root_resolved, target)
     return target
+
+
+def _refuse_secret_path(root: Path, target: Path) -> None:
+    """
+    The data root contains the things the bridge exists to serve -- nodes,
+    workflows, documents -- and also the things no HTTP caller may ever
+    touch: the vault (keys, seed phrase, credential store), ``.env`` (the
+    Postgres password), and the chain's signing key and admin secret. Path
+    confinement alone does not separate the two, so this does.
+    """
+    try:
+        relative = target.relative_to(root)
+    except ValueError:
+        return  # target IS the root
+    parts = relative.parts
+    if not parts:
+        return
+    if parts[0] in ("vault", ".env"):
+        raise PermissionError(f"{str(relative)!r} holds secrets and is not served by the web bridge")
+    if parts[0] == "blockchain" and len(parts) >= 2 and parts[1] == "data":
+        raise PermissionError(f"{str(relative)!r} holds the chain's keys and is not served by the web bridge")
+    if target.suffix == ".pem" or target.name in ("wallet_seed_phrase.txt", "poa_keys.json", "admin_secret.txt"):
+        raise PermissionError(f"{str(relative)!r} is key material and is not served by the web bridge")
 
 
 def _file_url(path: Path) -> str:
@@ -231,10 +274,26 @@ def _make_app(ws_port: int, token: str) -> web.Application:
     root = _data_root()
 
     def authorised(request: web.Request) -> bool:
+        # No token means refuse, not admit. "Optional on loopback" made the
+        # web UI a confused deputy: any local process -- or any web page, via
+        # a <script src> pointed at /tala-web-config.js -- could fetch the
+        # wsToken that unlocks all 247 RPC handlers just by asking.
         if not token:
-            return True
+            return False
         supplied = request.headers.get("X-Tala-Token") or request.query.get("token")
         return secrets.compare_digest(str(supplied or ""), token)
+
+    def origin_allowed(request: web.Request) -> bool:
+        # The same drive-by gate 8765 applies (see ws_auth): a browser stamps
+        # Origin on every cross-origin POST and page script cannot forge it,
+        # so a hostile page CSRF-ing /api/bridge announces itself here. An
+        # absent Origin is a non-browser client, which the token already
+        # gates.
+        origin = str(request.headers.get("Origin") or "").strip().rstrip("/")
+        if not origin:
+            return True
+        from python.harness import ws_auth
+        return origin in ws_auth._allowed_origins()
 
     async def index(request: web.Request) -> web.Response:
         if not authorised(request):
@@ -247,6 +306,8 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         return web.Response(text=html, content_type="text/html")
 
     async def config(request: web.Request) -> web.Response:
+        if not origin_allowed(request):
+            return web.Response(status=403, text="// origin not allowed")
         if not authorised(request):
             return web.Response(status=401, text="// unauthorised")
         import json as _json
@@ -276,6 +337,10 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         )
 
     async def bridge(request: web.Request) -> web.Response:
+        if not origin_allowed(request):
+            return web.json_response({"error": "origin not allowed"}, status=403)
+        if _rate_limited(str(request.remote or "?")):
+            return web.json_response({"error": "rate limited"}, status=429)
         if not authorised(request):
             return web.json_response({"error": "unauthorised"}, status=401)
         try:
@@ -336,22 +401,71 @@ async def start(host: str | None = None,
 
     token = (os.environ.get("TALA_WEB_TOKEN") or "").strip()
 
+    # A token is required on EVERY interface, loopback included. Loopback is
+    # not "this user": it is every process on the machine, and -- because
+    # this UI hands page script the wsToken for the full 247-handler RPC
+    # surface -- it must never answer an unauthenticated GET. When the
+    # operator has not pinned one, a per-install token is minted into the
+    # vault next to the WS token, owner-only, and its location is logged.
+    if not token:
+        token = _load_or_create_web_token()
+        if not token:
+            logger.error(
+                "Web UI refused to start: TALA_WEB_TOKEN is unset and a token "
+                "could not be created in the vault. Serving without one would "
+                "hand the full RPC surface to any local process or web page."
+            )
+            return None
+
     # Refuse to serve a remote shell by accident.
     try:
         loopback = ipaddress.ip_address(host).is_loopback
     except ValueError:
         loopback = host in ("localhost",)
-    if not loopback and not token:
+    if not loopback and not (os.environ.get("TALA_WEB_TOKEN") or "").strip():
         logger.error(
             "Web UI refused to start: host %r is not loopback and TALA_WEB_TOKEN "
             "is unset. This UI reaches 247 RPC handlers including shell "
             "execution and source patching; binding it to a reachable interface "
-            "without a token would publish a remote shell. Set TALA_WEB_TOKEN, "
-            "or bind 127.0.0.1.", host,
+            "needs a deliberately chosen token, not an auto-minted one. Set "
+            "TALA_WEB_TOKEN, or bind 127.0.0.1.", host,
         )
         return None
 
     return await _serve(host, port, ws_port, token)
+
+
+def _load_or_create_web_token() -> str:
+    """
+    The web UI's own gate token, minted once per install.
+
+    Same convention as ws_auth.load_or_create_token: a file in the vault's
+    .keys directory, owner-only. Deliberately a DIFFERENT secret from the WS
+    token -- this one is typed into a browser URL and lives in that browser's
+    history, so it must not be the secret that unlocks 8765 directly.
+    """
+    try:
+        from sdk.agent.documentation_nodes import resolve_user_data_dir
+        path = Path(resolve_user_data_dir()) / "vault" / ".keys" / "web_ui_token.txt"
+        if path.exists():
+            existing = path.read_text(encoding="utf-8").strip()
+            if existing:
+                return existing
+        path.parent.mkdir(parents=True, exist_ok=True)
+        token = secrets.token_urlsafe(32)
+        fd = os.open(path, os.O_WRONLY | os.O_CREAT | os.O_TRUNC, 0o600)
+        try:
+            os.write(fd, token.encode("utf-8"))
+        finally:
+            os.close(fd)
+        logger.info(
+            "webui: created a web UI token at %s. Open the UI as "
+            "http://127.0.0.1:<port>/?token=<its contents>.", path,
+        )
+        return token
+    except OSError as exc:
+        logger.error("webui: could not load or create the web token: %s", exc)
+        return ""
 
 
 async def _serve(host: str, port: int, ws_port: int, token: str) -> web.AppRunner | None:

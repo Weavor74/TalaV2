@@ -1158,10 +1158,13 @@ async def get_system_settings_info(node_id: str = "settings-system") -> dict[str
     return {"status": "error", "error": f"Could not load {node_id} settings node."}
 
 
+from sdk.agent.shell_platform import preferred_shell as _preferred_shell, shell_description as _shell_description
+
 @register_tool(
     name="run_workspace_command",
     description=(
-        "Run a shell command asynchronously in the workspace root. Pass "
+        "Run a shell command asynchronously in the workspace root. "
+        + _shell_description() + " Pass "
         "timeout_seconds for anything long-running -- the default is only 30s, "
         "which is far too short for generation or test runs."
     ),
@@ -1183,10 +1186,11 @@ async def run_workspace_command(
            with nothing in the message explaining that a timeout was the cause.
            Callers running generation, migrations, or test suites must raise it.
     """
-    # Intercept 'grep' on Windows and transparently execute native Python search
+    # Intercept 'grep' only when PowerShell is the declared shell (Windows
+    # without Git Bash) and transparently execute native Python search.
     import re
     cmd_str = (command or "").strip()
-    if os.name == "nt" and (cmd_str.startswith("grep ") or cmd_str == "grep"):
+    if os.name == "nt" and _preferred_shell()[2] != "posix" and (cmd_str.startswith("grep ") or cmd_str == "grep"):
         m = re.search(r"grep(?:\s+-[a-zA-Z]+)*\s+['\"]?([^'\"]+)['\"]?", cmd_str)
         q = m.group(1) if m else cmd_str.replace("grep", "").strip()
         log.info("Intercepted Windows 'grep' command, rerouting to native search_workspace_files: %s", q)
@@ -3936,11 +3940,37 @@ _VISION_MODEL_HINTS = (
 )
 
 
-def _provider_is_vision_capable(provider: dict[str, Any]) -> bool:
+async def _provider_is_vision_capable(provider: dict[str, Any]) -> bool:
+    """
+    Whether this provider's model can actually accept image input.
+
+    Prefers Ollama's own /api/show capabilities report wherever it's
+    reachable, over guessing from the model name. A name hint only
+    recognizes models whose name happens to signal vision (qwen2.5vl,
+    llava, ...) and silently excludes anything else -- including a locally
+    fine-tuned/renamed model (e.g. "muse-glimmer") that IS vision-capable per
+    Ollama but matches no entry in _VISION_MODEL_HINTS. Falls back to the
+    name heuristic for remote providers (OpenAI/Anthropic/Gemini-style
+    endpoints have no equivalent capabilities probe) or if the probe fails.
+    """
     cfg = provider.get("config") or {}
     if cfg.get("vision"):
         return True
     model = str(cfg.get("model", "")).lower()
+
+    if provider.get("type") == "local" and cfg.get("engine", "ollama") == "ollama":
+        try:
+            import httpx
+            endpoint = str(cfg.get("endpoint", "http://localhost:11434"))
+            endpoint = endpoint.replace("/v1", "").rstrip("/")
+            async with httpx.AsyncClient(timeout=3.0) as client:
+                resp = await client.post(f"{endpoint}/api/show", json={"name": cfg.get("model", "")})
+                if resp.status_code == 200:
+                    caps = (resp.json() or {}).get("capabilities") or []
+                    return "vision" in caps
+        except Exception:
+            pass  # Probe failed (endpoint down, timeout, ...); fall through.
+
     return any(h in model for h in _VISION_MODEL_HINTS)
 
 
@@ -3963,7 +3993,7 @@ async def analyze_screen(question: str = "Describe what is on the screen.", prov
            the model's textual analysis.
     """
     from python.harness.multimodal import get_screen_context
-    from python.harness.voice import _get_providers, _normalize_endpoint_url
+    from python.harness.server import _get_providers, _normalize_endpoint_url
 
     shot = await get_screen_context()
     return await _analyze_screen_image(shot, question, provider_id)
@@ -3975,7 +4005,7 @@ async def _analyze_screen_image(shot, question, provider_id=None):
     DESCRIPTION
            Keeps vision coordinates accountable to the image actually observed.
     """
-    from python.harness.voice import _get_providers, _normalize_endpoint_url
+    from python.harness.server import _get_providers, _normalize_endpoint_url
     if "error" in shot:
         return {"success": False, "error": shot["error"]}
 
@@ -3986,7 +4016,7 @@ async def _analyze_screen_image(shot, question, provider_id=None):
         if not candidates:
             return {"success": False, "error": f"Provider '{provider_id}' not found."}
     else:
-        vision_ready = [p for p in candidates if _provider_is_vision_capable(p)]
+        vision_ready = [p for p in candidates if await _provider_is_vision_capable(p)]
         candidates = vision_ready or candidates
 
     if not candidates:
@@ -4016,7 +4046,14 @@ async def _analyze_screen_image(shot, question, provider_id=None):
 
         payload = {
             "model": model,
-            "max_tokens": 768,
+            # A "thinking" vision model (capabilities include "thinking", e.g.
+            # Ollama's muse-glimmer) emits a separate reasoning stream that
+            # shares this same token budget and is written before the actual
+            # `content` answer. At 768 that reasoning alone can exhaust the
+            # budget and finish_reason comes back "length" with content still
+            # empty -- the desktop_observe caller then sees "empty response"
+            # even though the model never failed, it just never got there.
+            "max_tokens": 2048,
             "temperature": 0.2,
             "messages": [{
                 "role": "user",
@@ -4030,7 +4067,11 @@ async def _analyze_screen_image(shot, question, provider_id=None):
         }
         url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
         try:
-            async with httpx.AsyncClient(timeout=httpx.Timeout(120.0, connect=5.0)) as client:
+            # 120s was sized for the old 768-token cap; a thinking model given
+            # room to reason (max_tokens above) needs proportionally longer
+            # wall-clock time to actually finish, or this read times out with
+            # an empty httpx.ReadTimeout message before the model gets there.
+            async with httpx.AsyncClient(timeout=httpx.Timeout(300.0, connect=5.0)) as client:
                 resp = await client.post(url, headers=headers, json=payload)
                 if resp.status_code != 200:
                     errors.append(f"{provider['name']}: HTTP {resp.status_code} {resp.text[:200]}")
@@ -4497,7 +4538,7 @@ async def generate_image(prompt: str, provider_id: str | None = None, size: str 
     import base64
     import datetime
     import httpx
-    from python.harness.voice import _get_providers, _normalize_endpoint_url
+    from python.harness.server import _get_providers, _normalize_endpoint_url
 
     if not prompt.strip():
         return {"success": False, "error": "prompt is required"}

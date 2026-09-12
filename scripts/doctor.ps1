@@ -100,6 +100,33 @@ try {
     $HasErrors = $true
 }
 
+# 6b. Check PostgreSQL server reachability (pg_isready) and pgvector
+try {
+    $null = pg_isready 2>$null
+    if ($LASTEXITCODE -eq 0) {
+        Write-DoctorItem "PostgreSQL Server" "OK" "Server is accepting connections" $false
+
+        # pgvector: without it the embeddings table cannot be created and the
+        # VPS write gate denies every peer write. Check that the extension is
+        # at least available to CREATE, even if not yet enabled in the app DB.
+        $VectorAvail = (psql -U postgres -tAc "SELECT 1 FROM pg_available_extensions WHERE name='vector'" 2>$null)
+        if ($LASTEXITCODE -eq 0) {
+            if ("$VectorAvail".Trim() -eq "1") {
+                Write-DoctorItem "pgvector" "OK" "Extension is available to the server" $false
+            } else {
+                Write-DoctorItem "pgvector" "FAIL" "Extension not installed in this PostgreSQL server. See scripts\bootstrap-db.ps1 output for install steps." $true
+                $HasErrors = $true
+            }
+        } else {
+            Write-DoctorItem "pgvector" "WARN" "Could not query pg_available_extensions (auth?); run scripts\bootstrap-db.ps1 to verify" $false
+        }
+    } else {
+        Write-DoctorItem "PostgreSQL Server" "WARN" "pg_isready reports server not accepting connections" $false
+    }
+} catch {
+    Write-DoctorItem "PostgreSQL Server" "WARN" "pg_isready not found in PATH; skipping server/pgvector probes" $false
+}
+
 # 7. Check .env file
 $EnvPath = Join-Path $Root ".env"
 if (Test-Path $EnvPath) {

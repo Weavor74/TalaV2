@@ -16409,17 +16409,19 @@ document.addEventListener('DOMContentLoaded', () => {
                 const confirmed = confirm(`A server update is available from the VPS${short}. Do you want to download and apply it now?`);
                 if (confirmed) {
                     try {
-                        console.log('Downloading update payload from VPS...');
-                        const response = await window.tala.invoke('system.download_update');
-                        if (response.status === 'success' && response.zipBase64) {
-                            console.log('Applying update payload locally...');
-                            await window.tala.invoke('system:apply_update', { zipBase64: response.zipBase64 });
+                        // The main process downloads the payload itself, from
+                        // the admin-secret-gated harness method. The renderer
+                        // only asks; it never touches the bytes -- payload
+                        // supplied from here was the unsigned-update hole.
+                        console.log('Requesting OTA update apply...');
+                        const applied = await window.tala.invoke('system:apply_update', {});
+                        if (applied && applied.ok === false) {
+                            alert('OTA update was refused: ' + (applied.error || 'unknown error'));
+                        } else if (revision) {
                             // Recorded only after apply returns, so a failed
                             // apply does not mark the revision as installed and
                             // suppress the next push for it.
-                            if (revision) localStorage.setItem('tala.appliedRevision', revision);
-                        } else {
-                            alert('Failed to download update payload from VPS.');
+                            localStorage.setItem('tala.appliedRevision', revision);
                         }
                     } catch (err) {
                         alert('Error during OTA update: ' + err.message);

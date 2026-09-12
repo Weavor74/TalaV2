@@ -10,8 +10,10 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" &> /dev/null && pwd)"
 ROOT_DIR="$SCRIPT_DIR"
 
 # 1. Preflight
+set +e
 bash "$ROOT_DIR/scripts/doctor.sh"
 DOCTOR_EXIT=$?
+set -e
 if [ $DOCTOR_EXIT -eq 2 ]; then
     echo -e "\033[31mDoctor found critical issues (e.g., port conflicts). Please resolve them before running the installer.\033[0m"
     exit 1

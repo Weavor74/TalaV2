@@ -858,13 +858,22 @@ async def delete_agent_persona_node(agent_id: str):
                 "counterparty": "blockchain-ledger"
             }).encode("utf-8")
             
+            headers = {
+                "Content-Type": "application/json",
+                "Content-Length": len(tx_data),
+            }
+            # /chain/tx requires the local admin secret (or a signature);
+            # this is a local system write, so the secret is the right proof.
+            try:
+                from sdk.agent.ghost_persistence import _local_chain_admin_headers
+                headers.update(_local_chain_admin_headers())
+            except Exception:
+                logger.debug("could not attach the local chain admin secret", exc_info=True)
+
             req = urllib.request.Request(
                 "http://127.0.0.1:8332/chain/tx",
                 data=tx_data,
-                headers={
-                    "Content-Type": "application/json",
-                    "Content-Length": len(tx_data)
-                },
+                headers=headers,
                 method="POST"
             )
             with urllib.request.urlopen(req, timeout=1.0) as response:

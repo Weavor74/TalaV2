@@ -238,11 +238,27 @@ def _local_chain_admin_headers() -> dict[str, str]:
     """
     secret = os.environ.get("TALA_CHAIN_ADMIN_SECRET", "")
     if not secret:
-        secret_path = Path(__file__).resolve().parents[2] / "blockchain" / "data" / "admin_secret.txt"
-        try:
-            secret = secret_path.read_text(encoding="utf-8").strip()
-        except OSError:
-            secret = ""
+        # Read the secret from wherever the node actually keeps it. app.js
+        # resolves its data dir as TALA_CHAIN_DATA_DIR, else relative to its
+        # own location -- which on a portable install is the user-data root.
+        # Reading only the repo path meant a node running against any other
+        # directory minted one secret while this helper read another, and
+        # every local submission 401'd.
+        candidates = []
+        data_dir = os.environ.get("TALA_CHAIN_DATA_DIR", "")
+        if data_dir:
+            candidates.append(Path(data_dir).resolve())
+        user_data = os.environ.get("TALA_USER_DATA", "")
+        if user_data:
+            candidates.append(Path(user_data).resolve() / "blockchain" / "data")
+        candidates.append(Path(__file__).resolve().parents[2] / "blockchain" / "data")
+        for base in candidates:
+            try:
+                secret = (base / "admin_secret.txt").read_text(encoding="utf-8").strip()
+            except OSError:
+                continue
+            if secret:
+                break
     return {"X-Tala-Chain-Secret": secret} if secret else {}
 
 def get_remote_status() -> dict[str, Any]:

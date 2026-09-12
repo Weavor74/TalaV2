@@ -85,6 +85,27 @@ PEER_CONNECTION_METHODS: frozenset[str] = RELAYABLE_METHODS | frozenset({
     "p2p.handshake",
 })
 
+# What a peer that authenticated but was never APPROVED may call.
+#
+# "Enrolled grants nothing" has to be enforced where methods are dispatched,
+# not per-handler: a connection node auto-enrols any stranger, and that
+# stranger then holds a valid shared secret and authenticates as a peer. If
+# the peer class alone granted the peer surface, enrolment would be the whole
+# gate -- and there is no gate in enrolment. So an unapproved peer gets the
+# verbs it needs to exist and to be routed THROUGH, never verbs that execute
+# against this harness's own state: the handshakes (asking is how approval
+# becomes possible) and the relay verbs (which on a connection node forward
+# to peers who enforce their own approval, and on a desktop refuse outright
+# because relaying is VPS-only).
+PEER_UNAPPROVED_METHODS: frozenset[str] = frozenset({
+    "p2p.handshake",
+    "p2p.receive_handshake",
+    "relay.announce",
+    "relay.send",
+    "relay.peers",
+    "relay.deliver",
+})
+
 # What a caller with no credentials at all may call, and only on a connection
 # node. Exactly the enrolment handshake: enough to become a contact, which
 # grants nothing until a human approves it, and not one method more.

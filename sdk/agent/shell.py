@@ -44,9 +44,13 @@ class SecureShellExecutor:
             clean_env.update(env_override)
 
         try:
+            # Declared shell per platform rather than shell=True, which would
+            # mean cmd.exe semantics on Windows and bash/sh-of-the-day
+            # elsewhere. Keeps this executor consistent with AsyncShellExecutor.
+            from sdk.agent.shell_platform import wrap_command
             res = subprocess.run(
-                command,
-                shell=True,
+                wrap_command(command),
+                shell=False,
                 cwd=cwd,
                 env=clean_env,
                 capture_output=True,

@@ -154,6 +154,28 @@ def install_python_dependencies() -> None:
     _run([str(_venv_pip()), "install", "-e", ".[transformers]"], check=False)
 
 
+def install_playwright_browsers() -> None:
+    """Provision Playwright's browsers (non-fatal).
+
+    The playwright *package* is installed with the core dependencies, but its
+    browsers are a separate download that `playwright install` performs --
+    and nothing ran it, so every browsing feature failed at first use with a
+    "browser executable not found" error. Non-fatal: the download is large
+    and needs network, and Tala works without browsing.
+    """
+    python = _venv_python()
+    if not python.exists():
+        print("  - venv Python missing; skipping Playwright browser install")
+        return
+    print("  - Installing Playwright browsers (Chromium)...")
+    result = _run([str(python), "-m", "playwright", "install", "chromium"], check=False)
+    if result.returncode != 0:
+        print(
+            "  - Playwright browser install failed (offline?). Browsing features\n"
+            "  - will be unavailable until you run: python -m playwright install chromium"
+        )
+
+
 def migrate_database() -> bool:
     python = _venv_python()
     if not python.exists():
@@ -212,6 +234,7 @@ def main() -> int:
     if not args.skip_python:
         print("[4/5] Installing Python dependencies...")
         install_python_dependencies()
+        install_playwright_browsers()
     else:
         print("[4/5] Skipping Python dependencies")
 

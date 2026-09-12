@@ -83,10 +83,47 @@ fi
 # 6. Check PostgreSQL
 if command -v psql &> /dev/null; then
     PG_VER="$(psql -V | head -n1)"
-    print_status "OK" "PostgreSQL" "Found $PG_VER" 0
+    # The client binary being on PATH does not mean a server/cluster exists --
+    # e.g. on Debian/Ubuntu, postgresql's postinst auto-creates the default
+    # cluster using $LANG, and silently fails to do so if that locale isn't
+    # generated. psql still ends up on PATH from the client package, so this
+    # must actually probe for a live server rather than just checking the binary.
+    if command -v pg_isready &> /dev/null && pg_isready -q 2>/dev/null; then
+        print_status "OK" "PostgreSQL" "Found $PG_VER, server is accepting connections" 0
+    else
+        print_status "FAIL" "PostgreSQL" "Found $PG_VER, but no server is accepting connections. If a cluster was never created (check 'pg_lsclusters'), run: sudo pg_createcluster <ver> main --start -- --locale=C.UTF-8" 1
+        HAS_ERRORS=1
+    fi
+
+    # pgvector is required for the embeddings table; bootstrap-db.sh enables the
+    # extension per-database but can't install the server package itself.
+    if command -v dpkg &> /dev/null; then
+        PG_MAJOR="$(echo "$PG_VER" | grep -oE '[0-9]+' | head -1)"
+        if dpkg -s "postgresql-${PG_MAJOR}-pgvector" &> /dev/null 2>&1; then
+            print_status "OK" "pgvector" "postgresql-${PG_MAJOR}-pgvector installed" 0
+        else
+            print_status "FAIL" "pgvector" "postgresql-${PG_MAJOR}-pgvector not installed (run: sudo apt install postgresql-${PG_MAJOR}-pgvector)" 1
+            HAS_ERRORS=1
+        fi
+    else
+        print_status "WARN" "pgvector" "Cannot auto-verify on this system; ensure the pgvector extension package for PostgreSQL is installed" 0
+    fi
 else
     print_status "FAIL" "PostgreSQL" "psql client not found in PATH" 1
     HAS_ERRORS=1
+fi
+
+# 6b. Check xdotool (Linux desktop_observe/desktop_action backend)
+# pygetwindow -- pyautogui's window backend -- has no Linux implementation
+# (raises NotImplementedError on import), so window enumeration/focus on
+# Linux is driven through xdotool instead.
+if [ "$OS" = "Linux" ]; then
+    if command -v xdotool &> /dev/null; then
+        print_status "OK" "xdotool" "Found $(xdotool --version 2>&1 | head -n1)" 0
+    else
+        print_status "FAIL" "xdotool" "Not found in PATH; required for desktop_observe/desktop_action (run: sudo apt install xdotool)" 1
+        HAS_ERRORS=1
+    fi
 fi
 
 # 7. Check .env file

@@ -404,10 +404,42 @@ async def _post(endpoint: str, transaction: dict[str, Any],
             # connection it exists to govern.
             return {"written": False, "error": f"guardrails unavailable: {exc}"}
 
+    # /chain/tx refuses anonymous submissions. Which credential fits depends
+    # on where the node is: the Ghost node on loopback trusts the local admin
+    # secret file (never sent off-machine); the shared chain is remote, so
+    # the transaction must carry an ed25519 signature over its hash by this
+    # install's wallet key.
+    headers: dict[str, str] = {}
+    try:
+        from urllib.parse import urlsplit
+        import ipaddress as _ipaddress
+        _host = (urlsplit(endpoint).hostname or "").strip().lower()
+        try:
+            _loopback = _host == "localhost" or _ipaddress.ip_address(_host).is_loopback
+        except ValueError:
+            _loopback = False
+        if _loopback:
+            from sdk.agent.ghost_persistence import _local_chain_admin_headers
+            headers.update(_local_chain_admin_headers())
+        elif not transaction.get("signature"):
+            from python.harness import wallet as _wallet
+            _key = _wallet.get_private_key()
+            _sig = _key.sign(str(transaction.get("hash") or "").encode("utf-8")).hex()
+            transaction = {
+                **transaction,
+                "signature": _sig,
+                "public_key": _wallet.get_wallet_address(),
+            }
+    except Exception as exc:
+        # An uncredentialed submission is refused by the node with a clear
+        # 401 rather than failing here, so the queue entry survives to retry.
+        logger.debug("could not attach chain credentials for %s: %s", endpoint, exc)
+
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
             response = await client.post(f"{endpoint.rstrip('/')}/chain/tx",
-                                         json=transaction)
+                                         json=transaction,
+                                         headers=headers or None)
         if response.status_code >= 400:
             return {"written": False, "error": f"HTTP {response.status_code}"}
         body: dict[str, Any] = {}

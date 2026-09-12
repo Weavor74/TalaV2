@@ -117,14 +117,24 @@ def canonicalize_and_anchor(node_id: str, content_html: str, state_data: dict, a
             payload["parent_chaincode_ids"] = parent_chaincode_ids
             
         tx_data = json.dumps(payload).encode("utf-8")
-        
+
+        headers = {
+            "Content-Type": "application/json",
+            "Content-Length": len(tx_data),
+        }
+        # /chain/tx no longer accepts anonymous submissions. The local node
+        # trusts callers who can read its admin secret file -- which is this
+        # process. Loopback only; the secret never leaves this machine.
+        try:
+            from sdk.agent.ghost_persistence import _local_chain_admin_headers
+            headers.update(_local_chain_admin_headers())
+        except Exception:
+            logger.debug("could not attach the local chain admin secret", exc_info=True)
+
         req = urllib.request.Request(
             "http://127.0.0.1:8332/chain/tx",
             data=tx_data,
-            headers={
-                "Content-Type": "application/json",
-                "Content-Length": len(tx_data)
-            },
+            headers=headers,
             method="POST"
         )
         with urllib.request.urlopen(req, timeout=1.0) as response:

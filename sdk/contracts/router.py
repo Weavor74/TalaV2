@@ -207,12 +207,22 @@ async def _broadcast_to_chain(contract: SmartContract) -> str:
         "counterparty": contract.counterparty,
     }
 
+    # /chain/tx requires either a transaction signature or the local admin
+    # secret. Contract anchors are a local system write, so the secret --
+    # readable only by processes on this machine -- is the right credential.
+    headers = {"Content-Type": "application/json"}
+    try:
+        from sdk.agent.ghost_persistence import _local_chain_admin_headers
+        headers.update(_local_chain_admin_headers())
+    except Exception:
+        logger.debug("could not attach the local chain admin secret", exc_info=True)
+
     try:
         async with httpx.AsyncClient(timeout=CHAIN_RPC_TIMEOUT) as client:
             response = await client.post(
                 f"{CHAIN_RPC_URL}/chain/tx",
                 json=body,
-                headers={"Content-Type": "application/json"},
+                headers=headers,
             )
             response.raise_for_status()
             data: dict[str, Any] = response.json()

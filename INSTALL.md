@@ -102,6 +102,28 @@ The installer runs these steps automatically:
 ========================================================
 ```
 
+### pgvector on Windows (required for peer/VPS features)
+
+The PostgreSQL packages that `winget` installs do **not** bundle the
+[pgvector](https://github.com/pgvector/pgvector) extension. Without it the
+embeddings table cannot be created, and every peer write to a connection node
+is denied with "Memory context validation failed". `scripts\bootstrap-db.ps1`
+and `scripts\doctor.ps1` both detect and report this.
+
+To install it:
+
+1. Download (or build, per the pgvector README) a release matching your
+   PostgreSQL major version — prebuilt Windows binaries are attached to the
+   releases at <https://github.com/pgvector/pgvector/releases>, or build with
+   `nmake` following the README's Windows section.
+2. Copy `vector.dll` into `C:\Program Files\PostgreSQL\17\lib\`, and
+   `vector.control` plus the `vector--*.sql` files into
+   `C:\Program Files\PostgreSQL\17\share\extension\`.
+3. Re-run the bootstrap so the extension is enabled in both databases:
+   ```powershell
+   .\scripts\bootstrap-db.ps1
+   ```
+
 ---
 
 ## 4. macOS Installation

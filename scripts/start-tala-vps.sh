@@ -12,9 +12,13 @@ if [ ! -x "$VENV_PY" ] || [ ! -f ".env" ]; then
     uv run python scripts/first_run.py
 fi
 
-export WS_HOST="${WS_HOST:-0.0.0.0}"
+# Both sockets bind loopback and are reached through Caddy, which owns TLS
+# (see Caddyfile: /ws fronts the harness, everything else fronts the chain).
+# Binding 0.0.0.0 here published the peer WebSocket as plaintext ws:// --
+# handshake HMACs and relayed payloads crossed the internet in the clear.
+export WS_HOST="${WS_HOST:-127.0.0.1}"
 export WS_PORT="${WS_PORT:-8765}"
-export TALA_CHAIN_BIND_HOST="${TALA_CHAIN_BIND_HOST:-0.0.0.0}"
+export TALA_CHAIN_BIND_HOST="${TALA_CHAIN_BIND_HOST:-127.0.0.1}"
 export TALA_CHAIN_BIND_PORT="${TALA_CHAIN_BIND_PORT:-8332}"
 export INFERENCE_MODE="${INFERENCE_MODE:-local}"
 

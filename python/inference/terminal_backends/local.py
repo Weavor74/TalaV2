@@ -2,27 +2,56 @@
 local.py - Auto-generated documentation base.
 """
 
+import logging
 import subprocess
 import os
+import tempfile
 from typing import Optional
 from .base import BaseEnvironment, ProcessResult
 
-class LocalEnvironment(BaseEnvironment):
-    def __init__(self, cwd: str = ".", timeout: int = 120):
-        super().__init__(cwd, timeout)
-        self._bash_available = self._check_bash_available()
+logger = logging.getLogger(__name__)
 
-    def _check_bash_available(self) -> bool:
-        try:
-            result = subprocess.run(
-                ["bash", "-c", "printf ok"],
-                stdout=subprocess.PIPE,
-                stderr=subprocess.STDOUT,
-                timeout=5
+class LocalEnvironment(BaseEnvironment):
+    def __init__(self, cwd: Optional[str] = None, timeout: int = 120):
+        # Shared shell discovery: on Windows this finds Git Bash by its
+        # install locations (a bare `bash` on PATH may be the WSL stub), so
+        # the env-snapshot/CWD-tracking bash path works there too instead of
+        # silently swapping in PowerShell semantics.
+        self._bash_exe = self._find_bash()
+        self._bash_available = self._bash_exe is not None
+        super().__init__(cwd, timeout)
+        if not self._bash_available:
+            logger.warning(
+                "LocalEnvironment: no bash found; falling back to %s. "
+                "Env-snapshot and CWD tracking are unavailable in this mode.",
+                "PowerShell" if os.name == "nt" else "sh",
             )
-            return result.returncode == 0 and result.stdout.strip() == b"ok"
+
+    @staticmethod
+    def _find_bash() -> Optional[str]:
+        try:
+            from sdk.agent.shell_platform import bash_executable
+            return bash_executable()
         except Exception:
-            return False
+            try:
+                result = subprocess.run(
+                    ["bash", "-c", "printf ok"],
+                    stdout=subprocess.PIPE,
+                    stderr=subprocess.STDOUT,
+                    timeout=5
+                )
+                if result.returncode == 0 and result.stdout.strip() == b"ok":
+                    return "bash"
+            except Exception:
+                pass
+            return None
+
+    def _make_snapshot_path(self) -> str:
+        # The host's real temp directory, not a hardcoded /tmp (absent on
+        # Windows). Forward slashes so Git Bash can `source` the path.
+        return os.path.join(
+            tempfile.gettempdir(), f"tala-snap-{self._session_id}.sh"
+        ).replace("\\", "/")
 
     def init_session(self):
         if not self._bash_available:
@@ -62,7 +91,7 @@ class LocalEnvironment(BaseEnvironment):
         if not self._bash_available:
             return ProcessResult(output="bash is not available for LocalEnvironment.", returncode=127)
 
-        cmd = ["bash", "-l", "-c", cmd_string] if login else ["bash", "-c", cmd_string]
+        cmd = [self._bash_exe, "-l", "-c", cmd_string] if login else [self._bash_exe, "-c", cmd_string]
         
         try:
             result = subprocess.run(
@@ -83,4 +112,8 @@ class LocalEnvironment(BaseEnvironment):
             return ProcessResult(output=f"Error: {e}", returncode=1)
 
     def cleanup(self):
-        pass
+        # The snapshot is a real file on the host; remove it directly.
+        try:
+            os.remove(self._snapshot_path)
+        except OSError:
+            pass

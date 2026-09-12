@@ -312,8 +312,13 @@ class AsyncShellExecutor:
         try:
             async def _run() -> tuple[str, str, int]:
                 nonlocal proc
-                proc = await asyncio.create_subprocess_shell(
-                    command,
+                # Declared shell per platform (Git Bash > PowerShell on
+                # Windows, bash > sh elsewhere) instead of the platform
+                # default -- create_subprocess_shell would hand this string to
+                # cmd.exe on Windows, silently changing its semantics.
+                from sdk.agent.shell_platform import wrap_command
+                proc = await asyncio.create_subprocess_exec(
+                    *wrap_command(command),
                     cwd=cwd,
                     env=clean_env,
                     stdin=asyncio.subprocess.DEVNULL,

@@ -84,6 +84,50 @@ install_if_missing() {
 
 install_if_missing "node" "nodejs npm" "nodejs npm" "nodejs npm" "Node.js"
 install_if_missing "psql" "postgresql postgresql-contrib" "postgresql postgresql-client" "postgresql postgresql-server" "PostgreSQL"
+# xdotool drives desktop_observe/desktop_action's window enumeration and focus
+# on Linux, since pygetwindow (pyautogui's window backend) has no Linux
+# implementation at all -- it raises NotImplementedError on import there.
+install_if_missing "xdotool" "xdotool" "xdotool" "xdotool" "xdotool"
+# pyttsx3 (offline TTS) is only a wrapper: on Linux it drives espeak-ng, and
+# without the engine installed offline voice always fails here while working
+# out of the box on Windows/macOS (which ship native speech engines).
+install_if_missing "espeak-ng" "espeak-ng libespeak-ng1" "espeak-ng" "espeak-ng" "espeak-ng (offline TTS engine)"
+# unzip is what the in-app auto-updater uses to apply an update after the app
+# quits; it's absent on many minimal installs.
+install_if_missing "unzip" "unzip" "unzip" "unzip" "unzip"
+
+# The psql client being on PATH does not guarantee a cluster exists. On
+# Debian/Ubuntu, postgresql's postinst auto-creates the default cluster using
+# $LANG, and silently fails to do so if that locale isn't generated (common on
+# minimal images/containers). Every check downstream that only asks "is psql
+# installed?" then reports success even though there is no server to talk to,
+# and bootstrap-db.sh fails with a confusing "authentication failed" instead.
+if command -v pg_createcluster &> /dev/null && [ -z "$(pg_lsclusters -h 2>/dev/null)" ]; then
+    echo -e "  - \033[33mNo PostgreSQL cluster found (likely a locale failure during install); creating one...\033[0m"
+    PG_MAJOR="$(psql -V | grep -oE '[0-9]+' | head -1)"
+    SAFE_LOCALE="C.UTF-8"
+    locale -a 2>/dev/null | grep -qi '^en_US\.utf8$' && SAFE_LOCALE="en_US.UTF-8"
+    $SUDO pg_createcluster "$PG_MAJOR" main --start -- --locale="$SAFE_LOCALE"
+    echo -e "  - \033[32mCluster created with locale $SAFE_LOCALE.\033[0m"
+fi
+
+# pgvector: bootstrap-db.sh enables the extension per-database but can't
+# install the server package itself. Without it there's no `vector` type, so
+# the embeddings table can't be created and the VPS write gate denies every
+# write to a connection node.
+if [ "$PKG_MANAGER" = "apt" ] && command -v psql &> /dev/null; then
+    PG_MAJOR="$(psql -V | grep -oE '[0-9]+' | head -1)"
+    PGVECTOR_PKG="postgresql-${PG_MAJOR}-pgvector"
+    if dpkg -s "$PGVECTOR_PKG" &> /dev/null 2>&1; then
+        echo -e "  - \033[32mpgvector is already installed.\033[0m"
+    else
+        echo -e "  - \033[33mInstalling pgvector ($PGVECTOR_PKG)...\033[0m"
+        $SUDO apt-get install -yqq "$PGVECTOR_PKG"
+        echo -e "  - \033[32mpgvector installed!\033[0m"
+    fi
+else
+    echo -e "  - \033[33mpgvector: install the matching server package for your distro if the extension step fails during bootstrap.\033[0m"
+fi
 
 if ! command -v uv &> /dev/null; then
     echo -e "  - \033[33mInstalling Python (uv) package manager...\033[0m"
@@ -123,7 +167,12 @@ fi
 # 3. Bootstrap Database
 echo "[3/6] Bootstrapping Database..."
 sleep 2 # wait for systemctl
-bash "$ROOT_DIR/scripts/bootstrap-db.sh" "tala" "tala" "tala"
+# Must run as root: bootstrap-db.sh's peer-auth branch (sudo -u postgres psql)
+# only kicks in when it sees uid 0. As a plain user it falls through to
+# `psql -U postgres` directly, which Debian's default pg_hba.conf peer-auth
+# mapping rejects for any OS user that isn't literally "postgres" -- so it
+# always ends up stuck on an interactive password prompt with no valid password.
+$SUDO bash "$ROOT_DIR/scripts/bootstrap-db.sh" "tala" "tala" "tala"
 
 # 4. Generate .env safely
 echo "[4/6] Checking Configuration..."

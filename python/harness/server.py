@@ -286,6 +286,43 @@ def _normalize_endpoint_url(endpoint: str) -> str:
     return ep
 
 
+async def _get_providers() -> list[dict[str, Any]]:
+    """
+    Configured inference providers, normalized to
+    ``{id, type, name, priority, status, config, locked}`` with ``config``
+    already JSON-decoded.
+
+    This is the same normalization inference.generate applies to
+    load_inference_providers()'s raw rows, pulled out on its own because
+    sdk.agent.tools's vision/image call sites (_analyze_screen_image,
+    analyze_screen, generate_image) need the identical shape. Those call
+    sites used to import a same-named helper from python.harness.voice, which
+    has never defined one since voice.py was reconstructed from its own
+    callers' contracts after an unrelated automated-rollback deletion (see the
+    NOTE in voice.py) -- an ImportError on every single call, breaking vision
+    analysis (and therefore desktop_observe) and image generation silently.
+    """
+    providers: list[dict[str, Any]] = []
+    try:
+        rows = await load_inference_providers()
+        for r in rows:
+            cfg_dict = r["config"]
+            if isinstance(cfg_dict, str):
+                cfg_dict = json.loads(cfg_dict)
+            providers.append({
+                "id": r["id"],
+                "type": r["type"],
+                "name": r["name"],
+                "priority": r["priority"],
+                "status": r["status"],
+                "config": cfg_dict,
+                "locked": r["locked"],
+            })
+    except Exception as exc:
+        logger.warning("Could not read providers from DB: %s", exc)
+    return providers
+
+
 def clean_roleplay_memory(text: str) -> str:
     """
     Cleans up structural metadata, story blueprint markers, and analytical behavioral
@@ -485,7 +522,20 @@ def _maybe_handle_documentation_nl(prompt: str) -> str | None:
     return None
 
 
-_TOOL_CALL_RE = re.compile(r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))', re.DOTALL)
+# The attribute region must skip over a `>` that's inside a quoted value
+# (e.g. run_workspace_command's own command="... 2>&1 &") rather than
+# treating it as the tag's close. A plain [^>]*? truncated the match right
+# at that `>`, leaving a dangling unterminated quote for the key=value
+# parser below to silently fail on -- attrs came back empty, so the tool
+# dispatched with its argument missing entirely, for every value that
+# happened to contain shell redirection, a comparison operator, or any
+# other legitimate bare `>`. The escape handling here (`(?:[^"\\]|\\.)*`)
+# mirrors the key=value parser's own, so a quoted value stays a single
+# unit exactly as it will be tokenized on the second pass.
+_TOOL_CALL_ATTR_CHARS = r'(?:"(?:[^"\\]|\\.)*"|\'(?:[^\'\\]|\\.)*\'|[^>])*?'
+_TOOL_CALL_RE = re.compile(
+    rf'<call:([\w\.]+)({_TOOL_CALL_ATTR_CHARS})(?:/>|>(.*?)(?:</call:\1>|$))', re.DOTALL
+)
 _CLOSED_THINKING_RE = re.compile(r'<thinking>.*?</thinking>', re.DOTALL | re.IGNORECASE)
 _OPEN_THINKING_RE = re.compile(r'<thinking>', re.IGNORECASE)
 
@@ -607,6 +657,72 @@ def _close_unclosed_thinking(text: str) -> str:
     return text
 
 
+def _thinking_skip_offset(text: str) -> int:
+    """
+    Offset to start any tool-call search at: past the first well-formed
+    ``<thinking>...</thinking>`` block, or 0 if there isn't one.
+
+    Shared by _find_tool_call and _normalize_alt_invoke_syntax so both agree
+    on what counts as "inside the model's reasoning" -- a model narrating a
+    tag as an example of what it *could* emit (inside <thinking>) must not be
+    mistaken for it actually emitting that tag for real.
+    """
+    think_match = _CLOSED_THINKING_RE.search(text)
+    return think_match.end() if think_match else 0
+
+
+# Fallback dialect: Anthropic's own function-calling XML
+# (<function_calls><invoke name="tool"><parameter name="k">v</parameter>
+# ...</invoke></function_calls>), tolerant of an optional namespace prefix
+# on each tag (observed in the wild as "atem:", likely a garbled imitation
+# rather than a deliberate one). Seen from a local Ollama model
+# (muse-glimmer, custom RENDERER/PARSER, no standard chat template) fine-tuned
+# on enough Claude transcripts that it sometimes reverts to Claude's own
+# convention despite being instructed to use this harness's <call:/> tag --
+# confirmed via agent_log showing zero tool dispatch for a turn that produced
+# this syntax. <function_calls> itself is not required to be present; only
+# <invoke> is load-bearing here, since a drifting model does not reliably
+# reproduce the wrapper either.
+_ALT_INVOKE_RE = re.compile(
+    r'<(?:\w+:)?invoke\s+name="([\w.\-]+)"\s*>(.*?)</(?:\w+:)?invoke\s*>',
+    re.DOTALL,
+)
+_ALT_PARAM_RE = re.compile(
+    r'<(?:\w+:)?parameter\s+name="(\w+)"\s*>(.*?)</(?:\w+:)?parameter\s*>',
+    re.DOTALL,
+)
+
+
+def _normalize_alt_invoke_syntax(text: str) -> str:
+    """
+    Rewrite one Anthropic-style ``<invoke>`` block -- found after the same
+    thinking-skip offset _find_tool_call itself uses -- into the harness's
+    own ``<call:tool k="v" ... />`` tag. Returns `text` unchanged if no such
+    block is there.
+
+    A separate, explicit normalization step rather than folded into
+    _find_tool_call itself: that function's return contract (a bare Match,
+    with offsets valid against its own input) is depended on directly by
+    existing tests and callers, so callers that need this fallback apply it
+    themselves first -- `generated_text = _normalize_alt_invoke_syntax(generated_text)`
+    -- and then call _find_tool_call on the (possibly rewritten) result, which
+    keeps match offsets valid against whatever text the caller actually holds.
+    """
+    search_start = _thinking_skip_offset(text)
+    m = _ALT_INVOKE_RE.search(text, search_start)
+    if not m:
+        return text
+    tool_name = m.group(1)
+    attrs = []
+    for pm in _ALT_PARAM_RE.finditer(m.group(2)):
+        key = pm.group(1)
+        value = pm.group(2).strip()
+        escaped = value.replace('\\', '\\\\').replace('"', '\\"')
+        attrs.append(f'{key}="{escaped}"')
+    call_tag = f"<call:{tool_name} {' '.join(attrs)} />"
+    return text[:m.start()] + call_tag + text[m.end():]
+
+
 def _find_tool_call(text: str) -> "re.Match[str] | None":
     """
     Find the real ``<call:...>`` tool invocation, skipping any occurrence
@@ -626,12 +742,11 @@ def _find_tool_call(text: str) -> "re.Match[str] | None":
     Uses re.Pattern.search(text, pos) rather than slicing the string, so a
     returned match's .start()/.end() stay valid offsets into the original,
     unmodified `text` (callers rely on this, e.g. to truncate generated_text
-    at the call's end).
+    at the call's end). See _normalize_alt_invoke_syntax for the
+    Anthropic-style-XML fallback -- callers that want it apply it to `text`
+    themselves before calling this function, so this contract never changes.
     """
-    search_start = 0
-    think_match = _CLOSED_THINKING_RE.search(text)
-    if think_match:
-        search_start = think_match.end()
+    search_start = _thinking_skip_offset(text)
     return _TOOL_CALL_RE.search(text, search_start)
 
 
@@ -840,6 +955,99 @@ def _ollama_native_tool_specs(dyn_tools: list[dict[str, Any]]) -> list[dict[str,
     return specs
 
 
+def _tool_node_description(tool_name: str) -> str | None:
+    """
+    A tool's description as authored in its html-nn documentation node
+    (nodes/tool-<name>.html), or None if that node is missing or unreadable.
+
+    Every registered tool has a matching node generated by
+    sdk.agent.function_documenter (data-doc-target=tool_name). Its
+    semantic-memory section is descriptive HTML escaped one level deep, so it
+    survives as literal tags after itertext() flattens it once; text_content()
+    strips those for plain prose. These nodes are context-only documentation,
+    never the tool's contract, so any failure here falls back to the
+    registry's own description rather than risk showing a stale one.
+    """
+    node_id = "tool-" + tool_name.replace("_", "-").replace(".", "-")
+    try:
+        from sdk.agent.parser import parse_file
+        import lxml.html as lxml_html
+
+        node_path = resolve_active_nodes_dir() / f"{node_id}.html"
+        if not node_path.exists():
+            return None
+        node = parse_file(str(node_path))
+        text = lxml_html.fromstring(f"<div>{node.semantic_memory}</div>").text_content()
+        text = " ".join(text.split()).strip()
+        return text or None
+    except Exception as exc:
+        logger.debug("No html-nn description for tool '%s': %s", tool_name, exc)
+        return None
+
+
+def _build_dyn_tool_docs(dyn_tools: list[dict[str, Any]], use_compact: bool) -> str:
+    """
+    Render ToolRegistry entries into the <call:/> XML documentation block.
+
+    Each tool's description prefers its html-nn documentation node
+    (nodes/tool-<name>.html) over the bare registry docstring -- see
+    _tool_node_description. Split out into its own function so the exact same
+    formatting can be re-run on a budget-narrowed subset of dyn_tools per
+    provider attempt (see _narrow_xml_protocol_for_budget) -- the two must
+    stay byte-for-byte identical in style, or a narrowed prompt would read
+    like a different protocol to the model.
+    """
+    if use_compact:
+        dyn_desc = "\n\n[Tools Registry]\n"
+        for t in dyn_tools:
+            schema = t.get("schema", {})
+            props = schema.get("properties", {})
+            reqs = schema.get("required", [])
+
+            attr_params = []
+            inner_param = None
+            for k in props.keys():
+                if k in ("detailed_markdown", "content", "goal", "code"):
+                    inner_param = k
+                else:
+                    attr_params.append(f'{k}="value"' + ("*" if k in reqs else ""))
+
+            params_str = " ".join(attr_params)
+            if inner_param:
+                syntax = f"<call:{t['name']} {params_str}>[{inner_param}]</call:{t['name']}>"
+            else:
+                syntax = f"<call:{t['name']} {params_str} />"
+
+            description = _tool_node_description(t['name']) or t['description']
+            dyn_desc += f"- {t['name']}: {description} Syntax: `{syntax}`\n"
+    else:
+        dyn_desc = "\n\n[Agent Capability: Dynamic Registered Tools (ToolRegistry)]\n"
+        dyn_desc += "You also have access to the following dynamic tools. You MUST strictly follow the Usage syntax provided for each tool. DO NOT write conversational text before or after the tag. DO NOT wrap your tool calls in markdown backticks (```). Output ONLY the raw XML tag directly.\n\n"
+        dyn_desc += "Example of CORRECT tool usage:\n<call:web_search query=\"how to bake a cake\" />\n\n"
+        dyn_desc += "Example of INCORRECT tool usage:\nHere is the search:\n```xml\n<call:web_search query=\"how to bake a cake\" />\n```\n\n"
+        for idx, t in enumerate(dyn_tools, 1):
+            schema = t.get("schema", {})
+            props = schema.get("properties", {})
+            reqs = schema.get("required", [])
+
+            attr_params = []
+            inner_param = None
+            for k in props.keys():
+                if k in ("detailed_markdown", "content", "goal", "code"):
+                    inner_param = k
+                else:
+                    attr_params.append(f'{k}="value"' + (" (required)" if k in reqs else " (optional)"))
+
+            params_str = " ".join(attr_params)
+            description = _tool_node_description(t['name']) or t['description']
+            dyn_desc += f"{idx}. **{t['name']}**: {description}\n"
+            if inner_param:
+                dyn_desc += f"   Usage: `<call:{t['name']} {params_str}>\n[your {inner_param} here]\n</call:{t['name']}>`\n"
+            else:
+                dyn_desc += f"   Usage: `<call:{t['name']} {params_str} />`\n"
+    return dyn_desc
+
+
 def _select_tools_for_turn(
     specs: list[dict[str, Any]],
     messages: list[dict[str, Any]],
@@ -885,6 +1093,87 @@ def _select_tools_for_turn(
     except Exception as exc:
         logger.warning("Tool selection failed for '%s' (%s); offering all tools", p_name, exc)
         return specs
+
+
+def _narrow_xml_protocol_for_budget(
+    messages: list[dict[str, Any]],
+    xml_tool_protocol: str,
+    dyn_desc: str,
+    dyn_tools: list[dict[str, Any]],
+    dyn_native_specs: list[dict[str, Any]],
+    tool_index: Any,
+    p_type: str,
+    p_config: dict[str, Any],
+    p_name: str,
+    sticky: set[str],
+    use_compact: bool,
+) -> list[dict[str, Any]]:
+    """
+    Shrink the dynamic-tools portion of the <call:/> documentation block to
+    this provider's budget, in place within `messages`.
+
+    _select_tools_for_turn already narrows the native `tools` array by
+    budget; this is its counterpart for a provider that stays on the text
+    protocol instead -- the embedded model when the native swap fails, and
+    any local model whose /api/show capabilities omit "tools". Without this,
+    exactly the providers too weak for native tool-calling are the ones
+    handed the full, unfiltered registry as prose: the opposite of what the
+    budget exists to prevent, and the direct cause of a small model
+    free-running past a documentation block it cannot act on.
+
+    Falls back to the unmodified messages on any error, or when nothing was
+    withheld (the full block already fits the budget): narrowing is an
+    optimisation, and a lost tool is worse than an oversized prompt.
+    """
+    if not dyn_desc or not dyn_native_specs or tool_index is None:
+        return messages
+    try:
+        selected = _select_tools_for_turn(
+            dyn_native_specs, messages, tool_index, p_type, p_config, p_name, sticky,
+        )
+        selected_names = {s.get("function", {}).get("name") for s in selected}
+        if selected_names >= {t["name"] for t in dyn_tools}:
+            return messages  # nothing withheld
+        narrowed_tools = [t for t in dyn_tools if t["name"] in selected_names]
+        if not narrowed_tools:
+            return messages
+        narrowed_desc = _build_dyn_tool_docs(narrowed_tools, use_compact)
+        narrowed_protocol = xml_tool_protocol.replace(dyn_desc, narrowed_desc)
+    except Exception as exc:
+        logger.warning(
+            "Provider '%s': could not narrow XML tool docs to budget (%s); sending full registry",
+            p_name, exc,
+        )
+        return messages
+
+    out = []
+    replaced = False
+    for m in messages:
+        content = m.get("content")
+        if not isinstance(content, str):
+            out.append(m)
+            continue
+        for old, new in (
+            (xml_tool_protocol, narrowed_protocol),
+            (xml_tool_protocol.rstrip(), narrowed_protocol.rstrip()),
+            (xml_tool_protocol.strip(), narrowed_protocol.strip()),
+        ):
+            if old and old in content:
+                content = content.replace(old, new)
+                replaced = True
+                break
+        out.append({**m, "content": content})
+    if not replaced:
+        logger.warning(
+            "Provider '%s': XML tool protocol not found verbatim in messages; "
+            "budget narrowing skipped, sending full registry", p_name,
+        )
+        return messages
+    logger.info(
+        "Provider '%s': narrowed XML tool docs to %d/%d registry tools for budget",
+        p_name, len(narrowed_tools), len(dyn_tools),
+    )
+    return out
 
 
 def _swap_xml_protocol_for_native(
@@ -2247,6 +2536,15 @@ async def handle_inference_generate(
                 "CRITICAL DIRECTIVE: If Weavor requests search, finding, crawling, opening, or browsing the web/internet, you MUST output the corresponding tool call tag (<call:research.search query=\"...\" /> or <call:research.crawl_and_summarize urls=... />) IMMEDIATELY in your response. Do NOT ask for permission, do NOT ask for clarification, and do NOT engage in introductory conversational chatter. Simply call the tool."
             )
 
+        dyn_tools: list[dict[str, Any]] = []
+        # The dyn_tools-derived slice of native_tool_specs, kept separate from
+        # the merged list (which also carries _BUILTIN_RESEARCH_TOOL_SPECS) so
+        # budget narrowing later can select over exactly these without ever
+        # being able to drop research.search/crawl_and_summarize, which are
+        # always documented regardless of budget.
+        dyn_native_specs: list[dict[str, Any]] = []
+        use_compact = False
+        dyn_desc = ""
         try:
             if is_casual_chat:
                 dyn_tools = []
@@ -2255,7 +2553,8 @@ async def handle_inference_generate(
                 from sdk.agent.tot_ideation import get_tot_mode
                 dyn_tools = ToolRegistry.get_tools()
             if dyn_tools:
-                native_tool_specs.extend(_ollama_native_tool_specs(dyn_tools))
+                dyn_native_specs = _ollama_native_tool_specs(dyn_tools)
+                native_tool_specs.extend(dyn_native_specs)
                 try:
                     from python.harness.tool_selection import ToolIndex  # noqa: PLC0415
 
@@ -2286,53 +2585,8 @@ async def handle_inference_generate(
                     tool_index = None
                 tot_mode_detect = await get_tot_mode()
                 use_compact = tot_mode_detect in ("fast", "programmatic")
-                
-                if use_compact:
-                    dyn_desc = "\n\n[Tools Registry]\n"
-                    for t in dyn_tools:
-                        schema = t.get("schema", {})
-                        props = schema.get("properties", {})
-                        reqs = schema.get("required", [])
-                        
-                        attr_params = []
-                        inner_param = None
-                        for k in props.keys():
-                            if k in ("detailed_markdown", "content", "goal", "code"):
-                                inner_param = k
-                            else:
-                                attr_params.append(f'{k}="value"' + ("*" if k in reqs else ""))
-                        
-                        params_str = " ".join(attr_params)
-                        if inner_param:
-                            syntax = f"<call:{t['name']} {params_str}>[{inner_param}]</call:{t['name']}>"
-                        else:
-                            syntax = f"<call:{t['name']} {params_str} />"
-                        
-                        dyn_desc += f"- {t['name']}: {t['description']} Syntax: `{syntax}`\n"
-                else:
-                    dyn_desc = "\n\n[Agent Capability: Dynamic Registered Tools (ToolRegistry)]\n"
-                    dyn_desc += "You also have access to the following dynamic tools. You MUST strictly follow the Usage syntax provided for each tool. DO NOT write conversational text before or after the tag. DO NOT wrap your tool calls in markdown backticks (```). Output ONLY the raw XML tag directly.\n\n"
-                    dyn_desc += "Example of CORRECT tool usage:\n<call:web_search query=\"how to bake a cake\" />\n\n"
-                    dyn_desc += "Example of INCORRECT tool usage:\nHere is the search:\n```xml\n<call:web_search query=\"how to bake a cake\" />\n```\n\n"
-                    for idx, t in enumerate(dyn_tools, 1):
-                        schema = t.get("schema", {})
-                        props = schema.get("properties", {})
-                        reqs = schema.get("required", [])
-                        
-                        attr_params = []
-                        inner_param = None
-                        for k in props.keys():
-                            if k in ("detailed_markdown", "content", "goal", "code"):
-                                inner_param = k
-                            else:
-                                attr_params.append(f'{k}="value"' + (" (required)" if k in reqs else " (optional)"))
-                        
-                        params_str = " ".join(attr_params)
-                        dyn_desc += f"{idx}. **{t['name']}**: {t['description']}\n"
-                        if inner_param:
-                            dyn_desc += f"   Usage: `<call:{t['name']} {params_str}>\n[your {inner_param} here]\n</call:{t['name']}>`\n"
-                        else:
-                            dyn_desc += f"   Usage: `<call:{t['name']} {params_str} />`\n"
+
+                dyn_desc = _build_dyn_tool_docs(dyn_tools, use_compact)
                 xml_tool_protocol += dyn_desc
         except Exception as e:
             logger.warning("Could not append dynamic tools to system prompt: %s", e)
@@ -2731,6 +2985,11 @@ async def handle_inference_generate(
                                 "<call:/>.",
                                 p_name,
                             )
+                            embedded_messages = _narrow_xml_protocol_for_budget(
+                                messages, xml_tool_protocol, dyn_desc, dyn_tools,
+                                dyn_native_specs, tool_index, p_type, p_config,
+                                p_name, sticky_tools, use_compact,
+                            )
 
                     chunks = []
                     async for chunk in generate_stream(
@@ -2996,6 +3255,11 @@ async def handle_inference_generate(
                                 "Provider '%s' (%s): %s; keeping the <call:/> text protocol",
                                 p_name, model, _tools_verdict,
                             )
+                            payload["messages"] = _narrow_xml_protocol_for_budget(
+                                payload["messages"], xml_tool_protocol, dyn_desc, dyn_tools,
+                                dyn_native_specs, tool_index, p_type, p_config,
+                                p_name, sticky_tools, use_compact,
+                            )
                         else:
                             _swapped, _removed = _swap_xml_protocol_for_native(
                                 payload["messages"], xml_tool_protocol
@@ -3013,6 +3277,11 @@ async def handle_inference_generate(
                                     "The xml_tool_protocol block and the assembled system prompt have "
                                     "drifted apart; they must match verbatim.",
                                     p_name,
+                                )
+                                payload["messages"] = _narrow_xml_protocol_for_budget(
+                                    payload["messages"], xml_tool_protocol, dyn_desc, dyn_tools,
+                                    dyn_native_specs, tool_index, p_type, p_config,
+                                    p_name, sticky_tools, use_compact,
                                 )
                             else:
                                 # Drop the /no_think soft-switch added above. Its
@@ -3313,8 +3582,8 @@ async def handle_inference_generate(
                     elif last_raw_assistant_text:
                         # Compare the raw (pre-clean) LLM outputs so the <call:...> tags are
                         # still present in both sides — cleaned all_responses strips the tags.
-                        tool_match = _find_tool_call(generated_text)
-                        last_tool_match = _find_tool_call(last_raw_assistant_text)
+                        tool_match = _find_tool_call(_normalize_alt_invoke_syntax(generated_text))
+                        last_tool_match = _find_tool_call(_normalize_alt_invoke_syntax(last_raw_assistant_text))
                         if tool_match and last_tool_match and tool_match.group(0) == last_tool_match.group(0):
                             fallback_reason = "Identical tool call loop detected"
                             
@@ -3370,7 +3639,11 @@ async def handle_inference_generate(
             all_responses.append(generated_text)
             break
 
-        # Parse tool calls
+        # Parse tool calls. Normalizing first (a no-op unless an alt-dialect
+        # <invoke> block is present) means _find_tool_call's own contract
+        # never changes, and match.end() below stays valid against this same
+        # generated_text since it's what was actually searched.
+        generated_text = _normalize_alt_invoke_syntax(generated_text)
         tool_match = _find_tool_call(generated_text)
         if not tool_match:
             # If the user's actual message implies action/search/fix/remove and the
@@ -5168,8 +5441,56 @@ DEFAULT_VPS_WS_PORT = 8765
 
 
 def _default_vps_endpoint() -> str:
-    """The project node's peer socket, by name -- never by address."""
-    return f"ws://{_vps_hosts()[0]}:{DEFAULT_VPS_WS_PORT}"
+    """
+    The project node's peer socket, by name -- never by address.
+
+    ``wss`` on the Caddy-fronted ``/ws`` route, not ``ws://host:8765``: the
+    peer socket carries handshake HMACs and relayed payloads, and the bare
+    port sent all of it across the internet in cleartext.
+    """
+    return f"wss://{_vps_hosts()[0]}/ws"
+
+
+def _require_peer_transport_security(endpoint: str) -> str:
+    """
+    Refuse to dial plaintext ``ws://`` across a network.
+
+    Peer traffic carries handshake HMACs (replayable within the skew window
+    by anyone who reads one off the wire) and relayed payloads. Off this
+    machine that must ride TLS. Loopback is exempt -- it never touches a
+    wire -- and a trusted lab that genuinely wants cleartext can say so with
+    ``TALA_ALLOW_PLAINTEXT_PEER_WS=1``.
+
+    Called where sockets are opened rather than where addresses are stored,
+    so a stale ``ws://`` endpoint on an old contact row fails loudly at dial
+    time instead of poisoning enrolment.
+    """
+    from urllib.parse import urlsplit as _urlsplit
+    import ipaddress as _ipaddress
+
+    if not endpoint.startswith("ws://"):
+        return endpoint
+    host = (_urlsplit(endpoint).hostname or "").strip().lower()
+    loopback = host == "localhost"
+    if not loopback and host:
+        try:
+            loopback = _ipaddress.ip_address(host).is_loopback
+        except ValueError:
+            loopback = False
+    if loopback:
+        return endpoint
+    if os.environ.get("TALA_ALLOW_PLAINTEXT_PEER_WS", "").strip().lower() in {"1", "true", "yes", "on"}:
+        logger.warning(
+            "dialling %s over plaintext ws:// because TALA_ALLOW_PLAINTEXT_PEER_WS is set",
+            endpoint,
+        )
+        return endpoint
+    raise ValueError(
+        f"refusing plaintext ws:// to non-loopback host {host!r}: peer traffic "
+        "must use wss:// off this machine. Front the node with TLS (see the "
+        "Caddyfile /ws route) or set TALA_ALLOW_PLAINTEXT_PEER_WS=1 for a "
+        "trusted lab network."
+    )
 
 
 def _vps_hosts() -> tuple[str, ...]:
@@ -5595,7 +5916,7 @@ async def _call_peer_rpc(endpoint: str, method: str, params: dict[str, Any]) -> 
             )
 
     async with websockets.connect(
-        _normalize_peer_endpoint(endpoint),
+        _require_peer_transport_security(_normalize_peer_endpoint(endpoint)),
         open_timeout=5,
         close_timeout=2,
         additional_headers=connect_headers or None,
@@ -6129,6 +6450,12 @@ def _verify_packet(packet: dict[str, Any], secret: str) -> bool:
     return hmac.compare_digest(signature, _packet_signature(packet, secret))
 
 
+#: Sliding window over recent enrolments; see _enroll_unknown_tala_contact.
+_ENROLMENT_HITS: list[float] = []
+ENROLMENT_RATE_LIMIT = 12
+ENROLMENT_RATE_WINDOW = 60.0
+
+
 def _accept_any_tala_client_enabled() -> bool:
     """
     May this process enrol a Tala it has never met?
@@ -6186,6 +6513,23 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
     """
     if not _is_tala_handshake_packet(packet):
         return None
+
+    # Enrolment writes a database row for an unauthenticated stranger, which
+    # unthrottled is an unbounded-row-creation lever on any connection node.
+    # The cap is global rather than per-IP because the row count is the
+    # resource being protected; legitimate enrolment is a once-per-install
+    # event and nowhere near it.
+    import time as _time
+    _now = _time.monotonic()
+    while _ENROLMENT_HITS and _now - _ENROLMENT_HITS[0] > ENROLMENT_RATE_WINDOW:
+        _ENROLMENT_HITS.pop(0)
+    if len(_ENROLMENT_HITS) >= ENROLMENT_RATE_LIMIT:
+        logger.warning(
+            "enrolment refused: more than %d enrolments in %.0fs",
+            ENROLMENT_RATE_LIMIT, ENROLMENT_RATE_WINDOW,
+        )
+        return None
+    _ENROLMENT_HITS.append(_now)
 
     enrollment_secret = packet.get("enrollment_secret")
     if not isinstance(enrollment_secret, str) or not enrollment_secret:
@@ -6253,20 +6597,74 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
     # Permissions are still all False. Enrolling grants a route, not access.
     status = "enrolled" if _accept_any_tala_client_enabled() else "pending"
 
+    # Re-enrolment must never be a takeover. The row's shared_secret and
+    # endpoint_url ARE the contact's identity to everyone who talks to it:
+    # overwrite them on an unauthenticated enrolment and anyone who knows a
+    # username can mint a new secret for it, point its endpoint at
+    # themselves, then authenticate as that contact and receive its traffic.
+    # So an existing row is only re-written by a caller who can prove it
+    # already holds that row's secret -- either by having signed this packet
+    # with it, or by a `rekey_proof` HMAC over the same canonical packet
+    # using the OLD secret (for a peer that minted a new one and kept the
+    # old to prove continuity). Anyone else is refused, indistinguishably
+    # from an unknown sender.
+    existing = await _get_contact(username=username)
+    if existing is not None:
+        existing_secret = str(existing.get("shared_secret") or "").strip()
+        same_secret = bool(existing_secret) and hmac.compare_digest(existing_secret, enrollment_secret)
+        proves_old_secret = False
+        rekey_proof = packet.get("rekey_proof")
+        if not same_secret and existing_secret and isinstance(rekey_proof, str) and rekey_proof:
+            unproven = {k: v for k, v in packet.items() if k not in ("signature", "rekey_proof")}
+            canonical = json.dumps(unproven, sort_keys=True, ensure_ascii=False, separators=(",", ":"))
+            expected = hmac.new(
+                existing_secret.encode("utf-8"), canonical.encode("utf-8"), hashlib.sha256
+            ).hexdigest()
+            proves_old_secret = hmac.compare_digest(rekey_proof, expected)
+        if not (same_secret or proves_old_secret):
+            logger.warning(
+                "enrolment for %s refused: the username already belongs to a contact "
+                "and the caller proved no knowledge of its secret",
+                username,
+            )
+            return None
+        await db.execute(
+            """
+            UPDATE contacts SET
+                wallet_address = $2,
+                endpoint_url = $3,
+                shared_secret = $4,
+                -- permissions and status deliberately untouched: re-enrolling
+                -- must never reset a grant the operator has made or withdrawn,
+                -- and must not walk a denial back to pending.
+                updated_at = NOW()
+            WHERE username = $1
+            """,
+            username,
+            wallet_address,
+            endpoint_url,
+            enrollment_secret,
+            caller="p2p.enroll_unknown_tala_contact",
+        )
+        await _record_peer_event(
+            "peer-contact",
+            username,
+            f"contact:{username}",
+            decision="re-enrolled",
+        )
+        return {
+            "username": username,
+            "wallet_address": wallet_address,
+            "endpoint_url": endpoint_url,
+            "shared_secret": enrollment_secret,
+            "permissions": existing.get("permissions") or {},
+        }
+
     await db.execute(
         """
         INSERT INTO contacts (username, wallet_address, endpoint_url, shared_secret, permissions, status)
         VALUES ($1, $2, $3, $4, $5::jsonb, $6)
-        ON CONFLICT (username) DO UPDATE SET
-            wallet_address = EXCLUDED.wallet_address,
-            endpoint_url = EXCLUDED.endpoint_url,
-            shared_secret = EXCLUDED.shared_secret,
-            -- permissions deliberately NOT updated: re-enrolling must never
-            -- reset a grant the operator has already made or withdrawn.
-            -- status likewise: re-enrolling must not walk a denial back to
-            -- pending, or a refused peer could reapply until someone
-            -- clicked the wrong button.
-            updated_at = NOW()
+        ON CONFLICT (username) DO NOTHING
         """,
         username,
         wallet_address,
@@ -6276,6 +6674,16 @@ async def _enroll_unknown_tala_contact(packet: dict[str, Any]) -> dict[str, Any]
         status,
         caller="p2p.enroll_unknown_tala_contact",
     )
+    # Two enrolments for one new username can race between the existence
+    # check and the insert; DO NOTHING means the loser's secret was never
+    # written. Confirm the row actually holds the secret being returned,
+    # or the caller would walk away believing it enrolled.
+    written = await _get_contact(username=username)
+    if written is None or not hmac.compare_digest(
+        str(written.get("shared_secret") or ""), enrollment_secret
+    ):
+        logger.warning("enrolment for %s lost a race to an earlier enrolment; refusing", username)
+        return None
     if status == "pending":
         # Tell the person. A request that only appears in a queue is a
         # request nobody sees: they would have to already suspect it to go
@@ -15050,7 +15458,7 @@ async def _send_via_relay(
     }, ensure_ascii=False)
 
     async with websockets.connect(
-        endpoint,
+        _require_peer_transport_security(endpoint),
         open_timeout=5,
         close_timeout=2,
         additional_headers=_peer_handshake_headers(await _peer_self_username(), secret),
@@ -15971,30 +16379,78 @@ async def handle_p2p_webrtc_answer(params: dict[str, Any], req_id: Any) -> str:
     await webrtc_manager.handle_answer(peer_username, answer)
     return _ok(req_id, {"success": True})
 
+# What an E2EE envelope may carry. Exactly the methods the outbound wrapper
+# in `_call_peer_rpc` produces: peer-surface verbs that each verify the
+# sender's packet signature and check permissions themselves. Nothing else
+# is dispatchable through an envelope -- an encrypted payload proves the
+# sender completed a key exchange with us, not that it is the user at this
+# machine, so `shell.run`, `vault.*`, `file.*`, `system.*`, `code.*` and the
+# rest of the local-only surface are refused before dispatch. The envelope
+# verb itself and the relay verbs are also absent, so an envelope cannot
+# nest another envelope or turn this harness into a hop.
+E2EE_INNER_METHODS: frozenset[str] = frozenset({
+    "p2p.receive_message",
+    "p2p.receive_conversation",
+    "p2p.resolve_node_reference",
+    "p2p.semantic_search",
+    "p2p.marketplace_search",
+})
+
+
 async def handle_p2p_encrypted_payload(params: dict[str, Any], req_id: Any) -> str:
     from python.harness.e2ee_manager import e2ee_manager
-    sender_username = params.get("sender_username")
+    sender_username = str(params.get("sender_username") or "").strip()
     ciphertext = params.get("ciphertext")
     nonce = params.get("nonce")
-    
+
     if not sender_username or not ciphertext or not nonce:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "sender_username, ciphertext, and nonce are required")
-        
+
+    # The sender must be a contact this operator has approved, checked before
+    # the payload is even decrypted. A stranger on a connection node is
+    # auto-enrolled and can complete a key exchange, so "we share a key" is
+    # a fact about the transport, not a grant of anything.
+    try:
+        contact = await _get_contact(username=sender_username)
+    except Exception:
+        logger.exception("encrypted_payload: could not look up contact %s", sender_username)
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, "sender could not be verified")
+    if contact is None:
+        logger.warning("encrypted_payload refused: %s is not a contact", sender_username)
+        return _err(req_id, JsonRpcError.INVALID_REQUEST, "sender is not a known contact")
+    allowed, why = _peer_interaction_allowed(contact)
+    if not allowed:
+        logger.warning("encrypted_payload refused from %s: %s", sender_username, why)
+        return _err(req_id, JsonRpcError.INVALID_REQUEST, f"peer interaction refused: {why}")
+
     try:
         decrypted = e2ee_manager.decrypt(sender_username, ciphertext, nonce)
-        inner_method = decrypted.get("method")
-        inner_params = decrypted.get("params", {})
-        
-        logger.debug("E2EE Payload decrypted from %s: %s", sender_username, inner_method)
-        
-        handler = _HANDLERS.get(inner_method)
-        if not handler:
-            return _err(req_id, JsonRpcError.METHOD_NOT_FOUND, f"Inner method not found: {inner_method}")
-            
-        return await handler(inner_params, req_id)
     except Exception as e:
         logger.error("E2EE decryption failed for %s: %s", sender_username, e)
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"Decryption failed: {e}")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, "decryption failed")
+
+    inner_method = str(decrypted.get("method") or "").strip()
+    inner_params = decrypted.get("params", {})
+    inner_params = inner_params if isinstance(inner_params, dict) else {}
+
+    logger.debug("E2EE Payload decrypted from %s: %s", sender_username, inner_method)
+
+    if inner_method not in E2EE_INNER_METHODS:
+        logger.warning(
+            "encrypted_payload refused: %s asked for %r, which is not on the envelope surface",
+            sender_username, inner_method,
+        )
+        return _err(
+            req_id,
+            JsonRpcError.INVALID_PARAMS,
+            f"'{inner_method}' cannot be called inside an encrypted payload",
+        )
+
+    handler = _HANDLERS.get(inner_method)
+    if not handler:
+        return _err(req_id, JsonRpcError.METHOD_NOT_FOUND, f"Inner method not found: {inner_method}")
+
+    return await handler(inner_params, req_id)
 
 # ---------------------------------------------------------------------------
 # Marketplace Handlers
@@ -16624,10 +17080,51 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
     peer_username = getattr(ws, ws_auth.CONNECTION_PEER_ATTR, "") or ""
 
     logger.info(
+        # The path's query string is stripped: the web shim authenticates
+        # with ?token=..., and logging it verbatim wrote the WS token --
+        # which unlocks the whole handler surface -- into a log file at
+        # INFO for anything that can read logs.
         "Client connected: %s  path=%s  class=%s%s",
-        remote, path, connection_class or "unlabelled",
+        remote, (path or "").split("?", 1)[0], connection_class or "unlabelled",
         f"  peer={peer_username}" if peer_username else "",
     )
+
+    # A remote caller cannot hold unlimited sockets. Peer and bootstrap
+    # connections are internet-facing on a connection node; without a ceiling
+    # they are a file-descriptor and memory lever. Local connections are
+    # exempt -- the user's own renderer must never be locked out by a flood.
+    if connection_class in (ws_auth.CLASS_PEER, ws_auth.CLASS_BOOTSTRAP):
+        try:
+            max_remote = int(os.environ.get("TALA_MAX_REMOTE_CONNECTIONS") or 200)
+        except ValueError:
+            max_remote = 200
+        if len(_active_connections) >= max_remote:
+            logger.warning(
+                "refusing a %s connection from %s: %d connections already active",
+                connection_class, remote, len(_active_connections),
+            )
+            try:
+                await ws.close(code=1013, reason="busy")
+            except Exception:
+                pass
+            return
+
+    # A peer's contact STATUS decides how much of the peer surface it gets,
+    # resolved once per connection rather than once per handler. Proving the
+    # shared secret says "this is the contact on that row"; only approval
+    # says the operator wants to interact with it. A connection node enrols
+    # strangers automatically, so on a VPS every stranger authenticates --
+    # 'approved' is the one status a human set deliberately, and anything
+    # else gets PEER_UNAPPROVED_METHODS. Read once at connect: a status
+    # change mid-connection takes effect on the next connection, same as a
+    # denial does today.
+    peer_status = ""
+    if connection_class == ws_auth.CLASS_PEER and peer_username:
+        try:
+            _contact_row = await _get_contact(username=peer_username)
+            peer_status = str((_contact_row or {}).get("status") or "").strip().lower()
+        except Exception:
+            logger.exception("could not resolve contact status for %s; treating as unapproved", peer_username)
 
     # An authenticated peer has already proved this identity with the same
     # shared secret relay.announce would ask for, so binding it here saves the
@@ -16680,6 +17177,8 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
         # methods hint is withheld from anyone but a local client -- a
         # restricted caller does not need the catalogue.
         allowed = vps_mode.methods_for_class(connection_class)
+        if connection_class == ws_auth.CLASS_PEER and peer_status != "approved":
+            allowed = vps_mode.PEER_UNAPPROVED_METHODS
         if allowed is not None and method not in allowed:
             logger.warning(
                 "refused %s from a %s connection%s",
@@ -16721,12 +17220,20 @@ async def _handle_connection(ws: WebSocketServerProtocol, path: str = "") -> Non
                 response = await handler(params, req_id)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unhandled error in handler '%s'", method)
-            # _err audits this; the traceback rides along in the trace column.
+            # The traceback names file paths, line numbers and internals; that
+            # is for the local operator and the log, never for a peer or
+            # bootstrap caller mapping the codebase one induced error at a
+            # time. _err audits it either way via the trace column.
+            detail = (
+                {"traceback": traceback.format_exc()[-2000:]}
+                if connection_class == ws_auth.CLASS_LOCAL
+                else None
+            )
             response = _err(
                 req_id,
                 JsonRpcError.INTERNAL_ERROR,
                 f"Internal error: {exc}",
-                {"traceback": traceback.format_exc()[-2000:]},
+                detail,
             )
 
         logger.debug("← %s  id=%s", method, req_id)
@@ -17785,7 +18292,7 @@ async def _hold_relay_connection() -> None:
         try:
             me = await _peer_self_username()
             async with websockets.connect(
-                endpoint,
+                _require_peer_transport_security(endpoint),
                 open_timeout=10,
                 ping_interval=20,
                 ping_timeout=20,

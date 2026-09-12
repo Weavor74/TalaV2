@@ -2,7 +2,7 @@
        desktop_control - native desktop observation and input for Tala
 DESCRIPTION
        Observe before acting. Each observation authorizes one bounded action on
-       the same foreground window for sixty seconds. Observe again to verify.
+       the same foreground window for a few minutes. Observe again to verify.
        The primary monitor is supported; secure/elevated desktops are excluded.
        PyAutoGUI's corner fail-safe and Tala's emergency halt remain enforced.
 """
@@ -11,6 +11,9 @@ from __future__ import annotations
 import asyncio
 import base64
 import io
+import platform
+import subprocess
+import sys
 import time
 import uuid
 
@@ -18,6 +21,19 @@ from sdk.agent.tools import register_tool
 
 _lock = asyncio.Lock()
 _observations = {}
+
+# How long an observation authorizes a bounded action for. Vision analysis of
+# a "thinking" model (e.g. Ollama's muse-glimmer) can itself take minutes, and
+# measured latency is inconsistent (87s-228s+ observed across otherwise
+# identical calls) -- so a window sized for a fast model, or even for one
+# slow-run sample, still expired before desktop_action ever ran. Every
+# observe-then-act call failed with "Observation missing, consumed or
+# expired" regardless of how correct the vision answer was. Not a security
+# bound to treat casually: this is how stale an authorized action is allowed
+# to be relative to what was actually observed. 300s gives real headroom
+# above the slowest run measured so far; a persistently slower model should
+# be swapped for desktop work rather than chasing this number upward again.
+_OBSERVATION_TTL_SECONDS = 300
 
 
 def _backend():
@@ -29,6 +45,163 @@ def _backend():
     import pyautogui
     pyautogui.FAILSAFE = True
     return pyautogui
+
+
+class _Window:
+    """NAME
+           _Window - uniform window handle across platforms
+    DESCRIPTION
+           PyGetWindow (pyautogui's window backend) only implements itself on
+           Windows -- it raises NotImplementedError at import time on Linux,
+           and pyautogui responds by never attaching getActiveWindow /
+           getAllWindows to itself there at all. This wrapper gives both
+           platforms the same .id / .title / .isMinimized / .restore() /
+           .activate() surface so the rest of this module stays platform-agnostic.
+    """
+    __slots__ = ("id", "title", "isMinimized", "pid", "_native")
+
+    def __init__(self, id_, title, is_minimized=False, native=None, pid=None):
+        self.id = id_
+        self.title = title
+        self.isMinimized = is_minimized
+        self.pid = pid
+        self._native = native
+
+    def restore(self):
+        if self._native is not None:
+            self._native.restore()
+
+    def activate(self):
+        if self._native is not None:
+            self._native.activate()
+        elif sys.platform == "darwin":
+            # macOS has no public API to raise one specific window of another
+            # app; activating the owning app brings its front window forward,
+            # which is the closest supported semantic. The caller's focus poll
+            # verifies the result.
+            _macos_activate_pid(self.pid)
+        else:
+            # No --sync: some window managers never confirm the focus-change
+            # event, which would hang this for the full subprocess timeout.
+            # The caller already re-checks focus afterward.
+            _xdotool("windowactivate", self.id)
+
+
+def _xdotool(*args):
+    """NAME
+           _xdotool - shell out to xdotool for X11 window management
+    DESCRIPTION
+           PyGetWindow has no Linux implementation, so window enumeration,
+           focus and activation are driven through xdotool instead. Wayland
+           is not supported: xdotool talks to X11 (or XWayland only).
+    """
+    try:
+        result = subprocess.run(
+            ["xdotool", *args], capture_output=True, text=True, timeout=5
+        )
+    except FileNotFoundError:
+        raise RuntimeError(
+            "xdotool is required for desktop control on Linux. Install it with: "
+            "sudo apt install xdotool"
+        ) from None
+    if result.returncode != 0:
+        raise RuntimeError(f"xdotool {' '.join(args)} failed: {result.stderr.strip()}")
+    return result.stdout.strip()
+
+
+def _quartz():
+    """NAME
+           _quartz - import the Quartz window services, with a real error
+    DESCRIPTION
+           PyGetWindow has no macOS implementation either, so window
+           enumeration and focus go through Quartz (pyobjc). Window *titles*
+           (kCGWindowName) require the Screen Recording permission on modern
+           macOS; without it the owner app name is used instead, which is
+           still enough to focus and act.
+    """
+    try:
+        import Quartz  # pyobjc-framework-Quartz
+        return Quartz
+    except ImportError:
+        raise RuntimeError(
+            "Desktop control on macOS requires pyobjc. Install it with: "
+            "uv pip install pyobjc-framework-Quartz pyobjc-framework-Cocoa"
+        ) from None
+
+
+def _macos_activate_pid(pid):
+    from AppKit import NSApplicationActivateIgnoringOtherApps, NSRunningApplication
+    app = NSRunningApplication.runningApplicationWithProcessIdentifier_(int(pid))
+    if app is None:
+        raise ValueError("Owning application no longer exists")
+    app.activateWithOptions_(NSApplicationActivateIgnoringOtherApps)
+
+
+def _macos_windows():
+    """Front-to-back list of normal (layer 0) on-screen windows."""
+    Quartz = _quartz()
+    info = Quartz.CGWindowListCopyWindowInfo(
+        Quartz.kCGWindowListOptionOnScreenOnly | Quartz.kCGWindowListExcludeDesktopElements,
+        Quartz.kCGNullWindowID,
+    )
+    windows = []
+    for w in info or []:
+        if w.get("kCGWindowLayer", 0) != 0:
+            continue
+        title = w.get("kCGWindowName") or w.get("kCGWindowOwnerName") or ""
+        if not title:
+            continue
+        windows.append(_Window(str(w["kCGWindowNumber"]), title, pid=int(w["kCGWindowOwnerPID"])))
+    return windows
+
+
+def _get_active_window(pg):
+    if sys.platform == "win32":
+        w = pg.getActiveWindow()
+        return _Window(str(w._hWnd), w.title, w.isMinimized, native=w) if w else None
+    if sys.platform == "darwin":
+        windows = _macos_windows()
+        if not windows:
+            return None  # nothing focused (e.g. bare desktop)
+        try:
+            from AppKit import NSWorkspace
+            front = NSWorkspace.sharedWorkspace().frontmostApplication()
+            front_pid = int(front.processIdentifier()) if front else None
+        except ImportError:
+            front_pid = None
+        if front_pid is not None:
+            for w in windows:
+                if w.pid == front_pid:
+                    return w
+        # CGWindowList is ordered front-to-back, so the first normal window
+        # is the frontmost one.
+        return windows[0]
+    if platform.system() == "Linux":
+        try:
+            win_id = _xdotool("getactivewindow")
+        except RuntimeError:
+            return None  # nothing focused (e.g. bare desktop)
+        return _Window(win_id, _xdotool("getwindowname", win_id))
+    raise RuntimeError(f"Desktop control is not supported on {platform.system()}")
+
+
+def _get_all_windows(pg):
+    if sys.platform == "win32":
+        return [_Window(str(w._hWnd), w.title, w.isMinimized, native=w) for w in pg.getAllWindows() if w.title]
+    if sys.platform == "darwin":
+        return _macos_windows()
+    if platform.system() == "Linux":
+        ids = [i for i in _xdotool("search", "--onlyvisible", "--name", "").splitlines() if i]
+        windows = []
+        for win_id in ids:
+            try:
+                title = _xdotool("getwindowname", win_id)
+            except RuntimeError:
+                continue
+            if title:
+                windows.append(_Window(win_id, title))
+        return windows
+    raise RuntimeError(f"Desktop control is not supported on {platform.system()}")
 
 
 def _check_halt():
@@ -50,16 +223,20 @@ def _capture():
     """
     _check_halt()
     pg = _backend()
-    window = pg.getActiveWindow()
+    window = _get_active_window(pg)
     shot = pg.screenshot()
     buffer = io.BytesIO()
     shot.save(buffer, format="JPEG", quality=85)
     token = uuid.uuid4().hex
     _observations.clear()
-    _observations[token] = (time.monotonic(), getattr(window, "_hWnd", None), shot.size)
-    windows = [{"id": str(w._hWnd), "title": w.title} for w in pg.getAllWindows() if w.title]
+    # The logical screen size is stored alongside the image size: on HiDPI
+    # displays (macOS Retina especially) the screenshot has more pixels than
+    # the screen has input coordinates, so observed pixel coordinates must be
+    # scaled back before dispatch.
+    _observations[token] = (time.monotonic(), window.id if window else None, shot.size, tuple(pg.size()))
+    windows = [{"id": w.id, "title": w.title} for w in _get_all_windows(pg)]
     return {"success": True, "observation_id": token, "width": shot.width,
-            "height": shot.height, "active_window": getattr(window, "title", ""),
+            "height": shot.height, "active_window": window.title if window else "",
             "windows": windows, "mime_type": "image/jpeg",
             "data": base64.b64encode(buffer.getvalue()).decode("ascii")}
 
@@ -88,6 +265,39 @@ async def desktop_observe(question: str = "Describe the desktop and visible cont
         return {"success": False, "error": str(exc)}
 
 
+def _type_via_clipboard(pg, text):
+    """NAME
+           _type_via_clipboard - Unicode text entry on POSIX desktops
+    DESCRIPTION
+           Copies the text, sends the platform paste chord, then restores the
+           user's previous clipboard. The brief clipboard replacement is the
+           documented trade-off for non-ASCII input where native Unicode key
+           events do not exist (macOS and X11).
+    """
+    try:
+        import pyperclip
+    except ImportError:
+        raise RuntimeError(
+            "Unicode typing on this platform needs the clipboard: install pyperclip "
+            "(uv pip install pyperclip)"
+        ) from None
+    try:
+        previous = pyperclip.paste()
+    except Exception:
+        previous = None
+    pyperclip.copy(text)
+    try:
+        pg.hotkey("command" if sys.platform == "darwin" else "ctrl", "v")
+        # Give the focused app time to read the clipboard before restoring it.
+        time.sleep(0.5)
+    finally:
+        if previous is not None:
+            try:
+                pyperclip.copy(previous)
+            except Exception:
+                pass
+
+
 def _act(observation_id, action, x, y, text, keys, amount, window_id):
     """NAME
            _act - perform one validated native input operation
@@ -97,16 +307,19 @@ def _act(observation_id, action, x, y, text, keys, amount, window_id):
     _check_halt()
     pg = _backend()
     observation = _observations.pop(observation_id, None)
-    if not observation or time.monotonic() - observation[0] > 60:
+    if not observation or time.monotonic() - observation[0] > _OBSERVATION_TTL_SECONDS:
         raise ValueError("Observation missing, consumed or expired; call desktop_observe again")
-    current = pg.getActiveWindow()
-    if getattr(current, "_hWnd", None) != observation[1]:
+    current = _get_active_window(pg)
+    if (current.id if current else None) != observation[1]:
         raise ValueError("Foreground window changed; observe again before acting")
     if action in {"click", "double_click", "right_click", "move", "drag"}:
         if isinstance(x, bool) or isinstance(y, bool) or not isinstance(x, int) or not isinstance(y, int):
             raise ValueError("x and y must be integer pixel coordinates")
         if not (0 <= x < observation[2][0] and 0 <= y < observation[2][1]):
             raise ValueError("Coordinates outside observed primary screen")
+        # Scale observed image pixels to input coordinates (HiDPI/Retina).
+        x = int(round(x * observation[3][0] / observation[2][0]))
+        y = int(round(y * observation[3][1] / observation[2][1]))
     if action == "click":
         pg.click(x, y)
     elif action == "double_click":
@@ -125,13 +338,16 @@ def _act(observation_id, action, x, y, text, keys, amount, window_id):
         if not isinstance(text, str) or len(text) > 4000:
             raise ValueError("Text must be a string of at most 4000 characters")
         # Native Unicode events avoid replacing the user's clipboard.
-        import ctypes
-        import sys
         if sys.platform != "win32":
-            if not text.isascii():
-                raise ValueError("Unicode typing currently requires Windows")
-            pg.write(text, interval=0.01)
+            if text.isascii():
+                pg.write(text, interval=0.01)
+            else:
+                # pyautogui key events cannot produce non-ASCII characters on
+                # POSIX. Paste via the clipboard instead, restoring whatever
+                # the user had there afterward.
+                _type_via_clipboard(pg, text)
         else:
+            import ctypes
             from ctypes import wintypes
             class KEYBDINPUT(ctypes.Structure):
                 _fields_ = [("wVk", wintypes.WORD), ("wScan", wintypes.WORD), ("dwFlags", wintypes.DWORD), ("time", wintypes.DWORD), ("dwExtraInfo", ctypes.c_size_t)]
@@ -154,14 +370,23 @@ def _act(observation_id, action, x, y, text, keys, amount, window_id):
             raise ValueError("keys must contain 1–4 valid PyAutoGUI key names")
         pg.hotkey(*keys)
     elif action == "focus":
-        targets = [w for w in pg.getAllWindows() if str(w._hWnd) == str(window_id)]
+        targets = [w for w in _get_all_windows(pg) if w.id == str(window_id)]
         if not targets:
             raise ValueError("Window no longer exists")
         if targets[0].isMinimized:
             targets[0].restore()
         targets[0].activate()
-        if getattr(pg.getActiveWindow(), "_hWnd", None) != targets[0]._hWnd:
-            raise RuntimeError("Windows did not grant foreground focus")
+        # Bounded poll, not open-ended: the window manager applies focus
+        # asynchronously (observed up to ~1s under mutter) and an indefinite
+        # wait (e.g. xdotool --sync) can hang this tool call forever if the WM
+        # never confirms.
+        for _ in range(30):
+            refreshed = _get_active_window(pg)
+            if refreshed and refreshed.id == targets[0].id:
+                break
+            time.sleep(0.1)
+        else:
+            raise RuntimeError("Window manager did not grant foreground focus")
     else:
         raise ValueError("Unknown desktop action")
     return {"success": True, "action": action, "executed": True, "verified": False,

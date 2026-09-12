@@ -53,16 +53,61 @@ function writeJsonFile(filePath, payload) {
   fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
 }
 
+// Secrets are written owner-only, never at the umask default (commonly 644 —
+// world-readable). chmod is best-effort: Windows ACLs do not speak POSIX
+// modes, and a failed tighten must not stop the chain from starting.
+function writeSecretFile(filePath, contents) {
+  fs.writeFileSync(filePath, contents, { encoding: 'utf8', mode: 0o600 });
+  restrictPermissions(filePath);
+}
+
+// Self-heals files created by earlier versions that relied on the umask.
+function restrictPermissions(filePath) {
+  try {
+    fs.chmodSync(filePath, 0o600);
+  } catch { /* best effort; Windows ACLs differ */ }
+}
+
+// Sliding-window per-IP limiter for non-admin transaction submission. The
+// mempool mines instantly, so every accepted tx costs disk and a block; an
+// internet-reachable node needs a ceiling per stranger.
+const txSubmissionHits = new Map();
+const TX_RATE_LIMIT = 30;
+const TX_RATE_WINDOW_MS = 60 * 1000;
+
+function txRateLimited(ip) {
+  const now = Date.now();
+  const hits = (txSubmissionHits.get(ip) || []).filter(t => now - t < TX_RATE_WINDOW_MS);
+  if (hits.length >= TX_RATE_LIMIT) {
+    txSubmissionHits.set(ip, hits);
+    return true;
+  }
+  hits.push(now);
+  txSubmissionHits.set(ip, hits);
+  // Keep the map from growing one entry per strange IP forever.
+  if (txSubmissionHits.size > 10000) {
+    for (const [key, times] of txSubmissionHits) {
+      if (!times.some(t => now - t < TX_RATE_WINDOW_MS)) txSubmissionHits.delete(key);
+    }
+  }
+  return false;
+}
+
 function sha256Hex(value) {
   return crypto.createHash('sha256').update(String(value)).digest('hex');
 }
 
-function readRequestBody(req) {
+// Default cap is 1MB. The old blanket 100MB limit was a memory-DoS lever on
+// an internet-reachable node: anonymous callers could hold open concurrent
+// 100MB bodies. Routes that legitimately carry more (chain reconcile, which
+// ships a full chain and is admin-gated BEFORE the body is read) pass their
+// own cap.
+function readRequestBody(req, maxBytes = 1024 * 1024) {
   return new Promise((resolve, reject) => {
     let body = '';
     req.on('data', chunk => {
       body += chunk;
-      if (body.length > 100 * 1024 * 1024) {
+      if (body.length > maxBytes) {
         reject(new Error('Request body too large'));
         req.destroy();
       }
@@ -79,6 +124,7 @@ if (fs.existsSync(KEYS_FILE)) {
   const keys = JSON.parse(fs.readFileSync(KEYS_FILE, 'utf8'));
   poaPrivateKey = keys.privateKey;
   poaPublicKey = keys.publicKey;
+  restrictPermissions(KEYS_FILE);
   console.log('[Tala Chain] Loaded existing PoA key pair.');
 } else {
   const { privateKey, publicKey } = crypto.generateKeyPairSync('ed25519', {
@@ -87,7 +133,7 @@ if (fs.existsSync(KEYS_FILE)) {
   });
   poaPrivateKey = privateKey;
   poaPublicKey = publicKey;
-  fs.writeFileSync(KEYS_FILE, JSON.stringify({ privateKey, publicKey }, null, 2), 'utf8');
+  writeSecretFile(KEYS_FILE, JSON.stringify({ privateKey, publicKey }, null, 2));
   console.log('[Tala Chain] Generated new Ed25519 PoA key pair.');
 }
 
@@ -274,9 +320,10 @@ let adminSecret = process.env.TALA_CHAIN_ADMIN_SECRET || '';
 if (!adminSecret) {
   if (fs.existsSync(ADMIN_SECRET_FILE)) {
     adminSecret = fs.readFileSync(ADMIN_SECRET_FILE, 'utf8').trim();
+    restrictPermissions(ADMIN_SECRET_FILE);
   } else {
     adminSecret = crypto.randomBytes(32).toString('hex');
-    fs.writeFileSync(ADMIN_SECRET_FILE, adminSecret, 'utf8');
+    writeSecretFile(ADMIN_SECRET_FILE, adminSecret);
     console.log('[Tala Chain] Generated new local admin secret.');
   }
 }
@@ -1245,17 +1292,62 @@ const server = http.createServer((req, res) => {
   }
 
   // Route: POST /chain/tx
+  //
+  // Submission is not anonymous. Signature checks used to run only at block
+  // validation (and only for payments), so an internet-reachable node
+  // accepted junk transactions from anyone into its mempool. A submission is
+  // now accepted from exactly two kinds of caller:
+  //   * the local harness/SDK, proving it can read this machine's admin
+  //     secret file (the same trust boundary every admin route uses), or
+  //   * a remote peer whose transaction carries a valid ed25519 signature
+  //     over its hash by the submitted public key.
+  // The anonymous body cap is tight; the local caller keeps room for
+  // encrypted document anchors.
   if (url.pathname === '/chain/tx' && req.method === 'POST') {
-    let body = '';
-    req.on('data', chunk => { body += chunk; });
-    req.on('end', () => {
+    const suppliedSecret = req.headers['x-tala-chain-secret'];
+    const isLocalAdmin = Boolean(suppliedSecret && suppliedSecret === adminSecret);
+    if (!isLocalAdmin && txRateLimited(req.socket.remoteAddress || '?')) {
+      res.writeHead(429, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: 'Too many transactions; slow down.' }));
+      return;
+    }
+    readRequestBody(req, isLocalAdmin ? 10 * 1024 * 1024 : 64 * 1024).then(body => {
       try {
         const payload = JSON.parse(body);
-        
+
         if (!payload.id || !payload.type || !payload.hash || !payload.creator || !payload.counterparty) {
           res.writeHead(400, { 'Content-Type': 'application/json' });
           res.end(JSON.stringify({ error: 'Missing required transaction fields' }));
           return;
+        }
+
+        if (!isLocalAdmin) {
+          if (!payload.signature || !payload.public_key) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Transactions must be signed (signature and public_key) or submitted with the local admin secret.' }));
+            return;
+          }
+          let signatureOk = false;
+          try {
+            const submitterKey = crypto.createPublicKey({
+              key: Buffer.from(payload.public_key, 'hex'),
+              format: 'raw',
+              type: 'ed25519'
+            });
+            signatureOk = crypto.verify(
+              null,
+              Buffer.from(String(payload.hash)),
+              submitterKey,
+              Buffer.from(payload.signature, 'hex')
+            );
+          } catch {
+            signatureOk = false;
+          }
+          if (!signatureOk) {
+            res.writeHead(401, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'Transaction signature did not verify.' }));
+            return;
+          }
         }
 
         if (payload.document && payload.document.encrypted !== true) {
@@ -1300,10 +1392,13 @@ const server = http.createServer((req, res) => {
         res.writeHead(400, { 'Content-Type': 'application/json' });
         res.end(JSON.stringify({ error: err.message || 'Malformed JSON payload' }));
       }
+    }).catch(err => {
+      res.writeHead(413, { 'Content-Type': 'application/json' });
+      res.end(JSON.stringify({ error: err.message || 'Unable to read request body' }));
     });
     return;
   }
-  
+
   // Route: GET /chain/identity
   //
   // This node's signing key, so a peer can obtain it and decide whether to
@@ -1542,7 +1637,9 @@ const server = http.createServer((req, res) => {
   // Route: POST /chain/reconcile
   if (url.pathname === '/chain/reconcile' && req.method === 'POST') {
     if (!requireAdminSecret(req, res)) return;
-    readRequestBody(req).then(body => {
+    // A full chain is legitimately large; the admin gate above has already
+    // run, so the wide cap is only reachable by the local harness.
+    readRequestBody(req, 100 * 1024 * 1024).then(body => {
       try {
         const payload = JSON.parse(body || '{}');
         if (!payload.chain || !Array.isArray(payload.chain)) {

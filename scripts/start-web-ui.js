@@ -22,15 +22,18 @@
 
 const { spawn } = require('node:child_process');
 const net = require('node:net');
-const { existsSync } = require('node:fs');
 const { join } = require('node:path');
+const { resolvePython } = require('./resolve_python');
 
 const root = join(__dirname, '..');
-const pythonPath = process.platform === 'win32'
-  ? join(root, '.venv', 'Scripts', 'python.exe')
-  : join(root, '.venv', 'bin', 'python');
 
-const executable = existsSync(pythonPath) ? pythonPath : 'python';
+let executable;
+try {
+  executable = resolvePython(root);
+} catch (err) {
+  console.error(`[tala] ${err.message}`);
+  process.exit(1);
+}
 
 const env = { ...process.env, TALA_WEB_UI: '1' };
 const host = env.TALA_WEB_HOST || '127.0.0.1';

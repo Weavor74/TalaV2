@@ -3,15 +3,19 @@
  */
 
 const { spawnSync } = require('node:child_process');
-const { existsSync } = require('node:fs');
 const { join } = require('node:path');
+const { resolvePython } = require('./resolve_python');
 
 const root = join(__dirname, '..');
-const pythonPath = process.platform === 'win32'
-  ? join(root, '.venv', 'Scripts', 'python.exe')
-  : join(root, '.venv', 'bin', 'python');
 
-const executable = existsSync(pythonPath) ? pythonPath : 'python';
+let executable;
+try {
+  executable = resolvePython(root);
+} catch (err) {
+  console.error(err.message);
+  process.exit(1);
+}
+
 const result = spawnSync(executable, process.argv.slice(2), {
   cwd: root,
   stdio: 'inherit',

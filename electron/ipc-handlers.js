@@ -121,6 +121,16 @@ async function encryptChainDocument(userData, document, associatedData) {
  * @param {string} userPath  — User-supplied relative (or absolute) path.
  * @returns {Promise<string>} Resolved absolute path that is safe to use.
  */
+// Windows and (by default) macOS volumes are case-insensitive, so containment
+// must compare case-folded paths there: "C:\Tala" and "c:\tala" are the same
+// directory, and comparing them case-sensitively yields spurious denials (or,
+// worse, containment confusion). Linux stays case-sensitive.
+function foldCase(p) {
+  return (process.platform === 'win32' || process.platform === 'darwin')
+    ? p.toLowerCase()
+    : p;
+}
+
 async function safePath(baseDir, userPath) {
   if (!userPath || typeof userPath !== 'string') {
     throw new Error('Path must be a non-empty string.');
@@ -128,6 +138,7 @@ async function safePath(baseDir, userPath) {
 
   // Normalize separators and resolve relative to base
   const joined   = path.resolve(baseDir, userPath);
+  const baseCmp  = foldCase(baseDir);
 
   // Attempt to resolve real path (follows symlinks) so traversal via
   // symlinks pointing outside the sandbox is caught.
@@ -138,21 +149,35 @@ async function safePath(baseDir, userPath) {
     // If the path doesn't exist yet (write case), use the non-symlink path
     // but ensure the parent directory is safe.
     const parentReal = await fs.realpath(path.dirname(joined)).catch(() => path.dirname(joined));
-    if (!parentReal.startsWith(baseDir + path.sep) && parentReal !== baseDir) {
+    const parentCmp = foldCase(parentReal);
+    if (!parentCmp.startsWith(baseCmp + path.sep) && parentCmp !== baseCmp) {
       throw new Error(`Access denied: parent of "${userPath}" is outside the sandbox.`);
     }
     realResolved = joined;
   }
 
   // Ensure the real resolved path begins with baseDir
-  const safe = realResolved === baseDir ||
-               realResolved.startsWith(baseDir + path.sep);
+  const resolvedCmp = foldCase(realResolved);
+  const safe = resolvedCmp === baseCmp ||
+               resolvedCmp.startsWith(baseCmp + path.sep);
 
   if (!safe) {
     throw new Error(`Access denied: "${userPath}" resolves outside the allowed directory.`);
   }
 
   return realResolved;
+}
+
+/**
+ * Is this a Neural Node HTML file? Separator-normalized: a Windows renderer
+ * sends `nodes\x.html`, which a bare includes('nodes/') misses, letting the
+ * write skip schema validation and blockchain anchoring while still landing
+ * on disk.
+ */
+function isNodesHtmlPath(filePath) {
+  if (typeof filePath !== 'string') return false;
+  const normalized = filePath.replace(/\\/g, '/');
+  return normalized.includes('nodes/') && normalized.endsWith('.html');
 }
 
 /* ──────────────────────────────────────────────────────────────────
@@ -210,7 +235,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
       throw new Error('file:write requires a "data" field.');
     }
 
-    if (filePath.includes('nodes/') && filePath.endsWith('.html')) {
+    if (isNodesHtmlPath(filePath)) {
       const fsSync = require('node:fs');
       const crypto = require('node:crypto');
       const os = require('node:os');
@@ -249,7 +274,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     await fs.writeFile(resolved, data, { encoding });
 
     // Anchor Neural Node creation on blockchain (graceful fallback if offline)
-    if (filePath.includes('nodes/') && filePath.endsWith('.html')) {
+    if (isNodesHtmlPath(filePath)) {
       try {
         const crypto = require('crypto');
         const hash = crypto.createHash('sha256').update(data).digest('hex');
@@ -321,7 +346,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     await fs.unlink(resolved);
 
     // Anchor Neural Node deletion on blockchain (graceful fallback if offline)
-    if (filePath.includes('nodes/') && filePath.endsWith('.html')) {
+    if (isNodesHtmlPath(filePath)) {
       try {
         const slug = path.basename(filePath, '.html');
         const http = require('http');

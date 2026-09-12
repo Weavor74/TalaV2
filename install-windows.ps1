@@ -78,6 +78,13 @@ if (-not (Get-Command "python" -ErrorAction SilentlyContinue) -and -not (Get-Com
 # 3. Bootstrap Database
 Write-Host "[3/6] Bootstrapping Database..."
 & "$Root\scripts\bootstrap-db.ps1" -DbUser "tala" -DbPass "tala" -DbName "tala"
+if ($LASTEXITCODE -ne 0) {
+    # Most likely cause: pgvector is missing. The winget/EDB PostgreSQL
+    # packages do not bundle it, and without it peer writes to a connection
+    # node are denied. bootstrap-db.ps1 already printed install steps.
+    Write-Host "Database bootstrap reported a problem (see messages above)." -ForegroundColor Red
+    Write-Host "You can finish the rest of the install now and re-run scripts\bootstrap-db.ps1 after fixing it." -ForegroundColor Yellow
+}
 
 # 4. Generate .env safely
 Write-Host "[4/6] Checking Configuration..."

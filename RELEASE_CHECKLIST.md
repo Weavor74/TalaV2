@@ -46,6 +46,13 @@ For rigorous testing, spin up clean virtual machines with **no pre-existing deve
 - [ ] **Current OS Package**: Does `npm run package` create the expected installer/archive for the host OS?
 - [ ] **Packaged First-Run**: On first packaged launch, are `.env`, `.venv`, `vault/`, `data/`, and `scratch/` created under Electron `userData` rather than source-controlled folders?
 - [ ] **Package Self-Test**: After installing the package on a clean machine, does `npm run self-test` or `/self-test --no-audit` pass?
+- [ ] **No Secrets in Bundles**: Does `uv run pytest tests/test_release_bundles_carry_no_secrets.py` pass against the freshly built bundle? (An earlier bundle shipped `.env`; a later one shipped `blockchain/data/poa_keys.json` with the live PoA private key.)
+
+## 8. Security Rotations (one-time, before first public release)
+These close out the exposures found in the 2026-09-09 production-readiness review. The code fixes landed 2026-09-12; these are the operator halves that cannot be done from the repo.
+- [ ] **Rotate the PoA signing key**: The key pair in `blockchain/data/poa_keys.json` shipped inside `tala-windows.zip` (one known holder of the link, but the URL was unauthenticated). Delete the key file on the VPS, let `app.js` mint a fresh pair on restart, update the authority set, and remove the old zip from the webroot.
+- [ ] **Rotate the Postgres password** in `.env` (it shipped in an earlier bundle).
+- [ ] **Redeploy the VPS** with the current `Caddyfile` (adds the `wss://talacore.app/ws` route) and `scripts/start-tala-vps.sh` (binds 8765 and 8332 to loopback behind Caddy). Until then, updated desktops cannot reach the node.
 
 ---
 *Once all boxes are checked, the Native Transparent Deployment path is certified for release.*

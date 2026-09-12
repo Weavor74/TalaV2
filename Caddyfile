@@ -1,3 +1,10 @@
 talacore.app {
-    reverse_proxy 127.0.0.1:8332
+	# The harness peer WebSocket (8765). TLS terminates here; the socket
+	# itself binds loopback (see scripts/start-tala-vps.sh), so handshake
+	# HMACs and relayed payloads never cross the internet in cleartext.
+	# Peers dial wss://talacore.app/ws.
+	@ws path /ws
+	reverse_proxy @ws 127.0.0.1:8765
+
+	reverse_proxy 127.0.0.1:8332
 }

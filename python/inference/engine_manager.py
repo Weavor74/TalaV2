@@ -8,6 +8,7 @@ import asyncio
 import json
 import logging
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -100,9 +101,15 @@ def _install_engine_task(engine_id: str, packages: List[str]) -> None:
         try:
             # We use the executable that is running Tala (should be the venv python)
             python_exe = sys.executable
-            
-            # Simple simulation of progress for pip (since pip doesn't output clean JSON percentages)
-            cmd = ["uv", "pip", "install", "--python", python_exe] + packages
+
+            # Prefer uv, but don't hard-depend on it: a packaged app launched
+            # from Finder/Explorer gets a minimal PATH where uv is usually
+            # absent. Fall back to this interpreter's own pip (same pattern as
+            # scripts/first_run.py).
+            if shutil.which("uv"):
+                cmd = ["uv", "pip", "install", "--python", python_exe] + packages
+            else:
+                cmd = [python_exe, "-m", "pip", "install"] + packages
             
             logger.info("Installing engine %s: %s", engine_id, " ".join(cmd))
             

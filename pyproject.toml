@@ -29,6 +29,11 @@ dependencies = [
     "cryptography==49.0.0",
     "chromadb==1.5.9",
     "pyautogui==0.9.54",
+    # Desktop control: clipboard-paste path for non-ASCII typing on POSIX,
+    # and Quartz/AppKit window enumeration + focus on macOS.
+    "pyperclip>=1.8; sys_platform != 'win32'",
+    "pyobjc-framework-Quartz>=10.0; sys_platform == 'darwin'",
+    "pyobjc-framework-Cocoa>=10.0; sys_platform == 'darwin'",
     "Pillow==12.2.0",
     "pyttsx3>=2.90",
     "discord.py>=2.4",
@@ -113,12 +118,18 @@ astrology = [
 ]
 
 [project.scripts]
-tala = "cli.main:main"
-tala-tui = "cli.tui:main"
+tala = "python.cli.main:main"
+tala-tui = "python.cli.tui:main"
 
-[tool.setuptools]
-package-dir = {"" = "python"}
-packages = ["cli", "harness", "inference", "astrology"]
+# The codebase imports itself as `python.harness.*` / `sdk.agent.*` from the
+# repo root, so the wheel must install those exact package names. The old
+# mapping (package-dir {"" = "python"}) installed `harness` et al. top-level,
+# so the installed `tala` entry point (`from python.harness.server import ...`)
+# could never work outside a repo checkout.
+[tool.setuptools.packages.find]
+where = ["."]
+include = ["python*", "sdk*"]
+exclude = ["python.vault*"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests", "sdk/agent/tests"]
