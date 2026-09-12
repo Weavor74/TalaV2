@@ -199,23 +199,23 @@ def validate_constraints(constraints: dict[str, Any]) -> tuple[bool, str]:
             f"Supported: {', '.join(sorted(known))}."
         )
 
-    for field in ("expires_at", "not_before"):
-        value = constraints.get(field)
+    for ts_field in ("expires_at", "not_before"):
+        value = constraints.get(ts_field)
         if value:
             try:
                 datetime.fromisoformat(str(value).replace("Z", "+00:00"))
             except ValueError:
-                return False, f"{field} is not a readable timestamp ({value!r})"
+                return False, f"{ts_field} is not a readable timestamp ({value!r})"
 
     hours = constraints.get("hours")
     if hours and _parse_window(hours) is None:
         return False, f"hours is not a readable window ({hours!r}); expected HH:MM-HH:MM"
 
-    for field in ("ports", "hosts"):
-        value = constraints.get(field)
+    for list_field in ("ports", "hosts"):
+        value = constraints.get(list_field)
         if value is not None and not isinstance(value, (list, tuple)):
-            return False, f"{field} must be a list"
-        if field == "ports" and value:
+            return False, f"{list_field} must be a list"
+        if list_field == "ports" and value:
             try:
                 [int(p) for p in value]
             except (TypeError, ValueError):

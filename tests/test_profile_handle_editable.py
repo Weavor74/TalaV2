@@ -56,7 +56,6 @@ def test_the_two_normalisations_agree():
     Pinned against the harness rather than described: these are two
     implementations of one rule, in two languages, and they drift silently.
     """
-    from python.harness import server
 
     renderer_js = (ROOT / "renderer" / "renderer.js").read_text(encoding="utf-8", errors="replace")
     harness = (ROOT / "python" / "harness" / "server.py").read_text(encoding="utf-8", errors="replace")

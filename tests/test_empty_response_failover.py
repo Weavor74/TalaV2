@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 
 def test_empty_response_validation_and_failover():

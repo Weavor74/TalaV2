@@ -1,14 +1,13 @@
 import os
 import json
 import pytest
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from sdk.agent.tot_ideation import (
     is_architectural_or_decomposition_prompt,
     run_tot_ideation,
     COGNITIVE_FRAMES
 )
 from sdk.agent.queue import GoalTreeDecomposer
-from sdk.agent.planner import TaskItem
 
 def test_is_architectural_or_decomposition_prompt():
     # Architectural prompts

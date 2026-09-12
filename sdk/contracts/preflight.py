@@ -34,13 +34,11 @@ Milestone 3 — Task 3.1.1 – 3.1.3
 
 from __future__ import annotations
 
-import asyncio
 import hashlib
-import json
 import logging
 import sqlite3
 import textwrap
-from dataclasses import asdict, dataclass
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import TYPE_CHECKING

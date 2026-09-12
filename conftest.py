@@ -103,8 +103,8 @@ def _isolate_database() -> None:
     base, sep, database = _PRODUCTION_DB_URL.rpartition("/")
     if not sep or not database:
         _PRODUCTION_DB_REASON = (
-            f"could not parse a database name out of the configured DSN, so no "
-            f"sibling could be derived"
+            "could not parse a database name out of the configured DSN, so no "
+            "sibling could be derived"
         )
         return
 

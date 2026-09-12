@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 
 def test_new_chat_button_exists_in_html_and_js():

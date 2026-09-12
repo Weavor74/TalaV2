@@ -7,6 +7,92 @@ on:
     branches: [main]
 
 jobs:
+  lint:
+    # The ratchet gate (P2 item 16): ruff for Python, eslint for JS. Both rule
+    # sets are clean today and narrow on purpose — see pyproject [tool.ruff]
+    # and eslint.config.mjs. The file-size ratchet itself runs inside pytest
+    # (tests/test_size_ratchet.py) so it also gates local runs.
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Node dependencies
+        run: npm ci
+      - name: eslint
+        run: npx eslint .
+      - name: ruff
+        run: |
+          pip install ruff
+          ruff check python sdk scripts tests conftest.py
+
+  install-smoke:
+    # Cross-platform install + syntax + JS-test smoke (P2 item 17). Most
+    # development happens on Windows while the full self-test job below is
+    # Linux-only (Postgres service containers), so without this matrix a
+    # Windows- or macOS-only install breakage ships silently — exactly what
+    # the P1 items 8-10 of the production-readiness review were.
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Renderer and main-process syntax check
+        run: |
+          node --check renderer/renderer.js
+          node --check electron/main.js
+      - name: JavaScript tests
+        run: npx jest --runInBand
+      - name: Install Python dependencies
+        run: pip install ".[test]"
+      - name: Python import smoke
+        # Importing the server and the tool registry exercises every module-load
+        # path (the layer where platform-specific breakage lives) without
+        # needing a database.
+        run: python -c "import python.harness.server, sdk.agent.tools; print('import smoke ok')"
+      - name: Size ratchet
+        run: python -m pytest tests/test_size_ratchet.py -q
+
+  package-smoke:
+    # electron-builder --dir: catches packaging-config rot (bad globs, missing
+    # files entries) without paying for installers or code signing.
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+      - name: Install Node dependencies
+        run: npm ci
+      - name: Packaged-build smoke test
+        run: npx electron-builder --dir
+      - name: Verify the packaged tree carries the app entrypoints
+        # linux-unpacked on x64, linux-arm64-unpacked on arm — glob covers both.
+        run: |
+          APP=$(echo dist/linux*unpacked/resources/app)
+          test -d "$APP" || { echo "no unpacked build under dist/" >&2; exit 1; }
+          for f in electron/main.js renderer/renderer.js python/harness/server.py package.json; do
+            test -f "$APP/$f" || { echo "missing $f in packaged tree" >&2; exit 1; }
+          done
+          echo "packaged tree ok"
+
   self-test:
     runs-on: ubuntu-latest
     timeout-minutes: 20
@@ -114,11 +200,11 @@ jobs:
           exit 1
 
       - name: Run self-test suite
-        # --no-audit: npm audit currently fails on pre-existing transitive
-        # dev-dependency vulnerabilities (js-yaml, tar) unrelated to app code.
-        # Run `npm audit fix` separately to resolve those, then drop this flag
-        # to bring vulnerability scanning into CI too.
-        run: python scripts/tala_self_test.py --no-audit
+        # No --no-audit: the js-yaml/tar (and 7 more) transitive vulnerabilities
+        # were fixed via `npm audit fix` on 2026-09-12, so vulnerability
+        # scanning now gates CI. If audit fails here, fix the dependency —
+        # do not put the flag back.
+        run: python scripts/tala_self_test.py
 
       - name: Upload blockchain node log on failure
         if: failure()

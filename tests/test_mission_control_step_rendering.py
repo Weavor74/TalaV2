@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 
 def test_mission_control_active_steps_and_completion_rendering():

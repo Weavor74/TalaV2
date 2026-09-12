@@ -15,7 +15,6 @@ DESCRIPTION
 from __future__ import annotations
 
 import sys
-import os
 import json
 import hashlib
 import asyncio
@@ -124,7 +123,7 @@ async def run_metadata_audit() -> None:
             drift_report.append(mismatches)
             
     # 2. Print Report
-    print(f"\n=== METADATA-DRIFT AUDIT REPORT ===")
+    print("\n=== METADATA-DRIFT AUDIT REPORT ===")
     print(f"Audited: {total_audited} files. Drift Detected: {len(drift_report)} files.")
     for entry in drift_report:
         print(f"File: {entry['node_id']}.html - Missing/Invalid fields: {entry['missing_fields']}")

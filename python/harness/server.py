@@ -27,7 +27,6 @@ Milestone 1.2 — Tasks 1.2.1–1.2.4 (server orchestration layer)
 from __future__ import annotations
 
 import asyncio
-import contextvars
 import hashlib
 import hmac
 import json
@@ -39,7 +38,6 @@ import sys
 import time
 import traceback
 import uuid
-from collections.abc import AsyncIterator
 from datetime import datetime, timezone
 from typing import Any
 
@@ -49,7 +47,6 @@ from websockets.server import WebSocketServerProtocol
 # ---------------------------------------------------------------------------
 # Path setup & package imports (Task 1.2.2)
 # ---------------------------------------------------------------------------
-import sys
 from pathlib import Path
 
 # Add project root (three levels up from this file) to Python path
@@ -65,7 +62,6 @@ from sdk.agent.exceptions import (
     PiiAccessBlockedError,
 )
 from sdk.agent.documentation_nodes import (
-    resolve_user_data_dir,
     resolve_active_nodes_dir,
     resolve_active_workflows_dir,
 )
@@ -96,7 +92,6 @@ logger = logging.getLogger(__name__)
 # python/harness/chat_mode.py so memory.py can share them without importing
 # server.py back -- see that module for why there were two disagreeing sources.
 from python.harness.chat_mode import (  # noqa: E402
-    get_chat_mode_file_path,
     get_current_chat_mode,
     is_emotional_mode,
     save_current_chat_mode,
@@ -134,89 +129,19 @@ def _configure_logging() -> None:
 # JSON-RPC 2.0 helpers
 # ---------------------------------------------------------------------------
 
-JSONRPC_VERSION = "2.0"
-
-class JsonRpcError:
-    """Standard JSON-RPC 2.0 error codes."""
-    PARSE_ERROR      = -32700
-    INVALID_REQUEST  = -32600
-    METHOD_NOT_FOUND = -32601
-    INVALID_PARAMS   = -32602
-    INTERNAL_ERROR   = -32603
-
-
-def _ok(request_id: Any, result: Any) -> str:
-    return json.dumps({
-        "jsonrpc": JSONRPC_VERSION,
-        "id": request_id,
-        "result": result,
-    })
-
-
-#: The RPC method currently being handled, so _err can say what failed without
-#: every handler having to pass its own name in.
-_CURRENT_RPC: contextvars.ContextVar[str] = contextvars.ContextVar(
-    "_CURRENT_RPC", default=""
+# Moved to python/harness/jsonrpc.py (P2 item 18) so extracted per-domain
+# handler modules can build responses without importing this module. The
+# re-export keeps every existing call site and test reference working;
+# _CURRENT_RPC is still set by the dispatcher below.
+from python.harness.jsonrpc import (  # noqa: F401 (re-exported names)
+    JSONRPC_VERSION,
+    JsonRpcError,
+    _CALLER_FAULT_CODES,
+    _CURRENT_RPC,
+    _audit_rpc_failure,
+    _err,
+    _ok,
 )
-
-#: Failures that are the caller getting it wrong rather than the harness
-#: breaking. Still logged, but at WARNING: an audit log where a typo'd
-#: parameter looks the same as a crashed subsystem is one nobody reads.
-_CALLER_FAULT_CODES = frozenset({
-    JsonRpcError.INVALID_PARAMS,
-    JsonRpcError.METHOD_NOT_FOUND,
-    JsonRpcError.INVALID_REQUEST,
-    JsonRpcError.PARSE_ERROR,
-})
-
-
-def _audit_rpc_failure(code: int, message: str, data: Any = None) -> None:
-    """
-    Record an RPC failure in ``agent_log``.
-
-    Every RPC error response funnels through ``_err``, which is why the hook is
-    here rather than in the dispatcher: most handlers catch their own
-    exceptions and return ``_err`` directly, so the dispatcher's ``except``
-    never sees them. Before this, ``agent_log`` held 44,464 rows of which
-    exactly **one** was an ERROR -- the audit log recorded everything except
-    things going wrong, which is the one thing an audit log is for (UI-085).
-
-    Fire-and-forget by design: a failure to log a failure must not become a
-    second failure. If there is no running loop -- a synchronous test, or
-    ``_err`` called during startup -- it is skipped rather than raised.
-    """
-    try:
-        loop = asyncio.get_running_loop()
-    except RuntimeError:
-        return
-
-    level = "WARNING" if code in _CALLER_FAULT_CODES else "ERROR"
-    method = _CURRENT_RPC.get() or "unknown"
-    trace: dict[str, Any] = {"method": method, "code": code}
-    if isinstance(data, dict):
-        # Keep the traceback, drop anything large enough to bloat the table.
-        for key in ("traceback", "reason", "detail"):
-            if key in data:
-                trace[key] = str(data[key])[:2000]
-
-    try:
-        loop.create_task(
-            db.log_to_db(level, f"{method}: {message}"[:1000], trace)
-        )
-    except Exception:  # pragma: no cover - never let logging break a response
-        pass
-
-
-def _err(request_id: Any, code: int, message: str, data: Any = None) -> str:
-    error: dict[str, Any] = {"code": code, "message": message}
-    if data is not None:
-        error["data"] = data
-    _audit_rpc_failure(code, message, data)
-    return json.dumps({
-        "jsonrpc": JSONRPC_VERSION,
-        "id": request_id,
-        "error": error,
-    })
 
 
 def _parse_request(raw: str) -> tuple[Any, str, dict[str, Any]]:
@@ -2266,7 +2191,7 @@ async def handle_inference_generate(
                                     _wf_vars = _wf_result.get("variables", {})
 
                                     _wf_block = [
-                                        f"=== AUTO-EXECUTED WORKFLOW RESULT ===",
+                                        "=== AUTO-EXECUTED WORKFLOW RESULT ===",
                                         f"Workflow: {_wf_name} (ID: {_flow_id})",
                                         f"Status: {_wf_status}  |  Triggered by: {_wf_node.node_id} (activation={_wf_score:.3f})",
                                     ]
@@ -2614,8 +2539,8 @@ async def handle_inference_generate(
             # Additional hint for web search chaining if web keywords are detected
             if any(k in prompt_lower for k in ("search", "find", "crawl", "browse", "click", "open", "internet", "web")):
                 prompt += (
-                    f"\nIf the request asks to search and then click/open a specific link, "
-                    f"you MUST first search for the main topic itself. In the next turn, you will receive the search results and can then call the crawl/click tool."
+                    "\nIf the request asks to search and then click/open a specific link, "
+                    "you MUST first search for the main topic itself. In the next turn, you will receive the search results and can then call the crawl/click tool."
                 )
 
         # Construct the messages list for chat-completions
@@ -4422,9 +4347,6 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
     single, unconditional load path instead of racing two different
     sources with two different (and previously incompatible) schemas.
     """
-    import os
-    import json
-    from pathlib import Path
     try:
         nodes_dir = resolve_active_nodes_dir()
         node_file = nodes_dir / "concept-user-profile.html"
@@ -4544,8 +4466,6 @@ async def handle_identity_save_user_profile(params: dict[str, Any], req_id: Any)
     import os
     import json
     import hashlib
-    import urllib.request
-    from pathlib import Path
     from datetime import datetime, timezone
     from sdk.agent.anchor import canonicalize_and_anchor
     
@@ -7753,7 +7673,6 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
             try:
                 import os
                 import hashlib
-                from pathlib import Path
                 from datetime import datetime, timezone
                 from sdk.agent.anchor import canonicalize_and_anchor
                 
@@ -8026,8 +7945,6 @@ async def handle_nodes_import_markdown(params: dict[str, Any], req_id: Any) -> s
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'path' is required")
 
     try:
-        import hashlib
-        import urllib.request
         import yaml
         import markdown
 
@@ -8885,7 +8802,6 @@ async def handle_vps_version_push(params: dict[str, Any], req_id: Any) -> str:
     import json
     import os
     import re
-    from pathlib import Path
     
     node_hash = params.get("node_hash", "")
     signature = params.get("signature", "")
@@ -8953,7 +8869,6 @@ async def handle_system_info(params: dict[str, Any], req_id: Any) -> str:
     Returns a structured dict consumable directly by the frontend System panel.
     """
     import platform
-    import shutil
     import subprocess
     import multiprocessing
     import importlib.metadata
@@ -11108,8 +11023,6 @@ async def handle_task_submit(params: dict[str, Any], req_id: Any) -> str:
         from sdk.agent.goal_engine import GoalEngine
         from sdk.agent.adapter import AdapterCompiler
         from python.harness.retrieval import retrieve_relevant_nodes
-        import os
-        import sys
         from pathlib import Path
         
         # 0. Retrieve relevant context nodes and compile AdapterPacket
@@ -11575,8 +11488,6 @@ async def handle_crew_run(params: dict[str, Any], ws: WebSocketServerProtocol,
     # Validate the crew before we promise a run, so an obvious mistake comes
     # back as an error rather than a silent background failure.
     try:
-        from python.harness import crews
-        from python.harness.crews import CrewError
 
         crew_row = await db.fetchrow("SELECT id FROM crews WHERE id = $1", crew_id)
         if not crew_row:
@@ -12111,373 +12022,32 @@ async def handle_task_get_telemetry(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
-async def handle_repo_scan(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``repo.scan`` — Scan repository code structure.
-    """
-    try:
-        from sdk.agent.scanner import RepositoryScanner
-        scanner = RepositoryScanner(_ROOT_DIR)
-        code_map = scanner.build_codebase_map()
-        return _ok(req_id, {"codebase_map": code_map})
-    except Exception as exc:
-        logger.exception("repo.scan error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_repo_lint(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``repo.lint`` — Lint repository for architectural violations.
-    """
-    try:
-        from sdk.agent.linter import ArchitectureLinter
-        linter = ArchitectureLinter(_ROOT_DIR)
-        errors = linter.lint_all()
-        return _ok(req_id, {"success": len(errors) == 0, "errors": errors})
-    except Exception as exc:
-        logger.exception("repo.lint error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_repo_checkpoint(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``repo.checkpoint`` — Create repository state checkpoint.
-    """
-    try:
-        from sdk.agent.recovery import RollbackRecovery
-        checkpoint_name = str(params.get("checkpoint_name", "checkpoint") or "checkpoint").strip()
-        rr = RollbackRecovery(_ROOT_DIR)
-        stash_id = rr.create_checkpoint(checkpoint_name)
-        # create_checkpoint returns None when no snapshot was written. This
-        # reported {"success": True} unconditionally, so the UI showed a
-        # checkpoint the workspace did not actually have.
-        if not stash_id:
-            return _ok(req_id, {
-                "success": False,
-                "checkpoint_id": None,
-                "error": (
-                    f"checkpoint {checkpoint_name!r} was not created; see the "
-                    "harness log for the snapshot failure"
-                ),
-            })
-        return _ok(req_id, {"success": True, "checkpoint_id": stash_id})
-    except Exception as exc:
-        logger.exception("repo.checkpoint error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_repo_restore(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``repo.restore`` — Revert to the last checkpoint.
-    """
-    try:
-        from sdk.agent.recovery import RollbackRecovery
-        checkpoint_name = str(params.get("checkpoint_name", "checkpoint") or "checkpoint").strip()
-        rr = RollbackRecovery(_ROOT_DIR)
-        success = rr.restore_checkpoint(checkpoint_name)
-        return _ok(req_id, {"success": success, "checkpoint_id": checkpoint_name})
-    except Exception as exc:
-        logger.exception("repo.restore error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_task_report(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``task.report`` — Replay event logs and generate progress report.
-    """
-    task_id = params.get("task_id", "").strip()
-    if not task_id:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'task_id' is required")
-        
-    try:
-        from sdk.agent.recovery import CompletionReporter
-        reporter = CompletionReporter(task_id)
-        report = await reporter.generate_report()
-        return _ok(req_id, {"report": report})
-    except Exception as exc:
-        logger.exception("task.report error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_build_diagnose(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``build.diagnose`` — Diagnose compiler or terminal failure logs.
-    """
-    console_output = params.get("console_output", "")
-    try:
-        from sdk.agent.tester import BuildDiagnosis
-        diag = BuildDiagnosis.diagnose_failure(console_output)
-        return _ok(req_id, diag)
-    except Exception as exc:
-        logger.exception("build.diagnose error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_build_repair(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``build.repair`` — Triggers IterativeDebugger loop to fix a target file.
-    """
-    run_cmd = params.get("run_cmd", "")
-    target_file = params.get("target_file", "")
-    if not run_cmd or not target_file:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'run_cmd' and 'target_file' are required")
-        
-    try:
-        from sdk.agent.tester import IterativeDebugger
-        from sdk.agent.coder import CodeRepair
-        
-        target_code = params.get("target_code", "")
-        replacement_code = params.get("replacement_code", "")
-        
-        def simple_edit(content, diagnostics):
-            if target_code and replacement_code:
-                return CodeRepair.apply_surgical_patch(content, target_code, replacement_code)
-            return content
-            
-        debugger = IterativeDebugger(run_cmd, _ROOT_DIR)
-        success = debugger.debug_loop(target_file, simple_edit, max_attempts=params.get("max_attempts", 3))
-        return _ok(req_id, {"success": success})
-    except Exception as exc:
-        logger.exception("build.repair error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_shell_run(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``shell.run`` — Governed async shell execution.
-    """
-    command = params.get("command", "")
-    if not command:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'command' is required")
-        
-    try:
-        from sdk.agent.governance import RiskClassifier
-        from sdk.agent.async_shell import AsyncShellExecutor
-        
-        risk = RiskClassifier.classify_action("execute_command", command)
-        logger.info("Governance check: command=%r has risk=%s", command, risk)
-
-        # This handler calls the executor directly rather than going through
-        # ToolRegistry.run_tool, so it never saw run_tool's halt check: the
-        # one RPC that runs arbitrary shell commands was the one the kill
-        # switch did not cover. AsyncShellExecutor now refuses on its own, and
-        # this returns the refusal as a result rather than an error so the
-        # caller can tell "halted" from "failed".
-        result = await AsyncShellExecutor.run(command, _ROOT_DIR, timeout=params.get("timeout", 60.0))
-        if result.get("halted"):
-            return _ok(req_id, {
-                "success": False,
-                "exit_code": -1,
-                "stdout": "",
-                "stderr": result["stderr"],
-                "timed_out": False,
-                "halted": True,
-                "risk_level": risk,
-            })
-        return _ok(req_id, {
-            "success": result["success"],
-            "exit_code": result["exit_code"],
-            "stdout": result["stdout"],
-            "stderr": result["stderr"],
-            "timed_out": result["timed_out"],
-            "risk_level": risk,
-        })
-    except Exception as exc:
-        logger.exception("shell.run error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_generate(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.generate`` — Generate file from a template.
-    """
-    file_type = params.get("file_type", "")
-    class_name = params.get("class_name", "")
-    if not file_type or not class_name:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'file_type' and 'class_name' are required")
-        
-    try:
-        from sdk.agent.coder import CodeGenerator
-        code = await CodeGenerator.generate_template(file_type, class_name, params.get("options"))
-        return _ok(req_id, {"code": code})
-    except Exception as exc:
-        logger.exception("code.generate error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_repair(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.repair`` — Apply a surgical line patch to file content.
-    """
-    file_content = params.get("file_content", "")
-    target_code = params.get("target_code", "")
-    replacement_code = params.get("replacement_code", "")
-    
-    try:
-        from sdk.agent.coder import CodeRepair
-        patched = CodeRepair.apply_surgical_patch(file_content, target_code, replacement_code)
-        return _ok(req_id, {"success": True, "patched_content": patched})
-    except Exception as exc:
-        logger.exception("code.repair error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_test_generate(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``test.generate`` — Generate a test suite.
-    """
-    target_file = params.get("target_file", "")
-    file_type = params.get("file_type", "pytest")
-    class_name = params.get("class_name", "")
-    functions = params.get("functions", [])
-    
-    if not target_file or not class_name:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'target_file' and 'class_name' are required")
-        
-    try:
-        from sdk.agent.tester import TestGenerator
-        test_code = TestGenerator.generate_test_suite(target_file, file_type, class_name, functions)
-        return _ok(req_id, {"test_code": test_code})
-    except Exception as exc:
-        logger.exception("test.generate error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_propose_patch(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.propose_patch`` — Propose bounded exact-replacement file edits.
-    """
-    try:
-        from sdk.agent.safe_code_bridges import propose_patch
-
-        result = propose_patch(
-            replacements=params.get("replacements"),
-            rationale=params.get("rationale", ""),
-            validation_commands=params.get("validation_commands"),
-        )
-        return _ok(req_id, result)
-    except Exception as exc:
-        logger.exception("code.propose_patch error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_apply_patch(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.apply_patch`` — Apply bounded exact-replacement file edits.
-    """
-    try:
-        from sdk.agent.safe_code_bridges import apply_patch
-
-        result = apply_patch(
-            replacements=params.get("replacements"),
-            expected_files=params.get("expected_files"),
-            dry_run=bool(params.get("dry_run", False)),
-        )
-        return _ok(req_id, result)
-    except Exception as exc:
-        logger.exception("code.apply_patch error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_propose_file_write(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.propose_file_write`` — Propose bounded workspace file creation.
-    """
-    try:
-        from sdk.agent.safe_code_bridges import propose_file_write
-
-        result = propose_file_write(
-            file_writes=params.get("file_writes"),
-            rationale=params.get("rationale", ""),
-            validation_commands=params.get("validation_commands"),
-        )
-        return _ok(req_id, result)
-    except Exception as exc:
-        logger.exception("code.propose_file_write error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_write_files(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.write_files`` — Create bounded text files inside the workspace.
-    """
-    try:
-        from sdk.agent.safe_code_bridges import write_files
-
-        result = write_files(
-            file_writes=params.get("file_writes"),
-            expected_files=params.get("expected_files"),
-            dry_run=bool(params.get("dry_run", False)),
-        )
-        return _ok(req_id, result)
-    except Exception as exc:
-        logger.exception("code.write_files error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_registry_get(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.registry_get`` — Retrieve a key from CodeRegistry.
-    """
-    key = params.get("key")
-    if not key or not isinstance(key, str):
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'key' is required")
-    try:
-        from sdk.agent.code_registry import CodeRegistry
-        val = await CodeRegistry.get(key)
-        return _ok(req_id, {"key": key, "value": val})
-    except Exception as exc:
-        logger.exception("code.registry_get error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_registry_set(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.registry_set`` — Set a key in CodeRegistry.
-    """
-    key = params.get("key")
-    value = params.get("value")
-    if not key or not isinstance(key, str):
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'key' is required")
-    try:
-        from sdk.agent.code_registry import CodeRegistry
-        await CodeRegistry.set(key, value)
-        return _ok(req_id, {"key": key, "value": value})
-    except Exception as exc:
-        logger.exception("code.registry_set error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_code_registry_list(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``code.registry_list`` — List keys matching prefix in CodeRegistry.
-    """
-    prefix = params.get("prefix")
-    try:
-        from sdk.agent.code_registry import CodeRegistry
-        keys = await CodeRegistry.list_keys(prefix)
-        return _ok(req_id, {"keys": keys})
-    except Exception as exc:
-        logger.exception("code.registry_list error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-
-async def handle_test_run_validation(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``test.run_validation`` — Run allowlisted validation commands.
-    """
-    try:
-        from sdk.agent.safe_code_bridges import run_validation
-
-        result = await run_validation(
-            commands=params.get("commands"),
-            timeout=float(params.get("timeout", 60.0)),
-        )
-        return _ok(req_id, result)
-    except Exception as exc:
-        logger.exception("test.run_validation error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+# The repo.*/build.*/code.*/test.*/shell.run/task.report handlers moved to
+# python/harness/agent_bridge_handlers.py (P2 item 18) — the first domain out
+# of this file. Re-exported here so the dispatch map below and existing tests
+# (e.g. tests/test_shell_run_governance.py) keep addressing them as
+# server.handle_*.
+from python.harness.agent_bridge_handlers import (  # noqa: F401
+    handle_build_diagnose,
+    handle_build_repair,
+    handle_code_apply_patch,
+    handle_code_generate,
+    handle_code_propose_file_write,
+    handle_code_propose_patch,
+    handle_code_registry_get,
+    handle_code_registry_list,
+    handle_code_registry_set,
+    handle_code_repair,
+    handle_code_write_files,
+    handle_repo_checkpoint,
+    handle_repo_lint,
+    handle_repo_restore,
+    handle_repo_scan,
+    handle_shell_run,
+    handle_task_report,
+    handle_test_generate,
+    handle_test_run_validation,
+)
 
 
 async def handle_system_self_test(params: dict[str, Any], req_id: Any) -> str:
@@ -12513,8 +12083,6 @@ async def handle_system_capabilities(params: dict[str, Any], req_id: Any) -> str
 # without importing this whole module). Local aliases kept so the many
 # existing call sites below don't need to change.
 from python.harness.admin_auth import (
-    harness_admin_secret_path as _harness_admin_secret_path,
-    load_or_create_harness_admin_secret as _load_or_create_harness_admin_secret,
     require_harness_admin_secret as _require_harness_admin_secret,
 )
 
@@ -12594,41 +12162,11 @@ async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> s
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
-async def handle_system_download_update(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``system.download_update`` — Package the current repository into a ZIP file and return as Base64.
-    """
-    import asyncio
-    import base64
-    import os
-    if not _require_harness_admin_secret(params):
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, "Unauthorized: missing or invalid harness admin secret.")
-    try:
-        zip_path = "update_payload.zip"
-        # Use git archive to securely package the committed state without virtualenvs or node_modules
-        proc = await asyncio.create_subprocess_shell(
-            f"git archive -o {zip_path} HEAD",
-            stdout=asyncio.subprocess.PIPE,
-            stderr=asyncio.subprocess.PIPE,
-        )
-        stdout, stderr = await proc.communicate()
-        
-        if proc.returncode != 0:
-            return _err(req_id, JsonRpcError.INTERNAL_ERROR, f"git archive failed: {stderr.decode()}")
-            
-        with open(zip_path, "rb") as f:
-            zip_bytes = f.read()
-            
-        os.remove(zip_path)
-        
-        zip_b64 = base64.b64encode(zip_bytes).decode('utf-8')
-        return _ok(req_id, {
-            "status": "success",
-            "zipBase64": zip_b64
-        })
-    except Exception as exc:
-        logger.exception("system.download_update error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+# system.download_update is deliberately gone. It packaged the harness's own
+# live checkout as the update payload, making it a second delivery mechanism
+# with no published hash to verify against. Clients now get updates only from
+# the signed app.update path (pinned release host + version.json sha256 map);
+# system.trigger_update remains, but purely as a wake-up broadcast.
 
 
 async def handle_self_improvement_create_plan(params: dict[str, Any], req_id: Any) -> str:
@@ -13088,7 +12626,7 @@ async def handle_heartbeat_update(params: dict[str, Any], req_id: Any) -> str:
     if not updates:
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "No fields to update")
 
-    updates.append(f"updated_at = NOW()")
+    updates.append("updated_at = NOW()")
     args.append(job_id)
     sql = f"UPDATE heartbeats SET {', '.join(updates)} WHERE id = ${idx}"
 
@@ -16771,7 +16309,6 @@ _HANDLERS: dict[str, Any] = {
     "system.self_test":   handle_system_self_test,
     "system.capabilities": handle_system_capabilities,
     "system.trigger_update": handle_system_trigger_update,
-    "system.download_update": handle_system_download_update,
     "git.get_providers":  handle_git_get_providers,
     "git.save_providers": handle_git_save_providers,
     "storage.get_providers":  handle_storage_get_providers,

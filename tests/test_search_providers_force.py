@@ -1,9 +1,7 @@
 import pytest
-import os
 import json
 from unittest.mock import patch, MagicMock
-from python.harness.search_manager import SearchManager, get_search_providers
-from python.harness import db
+from python.harness.search_manager import SearchManager
 from python.harness.db import init_pool, close_pool
 
 @pytest.mark.asyncio

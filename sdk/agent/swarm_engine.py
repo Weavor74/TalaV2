@@ -646,7 +646,6 @@ class SwarmEngine:
                     res["output"] = f"Node '{node_id}' failed: {res.get('error') or 'no error recorded'}"
             upstream_results.append(res)
 
-        from sdk.agent.synthesizer import SynthesizerWorker
         goal_text = parent_payload.get("goal", "Unknown Goal")
         final_synthesis = await SynthesizerWorker.synthesize(goal_text, upstream_results)
 

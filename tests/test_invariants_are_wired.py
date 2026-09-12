@@ -23,7 +23,7 @@ import json
 import pytest
 
 from python.harness import server
-from sdk.agent.verification import InvariantChecker, InvariantStatus
+from sdk.agent.verification import InvariantChecker
 
 
 def test_register_defaults_registers_all_four():

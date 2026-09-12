@@ -7,7 +7,6 @@ Manages the background training of LoRA adapters from HTML-NN semantic memory.
 import asyncio
 import logging
 import threading
-from pathlib import Path
 from typing import Any
 
 logger = logging.getLogger("tala.inference.lora")

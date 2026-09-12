@@ -202,7 +202,6 @@ def test_an_unsigned_item_is_refused(item, expected):
 
 def test_a_signature_from_another_key_is_caught():
     from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
-    from cryptography.hazmat.primitives.serialization import Encoding, PublicFormat
 
     stranger = Ed25519PrivateKey.generate()
     signed = skill_signing.sign(PAYLOAD)

@@ -12,7 +12,6 @@ behaviour. This node carries behaviour, and these tests keep it honest: a
 document that drifts from the code is worse than no document, because it answers
 confidently.
 """
-import json
 import re
 from pathlib import Path
 

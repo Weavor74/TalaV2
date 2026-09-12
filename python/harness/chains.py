@@ -433,7 +433,7 @@ async def _post(endpoint: str, transaction: dict[str, Any],
     except Exception as exc:
         # An uncredentialed submission is refused by the node with a clear
         # 401 rather than failing here, so the queue entry survives to retry.
-        logger.debug("could not attach chain credentials for %s: %s", endpoint, exc)
+        log.debug("could not attach chain credentials for %s: %s", endpoint, exc)
 
     try:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -472,7 +472,7 @@ async def _mark_written(entry_id: str, remote_id: str = "") -> None:
             entry_id, remote_id, caller="chains.flush",
         )
     except Exception as exc:
-        log.warning("chain: could not mark %s as written: %s", tx_id, exc)
+        log.warning("chain: could not mark %s as written: %s", entry_id, exc)
 
 
 async def real_endpoint() -> str:

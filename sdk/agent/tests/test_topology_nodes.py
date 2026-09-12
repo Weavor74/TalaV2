@@ -12,15 +12,11 @@ application's live nodes/ directory.
 
 from __future__ import annotations
 
-import json
 import re
 
 import pytest
 
 from sdk.agent.topology import (
-    SwarmTopology,
-    TopologyEdge,
-    TopologyNode,
     TopologyRegistry,
     TopologySpecError,
     topology_from_spec,
@@ -231,7 +227,6 @@ def test_hand_edited_invalid_node_is_skipped_not_half_registered(nodes_dir, capl
 
 def test_write_is_rejected_before_it_can_persist_an_unrunnable_spec(nodes_dir):
     """Validation happens on the way in, so a broken spec never reaches disk."""
-    from sdk.agent.topology_nodes import write_topology_node
 
     with pytest.raises(TopologySpecError):
         topology_from_spec(_spec(edges=[{"from_node": "scout", "to_node": "ghost"}]))

@@ -1,5 +1,5 @@
 import pytest
-from sdk.agent.tools import read_neural_node, list_neural_nodes, _find_neural_node_path
+from sdk.agent.tools import read_neural_node, list_neural_nodes
 
 @pytest.mark.asyncio
 async def test_neural_node_path_resolution():

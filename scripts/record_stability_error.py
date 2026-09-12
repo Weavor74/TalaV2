@@ -15,12 +15,9 @@ DESCRIPTION
 from __future__ import annotations
 
 import sys
-import os
 import asyncio
 import json
-import urllib.request
 from pathlib import Path
-from typing import Any
 
 # Ensure we can import python.harness.db and sdk.agent
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -86,7 +83,7 @@ async def main() -> None:
                 print(f"[Warning] Failed to anchor to blockchain: {anchor_exc}")
 
             # 2. Log Self-Correction warning to local database ledger
-            log_msg = f"Self-Correction: Process initiation halted due to missing System-Stability index in local audit log. (Threshold: 85%)"
+            log_msg = "Self-Correction: Process initiation halted due to missing System-Stability index in local audit log. (Threshold: 85%)"
             await log_to_db(
                 level="ERROR",
                 message=log_msg,

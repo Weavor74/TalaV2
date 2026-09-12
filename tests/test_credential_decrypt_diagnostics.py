@@ -19,7 +19,6 @@ from __future__ import annotations
 
 import logging
 
-import pytest
 
 from python.harness.credential_crypto import (
     _decrypt_value,

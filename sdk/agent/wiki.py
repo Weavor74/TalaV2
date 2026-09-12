@@ -22,7 +22,7 @@ import logging
 import re
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
 from typing import Any
 
@@ -530,7 +530,7 @@ class SelfHealingDocs:
             if fn not in documented_symbols and not fn.startswith("_"):
                 corrections.append(Correction(
                     field=f"functions.{fn}",
-                    expected=f"documented in node section 'functions'",
+                    expected="documented in node section 'functions'",
                     actual="[not documented]",
                     severity=CorrectionSeverity.WARNING,
                     node_path=node_path,
@@ -542,7 +542,7 @@ class SelfHealingDocs:
             if cls not in documented_symbols:
                 corrections.append(Correction(
                     field=f"classes.{cls}",
-                    expected=f"documented in node section 'classes'",
+                    expected="documented in node section 'classes'",
                     actual="[not documented]",
                     severity=CorrectionSeverity.WARNING,
                     node_path=node_path,

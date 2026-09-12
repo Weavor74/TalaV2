@@ -5,7 +5,6 @@ docker_backend.py - Auto-generated documentation base.
 import subprocess
 import uuid
 import logging
-from typing import Optional
 from .base import BaseEnvironment, ProcessResult
 
 logger = logging.getLogger(__name__)

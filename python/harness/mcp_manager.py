@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import logging
 import json
-import os
 import shlex
 from contextlib import asynccontextmanager
 from pathlib import Path

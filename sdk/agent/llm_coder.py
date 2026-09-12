@@ -11,13 +11,11 @@ Provides:
 
 from __future__ import annotations
 
-import json
 import logging
 import re
 from pathlib import Path
 from typing import Any
 
-import httpx
 
 from sdk.agent.coder import CodeGenerator
 from sdk.agent.editor import SurgicalEditor
@@ -95,13 +93,13 @@ class LLMCodeGenerator:
         prompt_parts = [
             base_prompt,
             "",
-            f"=== CODE GENERATION REQUEST ===",
+            "=== CODE GENERATION REQUEST ===",
             f"Language: {language}",
             f"Target file: {target.name}",
         ]
         if existing_content is not None:
             prompt_parts += [
-                f"\nExisting file content (modify as needed):",
+                "\nExisting file content (modify as needed):",
                 f"```{language}",
                 existing_content[:4000],  # cap at 4k chars
                 "```",

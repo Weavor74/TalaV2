@@ -6,7 +6,7 @@ import asyncio
 import json
 import logging
 import uuid
-from typing import Any, Callable, Coroutine
+from typing import Callable, Coroutine
 
 from aiortc import RTCPeerConnection, RTCSessionDescription, RTCDataChannel, RTCConfiguration, RTCIceServer
 

@@ -5,8 +5,7 @@ test_ui_chat_tools.py - Auto-generated documentation base.
 from __future__ import annotations
 
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from typing import Any
+from unittest.mock import patch
 
 from sdk.agent.tools import ToolRegistry, register_tool
 

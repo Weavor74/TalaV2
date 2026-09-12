@@ -15,7 +15,6 @@ DESCRIPTION
 from __future__ import annotations
 
 import sys
-import os
 import json
 import base64
 import hashlib

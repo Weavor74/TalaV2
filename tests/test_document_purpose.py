@@ -29,7 +29,6 @@ from __future__ import annotations
 import re
 from pathlib import Path
 
-import pytest
 
 from sdk.agent.documentation_nodes import (
     DOCUMENT_PURPOSES,

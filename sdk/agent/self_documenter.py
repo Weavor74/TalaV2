@@ -274,7 +274,6 @@ __PROV_PLACEHOLDER__
         import hashlib as _hashlib
         import json as _json
         import re as _re
-        import urllib.request as _urllib
 
         from sdk.agent.documentation_nodes import assess_skill_quality
 

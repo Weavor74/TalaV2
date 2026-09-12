@@ -9,12 +9,7 @@ and is what remains here.
 """
 
 import os
-import json
-import hashlib
-import tempfile
 import sys
-from datetime import datetime, timezone
-from pathlib import Path
 import logging
 
 sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')))

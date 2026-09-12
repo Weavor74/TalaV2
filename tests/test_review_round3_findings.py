@@ -22,8 +22,6 @@ behind, so the system rejected or withheld its own correct output.
                    into a local and dropped it, losing the reasoning the native
                    path exists to preserve.
 """
-import os
-import tempfile
 from pathlib import Path
 
 import pytest

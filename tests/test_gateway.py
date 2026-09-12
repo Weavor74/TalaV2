@@ -6,7 +6,6 @@ import pytest
 import os
 import sys
 from pathlib import Path
-import asyncio
 
 _ROOT_DIR = str(Path(__file__).resolve().parent.parent)
 if _ROOT_DIR not in sys.path:
@@ -15,7 +14,7 @@ if _ROOT_DIR not in sys.path:
 from sdk.gateway.resolver import resolve_command, CommandResolutionError
 from sdk.gateway.plugins import load_and_validate_manifest, PluginValidationError
 from sdk.gateway.permissions import check_permission, enforce_tool_permissions, PermissionDeniedError
-from sdk.gateway.lifecycle import register_process, unregister_process, shutdown_all, get_process_status
+from sdk.gateway.lifecycle import register_process, shutdown_all, get_process_status
 
 def test_command_resolution():
     # Should resolve python or python3

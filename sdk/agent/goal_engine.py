@@ -13,6 +13,7 @@ from typing import Any, TYPE_CHECKING
 
 if TYPE_CHECKING:
     from sdk.agent.adapter import AdapterPacket
+    from sdk.agent.batch_policy import BatchPolicy
 
 from sdk.agent.queue import GoalTreeDecomposer, BatchQueue
 from sdk.agent.dispatcher import TalaExecutionDispatcher
@@ -1237,7 +1238,6 @@ class GoalEngine:
                Determines if the critique is significant enough (severity > 0.4)
                or recurring to trigger a behavioral update.
         """
-        import re
         lower_feedback = feedback.lower()
         neg_keywords = ["bad", "fail", "wrong", "cautious", "error", "unacceptable", "terrible", "poor", "issue", "misaligned", "dislike", "cautious"]
         match_count = sum(1 for kw in neg_keywords if kw in lower_feedback)
@@ -1284,7 +1284,7 @@ class GoalEngine:
                 "reasoning": "Feedback did not meet pattern recurrence or severity threshold."
             }
             anchor_id = f"non_critical_{int(datetime.now(UTC).timestamp())}"
-            anchor_html = f"<div>Non-Critical Feedback Event logged</div>"
+            anchor_html = "<div>Non-Critical Feedback Event logged</div>"
             canonicalize_and_anchor(
                 node_id=anchor_id,
                 content_html=anchor_html,

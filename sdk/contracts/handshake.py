@@ -53,8 +53,9 @@ import hmac
 import json
 import logging
 import re
+import textwrap
 import uuid
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from datetime import datetime, timezone
 from typing import Any
 
@@ -558,7 +559,6 @@ class AtomicSettlement:
                 """),
                 caller="AtomicSettlement.settle",
             )
-            import textwrap  # noqa: PLC0415 (local import to avoid shadowing)
 
             await db.execute(
                 textwrap.dedent("""\
@@ -611,9 +611,6 @@ class AtomicSettlement:
 # ---------------------------------------------------------------------------
 # Deferred import to avoid circular-dependency at module load time
 # ---------------------------------------------------------------------------
-
-import textwrap as textwrap  # re-import so top-level usage in AtomicSettlement.settle works
-
 
 # ---------------------------------------------------------------------------
 # Public surface

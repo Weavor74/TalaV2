@@ -12,10 +12,8 @@ from __future__ import annotations
 import logging
 from pathlib import Path
 from typing import Any
-import json
 
 import chromadb
-from chromadb.config import Settings as ChromaSettings
 
 from sdk.agent.parser import NeuralNode, parse_file
 from sdk.agent.exceptions import InvalidNodeSchemaError

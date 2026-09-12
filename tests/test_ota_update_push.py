@@ -1,15 +1,17 @@
 """
-The OTA update push.
+The OTA update push — now a wake-up call, not a delivery mechanism.
 
-Intended shape: updating the VPS sends a push notification so users can pull the
-new version. The chain is real end to end -- system.trigger_update runs git pull
-and broadcasts, the renderer listens, downloads through system.download_update
-and applies via the system:apply_update IPC handler.
+Intended shape after the update-story consolidation (P2 review item 21): there
+is exactly ONE way bytes land on a client — the signed ``app.update`` path in
+electron/main.js, pinned to the release host and verified against the sha256
+map in version.json. ``system.trigger_update`` still git-pulls the VPS's own
+checkout and broadcasts ``system.update_available``, but the client's response
+to that push is to run the same version.json check the 2-hour poll runs
+(checkForUpdates), never to pull bytes over the WebSocket.
 
-What was wrong sat at both ends of it. The pull's exit code was never inspected,
-so a failed pull still announced an update and returned success. And nothing
-carried a version, so a client had no way to tell whether it already had what was
-being announced.
+The unsigned second path — ``system.download_update`` repackaging the live
+checkout, applied by the ``system:apply_update`` IPC channel — is deliberately
+gone, and these tests pin its absence.
 """
 import re
 from pathlib import Path
@@ -24,30 +26,51 @@ MAIN = Path("electron/main.js")
 
 def _trigger_update_source() -> str:
     source = SERVER.read_text(encoding="utf-8")
-    return source.split("async def handle_system_trigger_update", 1)[1].split(
-        "async def handle_system_download_update", 1
-    )[0]
+    block = source.split("async def handle_system_trigger_update", 1)[1]
+    return block.split("\nasync def ", 1)[0]
 
 
-# --- the chain is reachable -------------------------------------------------
+# --- exactly one delivery mechanism ------------------------------------------
 
 
-def test_both_update_rpcs_are_dispatchable():
-    for method in ("system.trigger_update", "system.download_update"):
-        assert method in _HANDLERS
+def test_the_push_rpc_is_dispatchable_and_the_unsigned_download_is_not():
+    assert "system.trigger_update" in _HANDLERS
+    assert "system.download_update" not in _HANDLERS, (
+        "system.download_update is the unsigned second update path; "
+        "it was removed on purpose (P2 item 21)"
+    )
 
 
-def test_the_renderer_listens_for_the_push():
+def test_the_unsigned_apply_channel_is_gone_everywhere():
+    """system:apply_update extracted harness-supplied bytes with no published
+    hash to check. Nothing may reference it: not the preload allowlist, not an
+    ipcMain handler, not the renderer."""
+    for path in (PRELOAD, MAIN, RENDERER):
+        source = path.read_text(encoding="utf-8")
+        assert "ipcMain.handle('system:apply_update'" not in source
+        assert "'system:apply_update'" not in source, (
+            f"{path} still references the removed system:apply_update channel"
+        )
+
+
+def test_the_renderer_routes_the_push_into_the_signed_path():
     renderer = RENDERER.read_text(encoding="utf-8")
 
     assert "msg.method === 'system.update_available'" in renderer
+    listener = renderer.split("system.update_available'", 1)[1].split(
+        "Failed to register system.update_available listener", 1
+    )[0]
+    assert "checkForUpdates()" in listener, (
+        "the push must trigger the same version.json check the poll uses"
+    )
+    assert "download_update" not in listener
 
 
-def test_the_apply_step_is_an_allowlisted_ipc_channel():
-    """system:apply_update goes direct to ipcMain rather than through python:rpc,
-    so it has to be in the preload allowlist or the last step of the chain fails."""
-    assert "'system:apply_update'" in PRELOAD.read_text(encoding="utf-8")
-    assert "ipcMain.handle('system:apply_update'" in MAIN.read_text(encoding="utf-8")
+def test_the_signed_path_pins_host_and_checks_the_published_hash():
+    main = MAIN.read_text(encoding="utf-8")
+
+    assert "UPDATE_HOST = 'talacore.app'" in main
+    assert "fetchExpectedUpdateHash" in main
 
 
 # --- a failed pull must not be announced as an update -----------------------
@@ -101,28 +124,3 @@ def test_the_notification_carries_the_revision():
     assert re.search(r'"system\.update_available",\s*\{"revision"', block), (
         "the push must carry the revision it pulled"
     )
-
-
-def test_the_client_skips_a_revision_it_already_has():
-    """Without this every announcement re-downloaded the full archive, because
-    nothing in the exchange identified a version."""
-    renderer = RENDERER.read_text(encoding="utf-8")
-    block = renderer.split("system.update_available'", 1)[1][:1600]
-
-    assert "tala.appliedRevision" in block
-    assert "revision === applied" in block
-
-
-def test_the_revision_is_recorded_only_after_a_successful_apply():
-    """Recording it earlier would mark a failed update as installed and suppress
-    the next push for the same revision."""
-    renderer = RENDERER.read_text(encoding="utf-8")
-    # Sliced to the end of the listener rather than a fixed character count,
-    # which fell short of the setItem line.
-    block = renderer.split("system.update_available'", 1)[1].split(
-        "Failed to register system.update_available listener", 1
-    )[0]
-
-    apply_at = block.index("system:apply_update")
-    record_at = block.index("localStorage.setItem('tala.appliedRevision'")
-    assert apply_at < record_at

@@ -1,7 +1,4 @@
 import pytest
-import os
-import json
-import re
 from unittest.mock import patch
 from python.harness.guardrails_manager import GuardrailsManager
 from sdk.agent.exceptions import SafetyGuardrailViolation, PiiAccessBlockedError

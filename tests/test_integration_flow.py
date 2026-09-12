@@ -2,10 +2,8 @@ import os
 import pytest
 import json
 from unittest.mock import patch, AsyncMock
-from pathlib import Path
 
 from sdk.agent.queue import GoalTreeDecomposer, BatchQueue
-from sdk.agent.planner import TaskItem
 from sdk.agent.graph_engine import DAGExecutionEngine
 from python.harness.db import init_pool, close_pool
 from python.harness import db

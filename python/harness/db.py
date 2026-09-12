@@ -25,7 +25,6 @@ Milestone 1.2 — Task 1.2.2
 from __future__ import annotations
 
 import logging
-import os
 import textwrap
 from contextlib import asynccontextmanager
 from typing import Any, AsyncIterator
@@ -1368,7 +1367,6 @@ async def log_to_db(
     to the Python logger so that a DB outage never silences the harness.
     """
     try:
-        import json
         # WARN and WARNING were both in use -- 98 rows against 16,589 -- which
         # silently breaks any level filter, since a query for one misses the
         # other. Normalised on the way in so the column has one spelling per

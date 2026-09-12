@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import pytest
 from sdk.contracts.handshake import (
-    HandshakePacket,
     HandshakeSender,
     HandshakeReceiver,
     HandshakeVerificationError,

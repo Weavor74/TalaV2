@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 
 def test_archived_chat_selector_implementation():

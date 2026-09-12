@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 
 def test_updater_script_download_logic():

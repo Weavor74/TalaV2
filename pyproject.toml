@@ -149,3 +149,21 @@ markers = [
 #   pytest -m llm     the live-model tests only
 #   pytest -m ""      everything (CI, and any baseline comparison)
 addopts = '-m "not llm"'
+
+[tool.ruff]
+# The gate starts strict-but-narrow: every rule selected here is CLEAN today,
+# and CI enforces it (see .github/workflows/ci.yml), so violations can only be
+# introduced knowingly. Broaden the select list as cleanups land — never
+# narrow it. File-size ratchets live in tests/test_size_ratchet.py.
+target-version = "py310"
+line-length = 120
+extend-exclude = ["nodes", "docs", "blockchain", "vault", "data", ".tala_snapshots"]
+
+[tool.ruff.lint]
+select = [
+    "E9",   # syntax errors / io errors
+    "F",    # pyflakes: undefined names, unused imports, redefinitions
+]
+ignore = [
+    "F841", # unused-variable: 30+ existing, mostly deliberate discards; clean up before enabling
+]

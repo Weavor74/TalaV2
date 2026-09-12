@@ -10,7 +10,6 @@ Milestone 5 — Task 5.2.2
 from __future__ import annotations
 
 from dataclasses import dataclass
-from typing import TYPE_CHECKING
 
 from .ephemeris import (
     ASPECT_DEGREES,

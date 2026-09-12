@@ -25,7 +25,6 @@ Two habits this module keeps, because the audit found the opposite everywhere:
 
 from __future__ import annotations
 
-import json
 import logging
 from pathlib import Path
 from typing import Any

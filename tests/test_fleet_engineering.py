@@ -1,13 +1,11 @@
-import os
 import pytest
-from unittest.mock import patch, MagicMock, AsyncMock
-from pathlib import Path
+from unittest.mock import patch, AsyncMock
 import json
 
 from sdk.agent.port_router import PortRouter
-from sdk.agent.sandbox import LocalSandbox, DockerSandbox  # DockerSandbox is an alias for LocalSandbox
-from sdk.agent.orchestrator_cli import get_active_tasks, get_port_allocations, show_status, pause_task, resume_task, terminate_task
-from sdk.agent.graph_engine import DAGExecutionEngine, GraphNode
+from sdk.agent.sandbox import LocalSandbox  # DockerSandbox is an alias for LocalSandbox
+from sdk.agent.orchestrator_cli import show_status, pause_task, resume_task
+from sdk.agent.graph_engine import DAGExecutionEngine
 from sdk.agent.planner import TaskItem
 from sdk.agent.queue import BatchQueue
 from python.harness.db import init_pool, close_pool

@@ -28,7 +28,6 @@ from __future__ import annotations
 import asyncio
 import os
 import stat
-import sys
 
 import pytest
 

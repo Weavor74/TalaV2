@@ -39,13 +39,17 @@ For rigorous testing, spin up clean virtual machines with **no pre-existing deve
 - [ ] **Bootstrap Idempotence**: Does `uv run python scripts/first_run.py --self-test` succeed on a clean checkout and leave an existing `.env` unchanged on a second run?
 - [ ] **Source Launch Repair**: If `.venv` or `.env` is removed, does `scripts/start-tala` run first-run setup before launching?
 - [ ] **Tala Self-Test**: Does `npm run self-test` pass, including Python dependency imports, syntax checks, Python tests, Jest, and npm audit?
-- [ ] **Chat Self-Test**: Does `/self-test --no-audit` run from Tala chat and return a readable pass/fail summary?
+- [ ] **Chat Self-Test**: Does `/self-test` run from Tala chat and return a readable pass/fail summary? (npm audit was cleaned 2026-09-12 and now gates; `--no-audit` remains only as a faster inner-loop option.)
 
 ## 7. Packaging Verification
+- [ ] **Changelog Written**: Does `CHANGELOG.md` have a non-empty `[Unreleased]` section? (`scripts/bump_version.py` refuses to release without one — it becomes the `release_notes` in version.json.)
+- [ ] **Hashes Published**: After `scripts/build_bundles.py`, does `blockchain/public/version.json` carry a `sha256` entry for all three platform zips? (The updater's integrity check is skipped for any platform missing here.)
+- [ ] **Lint Gate**: Do `npm run lint:js` and `npm run lint:py` pass, and `uv run pytest tests/test_size_ratchet.py`?
+- [ ] **No Private Nodes in Bundles**: Does `uv run pytest tests/test_release_node_classification.py` pass? (persona-*, learning-*, benchmark-run-*, flow-*, corpus-* and _staging nodes are this install's data, not the product's.)
 - [ ] **Unpacked Smoke Test**: Does `npm run pack` create a launchable app in `dist/`?
 - [ ] **Current OS Package**: Does `npm run package` create the expected installer/archive for the host OS?
 - [ ] **Packaged First-Run**: On first packaged launch, are `.env`, `.venv`, `vault/`, `data/`, and `scratch/` created under Electron `userData` rather than source-controlled folders?
-- [ ] **Package Self-Test**: After installing the package on a clean machine, does `npm run self-test` or `/self-test --no-audit` pass?
+- [ ] **Package Self-Test**: After installing the package on a clean machine, does `npm run self-test` or `/self-test` pass?
 - [ ] **No Secrets in Bundles**: Does `uv run pytest tests/test_release_bundles_carry_no_secrets.py` pass against the freshly built bundle? (An earlier bundle shipped `.env`; a later one shipped `blockchain/data/poa_keys.json` with the live PoA private key.)
 
 ## 8. Security Rotations (one-time, before first public release)

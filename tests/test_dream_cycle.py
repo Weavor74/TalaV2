@@ -1,5 +1,4 @@
 import pytest
-import os
 import json
 import tempfile
 import re

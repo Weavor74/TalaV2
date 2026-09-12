@@ -4,7 +4,7 @@ sys.path.insert(0, os.path.abspath(os.path.join(os.path.dirname(__file__), '..')
 
 import pytest
 from core.planning_engine import (
-    Goal, Plan, GoalStatus, DependencyMapper, GoalSequencer, PlanningEngine, DependencyError
+    Goal, GoalStatus, DependencyMapper, PlanningEngine, DependencyError
 )
 
 def test_topological_sort_success():

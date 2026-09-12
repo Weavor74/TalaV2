@@ -19,7 +19,8 @@ DESCRIPTION
        3. renderer syntax check — node --check on renderer/renderer.js.
        4. electron syntax check — node --check on electron/main.js.
        5. python tests — pytest over tests/ (excluding tests/benchmarks).
-       6. javascript tests — jest --runInBand --passWithNoTests.
+       6. javascript tests — jest --runInBand. A broken testMatch now fails
+          the step instead of "passing" with zero tests collected.
        7. npm audit (optional) — npm audit --audit-level=moderate.
 
        Options:
@@ -127,7 +128,7 @@ def build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[str
             [python_exe, "-m", "pytest", "tests", "--ignore=tests/benchmarks", "--basetemp=data/pytest_temp", "-q"],
             600.0,
         ),
-        ("javascript tests", ["npx", "jest", "--runInBand", "--passWithNoTests"], 60.0),
+        ("javascript tests", ["npx", "jest", "--runInBand"], 120.0),
     ]
     if include_audit:
         plan.append(("npm audit", ["npm", "audit", "--audit-level=moderate"], 120.0))

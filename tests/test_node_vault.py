@@ -15,13 +15,10 @@ from __future__ import annotations
 import json
 from pathlib import Path
 
-import pytest
 
-from python.harness import node_vault
 from python.harness.credential_crypto import is_encrypted
 from python.harness.node_vault import (
     VAULT_FIELDS,
-    VAULT_MARKER,
     is_sealed,
     seal_for,
     seal_state,

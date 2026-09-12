@@ -1,12 +1,10 @@
 import pytest
-import os
 import json
 import tempfile
 import re
 from pathlib import Path
 
 from sdk.agent.goal_engine import GoalEngine
-from sdk.agent.tools import adjust_behavioral_weights
 
 @pytest.mark.asyncio
 async def test_should_i_adjust_gate():

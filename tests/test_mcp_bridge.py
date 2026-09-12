@@ -12,13 +12,11 @@ shape appeared twice already on this branch: a cron scheduler running from boot
 with no UI calling it, and swarm authoring the operator could do and the agent
 could not.
 """
-import asyncio
 from pathlib import Path
 
 import pytest
 
 from python.harness.server import _HANDLERS
-from sdk.agent import mcp_bridge
 from sdk.agent.mcp_bridge import (
     MCP_PLUGIN_ID,
     _collect_server_blocks,

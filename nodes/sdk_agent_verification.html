@@ -23,7 +23,8 @@
   data-doc-target="sdk.agent.verification"
   data-source-files="sdk/agent/verification.py"
   data-source-fingerprint="sha256:3CE66DFE5A728F604FB34C1C122A44584EA08487353EE7E0EFDE512CA0A44BFA"
-  data-source-digest="sha256:29D74F975A51EFD7AC7B55A80C4FEEA42D4A080871B65AD88E8C85D6EC342628"
+  data-source-digest="sha256:B6B580D83CAD0E2433634B88FFE84D15EF6172BB30884EB923FD73B93BA5166A"
+  data-description-verified="false"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,8 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
+
     <p>sdk/agent/verification.py ========================= Verification Matrix &amp; Invariant Assurance — Tala Cognitive Engine Room Milestone 6 | Task 6.3.1 Provides: • InvariantChecker  — registry + runner for boolean invariant callables • Built-in invariants that enforce Tala&#x27;s core architectural contracts • SmokeTestRunner   — thin pytest wrapper • VerificationMatrix — orchestrates all checks and produces a report Architecture invariants enforced here: 1.</p>
     <p>It lives at sdk/agent/verification.py within the agent SDK.</p>
     <p>Classes it defines: InvariantStatus; InvariantRecord — Result of a single invariant check.; SmokeTestResult — Aggregated result from running pytest on a set of test paths. (methods: all_passed()); VerificationReport — Full report from VerificationMatrix.run(). (methods: failed_invariants(), passed_count(), total_count()); InvariantChecker — Registry and runner for boolean invariant callables. (methods: register(), register_defaults(), run_all(), run_before_complete()); SmokeTestRunner — Executes pytest on a list of test paths and parses the results. (methods: run_smoke_tests()); VerificationMatrix — Orchestrates all verification checks and produces a VerificationReport. (methods: run(), report_summary()).</p>
@@ -111,7 +114,7 @@
     "source_files": [
       "sdk/agent/verification.py"
     ],
-    "source_digest": "sha256:29D74F975A51EFD7AC7B55A80C4FEEA42D4A080871B65AD88E8C85D6EC342628",
+    "source_digest": "sha256:B6B580D83CAD0E2433634B88FFE84D15EF6172BB30884EB923FD73B93BA5166A",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

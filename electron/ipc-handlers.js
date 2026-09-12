@@ -521,4 +521,7 @@ async function listDir(dir, base, recursive, depth, limit, withSizes = false) {
   return entries;
 }
 
-module.exports = { registerHandlers };
+// The pure helpers are exported for the jest suite (tests/electron/): the
+// containment guard is exactly where sandbox-escape bugs live, so it gets
+// direct unit coverage in addition to the handler-level tests.
+module.exports = { registerHandlers, safePath, foldCase, isNodesHtmlPath, listDir };

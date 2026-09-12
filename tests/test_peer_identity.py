@@ -142,7 +142,6 @@ async def test_the_enrolment_packet_carries_the_profile_identity(monkeypatch, po
     The exact path chain.connect_vps takes, which is where this went wrong
     live: it passes no sender_username, so the fallback IS the behaviour.
     """
-    import json
 
     _profile(monkeypatch, {"username": "steve", "nickname": "Weavor"})
 

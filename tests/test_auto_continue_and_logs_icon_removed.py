@@ -1,4 +1,3 @@
-import pytest
 from pathlib import Path
 
 def test_auto_continue_directive_and_system_logs_icon_removed():

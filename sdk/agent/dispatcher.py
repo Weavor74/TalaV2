@@ -33,7 +33,6 @@ Implements:
 from __future__ import annotations
 
 import logging
-import pathlib
 import re
 from typing import Any
 
@@ -730,7 +729,6 @@ Task description: "{task_description}"
 Response must contain ONLY the category name. No markdown, no explanations."""
 
         from sdk.agent.llm_coder import LLMCodeGenerator
-        import httpx
         try:
             gen = LLMCodeGenerator()
             raw = await gen._call_llm(prompt, "text")

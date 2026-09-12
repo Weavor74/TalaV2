@@ -5,7 +5,7 @@ Redacts sensitive information (tokens, keys, session hashes, PII) from logs and 
 """
 import re
 import logging
-from typing import Dict, Any, Union
+from typing import Dict, Any
 
 log = logging.getLogger(__name__)
 

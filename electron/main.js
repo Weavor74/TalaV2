@@ -909,11 +909,12 @@ ${shellCmd} "${startScript}" &
       return { version: require('../package.json').version };
     }
 
-    // system.trigger_update / system.download_update pull or repackage the
-    // repo for a redeploy — gated on the harness admin secret so only this
-    // local Electron process (which reads the same on-disk file the Python
-    // harness does) can invoke them, not an arbitrary remote WS peer.
-    if (method === 'system.trigger_update' || method === 'system.download_update') {
+    // system.trigger_update git-pulls the VPS's own checkout and broadcasts a
+    // wake-up push — gated on the harness admin secret so only this local
+    // Electron process (which reads the same on-disk file the Python harness
+    // does) can invoke it, not an arbitrary remote WS peer. Client updates
+    // themselves are delivered only by the signed app.update path above.
+    if (method === 'system.trigger_update') {
       params.harness_secret = getHarnessAdminSecret();
     }
 
@@ -1113,109 +1114,13 @@ function registerTerminalHandlers() {
     }
   });
 
-  // The renderer may ASK for an update to be applied; it may not SUPPLY one.
-  // The old contract took base64 zip bytes from the renderer and extracted
-  // them over the app directory with no signature, no hash and no member-path
-  // validation -- any code running in the renderer (XSS being the usual way)
-  // could replace the entire application and relaunch it. Now the main
-  // process fetches the payload itself from the local harness's
-  // `system.download_update`, which is gated on the harness admin secret the
-  // renderer never sees, and refuses zip members that would land outside the
-  // app directory or arrive as symlinks.
-  ipcMain.handle('system:apply_update', async (_event, _payload) => {
-    try {
-      const fs = require('node:fs');
-      const path = require('node:path');
-      const { spawn } = require('node:child_process');
-
-      if (!wsConnected || !wsClient || wsClient.readyState !== (WebSocket?.OPEN ?? 1)) {
-        return { ok: false, error: 'Python harness WebSocket is not connected.' };
-      }
-
-      console.log('[main] Fetching update payload from the local harness...');
-      const download = await new Promise((resolve) => {
-        const id = rpcIdCounter++;
-        const timer = setTimeout(() => {
-          pendingRpcCalls.delete(id);
-          resolve({ __rpcError: true, error: 'system.download_update timed out' });
-        }, 300_000);
-        pendingRpcCalls.set(id, { resolve, timer });
-        try {
-          wsClient.send(JSON.stringify({
-            jsonrpc: '2.0',
-            id,
-            method: 'system.download_update',
-            params: { harness_secret: getHarnessAdminSecret() },
-          }));
-        } catch (err) {
-          clearTimeout(timer);
-          pendingRpcCalls.delete(id);
-          resolve({ __rpcError: true, error: `Failed to request update payload: ${err.message}` });
-        }
-      });
-
-      if (!download || download.__rpcError || download.status !== 'success' || !download.zipBase64) {
-        const why = (download && (download.error || download.status)) || 'no payload';
-        return { ok: false, error: `Could not fetch the update payload from the harness: ${why}` };
-      }
-
-      const buffer = Buffer.from(download.zipBase64, 'base64');
-      const appRoot = path.resolve(__dirname, '..');
-      const zipPath = path.join(appRoot, 'update_client_payload.zip');
-      fs.writeFileSync(zipPath, buffer);
-      console.log('[main] Applying OTA update from zip...');
-
-      // Extraction refuses zip-slip (members resolving outside the app root)
-      // and symlink members, which extractall() would happily write.
-      const extractorScript = [
-        'import zipfile, os, sys',
-        'zip_path, dest = sys.argv[1], os.path.realpath(sys.argv[2])',
-        'zf = zipfile.ZipFile(zip_path)',
-        'for info in zf.infolist():',
-        '    target = os.path.realpath(os.path.join(dest, info.filename))',
-        '    if target != dest and not target.startswith(dest + os.sep):',
-        '        sys.exit("refusing zip member outside the app root: " + info.filename)',
-        '    if (info.external_attr >> 16) & 0o170000 == 0o120000:',
-        '        sys.exit("refusing symlink zip member: " + info.filename)',
-        'zf.extractall(dest)',
-        'zf.close()',
-        'os.remove(zip_path)',
-      ].join('\n');
-
-      // Prefer the venv interpreter (always present on an installed system);
-      // fall back to a probed system python3/python. A bare 'python' does not
-      // exist on modern macOS/Linux.
-      const venvPy = venvPythonPath(resolveDataRoot(app.getAppPath()));
-      const extractorPython = fs.existsSync(venvPy) ? venvPy : systemPythonCommand();
-      if (!extractorPython) {
-        try { fs.unlinkSync(zipPath); } catch { /* already gone */ }
-        return { ok: false, error: 'No Python interpreter available to extract the update (tried the venv, python3 and python).' };
-      }
-
-      return await new Promise((resolve) => {
-        const extractor = spawn(extractorPython, ['-c', extractorScript, zipPath, appRoot], {
-          cwd: appRoot,
-        });
-        let stderr = '';
-        extractor.stderr?.on('data', (chunk) => { stderr += String(chunk); });
-        extractor.on('close', (code) => {
-          if (code === 0) {
-            console.log('[main] Update applied successfully. Relaunching app...');
-            app.relaunch();
-            app.exit(0);
-            resolve({ ok: true });
-          } else {
-            try { fs.unlinkSync(zipPath); } catch { /* already gone */ }
-            console.error(`[main] Update extraction refused or failed (code ${code}): ${stderr.trim()}`);
-            resolve({ ok: false, error: `Extraction failed (code ${code}): ${stderr.trim()}` });
-          }
-        });
-      });
-    } catch (err) {
-      console.error('[main] OTA update apply failed', err);
-      return { ok: false, error: err.message };
-    }
-  });
+  // There is deliberately no "apply update" IPC channel any more. It was a
+  // second update-delivery mechanism with a weaker trust model: the harness
+  // repackaged its own live checkout and the bytes were extracted over the
+  // app directory with no published hash to check them against. Every update
+  // — whether the user clicked the banner or a VPS push woke the client —
+  // now goes through the one signed path: app.update, pinned to the release
+  // host and verified against the sha256 map in version.json.
 }
 
 function killProcessOnPort(port) {

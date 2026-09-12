@@ -1,6 +1,6 @@
 import pytest
 import json
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 from python.harness.memory import handle_research_unified_search
 from python.harness.server import handle_research_search
 from sdk.agent.tools import web_search

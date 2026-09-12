@@ -9,7 +9,6 @@ import json
 import logging
 import os
 import re
-import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
 from html import escape, unescape
@@ -1435,7 +1434,7 @@ def generate_program_nodes(targets: Any = None) -> dict[str, Any]:
                 "Harness documentation should explain method dispatch, approved mutation "
                 "boundaries, JSON-RPC result reporting, and error handling expectations."
             ),
-            "source_files": ["python/harness/server.py", "python/harness/workflows_util.py", "python/requirements.txt"],
+            "source_files": ["python/harness/server.py", "python/harness/workflows_util.py", "pyproject.toml"],
         },
         "tool.registry": {
             "node_id": "program-doc-tool-registry",

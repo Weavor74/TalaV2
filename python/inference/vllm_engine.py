@@ -481,7 +481,6 @@ async def _generate_transformers(
     yield the result as a single chunk (transformers pipeline is not natively
     streaming-friendly without TextIteratorStreamer, which is added here).
     """
-    import asyncio
     import threading
 
     loop = asyncio.get_running_loop()

@@ -17,7 +17,6 @@ will try to call something that is gone.
 """
 from __future__ import annotations
 
-import json
 import re
 from pathlib import Path
 
@@ -29,7 +28,7 @@ from scripts.generate_tool_nodes import (
     _signature,
     discover_tool_modules,
 )
-from sdk.agent.documentation_nodes import _safe_node_id, resolve_active_nodes_dir
+from sdk.agent.documentation_nodes import _safe_node_id
 from sdk.agent.parser import parse_file
 
 NODES = Path("nodes")

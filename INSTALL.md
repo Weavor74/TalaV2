@@ -364,6 +364,36 @@ go to PostgreSQL; `mem0` is recall-only.
 uv pip install -e .[mem0]
 ```
 
+### GPU Inference (torch + CUDA)
+
+The default install resolves CPU-only wheels for `torch`, which run the embedded
+inference and adapter-training paths correctly but leave an NVIDIA card idle. To
+use CUDA, install torch from the matching PyTorch index **before** any extra that
+depends on it (`transformers`, `training`):
+
+```bash
+uv pip install torch torchvision torchaudio --index-url https://download.pytorch.org/whl/cu128 --python .venv/bin/python --reinstall
+```
+
+Gotchas that turn this into a repeated-failure trap if missed:
+
+1. **Check your index tag first.** Old index tags (e.g. `cu121`) have no wheels for
+   modern Pythons and fail with "No matching distribution found for torch", which
+   reads as "GPU torch isn't installable" when a newer index would work. Verify with
+   `curl -s https://download.pytorch.org/whl/torch/ | grep cp312` (or `cp313`).
+2. **Upgrade torch/torchvision/torchaudio together, same index tag.** `transformers`
+   eagerly imports torchvision even for text-only models; a stale torchvision fails
+   native op registration ("operator torchvision::nms does not exist") and surfaces
+   as a confusing, unrelated-looking error inside transformers' model auto-resolution.
+3. **Pin the full `+cuXXX` local version or pass `--reinstall`.** pip/uv treat an
+   installed `torch==X.Y.Z+cpu` as already satisfying `torch==X.Y.Z`, so the CPU
+   build silently stays.
+4. **Target the project's `.venv` explicitly** (`--python .venv/...`), not whatever
+   `pip`/`python` is on PATH — a global install can hold its own stale torch.
+
+Confirmed working combination (RTX 3050, driver 581.57, CUDA 13.0-capable):
+torch/torchvision/torchaudio `2.11.0`/`0.26.0`/`2.11.0`, all `+cu128`.
+
 ### Permanent VPS Peer
 
 To run an always-on Tala peer for P2P handshakes and peer discovery, see `docs/vps-peer.md`.

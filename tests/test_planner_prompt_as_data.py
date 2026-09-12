@@ -13,8 +13,6 @@ parses must never stop the planner from planning.
 """
 from __future__ import annotations
 
-import json
-import textwrap
 
 import pytest
 

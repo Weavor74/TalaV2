@@ -1,8 +1,7 @@
 import pytest
-import os
 import tempfile
 from pathlib import Path
-from unittest.mock import patch, MagicMock
+from unittest.mock import patch
 
 from sdk.agent.goal_engine import GoalEngine, AdapterSelector, infer_emotional_state
 

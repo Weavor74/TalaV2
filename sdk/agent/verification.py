@@ -28,9 +28,8 @@ import sys
 from collections.abc import Callable
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
-from enum import Enum, auto
+from enum import Enum
 from pathlib import Path
-from typing import Any
 
 log = logging.getLogger(__name__)
 

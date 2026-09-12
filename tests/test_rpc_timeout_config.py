@@ -1,5 +1,3 @@
-import pytest
-import json
 from pathlib import Path
 
 def test_electron_rpc_timeout_values():

@@ -4,15 +4,11 @@ engine_manager.py — Tala Cognitive Engine Room: Embedded Engine Manager
 Manages the installation and lifecycle of local inference engines 
 (Transformers, vLLM, llama.cpp).
 """
-import asyncio
-import json
 import logging
-import os
 import shutil
 import subprocess
 import sys
 import threading
-from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 logger = logging.getLogger(__name__)

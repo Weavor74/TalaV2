@@ -14,7 +14,6 @@ Steven's direction (Q-9): "No. A failed provider must be visible."
 """
 from __future__ import annotations
 
-import asyncio
 
 import pytest
 

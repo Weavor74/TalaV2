@@ -21,7 +21,7 @@ from __future__ import annotations
 import pytest
 
 from python.harness import access
-from python.harness.access import AGENT, OWNER, PEER, Principal
+from python.harness.access import AGENT, PEER, Principal
 
 
 @pytest.fixture

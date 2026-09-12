@@ -23,7 +23,6 @@ Unapproved leases that time-out leave the operation in BLOCKED state.
 
 from __future__ import annotations
 
-import asyncio
 import json
 import logging
 import threading
@@ -589,7 +588,6 @@ class TelemetryChannel:
         the Electron main process bridge.  Falls back to logging if no server
         is reachable.
         """
-        import socket as _socket
 
         while not self._stop_event.is_set():
             with self._queue_lock:
@@ -619,7 +617,7 @@ class TelemetryChannel:
         For production use, replace with the `websockets` library.
         """
         import base64
-        import hashlib
+        import socket as _socket
         import struct
 
         # HTTP upgrade handshake

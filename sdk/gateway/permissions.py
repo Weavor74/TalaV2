@@ -4,7 +4,7 @@ sdk/gateway/permissions.py
 Centralized permission enforcement for Plugins and MCP servers.
 """
 import logging
-from typing import Dict, Any, List
+from typing import Dict, Any
 
 log = logging.getLogger(__name__)
 

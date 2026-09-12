@@ -3,15 +3,11 @@
 
 ## root
 
-- [.env](./root_.env.md)
 - [.env.example](./root_.env.example.md)
 - [.gitignore](./root_.gitignore.md)
-- [a](./root_a.md)
-- [adapter_test.py](./root_adapter_test.py.md)
 - [Caddyfile](./root_Caddyfile.md)
 - [clean_db.py](./root_clean_db.py.md)
 - [fetch_logs.py](./root_fetch_logs.py.md)
-- [fix.py](./root_fix.py.md)
 - [get_logs.py](./root_get_logs.py.md)
 - [install-linux.sh](./root_install-linux.sh.md)
 - [install-macos.sh](./root_install-macos.sh.md)
@@ -20,46 +16,13 @@
 - [migrate_all.py](./root_migrate_all.py.md)
 - [package-lock.json](./root_package-lock.json.md)
 - [package.json](./root_package.json.md)
-- [patch2.py](./root_patch2.py.md)
-- [patch3.py](./root_patch3.py.md)
-- [patch_server.py](./root_patch_server.py.md)
 - [pyproject.toml](./root_pyproject.toml.md)
 - [pyproject.toml.bak](./root_pyproject.toml.bak.md)
 - [query_db.py](./root_query_db.py.md)
 - [README.md](./root_README.md.md)
-- [rebuild_v2_nodes.py](./root_rebuild_v2_nodes.py.md)
 - [reindex_nodes.py](./root_reindex_nodes.py.md)
 - [RELEASE_CHECKLIST.md](./root_RELEASE_CHECKLIST.md.md)
-- [scratch.py](./root_scratch.py.md)
-- [scratch_regex.py](./root_scratch_regex.py.md)
 - [scrub_paths.py](./root_scrub_paths.py.md)
-- [set_gemini_key.py](./root_set_gemini_key.py.md)
-- [test_cache.py](./root_test_cache.py.md)
-- [test_err.ps1](./root_test_err.ps1.md)
-- [test_index_bug.py](./root_test_index_bug.py.md)
-- [test_js.js](./root_test_js.js.md)
-- [test_logic_bug.py](./root_test_logic_bug.py.md)
-- [test_loop.py](./root_test_loop.py.md)
-- [test_metrics.py](./root_test_metrics.py.md)
-- [test_ollama.py](./root_test_ollama.py.md)
-- [test_ps.ps1](./root_test_ps.ps1.md)
-- [test_regex.py](./root_test_regex.py.md)
-- [test_regex2.py](./root_test_regex2.py.md)
-- [test_regex3.py](./root_test_regex3.py.md)
-- [test_regex4.py](./root_test_regex4.py.md)
-- [test_regex5.py](./root_test_regex5.py.md)
-- [test_regex6.py](./root_test_regex6.py.md)
-- [test_script.ps1](./root_test_script.ps1.md)
-- [test_sub_exec.py](./root_test_sub_exec.py.md)
-- [test_synth.py](./root_test_synth.py.md)
-- [test_tool_execution.py](./root_test_tool_execution.py.md)
-- [the](./root_the.md)
-- [update_server.py](./root_update_server.py.md)
-- [update_server2.py](./root_update_server2.py.md)
-- [update_server3.py](./root_update_server3.py.md)
-- [update_server4.py](./root_update_server4.py.md)
-- [update_tools_desc.py](./root_update_tools_desc.py.md)
-- [workaround.py](./root_workaround.py.md)
 
 ## blockchain
 
@@ -80,18 +43,6 @@
 ## deploy
 
 - [tala-vps.service](./deploy_tala-vps.service.md)
-
-## dest
-
-- [a.txt](./dest_a.txt.md)
-- [b.txt](./dest_b.txt.md)
-
-## dest2
-
-
-## dest2\subdir
-
-- [a.txt](./dest2_subdir_a.txt.md)
 
 ## electron
 
@@ -119,17 +70,12 @@
 - [system-tala-rpc-surface-reference.html](./nodes_system-tala-rpc-surface-reference.html.md)
 - [system-tala-self-updating-documentation-contract.html](./nodes_system-tala-self-updating-documentation-contract.html.md)
 
-## plugins
-
-
 ## plugins\test_mcp
 
 - [plugin.json](./plugins_test_mcp_plugin.json.md)
 
 ## python
 
-- [requirements.txt](./python_requirements.txt.md)
-- [requirements_astrology.txt](./python_requirements_astrology.txt.md)
 
 ## python\astrology
 
@@ -230,7 +176,6 @@
 
 ## sdk
 
-- [requirements.txt](./sdk_requirements.txt.md)
 - [__init__.py](./sdk___init__.py.md)
 
 ## sdk\agent
@@ -385,22 +330,6 @@
 - [skill_8b7a5bb8.yaml](./skills_skill_8b7a5bb8.yaml.md)
 - [skill_cbe3687a.yaml](./skills_skill_cbe3687a.yaml.md)
 
-## testbug
-
-- [a.txt](./testbug_a.txt.md)
-- [b.txt](./testbug_b.txt.md)
-
-## testbug2
-
-
-## testbug2\subdir
-
-- [a.txt](./testbug2_subdir_a.txt.md)
-
-## testdir
-
-- [file.txt](./testdir_file.txt.md)
-
 ## tests
 
 - [test_command_parser.py](./tests_test_command_parser.py.md)
@@ -418,10 +347,6 @@
 ## tests\benchmarks
 
 - [test_agent_benchmarks.py](./tests_benchmarks_test_agent_benchmarks.py.md)
-
-## test_lock
-
-- [run.ps1](./test_lock_run.ps1.md)
 
 ## workflows
 

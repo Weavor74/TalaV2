@@ -36,7 +36,6 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import subprocess
 import sys
 from datetime import datetime, timezone

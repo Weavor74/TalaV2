@@ -16,13 +16,11 @@ import json
 import logging
 import os
 import re
-import uuid
 from datetime import UTC, datetime
 from typing import Any, Callable
 
 import httpx
 from python.harness import db
-from sdk.agent.exceptions import TalaBaseError
 from sdk.agent.persistence import (
     TaskEventStore,
     generate_deterministic_id,
@@ -37,9 +35,7 @@ from sdk.agent.planner import (
     ExecutionResult,
     InvariantViolationError,
     LedgerAssertionError,
-    LoopPhase,
     MaxIterationsExceeded,
-    Observation,
     TaskItem,
     TaskStatus,
 )

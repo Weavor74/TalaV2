@@ -23,7 +23,8 @@
   data-doc-target="sdk.agent.telemetry"
   data-source-files="sdk/agent/telemetry.py"
   data-source-fingerprint="sha256:A88B5A01FC64E8CAAB69AC5A3F4E56F27EDA6C575751229371108F76DE031A2E"
-  data-source-digest="sha256:FFB84E77F2B120FB34B5140FB7CB6D0342A1AC1440FF359CB631F38ACB47C037"
+  data-source-digest="sha256:F75A371D5D5E7501BFD636D1AACE375443A853322F33061437FDEB753526B686"
+  data-description-verified="false"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,8 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
+
     <p>sdk/agent/telemetry.py ====================== Live Telemetry &amp; WebSocket Log Streaming — Tala Cognitive Engine Room Milestone 7 | Task 7.1 Implements: • LiveStatusReporter — Formats and broadcasts current phase and details to client UI.</p>
     <p>It lives at sdk/agent/telemetry.py within the agent SDK.</p>
     <p>Classes it defines: LiveStatusReporter — Streams live task FSM state and loop phase alerts to listening Electron clients. (methods: register_websocket(), unregister_websocket(), broadcast_status()); LogStreamer — Buffers running shell outputs and log records to be streamed to UI terminal windows. (methods: log_stdout(), log_stderr(), flush_phase_summary()).</p>
@@ -110,7 +113,7 @@
     "source_files": [
       "sdk/agent/telemetry.py"
     ],
-    "source_digest": "sha256:FFB84E77F2B120FB34B5140FB7CB6D0342A1AC1440FF359CB631F38ACB47C037",
+    "source_digest": "sha256:F75A371D5D5E7501BFD636D1AACE375443A853322F33061437FDEB753526B686",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

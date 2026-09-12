@@ -6,7 +6,6 @@ from __future__ import annotations
 
 import hashlib
 import logging
-import uuid
 from enum import Enum
 import numpy as np
 from python.harness import db

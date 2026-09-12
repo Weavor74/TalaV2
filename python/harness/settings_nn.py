@@ -2,11 +2,9 @@
 settings_nn.py - Auto-generated documentation base.
 """
 
-import asyncio
 import json
 import logging
 import hashlib
-from pathlib import Path
 from datetime import datetime, timezone
 import urllib.request
 import urllib.error

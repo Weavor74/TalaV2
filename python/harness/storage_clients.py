@@ -34,7 +34,7 @@ from __future__ import annotations
 
 import importlib
 import logging
-from dataclasses import dataclass, field
+from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
@@ -279,7 +279,6 @@ class FtpClient:
         return client
 
     def probe(self) -> str:
-        import ftplib
         try:
             client = self._connect()
         except Exception as exc:

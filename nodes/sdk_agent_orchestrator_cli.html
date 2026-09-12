@@ -23,7 +23,8 @@
   data-doc-target="sdk.agent.orchestrator_cli"
   data-source-files="sdk/agent/orchestrator_cli.py"
   data-source-fingerprint="sha256:A0284DC406409E54E973A25AEC169F7ED676BA790CCED5B7C5DCD3037D040D99"
-  data-source-digest="sha256:30C27C249DA9F502C4D991D85EDE3DA4D30D8C557D5C05232DDB736A5012844F"
+  data-source-digest="sha256:C523DF9E6BF4424DEA1AD9FF60A8515CB25F9A282E948CE42513E5583138A639"
+  data-description-verified="false"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,8 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
+
     <p>sdk/agent/orchestrator_cli.py ============================= Orchestrator CLI status tool for Fleet Engineering.</p>
     <p>It lives at sdk/agent/orchestrator_cli.py within the agent SDK.</p>
     <p>Functions it exposes: get_active_tasks() — Retrieves all tasks that are currently active or pending in the database.; get_port_allocations() — Retrieves all active port allocations from the database.; show_status() — Displays a unified terminal dashboard of all active workspaces and ports.; pause_task() — Pauses a task by updating its DB status (no container to pause).; resume_task() — Resumes a paused task by updating its DB status.; terminate_task() — Terminates a task: releases its port and removes its git worktree.; main().</p>
@@ -110,7 +113,7 @@
     "source_files": [
       "sdk/agent/orchestrator_cli.py"
     ],
-    "source_digest": "sha256:30C27C249DA9F502C4D991D85EDE3DA4D30D8C557D5C05232DDB736A5012844F",
+    "source_digest": "sha256:C523DF9E6BF4424DEA1AD9FF60A8515CB25F9A282E948CE42513E5583138A639",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

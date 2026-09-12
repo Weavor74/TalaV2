@@ -12,11 +12,11 @@ from __future__ import annotations
 
 import pytest
 import json
-from unittest.mock import patch, MagicMock, AsyncMock
+from unittest.mock import patch, AsyncMock
 
-from sdk.agent.swarm_engine import SwarmEngine, ZombieReaper
+from sdk.agent.swarm_engine import SwarmEngine
 from sdk.agent.topology import TopologyRegistry, SwarmTopology, TopologyNode, TopologyEdge
-from sdk.agent.queue import BatchQueue, TaskStatus
+from sdk.agent.queue import TaskStatus
 
 @pytest.fixture
 def dummy_topology():

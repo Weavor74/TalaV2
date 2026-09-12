@@ -19,9 +19,13 @@ one that does not exist.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import TYPE_CHECKING
 
-from python.harness import db
+if TYPE_CHECKING:
+    from pathlib import Path
+
+    from python.harness.access import Principal
+
 
 log = logging.getLogger(__name__)
 

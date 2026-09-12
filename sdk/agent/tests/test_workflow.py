@@ -4,7 +4,6 @@ test_workflow.py - Auto-generated documentation base.
 
 from __future__ import annotations
 
-import json
 from sdk.agent.workflow_compiler import compile_workflow_to_html
 
 def test_compile_workflow_to_html():

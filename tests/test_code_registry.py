@@ -1,6 +1,4 @@
 import pytest
-import asyncio
-from unittest.mock import MagicMock
 from sdk.agent.code_registry import CodeRegistry, DEFAULT_REGISTRY_KEYS
 from sdk.agent.coder import CodeGenerator
 

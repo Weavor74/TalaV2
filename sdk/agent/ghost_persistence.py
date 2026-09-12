@@ -16,12 +16,11 @@ from __future__ import annotations
 import os
 import json
 import logging
-import hashlib
 import urllib.request
 from pathlib import Path
 from typing import Any
 
-from sdk.agent.anchor import _load_or_create_document_key, _encrypt_document
+from sdk.agent.anchor import _load_or_create_document_key
 
 log = logging.getLogger(__name__)
 

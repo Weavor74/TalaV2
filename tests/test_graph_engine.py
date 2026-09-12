@@ -1,9 +1,6 @@
-import os
 import pytest
 import json
-from typing import Any
-from unittest.mock import patch, MagicMock, AsyncMock
-from pathlib import Path
+from unittest.mock import patch, AsyncMock
 
 from sdk.agent.graph_engine import DAGExecutionEngine, GraphNode
 from sdk.agent.planner import TaskItem
@@ -318,7 +315,7 @@ async def test_validation_failure_triggers_rollback_and_retry(tmp_path):
 
             # Validation failed once, rolled back, retried synthesis and writing, then succeeded!
             assert res["success"] is True
-            assert attempts.get(f"validation-test-task-retry") == 2
+            assert attempts.get("validation-test-task-retry") == 2
             assert (scratch_dir / "buggy.py").exists()
     finally:
         await close_pool()

@@ -16395,38 +16395,16 @@ document.addEventListener('DOMContentLoaded', () => {
                     console.log(`[TaskEvent] ${statusText}`);
                 }
             } else if (msg && msg.method === 'system.update_available') {
-                // The push carries the revision it pulled. Without comparing it,
-                // every announcement prompted a full re-download of an archive
-                // the client may already be running -- there was no version
-                // anywhere in the exchange to compare.
+                // The push is only a wake-up call. It used to route into its
+                // own delivery mechanism -- the harness repackaging its live
+                // checkout and main extracting those bytes unsigned -- so the
+                // same app had two update paths with two different trust
+                // models. Now every update, pushed or polled, goes through the
+                // one signed path: version.json on the pinned release host,
+                // hash-verified app.update in main.
                 const revision = (msg.params && msg.params.revision) || '';
-                const applied = localStorage.getItem('tala.appliedRevision') || '';
-                if (revision && revision === applied) {
-                    console.log(`[OTA] Already running ${revision.slice(0, 8)}; ignoring update push.`);
-                    return;
-                }
-                const short = revision ? ` (${revision.slice(0, 8)})` : '';
-                const confirmed = confirm(`A server update is available from the VPS${short}. Do you want to download and apply it now?`);
-                if (confirmed) {
-                    try {
-                        // The main process downloads the payload itself, from
-                        // the admin-secret-gated harness method. The renderer
-                        // only asks; it never touches the bytes -- payload
-                        // supplied from here was the unsigned-update hole.
-                        console.log('Requesting OTA update apply...');
-                        const applied = await window.tala.invoke('system:apply_update', {});
-                        if (applied && applied.ok === false) {
-                            alert('OTA update was refused: ' + (applied.error || 'unknown error'));
-                        } else if (revision) {
-                            // Recorded only after apply returns, so a failed
-                            // apply does not mark the revision as installed and
-                            // suppress the next push for it.
-                            localStorage.setItem('tala.appliedRevision', revision);
-                        }
-                    } catch (err) {
-                        alert('Error during OTA update: ' + err.message);
-                    }
-                }
+                console.log(`[OTA] Update push received${revision ? ` (${revision.slice(0, 8)})` : ''}; checking the release host.`);
+                checkForUpdates();
             }
         });
     } catch (err) {

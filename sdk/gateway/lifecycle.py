@@ -3,8 +3,6 @@ sdk/gateway/lifecycle.py
 ========================
 Process tracking, lifecycle management, and graceful shutdown.
 """
-import os
-import sys
 import time
 import asyncio
 import logging

@@ -14,7 +14,6 @@ import os
 import json
 import asyncio
 import logging
-import uuid
 import sys
 import re
 from dataclasses import dataclass, field
@@ -22,9 +21,8 @@ from typing import Any
 from pathlib import Path
 
 from python.harness import db
-from sdk.agent.planner import TaskItem, TaskStatus
+from sdk.agent.planner import TaskItem
 from sdk.agent.async_shell import AsyncShellExecutor
-from sdk.agent.persistence import generate_deterministic_id
 from sdk.agent.port_router import PortRouter
 
 log = logging.getLogger(__name__)

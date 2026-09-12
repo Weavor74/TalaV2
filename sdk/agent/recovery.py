@@ -13,7 +13,6 @@ from __future__ import annotations
 
 import logging
 import os
-import subprocess
 import sys
 import uuid
 from typing import Any
@@ -245,7 +244,6 @@ class RollbackRecovery:
             return False
 
 
-import re
 
 
 class CompletionReporter:

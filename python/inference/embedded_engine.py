@@ -13,7 +13,6 @@ import asyncio
 import logging
 import threading
 from collections.abc import AsyncIterator
-from pathlib import Path
 from typing import Any
 
 import tqdm
@@ -246,7 +245,6 @@ def _get_model_and_tokenizer() -> tuple[Any, Any]:
         return _model, _tokenizer
         
     elif is_engine_installed("llamacpp"):
-        from llama_cpp import Llama
         # Note: In a full implementation, we'd need a GGUF file here instead of MODEL_ID.
         # Since we are sticking with the default huggingface repo, llama-cpp is just a stub for now.
         raise RuntimeError("llama.cpp requires a .gguf model file. Please use transformers or vLLM.")

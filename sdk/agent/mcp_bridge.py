@@ -39,7 +39,10 @@ turn -- before selection existed, this would have been a worse trade.
 from __future__ import annotations
 
 import logging
-from typing import Any
+from typing import Any, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from sdk.agent.tools import ToolRegistry
 
@@ -350,7 +353,6 @@ def discover_mcp_servers(extra_paths: list[str] | None = None) -> dict[str, Any]
     could be adopted" from "already have it".
     """
     import json as _json
-    import os as _os
     import sys as _sys
     from pathlib import Path as _Path
 

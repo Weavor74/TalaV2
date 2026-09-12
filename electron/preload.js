@@ -30,7 +30,6 @@ const ALLOWED_CHANNELS = new Set([
   'terminal:command',
   'terminal:kill',
   'git:status',
-  'system:apply_update',
 ]);
 
 /* ──────────────────────────────────────────────────────────────────

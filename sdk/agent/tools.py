@@ -14,7 +14,10 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-from typing import Any, Callable
+from typing import Any, Callable, TYPE_CHECKING
+
+if TYPE_CHECKING:
+    from pathlib import Path
 
 from sdk.agent.governance import RiskClassifier
 
@@ -229,7 +232,7 @@ class ToolRegistry:
         if plugin_id:
             try:
                 from sdk.gateway.plugins import scan_plugins_directory
-                from sdk.gateway.permissions import enforce_tool_permissions, PermissionDeniedError
+                from sdk.gateway.permissions import enforce_tool_permissions
                 
                 manifests = scan_plugins_directory()
                 plugin_manifest = next((m for m in manifests if m.get("id") == plugin_id), None)
@@ -1120,7 +1123,6 @@ async def get_system_settings_info(node_id: str = "settings-system") -> dict[str
         pass
 
     try:
-        from pathlib import Path
         from sdk.agent.parser import parse_file
         from sdk.agent.documentation_nodes import resolve_active_nodes_dir
         workspace_root = _get_workspace_root()
@@ -1585,7 +1587,6 @@ async def update_neural_node(node_id: str, sections: dict[str, str]) -> dict[str
     
     """
     from sdk.agent.wiki import WikiUpdater
-    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
     workspace_root = _get_workspace_root()
     node_path = _find_neural_node_path(node_id)
 
@@ -2029,8 +2030,7 @@ async def write_and_verify_tool(
            code.write_and_verify(file_writes, validation_commands=None,
                                  expected_files=None, timeout=120.0)
     """
-    from sdk.agent.safe_code_bridges import write_and_verify, run_validation
-    import asyncio as _asyncio
+    from sdk.agent.safe_code_bridges import run_validation
 
     # Reimplemented here rather than calling the sync helper, because this runs
     # inside the harness event loop where run_validation must be awaited.
@@ -2613,7 +2613,6 @@ async def distill_workflow_to_skill(skill_name: str, description: str, workflow_
     """
     import json
     import hashlib
-    import urllib.request
     from datetime import datetime, timezone
     from pathlib import Path
     import os
@@ -2967,7 +2966,6 @@ async def generate_detailed_neural_node(node_id: str, title: str, node_type: str
     """
     import json
     import hashlib
-    import urllib.request
     from datetime import datetime, timezone
     from pathlib import Path
     import os
@@ -3129,7 +3127,6 @@ IMPORTANT: You MUST follow the instructions returned by each step! If a step ask
 async def run_workflow_node(action: str = "auto", node_id: str = "workflow-node_builder", value: str = "", inputs: dict | None = None, **kwargs) -> dict[str, Any]:
     import json
     import re
-    from pathlib import Path
 
     if action not in ("auto", "start", "execute", "step"):
         return {"success": False, "error": "Unknown action. Use execute, start or step."}
@@ -3798,7 +3795,6 @@ async def broadcast_update(node_path: str) -> dict[str, Any]:
            and anchors a Broadcast-Initiated transaction to the Ghost Ledger.
     """
     import os
-    import json
     import hashlib
     import hmac
     from datetime import datetime, UTC
@@ -3993,7 +3989,6 @@ async def analyze_screen(question: str = "Describe what is on the screen.", prov
            the model's textual analysis.
     """
     from python.harness.multimodal import get_screen_context
-    from python.harness.server import _get_providers, _normalize_endpoint_url
 
     shot = await get_screen_context()
     return await _analyze_screen_image(shot, question, provider_id)

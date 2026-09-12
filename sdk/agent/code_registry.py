@@ -6,7 +6,6 @@ Persists configuration settings in PostgreSQL table client_settings.
 """
 from __future__ import annotations
 
-import json
 import logging
 from typing import Any
 

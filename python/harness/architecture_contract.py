@@ -46,10 +46,10 @@ def load_contract(section: str = "") -> dict[str, Any]:
             return {
                 "available": False,
                 "error": (
-                    f"No architecture contract has been generated. Run "
-                    f"scripts/generate_architecture_contract.py. Until then, do "
-                    f"not assume this system follows common conventions: verify "
-                    f"with logging.get_system_health and tools.catalogue."
+                    "No architecture contract has been generated. Run "
+                    "scripts/generate_architecture_contract.py. Until then, do "
+                    "not assume this system follows common conventions: verify "
+                    "with logging.get_system_health and tools.catalogue."
                 ),
             }
         state = parse_file(str(path)).state_data or {}

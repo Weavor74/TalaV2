@@ -10,7 +10,6 @@ handlers to a network without a token.
 """
 from __future__ import annotations
 
-import json
 from pathlib import Path
 
 import pytest
