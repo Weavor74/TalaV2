@@ -19,7 +19,13 @@ SECRET_ENTRY = re.compile(
     r"(^|/)\.env(?!\.example)(\.|$)"   # .env and .env.local, but not the template
     r"|(^|/)root_\.env"           # the docs/reference rendering of it
     r"|\.(pem|key|p12|pfx)$"      # private key material
-    r"|(^|/)(id_rsa|id_ed25519)$",
+    r"|(^|/)(id_rsa|id_ed25519)$"
+    # The chain's live state: PoA signing keys, the chain admin secret, and
+    # the authority set. None of them are credential-shaped by extension
+    # (.json/.txt), which is how they rode into published bundles despite
+    # every rule above. The .gitkeep placeholder is the one entry that may
+    # stay: flagging it would teach people the guard cries wolf.
+    r"|(^|/)blockchain/data/(?!\.gitkeep$)[^/]",
     re.IGNORECASE,
 )
 
@@ -47,6 +53,10 @@ BASE_EXCLUDES = [
         ".venv/*",
         "node_modules/*",
         "data/*",
+        # This install's ledger, PoA signing keys, chain admin secret, and
+        # authority set. "data/*" above only matches the top-level directory,
+        # which is exactly how these shipped in public bundles once already.
+        "blockchain/data/*",
         "vault/*",
         ".env",
         "__pycache__/*",

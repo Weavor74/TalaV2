@@ -3,6 +3,7 @@ e2ee_manager.py - Auto-generated documentation base.
 """
 
 import base64
+import hashlib
 import json
 import logging
 import os
@@ -41,13 +42,23 @@ class E2EEManager:
             
             # Perform ECDH key exchange
             shared_key = self.private_key.exchange(peer_public_key)
-            
-            # Use HKDF to derive a strong 256-bit symmetric key
+
+            # Bind both handshake public keys into the derivation. Identity
+            # keys are regenerated every process start, so this doubles as a
+            # per-session salt. Sorted, because the two sides see the same
+            # pair in opposite roles and must land on identical HKDF inputs.
+            # The v2 label means a pre-v2 peer derives a different key and
+            # fails to decrypt loudly instead of interoperating silently.
+            own_pub_bytes = self.public_key.public_bytes(
+                encoding=serialization.Encoding.Raw,
+                format=serialization.PublicFormat.Raw,
+            )
+            first, second = sorted((own_pub_bytes, peer_pub_bytes))
             derived_key = HKDF(
                 algorithm=hashes.SHA256(),
                 length=32,
-                salt=None,
-                info=b'tala-e2ee-p2p'
+                salt=hashlib.sha256(b'tala-e2ee-p2p-v2' + first + second).digest(),
+                info=b'tala-e2ee-p2p-v2'
             ).derive(shared_key)
             
             # Initialize the AES-GCM cipher for this peer

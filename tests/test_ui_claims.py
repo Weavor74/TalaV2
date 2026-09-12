@@ -146,9 +146,9 @@ def test_the_package_panel_checks_pyswisseph_not_ephem():
     imports `swisseph`, from `pyswisseph`. The panel raised a red alarm for the
     wrong library while ignoring the one whose absence silently biases emotion
     labels."""
-    from python.harness import server
+    from python.harness import system_info
 
-    source = inspect.getsource(server.handle_system_info)
+    source = inspect.getsource(system_info.collect_system_info)
     assert '"pyswisseph"' in source
     assert '_pkg_version("ephem")' not in source
 

@@ -65,7 +65,7 @@ export default [
   {
     files: ['electron/main.js'],
     rules: {
-      'max-lines': ['error', { max: 1254, skipBlankLines: false, skipComments: false }],
+      'max-lines': ['error', { max: 1180, skipBlankLines: false, skipComments: false }],
     },
   },
   {

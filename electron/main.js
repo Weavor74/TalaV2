@@ -45,6 +45,7 @@ const path    = require('node:path');
 const fs      = require('node:fs');
 const { spawn, spawnSync }  = require('node:child_process');
 const { registerHandlers } = require('./ipc-handlers');
+const { initBlockchain, spawnBlockchain, stopBlockchain } = require('./blockchain-process');
 
 // Lazily require 'ws' (installed via npm). We import it here so the entire
 // module doesn't fail if ws isn't yet installed (first run before npm install).
@@ -257,9 +258,6 @@ let mainWindow = null;
 let pythonProcess = null;
 
 /** @type {import('child_process').ChildProcess|null} */
-let blockchainProcess = null;
-
-/** @type {import('child_process').ChildProcess|null} */
 let shellProcess = null;
 
 /** @type {WebSocket|null} */
@@ -270,9 +268,6 @@ const pendingRpcCalls = new Map();
 
 /** Number of times the Python harness has been (re-)started this session. */
 let pythonRestartCount = 0;
-
-/** Number of times the Blockchain node has been (re-)started this session. */
-let blockchainRestartCount = 0;
 
 /** Whether the Python WS connection is currently established. */
 let wsConnected = false;
@@ -600,74 +595,7 @@ function connectWithRetry(attempt) {
   });
 }
 
-/**
- * Spawns the Node.js Blockchain Node for P2P networking and state distribution.
- * 
- * This process connects to the Tala mesh network to sync system prompts, configurations,
- * and discover other peers. Logs are captured and piped to the UI renderer.
- * 
- * @param {number} attempt  — Current attempt number (0-indexed), used for back-off.
- */
-function spawnBlockchain(attempt = 0) {
-  if (attempt >= MAX_RESTARTS) {
-    console.error(`[main] Blockchain node failed after ${MAX_RESTARTS} attempts. Giving up.`);
-    return;
-  }
-
-  const delay = attempt === 0 ? 0 : RESTART_BASE_DELAY_MS * Math.pow(2, attempt - 1);
-  if (delay > 0) {
-    console.log(`[main] Restarting Blockchain node in ${delay}ms (attempt ${attempt + 1}/${MAX_RESTARTS})…`);
-  }
-
-  setTimeout(() => {
-    if (!app.isReady()) return;   // Guard if app is quitting
-
-    const scriptPath = path.join(app.getAppPath(), 'blockchain', 'src', 'app.js');
-    if (!fs.existsSync(scriptPath)) {
-      console.warn(`[main:warn] Blockchain script not found at ${scriptPath}. Skipping blockchain spawn.`);
-      return;
-    }
-    console.log(`[main] Spawning Blockchain node: node "${scriptPath}"`);
-
-    blockchainProcess = spawn('node', [scriptPath], {
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env: {
-        ...process.env,
-      },
-    });
-
-    blockchainRestartCount = attempt + 1;
-
-    blockchainProcess.stdout.on('data', buf => {
-      const text = buf.toString();
-      const lines = text.trim().split('\n');
-      lines.forEach(line => console.log(`[chain] ${line}`));
-      sendLogToRenderer('blockchain:output', text);
-    });
-
-    blockchainProcess.stderr.on('data', buf => {
-      const text = buf.toString();
-      const lines = text.trim().split('\n');
-      lines.forEach(line => console.error(`[chain:err] ${line}`));
-      sendLogToRenderer('blockchain:output', text);
-    });
-
-    blockchainProcess.on('error', err => {
-      console.error(`[main] Failed to start Blockchain process: ${err.message}`);
-    });
-
-    blockchainProcess.on('exit', (code, signal) => {
-      console.warn(`[main] Blockchain node exited (code=${code}, signal=${signal})`);
-      blockchainProcess = null;
-
-      // Attempt restart unless app is quitting
-      if (!app.isQuiting) {
-        spawnBlockchain(attempt + 1);
-      }
-    });
-
-  }, delay);
-}
+/* The blockchain sidecar's spawn/restart/stop lives in blockchain-process.js. */
 
 /* ──────────────────────────────────────────────────────────────────
    WebSocket Client (renderer <-> Python JSON-RPC relay)
@@ -1184,6 +1112,7 @@ app.whenReady().then(() => {
   createWindow();
 
   // Start Blockchain Node
+  initBlockchain({ resolveDataRoot, sendLogToRenderer });
   spawnBlockchain(0);
 
   // Start Python harness
@@ -1225,10 +1154,7 @@ app.on('will-quit', () => {
   }
 
   // Terminate Blockchain process
-  if (blockchainProcess) {
-    try { blockchainProcess.kill('SIGTERM'); } catch { /* ignore */ }
-    blockchainProcess = null;
-  }
+  stopBlockchain();
 
   // Terminate active terminal process
   if (shellProcess) {

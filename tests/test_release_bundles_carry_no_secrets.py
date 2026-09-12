@@ -67,6 +67,20 @@ def test_the_guard_would_reject_a_dirty_bundle(tmp_path):
         _assert_no_secrets(str(dirty))
 
 
+def test_the_guard_rejects_chain_state(tmp_path):
+    """PoA keys and the chain admin secret are credentials without a
+    credential-shaped extension — exactly what rode into tala-windows.zip."""
+    from build_bundles import _assert_no_secrets
+
+    dirty = tmp_path / "dirty.zip"
+    with zipfile.ZipFile(dirty, "w") as zf:
+        zf.writestr("blockchain/src/app.js", "fine — the code ships")
+        zf.writestr("blockchain/data/poa_keys.json", "{}")
+
+    with pytest.raises(SystemExit, match="REFUSING TO PUBLISH"):
+        _assert_no_secrets(str(dirty))
+
+
 def test_the_guard_passes_a_clean_bundle(tmp_path):
     from build_bundles import _assert_no_secrets
 
