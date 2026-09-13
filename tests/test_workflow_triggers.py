@@ -113,7 +113,7 @@ async def test_run_executes_document_with_trigger_inputs(monkeypatch):
 
         async def execute(self, inputs):
             seen["inputs"] = inputs
-            return {"success": True}
+            return {"status": "COMPLETED"}
 
     monkeypatch.setattr("python.harness.workflow_executor.WorkflowExecutor", FakeExecutor)
     service._active.add("a")  # as _spawn would have

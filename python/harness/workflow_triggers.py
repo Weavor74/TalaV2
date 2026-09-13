@@ -291,7 +291,12 @@ class WorkflowTriggerService:
                 )
 
             result = await WorkflowExecutor(document, step_callback).execute(inputs)
-            outcome = "completed" if result.get("success", True) else "failed"
+            # The executor reports status COMPLETED/FAILED, not a success key.
+            outcome = (
+                "completed"
+                if str(result.get("status", "")).upper() in ("COMPLETED", "SUCCESS")
+                else "failed"
+            )
             log.info(
                 "workflow_triggers: %r %s (trigger=%s, from=%s)",
                 binding.flow_id, outcome, inputs.get("source"), doc_source,
