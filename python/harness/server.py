@@ -57,6 +57,7 @@ if _ROOT_DIR not in sys.path:
 from python.harness.config import settings
 from python.harness import db
 from python.harness import vps_mode as vps_mode_module
+from python.harness.provider_selection import skip_provider_attempt
 from sdk.agent.exceptions import (
     SafetyGuardrailViolation,
     PiiAccessBlockedError,
@@ -2843,37 +2844,8 @@ async def handle_inference_generate(
         success = False
 
         for provider in providers:
-            is_forced_provider = (forced_provider and provider["id"] == forced_provider["id"])
-            # A provider the caller asked for by id is exempt from the offline
-            # skip, exactly as a forced one is.
-            #
-            # `provider_id` put the requested provider first in the chain and
-            # then let this skip drop it, so naming a provider whose cached
-            # status was "offline" silently produced an answer from a different
-            # model. Every desktop-control run aimed at Gemini was served by a
-            # local qwen instead, and the reply looked like an ordinary success
-            # -- I reported one of those to Steven as a Gemini result before
-            # reading the log and finding otherwise.
-            #
-            # `status` is a cached probe, not ground truth: it goes stale, and
-            # it is exactly what an explicit choice should be able to override.
-            # If the provider really is down the request fails against it and
-            # the chain carries on to the next one, which is the behaviour a
-            # caller naming a provider expects.
-            is_requested_provider = (
-                request_provider and provider["id"] == request_provider["id"]
-            )
-            if (provider.get("status") == "offline"
-                    and provider["id"] != "embedded-builtin"
-                    and not is_forced_provider
-                    and not is_requested_provider):
-                logger.info("Skipping offline provider '%s'", provider["name"])
+            if skip_provider_attempt(provider, forced_provider, request_provider):
                 continue
-            if is_requested_provider and provider.get("status") == "offline":
-                logger.info(
-                    "Provider '%s' is marked offline but was requested by id; trying it.",
-                    provider["name"],
-                )
 
             p_type = provider["type"]
             p_name = provider["name"]

@@ -301,7 +301,7 @@ async def desktop_observe(question: str = "Describe the desktop and visible cont
            Analyze the exact full-resolution image used for input coordinates.
            A vision failure supplies no action token; do not guess coordinates.
     """
-    from sdk.agent.tools import _analyze_screen_image
+    from sdk.agent.vision_tools import _analyze_screen_image
     try:
         async with _lock:
             shot = await asyncio.to_thread(_capture)
