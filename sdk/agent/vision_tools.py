@@ -21,7 +21,7 @@ from __future__ import annotations
 import logging
 from typing import Any
 
-from sdk.agent.tools import register_tool
+from sdk.agent.tools import _get_workspace_root, register_tool
 
 log = logging.getLogger(__name__)
 

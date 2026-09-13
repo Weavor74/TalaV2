@@ -12,6 +12,7 @@ import threading
 import logging
 import base64
 import io
+import sys
 import time
 from typing import Literal
 from urllib.parse import urlparse
@@ -63,7 +64,13 @@ def _prepare_observation(shot):
     buffer = io.BytesIO()
     image.save(buffer, format='JPEG', quality=90)
     shot['data'] = base64.b64encode(buffer.getvalue()).decode('ascii')
-    shot['elements'] = prepared
+    # Measured text survives alongside the labeled clickables: _decide feeds
+    # non-clickable role='text' elements to the model as ground-truth labels
+    # and values. Dropping them here left that branch dead and forced the
+    # vision model to re-OCR text the controller had already measured.
+    texts = [e for e in elements if not e['clickable'] and e['role'] == 'text']
+    texts.sort(key=lambda e: (e['bounds'][1], e['bounds'][0]))
+    shot['elements'] = prepared + texts[:40]
     return shot
 
 
@@ -317,7 +324,17 @@ async def desktop_stop():
     return {"success": True, "stop_requested": True, "was_running": _running}
 
 
-@register_tool(name="desktop_run", description="Perform a complete native computer-use task with a LOCAL Ollama vision model. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user's objective. model is an installed Ollama vision model; default qwen2.5vl:3b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.")
+def _native_supported():
+    """NAME
+           _native_supported - whether the native loop's backend exists here
+    DESCRIPTION
+           desktop_run rides Windows UI Automation (desktop_accessibility);
+           everywhere else desktop_observe/desktop_action are the path.
+    """
+    return sys.platform == "win32"
+
+
+@register_tool(name="desktop_run", description="Windows-only: perform a complete native computer-use task with a LOCAL Ollama vision model. On other platforms use desktop_observe and desktop_action instead. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user's objective. model is an installed Ollama vision model; default qwen2.5vl:3b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.")
 async def desktop_run(task: str, model: str = "qwen2.5vl:3b", endpoint: str = "http://localhost:11434", max_steps: int = 20, cpu_only: bool = False, success_text: str = ''):
     """NAME
            desktop_run - execute a task using local vision and native actions
@@ -331,6 +348,12 @@ async def desktop_run(task: str, model: str = "qwen2.5vl:3b", endpoint: str = "h
            success_text requires a literal final result in blind screen transcription.
     """
     global _running
+    if not _native_supported():
+        # Fail in-band before the loop, not with a RuntimeError at step 0:
+        # accessibility.snapshot is Windows UI Automation and has no
+        # cross-platform fallback, while desktop_observe/desktop_action do.
+        return {"success": False, "error": "desktop_run is Windows-only (it drives UI Automation). "
+                "On this platform use desktop_observe and desktop_action for desktop work."}
     parsed = urlparse(endpoint)
     if parsed.scheme not in ("http", "https") or parsed.hostname not in ("localhost", "127.0.0.1", "::1") or parsed.username or parsed.password or parsed.query or parsed.fragment:
         return {"success": False, "error": "Desktop Ollama endpoint must be a loopback HTTP(S) address"}

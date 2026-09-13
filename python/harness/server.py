@@ -3757,10 +3757,8 @@ async def handle_inference_generate(
                 tools_list = [t["name"].lower() for t in ToolRegistry.get_tools()]
                 if tool_lower in tools_list:
                     res = await ToolRegistry.run_tool(tool_name, attrs, authority_level="auto")
-                    if res["success"]:
-                        tool_result = res["output"]
-                    else:
-                        tool_result = f"Tool execution failed: {res.get('error')}"
+                    tool_result = res["output"] if res["success"] else (f"Tool execution failed: {res.get('error') or 'the tool reported failure'} | "
+                        f"Details (the tool's own output, often its recovery data): {json.dumps(res.get('output'), default=str)[:4000]}")
                 else:
                     tool_result = f"Tool '{tool_name}' is not supported in this chat environment."
             except Exception as exc:
@@ -16051,10 +16049,8 @@ async def handle_marketplace_download(params: dict[str, Any], req_id: Any) -> st
     return _ok(req_id, {"success": True, "saved_to": str(file_path),
                         "signer": who, "verified": why})
 
-
 _HANDLERS: dict[str, Any] = {
-    "desktop.stop": handle_desktop_stop,
-    "desktop.run": handle_desktop_run,
+    "desktop.stop": handle_desktop_stop, "desktop.run": handle_desktop_run,
     "task.status": handle_task_status,
     "task.phase_events": handle_task_phase_events,
     "task.artifacts": handle_task_artifacts,

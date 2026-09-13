@@ -36,6 +36,7 @@ def runtime(monkeypatch):
     monkeypatch.setattr(agent, '_running', False)
     monkeypatch.setattr(agent.accessibility, 'snapshot', lambda hwnd: {'elements':[]})
     monkeypatch.setattr(agent, '_verify', AsyncMock(return_value=agent.DesktopVerification(complete=False, evidence='Not complete')))
+    monkeypatch.setattr(agent, '_native_supported', lambda: True)
     return act, client
 
 
@@ -240,6 +241,11 @@ def test_native_dispatch_and_single_use_token(monkeypatch, action, method):
     pg.KEYBOARD_KEYS = ['ctrl', 'a']
     monkeypatch.setattr(agent.desktop, '_backend', lambda: pg)
     monkeypatch.setattr(agent.desktop, '_check_halt', lambda: None)
+    # Hermetic foreground: on Linux/macOS _get_active_window ignores the
+    # mocked pg and asks the real window system, so the foreground check
+    # compared a live window id against '42' and this test only ever passed
+    # on Windows.
+    monkeypatch.setattr(agent.desktop, '_get_active_window', lambda pg: SimpleNamespace(id='42', title='Test'))
     # Window ids are strings (_Window wraps the HWND with str()), and an
     # observation carries image size, the logical size it covers, and its
     # origin -- the mapping _act uses to turn observed pixels into input
@@ -255,10 +261,11 @@ def test_native_dispatch_and_single_use_token(monkeypatch, action, method):
 
 def test_native_input_refuses_changed_focus(monkeypatch):
     import time
+    from types import SimpleNamespace
     pg = MagicMock()
-    pg.getActiveWindow.return_value._hWnd = 99
     monkeypatch.setattr(agent.desktop, '_backend', lambda: pg)
     monkeypatch.setattr(agent.desktop, '_check_halt', lambda: None)
+    monkeypatch.setattr(agent.desktop, '_get_active_window', lambda pg: SimpleNamespace(id='99', title='Other'))
     # Window ids are strings (_Window wraps the HWND with str()), and an
     # observation carries image size, the logical size it covers, and its
     # origin -- the mapping _act uses to turn observed pixels into input

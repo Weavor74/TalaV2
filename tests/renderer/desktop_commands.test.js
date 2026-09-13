@@ -22,3 +22,9 @@ test('failed desktop runs remain failures in chat', async () => {
   const {chat} = await run('/desktop test', {success:false,error:'Control disappeared'});
   expect(chat.appendMessage.mock.calls.at(-1)[2]).toBe('Desktop task failed: Control disappeared');
 });
+test('failed stop request is reported, not thrown', async () => {
+  const invoke = jest.fn().mockRejectedValue(new Error('Python harness WebSocket is not connected.'));
+  const chat = {appendMessage: jest.fn()};
+  await vm.runInNewContext('(async function(text){' + code + '}).call(chat,text)', {invoke, chat, text: '/desktop-stop'});
+  expect(chat.appendMessage.mock.calls.at(-1)[2]).toBe('Could not request desktop stop: Python harness WebSocket is not connected.');
+});

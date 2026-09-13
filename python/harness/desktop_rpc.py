@@ -14,16 +14,21 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from typing import Any
 
 
+# Steering only where the tool can actually run: desktop_run rides Windows UI
+# Automation, so on every other platform this prompt is empty and models are
+# left to desktop_observe/desktop_action, which do work there. Injecting it
+# unconditionally steered models into a tool that failed at step 0.
 DESKTOP_RUN_PROMPT = (
     "\nFor native computer-use tasks, prefer desktop_run with the user's task. "
     "It runs its own local Ollama vision/action loop; do not manually manage "
     "observation IDs. When the user specifies exact final confirmation text, "
     "pass it as success_text. Report its success or failure and evidence "
     "accurately. Never turn a failed desktop run into a completion claim."
-)
+) if sys.platform == "win32" else ""
 
 
 _desktop_rpc_tasks: set[asyncio.Task] = set()

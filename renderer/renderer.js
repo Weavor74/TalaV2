@@ -5849,8 +5849,8 @@ const AgentChat = {
     }
 
     if (text.trim().toLowerCase() === '/desktop-stop') {
-      const result = await invoke('python:rpc', {method: 'desktop.stop', params: {}});
-      this.appendMessage('agent', 'Tala', result?.success ? 'Desktop stop requested.' : 'Could not request desktop stop.');
+      const result = await invoke('python:rpc', {method: 'desktop.stop', params: {}}).catch((error) => ({error: error?.message || String(error)}));
+      this.appendMessage('agent', 'Tala', result?.success ? 'Desktop stop requested.' : `Could not request desktop stop: ${result?.error || 'no response from the harness'}`);
       return;
     }
 
