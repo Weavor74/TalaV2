@@ -46,6 +46,7 @@
   "python/harness/server.py::infer_subsystem",
   "python/harness/server.py::is_casual_chat_prompt",
   "python/harness/server.py::is_local_only_artifact",
+  "python/harness/server.py::load_inference_providers",
   "python/harness/server.py::parse_birthdate",
   "python/harness/server.py::parse_birthdate",
   "python/harness/server.py::parse_db_url",
