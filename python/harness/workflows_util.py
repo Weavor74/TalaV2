@@ -86,6 +86,32 @@ def get_all_workflows() -> list[dict]:
     return list(sources.values())
 
 
+def load_flow_document(flow_id: str) -> tuple[dict[str, Any] | None, str]:
+    """
+    The runnable document for a flow: (document, source) or (None, "").
+
+    Node first. workflow.save compiles the flow into an HTML-NN *and* writes a
+    JSON sidecar; the standing requirement is that what the harness consumes
+    is the HTML-NN, so the node is the source and the sidecar is the fallback
+    for flows compiled before nodes existed. Shared by ``workflow.execute``
+    and the trigger service so the two can never disagree about what a flow
+    is — the exact drift get_all_workflows() exists to prevent for listings.
+    """
+    try:
+        from sdk.agent.node_execution import load_workflow_spec
+
+        document = load_workflow_spec(flow_id)
+        if document:
+            return document, "html-nn"
+    except Exception as exc:
+        logger.warning("Could not read the node for flow %s: %s", flow_id, exc)
+
+    json_path = resolve_workflow_file(flow_id)
+    if not json_path or not json_path.exists():
+        return None, ""
+    return json.loads(json_path.read_text(encoding="utf-8")), "json"
+
+
 class InvalidWorkflow(ValueError):
     """A workflow that must not be saved, with the reasons attached."""
 
@@ -199,6 +225,13 @@ async def save_workflow_data(workflow: dict[str, Any]) -> str:
         await update_settings_workflows_node()
     except Exception as exc:
         logger.warning("Failed to update workflows settings node: %s", exc)
+
+    # A saved trigger is live from this save, not from the next restart.
+    try:
+        from python.harness.workflow_triggers import WorkflowTriggerService
+        await WorkflowTriggerService.get().reload()
+    except Exception as exc:
+        logger.warning("Could not reload workflow triggers: %s", exc)
 
     return flow_id
 

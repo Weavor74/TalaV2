@@ -453,6 +453,7 @@ class ChannelManager:
     def __init__(self) -> None:
         self._adapters: dict[str, BaseAdapter] = {}
         self._broadcast: Callable[[str, dict[str, Any]], Any] | None = None
+        self._listeners: list[Callable[[dict[str, Any]], Any]] = []
         self._started = False
 
     @classmethod
@@ -464,6 +465,16 @@ class ChannelManager:
     def register_broadcast(self, fn: Callable[[str, dict[str, Any]], Any]) -> None:
         """Wire the harness's notification broadcaster for inbound messages."""
         self._broadcast = fn
+
+    def register_listener(self, fn: Callable[[dict[str, Any]], Any]) -> None:
+        """
+        Subscribe to every allowlisted inbound message, alongside the UI
+        broadcast. This is a tee, not a takeover: workflow triggers (or any
+        future consumer) see the message in addition to the chat pipeline,
+        never instead of it, so wiring a trigger cannot make Tala go deaf.
+        """
+        if fn not in self._listeners:
+            self._listeners.append(fn)
 
     async def _load_rows(self) -> list[dict[str, Any]]:
         from python.harness import db
@@ -496,15 +507,23 @@ class ChannelManager:
         return out
 
     async def _on_message(self, msg: dict[str, Any]) -> None:
-        """Surface an inbound message to every connected UI client."""
-        if not self._broadcast:
-            return
-        try:
-            result = self._broadcast("channels.message", msg)
-            if asyncio.iscoroutine(result):
-                await result
-        except Exception as exc:
-            log.warning("channels: broadcast failed: %s", exc)
+        """Surface an inbound message to the UI and to registered listeners."""
+        if self._broadcast:
+            try:
+                result = self._broadcast("channels.message", msg)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:
+                log.warning("channels: broadcast failed: %s", exc)
+        for listener in list(self._listeners):
+            # A failing listener is its owner's bug; the funnel and the other
+            # listeners keep going.
+            try:
+                result = listener(msg)
+                if asyncio.iscoroutine(result):
+                    await result
+            except Exception as exc:
+                log.warning("channels: listener %r failed: %s", listener, exc)
 
     async def start(self) -> None:
         self._started = True

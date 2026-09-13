@@ -8446,34 +8446,15 @@ async def handle_workflow_execute(
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'flow_id' is required")
 
     try:
-        # Node first. workflow.save compiles the flow into an HTML-NN *and*
-        # writes a JSON sidecar, and this handler only ever read the sidecar --
-        # so the compiled node was written, indexed, retrieved, and never the
-        # thing that actually ran. Steven's standing requirement is that what
-        # the harness consumes is the HTML-NN, so the node is the source and
-        # the sidecar is the fallback for flows compiled before this change.
-        workflow_data = None
-        source = "json"
-        try:
-            from sdk.agent.node_execution import load_workflow_spec
-            workflow_data = load_workflow_spec(flow_id)
-            if workflow_data:
-                source = "html-nn"
-        except Exception as exc:
-            logger.warning("workflow.execute: could not read the node for %s: %s", flow_id, exc)
-
+        # Node first, sidecar fallback — the shared loader in workflows_util
+        # owns that rule so this handler and the trigger service can never
+        # disagree about what a flow is.
+        from python.harness.workflows_util import load_flow_document
+        workflow_data, source = await asyncio.to_thread(load_flow_document, flow_id)
         if workflow_data is None:
-            from python.harness.workflows_util import resolve_workflow_file
-            json_path = resolve_workflow_file(flow_id)
-            if not json_path or not json_path.exists():
-                return _err(
-                    req_id, JsonRpcError.INVALID_PARAMS,
-                    f"Workflow '{flow_id}' does not exist as a node or a saved file.",
-                )
-            workflow_data = json.loads(json_path.read_text(encoding="utf-8"))
-            logger.info(
-                "workflow.execute: %s has no runnable node; ran from the JSON sidecar.",
-                flow_id,
+            return _err(
+                req_id, JsonRpcError.INVALID_PARAMS,
+                f"Workflow '{flow_id}' does not exist as a node or a saved file.",
             )
 
         # Define step callback to stream updates
@@ -17158,6 +17139,13 @@ async def _startup_background() -> None:
     except Exception as _ch_exc:
         logger.warning("ChannelManager failed to start: %s", _ch_exc)
 
+    # ── 7d. Start workflow triggers (schedule / channel / startup) ──
+    try:
+        from python.harness.workflow_triggers import WorkflowTriggerService
+        await WorkflowTriggerService.get().start()
+    except Exception as _wt_exc:
+        logger.warning("WorkflowTriggerService failed to start: %s", _wt_exc)
+
     # ── 7c. Node promotion ──
     # Nodes Tala authored sit in nodes/_staging/ on probation until they
     # verify cleanly enough times AND have waited out their dwell period.
@@ -17261,6 +17249,12 @@ async def _shutdown() -> None:
         await HeartbeatScheduler.get().stop()
     except Exception as _hb_stop_exc:
         logger.warning("HeartbeatScheduler stop error: %s", _hb_stop_exc)
+
+    try:
+        from python.harness.workflow_triggers import WorkflowTriggerService
+        await WorkflowTriggerService.get().stop()
+    except Exception as _wt_stop_exc:
+        logger.warning("WorkflowTriggerService stop error: %s", _wt_stop_exc)
 
     try:
         await db.log_to_db("INFO", "Tala harness shutting down", {})

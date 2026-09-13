@@ -141,6 +141,35 @@ NODE_TYPES: dict[str, NodeTypeSpec] = {
         description="Where the workflow begins and what it is given to start with.",
         fields=(
             FieldSpec(
+                "source", "Starts when", "select", default="manual",
+                options=("manual", "schedule", "channel", "startup"),
+                help=(
+                    "manual: only the Run button or an explicit call. schedule: "
+                    "the cron expression below. channel: an inbound Telegram or "
+                    "Discord message. startup: once, when the harness starts. "
+                    "Watched by the workflow trigger service."
+                ),
+            ),
+            FieldSpec(
+                "cron", "Cron (schedule)", "text",
+                help="Five-field cron, e.g. '0 9 * * 1'. Used when Starts when = schedule.",
+            ),
+            FieldSpec(
+                "channel", "Channel filter", "text",
+                help=(
+                    "Platform (telegram/discord), channel name or id that may fire "
+                    "this flow. Empty matches any channel. Used when Starts when = channel."
+                ),
+            ),
+            FieldSpec(
+                "pattern", "Message pattern", "text",
+                help=(
+                    "Regex (or plain substring) the message text must match; empty "
+                    "matches every message. The message arrives as {{text}}, with "
+                    "{{sender}}, {{chat_id}} and {{platform}} alongside it."
+                ),
+            ),
+            FieldSpec(
                 "source_node_id", "Source node", "node_ref", default="default",
                 help="The HTML-NN this flow was started from, when it was started by one.",
             ),
