@@ -130,8 +130,9 @@ def test_topology_fields_are_escaped_into_innerhtml():
 def test_topology_list_logs_its_failures_like_its_siblings():
     """With reload=true it does file I/O, HTML parsing and spec validation. A
     bare str(exc) with no traceback is the operator-facing version of a silent
-    failure."""
-    source = SERVER.read_text(encoding="utf-8")
+    failure. The handlers moved to swarm_rpc.py in the size-ratchet cut-down;
+    the requirement follows them."""
+    source = Path("python/harness/swarm_rpc.py").read_text(encoding="utf-8")
 
     for handler in ("list", "create", "delete"):
         assert f'logger.exception("swarm.topology.{handler} error")' in source, (
