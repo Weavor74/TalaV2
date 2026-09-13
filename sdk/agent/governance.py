@@ -96,7 +96,7 @@ class RiskClassifier:
             # -- and the gates read this, not the tool's own description. A
             # capability nobody classified is a capability nobody gated.
             if resource in ("run_workspace_command", "write_workspace_file",
-                            "submit_agent_goal", "desktop_action"):
+                            "submit_agent_goal", "desktop_action", "desktop_run"):
                 return "high"
             if resource in ("send_telegram_message", "verify_and_heal_documentation", "update_neural_node"):
                 return "medium"

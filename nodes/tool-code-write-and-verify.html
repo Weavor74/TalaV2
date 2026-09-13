@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="code.write_and_verify"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:F9EE27875D259BCD191F0C4B161299BCF0395438515374AFAA5086AAE6F19EF0"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:0F260FDB4E845D4C0FF3219FA0D15F57AC4C3510C7404607CFF899702F701FC9"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:33Z"
+  data-generated-at="2026-09-13T05:51:23Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;code.write_and_verify&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Write files, run validation commands, and automatically restore the previous contents of those files if validation fails. Reverts only the files it wrote, never a directory tree. Use this instead of code.write_files when changing code that must keep working, such as anything under renderer/ or sdk/.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.write_and_verify(file_writes*, validation_commands, expected_files, timeout)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_writes&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;validation_commands&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;expected_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME code.write_and_verify - write, verify, and revert on failure SYNOPSIS code.write_and_verify(file_writes, validation_commands=None, expected_files=None, timeout=120.0)&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;code.write_and_verify&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Write files, run validation commands, and automatically restore the previous contents of those files if validation fails. Reverts only the files it wrote, never a directory tree. Use this instead of code.write_files when changing code that must keep working, such as anything under renderer/ or sdk/.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.write_and_verify(file_writes*, validation_commands, expected_files, timeout)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_writes&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;validation_commands&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;expected_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout&lt;/code&gt; (number, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME code.write_and_verify - write, verify, and revert on failure SYNOPSIS code.write_and_verify(file_writes, validation_commands=None, expected_files=None, timeout=120.0)&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:33Z",
+    "created_or_updated": "2026-09-13T05:51:23Z",
     "schema": "neural-node/v2",
     "doc_target": "code.write_and_verify",
-    "source_fingerprint": "sha256:F9EE27875D259BCD191F0C4B161299BCF0395438515374AFAA5086AAE6F19EF0",
+    "source_fingerprint": "sha256:0F260FDB4E845D4C0FF3219FA0D15F57AC4C3510C7404607CFF899702F701FC9",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -131,7 +131,7 @@
           "type": "string"
         },
         "timeout": {
-          "type": "string"
+          "type": "number"
         }
       },
       "required": [

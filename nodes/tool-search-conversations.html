@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="search_conversations"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:CB869346095D2C0FF8A003F3C7E1F112D84BDC31EEFD4392DF55B72839D648BC"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:2C058C6E136954EC3ECD2CF760C94B48290B98443E0380990E23815BAC41890B"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:20Z"
+  data-generated-at="2026-09-13T05:52:07Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;search_conversations&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Full-text search across all past conversation sessions and return matching turns with their session ids.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;search_conversations(query*, limit)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME search_conversations - search past conversation turns SYNOPSIS search_conversations(query: str, limit: int = 10) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;search_conversations&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Full-text search across all past conversation sessions and return matching turns with their session ids.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;search_conversations(query*, limit)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME search_conversations - search past conversation turns SYNOPSIS search_conversations(query: str, limit: int = 10) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:20Z",
+    "created_or_updated": "2026-09-13T05:52:07Z",
     "schema": "neural-node/v2",
     "doc_target": "search_conversations",
-    "source_fingerprint": "sha256:CB869346095D2C0FF8A003F3C7E1F112D84BDC31EEFD4392DF55B72839D648BC",
+    "source_fingerprint": "sha256:2C058C6E136954EC3ECD2CF760C94B48290B98443E0380990E23815BAC41890B",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -125,7 +125,7 @@
           "type": "string"
         },
         "limit": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": [

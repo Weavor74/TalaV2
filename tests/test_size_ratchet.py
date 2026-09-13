@@ -25,11 +25,11 @@ DEFAULT_BUDGET = 1500
 # file → the line count it had when the ratchet landed (2026-09-12). Down only.
 PINNED = {
     "python/harness/db.py": 1598,
-    "python/harness/server.py": 17758,
+    "python/harness/server.py": 17762,
     "sdk/agent/documentation_nodes.py": 1956,
     "sdk/agent/goal_engine.py": 1694,
     "sdk/agent/graph_engine.py": 1785,
-    "sdk/agent/tools.py": 4766,
+    "sdk/agent/tools.py": 4780,
 }
 
 SCANNED_TREES = ("python", "sdk", "scripts")

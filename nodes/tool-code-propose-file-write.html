@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="code.propose_file_write"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:115C522C2F52ED145BF726EEB734B8D510F75A191A0B4A498D8D67D94EC1F423"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:2D98D841502B38357580D32CE998BEEBA4DF362DE51B8862878952D00AC7A985"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:27Z"
+  data-generated-at="2026-09-13T05:51:17Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;code.propose_file_write&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Propose creating bounded text files inside the workspace. This does not mutate files; use code.write_files for approved creation.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.propose_file_write(file_writes*, rationale, validation_commands)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_writes&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;rationale&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;validation_commands&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;code.propose_file_write&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Propose creating bounded text files inside the workspace. This does not mutate files; use code.write_files for approved creation.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.propose_file_write(file_writes*, rationale, validation_commands)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_writes&lt;/code&gt; (array, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;rationale&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;validation_commands&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:27Z",
+    "created_or_updated": "2026-09-13T05:51:17Z",
     "schema": "neural-node/v2",
     "doc_target": "code.propose_file_write",
-    "source_fingerprint": "sha256:115C522C2F52ED145BF726EEB734B8D510F75A191A0B4A498D8D67D94EC1F423",
+    "source_fingerprint": "sha256:2D98D841502B38357580D32CE998BEEBA4DF362DE51B8862878952D00AC7A985",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -122,13 +122,15 @@
       "type": "object",
       "properties": {
         "file_writes": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "rationale": {
           "type": "string"
         },
         "validation_commands": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         }
       },
       "required": [

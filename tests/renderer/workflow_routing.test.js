@@ -13,3 +13,8 @@ test('return does not accidentally match turn', () => {
   expect(classify('Please return the answer').isActionPrompt).toBe(false);
   expect(classify('Create a new component').isActionPrompt).toBe(true);
 });
+
+test('desktop task stays in chat instead of entering the code planner', () => {
+  expect(classify('Use desktop_run to create a note in Notepad').isActionPrompt).toBe(false);
+  expect(classify('Control my computer and change the window').isActionPrompt).toBe(false);
+});

@@ -5829,6 +5829,31 @@ const AgentChat = {
       return;
     }
 
+    const desktopCommand = text.match(/^\/desktop(-cpu)?\s+([\s\S]+)$/i);
+    if (desktopCommand) {
+      const expectation = desktopCommand[2].match(/\s+--expect\s+"([^"]+)"\s*$/);
+      const task = expectation ? desktopCommand[2].slice(0, expectation.index) : desktopCommand[2];
+      this.appendMessage('agent', 'Tala', 'Running the local desktop agent. Use /desktop-stop to stop it.');
+      let result;
+      try {
+        result = await invoke('python:rpc', {method: 'desktop.run', params: {task, cpu_only: Boolean(desktopCommand[1]), success_text: expectation?.[1] || '', _timeoutMs: 1800000}});
+      } catch (error) {
+        this.appendMessage('agent', 'Tala', `Desktop task failed: ${error.message || error}`);
+        return;
+      }
+      const output = result?.output;
+      this.appendMessage('agent', 'Tala', result?.success
+        ? `Desktop agent reports completion from visual evidence: ${output?.evidence || 'No evidence returned.'}`
+        : `Desktop task failed: ${result?.error || output?.error || 'No result returned.'}`);
+      return;
+    }
+
+    if (text.trim().toLowerCase() === '/desktop-stop') {
+      const result = await invoke('python:rpc', {method: 'desktop.stop', params: {}});
+      this.appendMessage('agent', 'Tala', result?.success ? 'Desktop stop requested.' : 'Could not request desktop stop.');
+      return;
+    }
+
     // Handle Slash Commands
     if (text.startsWith('/')) {
       const loadingId = 'chat-loading-' + Date.now();
@@ -6098,7 +6123,8 @@ const AgentChat = {
     // the model emits a <call:tool /> tag and it executes inline & fast.
     const toolIntentPhrases = ['run a tool script', 'run_tool_script', 'use the ', 'call the ', 'using the ', ' tool to ', 'tool call'];
     const isWorkflowRun = /\b(run|execute|start)\b[\s\S]*\bworkflow\b/.test(lowerText);
-    const isDirectToolIntent = isWorkflowRun || toolIntentPhrases.some(p => lowerText.includes(p));
+    const isDesktopTask = /\bdesktop_(run|observe|action|stop)\b|\bcomputer use\b|\bcontrol (my |the )?(computer|desktop)\b/.test(lowerText);
+    const isDirectToolIntent = isWorkflowRun || isDesktopTask || toolIntentPhrases.some(p => lowerText.includes(p));
     const isActionPrompt = !isDirectToolIntent && actionVerbs.some(verb =>
       new RegExp(`\\b${verb.trim()}\\b`).test(lowerText));
 

@@ -1,0 +1,156 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: desktop_run</title>
+</head>
+<body>
+<article
+  data-node-id="tool-desktop-run"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="desktop_run"
+  data-source-files="sdk/agent/desktop_agent.py"
+  data-source-fingerprint="sha256:B577237BD997488CCD4D57043F995A5178C175BE46330398BD80D0E9E19ED446"
+  data-source-digest="sha256:F5D73C44B7160D59E5ABF96CA0937033BD4E11834674141B99B506DA0A24F5AD"
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-13T05:51:32Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: desktop_run</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;desktop_run&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Perform a complete native computer-use task with a LOCAL Ollama vision model. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user&#x27;s objective. model is an installed Ollama vision model; default qwen2.5vl:3b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;desktop_run(task*, model, endpoint, max_steps, cpu_only, success_text)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;task&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;model&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;endpoint&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;max_steps&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cpu_only&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;success_text&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Supports primary-monitor desktop applications. Sends no screenshots to cloud providers. Bounds execution to 20 minutes and 40 actions. Completion is model-assessed visual evidence, not an OS assertion. cpu_only=True avoids GPU contention by requesting num_gpu=0. success_text requires a literal final result in blind screen transcription.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.desktop_agent&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/desktop_agent.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-desktop-run"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "desktop_run"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: desktop_run",
+  "description": "Program documentation for desktop_run.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "desktop_run"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-13T05:51:32Z",
+    "schema": "neural-node/v2",
+    "doc_target": "desktop_run",
+    "source_fingerprint": "sha256:B577237BD997488CCD4D57043F995A5178C175BE46330398BD80D0E9E19ED446",
+    "source_files": [
+      "sdk/agent/desktop_agent.py"
+    ],
+    "source_digest": "sha256:F5D73C44B7160D59E5ABF96CA0937033BD4E11834674141B99B506DA0A24F5AD",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "desktop_run",
+    "description": "Perform a complete native computer-use task with a LOCAL Ollama vision model. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user's objective. model is an installed Ollama vision model; default qwen2.5vl:3b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.",
+    "signature": "desktop_run(task*, model, endpoint, max_steps, cpu_only, success_text)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "task": {
+          "type": "string"
+        },
+        "model": {
+          "type": "string"
+        },
+        "endpoint": {
+          "type": "string"
+        },
+        "max_steps": {
+          "type": "integer"
+        },
+        "cpu_only": {
+          "type": "boolean"
+        },
+        "success_text": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "task"
+      ]
+    },
+    "module": "sdk.agent.desktop_agent",
+    "required": [
+      "task"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

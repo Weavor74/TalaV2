@@ -870,6 +870,7 @@ ${shellCmd} "${startScript}" &
       let customTimeout = params && (params.timeout_ms || params.timeoutMs || params._timeoutMs);
       const longRunningMethods = new Set([
         'inference.generate',
+        'desktop.run',
         'workflow.execute',
         'task.submit',
         'task.list',

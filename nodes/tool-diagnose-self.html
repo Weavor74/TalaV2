@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="diagnose_self"
   data-source-files="sdk/agent/self_diagnosis.py"
-  data-source-fingerprint="sha256:62C889643688898FBF4FE1160DEB64F56B4FE15BDE98F098A51DE4ED111CCEED"
+  data-source-fingerprint="sha256:4E01E06F33DC28DA44D1EBD15875964464246B8DADB23D487FB8D583C5648A8C"
   data-source-digest="sha256:5231B934BE9B849B2609EDEB28E3975F0AD56218063D73C18BADFC24BB417547"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:42Z"
+  data-generated-at="2026-09-13T05:51:35Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;diagnose_self&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run a full self-diagnosis: measured subsystem health plus the recent errors and warnings behind it, in one call. Use this when asked what is wrong, or before reporting that something works.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;diagnose_self(minutes)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;minutes&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Health alone says a subsystem is degraded; the log says why. Asking for both separately is the common case, so this does it in one call and returns them side by side. Read-only, like the two tools it composes.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.self_diagnosis&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;diagnose_self&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run a full self-diagnosis: measured subsystem health plus the recent errors and warnings behind it, in one call. Use this when asked what is wrong, or before reporting that something works.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;diagnose_self(minutes)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;minutes&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Health alone says a subsystem is degraded; the log says why. Asking for both separately is the common case, so this does it in one call and returns them side by side. Read-only, like the two tools it composes.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.self_diagnosis&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:42Z",
+    "created_or_updated": "2026-09-13T05:51:35Z",
     "schema": "neural-node/v2",
     "doc_target": "diagnose_self",
-    "source_fingerprint": "sha256:62C889643688898FBF4FE1160DEB64F56B4FE15BDE98F098A51DE4ED111CCEED",
+    "source_fingerprint": "sha256:4E01E06F33DC28DA44D1EBD15875964464246B8DADB23D487FB8D583C5648A8C",
     "source_files": [
       "sdk/agent/self_diagnosis.py"
     ],
@@ -122,7 +122,7 @@
       "type": "object",
       "properties": {
         "minutes": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": []

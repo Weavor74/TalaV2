@@ -1,0 +1,47 @@
+{
+  "steps": [
+    {
+      "success": true,
+      "action": "click",
+      "executed": true,
+      "verified": false,
+      "window": "Tala Native Input QA",
+      "next_step": "This acted on the window titled 'Tala Native Input QA'. If that is not the intended target, the action went to the wrong place. Call desktop_observe to verify the effect before claiming completion."
+    },
+    {
+      "success": true,
+      "action": "type",
+      "executed": true,
+      "verified": false,
+      "window": "Tala Native Input QA",
+      "next_step": "This acted on the window titled 'Tala Native Input QA'. If that is not the intended target, the action went to the wrong place. Call desktop_observe to verify the effect before claiming completion."
+    },
+    {
+      "success": true,
+      "action": "hotkey",
+      "executed": true,
+      "verified": false,
+      "window": "Tala Native Input QA",
+      "next_step": "This acted on the window titled 'Tala Native Input QA'. If that is not the intended target, the action went to the wrong place. Call desktop_observe to verify the effect before claiming completion."
+    },
+    {
+      "success": true,
+      "action": "type",
+      "executed": true,
+      "verified": false,
+      "window": "Tala Native Input QA",
+      "next_step": "This acted on the window titled 'Tala Native Input QA'. If that is not the intended target, the action went to the wrong place. Call desktop_observe to verify the effect before claiming completion."
+    },
+    {
+      "success": true,
+      "action": "click",
+      "executed": true,
+      "verified": false,
+      "window": "Tala Native Input QA",
+      "next_step": "This acted on the window titled 'Tala Native Input QA'. If that is not the intended target, the action went to the wrong place. Call desktop_observe to verify the effect before claiming completion."
+    }
+  ],
+  "actual_text": "TALA-482 ✓",
+  "actual_status": "PASS",
+  "success": true
+}

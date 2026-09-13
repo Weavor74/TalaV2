@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="ui_reload"
   data-source-files="sdk/agent/ui_control.py"
-  data-source-fingerprint="sha256:CE7837408189DCF295CAA67BE03B0D3E5531499CA7BBFA11DFE405746B6068A8"
-  data-source-digest="sha256:FCF624E1D09B8CA3806E2F4A53A3DA3D623AB2CAFE67CA20F0883D60B7D0C264"
+  data-source-fingerprint="sha256:68E48F81C81D3A0D9A92B1E27051E92AF9EA0F129258F7C23BB432E5879A2348"
+  data-source-digest="sha256:EA9C7208E78418B158C6D22D5DE0039113C7BE283C6A7BEA9502A71AB40F37D5"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:43Z"
+  data-generated-at="2026-09-13T05:52:28Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;ui_reload&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Reload Tala&#x27;s window so an edit to renderer/ takes effect without restarting the app. Refuses while a task is mid-run unless force=True, because a reload discards in-flight UI state. Use after editing renderer files.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;ui_reload(force)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;force&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME ui_reload - apply a UI change without restarting the app SYNOPSIS ui_reload(force: bool = False) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.ui_control&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;ui_reload&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Reload Tala&#x27;s window so an edit to renderer/ takes effect without restarting the app. Refuses while a task is mid-run unless force=True, because a reload discards in-flight UI state. Use after editing renderer files.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;ui_reload(force)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;force&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME ui_reload - apply a UI change without restarting the app SYNOPSIS ui_reload(force: bool = False) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.ui_control&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:43Z",
+    "created_or_updated": "2026-09-13T05:52:28Z",
     "schema": "neural-node/v2",
     "doc_target": "ui_reload",
-    "source_fingerprint": "sha256:CE7837408189DCF295CAA67BE03B0D3E5531499CA7BBFA11DFE405746B6068A8",
+    "source_fingerprint": "sha256:68E48F81C81D3A0D9A92B1E27051E92AF9EA0F129258F7C23BB432E5879A2348",
     "source_files": [
       "sdk/agent/ui_control.py"
     ],
-    "source_digest": "sha256:FCF624E1D09B8CA3806E2F4A53A3DA3D623AB2CAFE67CA20F0883D60B7D0C264",
+    "source_digest": "sha256:EA9C7208E78418B158C6D22D5DE0039113C7BE283C6A7BEA9502A71AB40F37D5",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -122,7 +122,7 @@
       "type": "object",
       "properties": {
         "force": {
-          "type": "string"
+          "type": "boolean"
         }
       },
       "required": []

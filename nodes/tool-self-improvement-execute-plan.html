@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="self_improvement.execute_plan"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:746D85D103A6C8BD56E08E599131F7AFA3361B253D14478CFFD65BBB54CB322D"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:90C27C0FB0FFBACA7B59F4343FA6936A6765730641023B19EA7571D92CCA3CC5"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:27Z"
+  data-generated-at="2026-09-13T05:52:13Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;self_improvement.execute_plan&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Execute a bounded self-improvement plan: propose exact replacements, optionally apply them, run allowlisted validation, and report audited results.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;self_improvement.execute_plan(plan, dry_run, content, min_skill_phases)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;plan&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;dry_run&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;content&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;min_skill_phases&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;self_improvement.execute_plan&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Execute a bounded self-improvement plan: propose exact replacements, optionally apply them, run allowlisted validation, and report audited results.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;self_improvement.execute_plan(plan, dry_run, content, min_skill_phases)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;plan&lt;/code&gt; (object, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;dry_run&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;content&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;min_skill_phases&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:27Z",
+    "created_or_updated": "2026-09-13T05:52:13Z",
     "schema": "neural-node/v2",
     "doc_target": "self_improvement.execute_plan",
-    "source_fingerprint": "sha256:746D85D103A6C8BD56E08E599131F7AFA3361B253D14478CFFD65BBB54CB322D",
+    "source_fingerprint": "sha256:90C27C0FB0FFBACA7B59F4343FA6936A6765730641023B19EA7571D92CCA3CC5",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -122,16 +122,16 @@
       "type": "object",
       "properties": {
         "plan": {
-          "type": "string"
+          "type": "object"
         },
         "dry_run": {
-          "type": "string"
+          "type": "boolean"
         },
         "content": {
           "type": "string"
         },
         "min_skill_phases": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": []

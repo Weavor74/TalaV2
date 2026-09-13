@@ -21,14 +21,14 @@
   data-weight-governance-importance="0.80"
   data-governance-status="context-only"
   data-doc-target="analyze_screen"
-  data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:C6FE835E01EF5D3AC9D7E885ACCD91ED2339E5B4D349CF7B16D47E447A30A68E"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-files="sdk/agent/vision_tools.py"
+  data-source-fingerprint="sha256:5108591E4029317E24FC9BC015C3E47C6863211019794CCD2A98D2A63C89E1A8"
+  data-source-digest="sha256:901463EBA4B2D3516BC3977C0AB1795F69178A262C40D30B14587F2A0F53BB3A"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:16Z"
+  data-generated-at="2026-09-13T05:51:09Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,13 +37,13 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;analyze_screen&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Capture the user&#x27;s screen and analyze it with a vision-capable inference provider. Use to see what the user is looking at.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;analyze_screen(question, provider_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;question&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;provider_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Takes a screenshot of the active desktop, sends it to a vision-capable provider (explicit provider_id, or the first configured provider whose model looks multimodal), and returns the model&#x27;s textual analysis.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;analyze_screen&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Capture the user&#x27;s screen and analyze it with a vision-capable inference provider. Use to see what the user is looking at.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;analyze_screen(question, provider_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;question&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;provider_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Takes a screenshot of the active desktop, sends it to a vision-capable provider (explicit provider_id, or the first configured provider whose model looks multimodal), and returns the model&#x27;s textual analysis.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.vision_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
     <h2>Source Evidence</h2>
     <ul>
-      <li><code>sdk/agent/tools.py</code></li>
+      <li><code>sdk/agent/vision_tools.py</code></li>
 
     </ul>
   </section>
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:16Z",
+    "created_or_updated": "2026-09-13T05:51:09Z",
     "schema": "neural-node/v2",
     "doc_target": "analyze_screen",
-    "source_fingerprint": "sha256:C6FE835E01EF5D3AC9D7E885ACCD91ED2339E5B4D349CF7B16D47E447A30A68E",
+    "source_fingerprint": "sha256:5108591E4029317E24FC9BC015C3E47C6863211019794CCD2A98D2A63C89E1A8",
     "source_files": [
-      "sdk/agent/tools.py"
+      "sdk/agent/vision_tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:901463EBA4B2D3516BC3977C0AB1795F69178A262C40D30B14587F2A0F53BB3A",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -130,7 +130,7 @@
       },
       "required": []
     },
-    "module": "sdk.agent.tools",
+    "module": "sdk.agent.vision_tools",
     "required": []
   }
 }

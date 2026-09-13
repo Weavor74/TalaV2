@@ -58,6 +58,7 @@ from python.harness.config import settings
 from python.harness import db
 from python.harness import vps_mode as vps_mode_module
 from python.harness.provider_selection import skip_provider_attempt
+from python.harness.desktop_rpc import DESKTOP_RUN_PROMPT, handle_desktop_run, handle_desktop_stop
 from sdk.agent.exceptions import (
     SafetyGuardrailViolation,
     PiiAccessBlockedError,
@@ -2479,6 +2480,7 @@ async def handle_inference_generate(
                 from sdk.agent.tot_ideation import get_tot_mode
                 dyn_tools = ToolRegistry.get_tools()
             if dyn_tools:
+                active_system_prompt += DESKTOP_RUN_PROMPT
                 dyn_native_specs = _ollama_native_tool_specs(dyn_tools)
                 native_tool_specs.extend(dyn_native_specs)
                 try:
@@ -16049,7 +16051,10 @@ async def handle_marketplace_download(params: dict[str, Any], req_id: Any) -> st
     return _ok(req_id, {"success": True, "saved_to": str(file_path),
                         "signer": who, "verified": why})
 
+
 _HANDLERS: dict[str, Any] = {
+    "desktop.stop": handle_desktop_stop,
+    "desktop.run": handle_desktop_run,
     "task.status": handle_task_status,
     "task.phase_events": handle_task_phase_events,
     "task.artifacts": handle_task_artifacts,

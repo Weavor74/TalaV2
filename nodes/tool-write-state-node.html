@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="write_state_node"
   data-source-files="sdk/agent/node_execution.py"
-  data-source-fingerprint="sha256:05E1948BF6E469B8B44C59F9735C8B5EC61A4877FF3641B74684A08670C2D897"
+  data-source-fingerprint="sha256:A67716FC8B95CE96C9E41FAD3F1220E2E2D118E9438CE0B556A2E4734F6BE159"
   data-source-digest="sha256:FE8A81DC0596B46B04E8F73FED6255952E6EFFD0B80126B013898AEA3B1BE124"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:54Z"
+  data-generated-at="2026-09-13T05:52:36Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;write_state_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Record current conditions into a state HTML-NN, creating it if needed. Merges into whatever it already holds.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;write_state_node(node_id*, values*, title)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;values&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Merges ``values`` into the node rather than replacing it, so two writers recording different facts do not erase each other. A caller wanting a key gone sets it to null explicitly. Creating a state node needs no admission: it holds data, and the gate exists for code.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.node_execution&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;write_state_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Record current conditions into a state HTML-NN, creating it if needed. Merges into whatever it already holds.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;write_state_node(node_id*, values*, title)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;values&lt;/code&gt; (object, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Merges ``values`` into the node rather than replacing it, so two writers recording different facts do not erase each other. A caller wanting a key gone sets it to null explicitly. Creating a state node needs no admission: it holds data, and the gate exists for code.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.node_execution&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:54Z",
+    "created_or_updated": "2026-09-13T05:52:36Z",
     "schema": "neural-node/v2",
     "doc_target": "write_state_node",
-    "source_fingerprint": "sha256:05E1948BF6E469B8B44C59F9735C8B5EC61A4877FF3641B74684A08670C2D897",
+    "source_fingerprint": "sha256:A67716FC8B95CE96C9E41FAD3F1220E2E2D118E9438CE0B556A2E4734F6BE159",
     "source_files": [
       "sdk/agent/node_execution.py"
     ],
@@ -125,7 +125,7 @@
           "type": "string"
         },
         "values": {
-          "type": "string"
+          "type": "object"
         },
         "title": {
           "type": "string"

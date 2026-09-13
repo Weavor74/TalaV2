@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="docs.generate_and_verify_program_nodes"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:B02AFCF3D874640E2005999CE51CBE1468685F88A0A6BB7A5AA11B8DA1E4FD2C"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:733E3BA91042D7DCDA6F8F8B6DB48BB46870393149A06F377ACE69DF602E5C24"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:47Z"
+  data-generated-at="2026-09-13T05:51:39Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;docs.generate_and_verify_program_nodes&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Generate supported program documentation HTML-NN nodes, then verify the actual written files from disk before reporting success.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;docs.generate_and_verify_program_nodes(targets)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;targets&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;docs.generate_and_verify_program_nodes&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Generate supported program documentation HTML-NN nodes, then verify the actual written files from disk before reporting success.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;docs.generate_and_verify_program_nodes(targets)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;targets&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:47Z",
+    "created_or_updated": "2026-09-13T05:51:39Z",
     "schema": "neural-node/v2",
     "doc_target": "docs.generate_and_verify_program_nodes",
-    "source_fingerprint": "sha256:B02AFCF3D874640E2005999CE51CBE1468685F88A0A6BB7A5AA11B8DA1E4FD2C",
+    "source_fingerprint": "sha256:733E3BA91042D7DCDA6F8F8B6DB48BB46870393149A06F377ACE69DF602E5C24",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -122,7 +122,8 @@
       "type": "object",
       "properties": {
         "targets": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         }
       },
       "required": []

@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="export_trajectories"
   data-source-files="sdk/agent/agent_authoring.py"
-  data-source-fingerprint="sha256:635A9C9D4CCC5EBFDDF4CFA9D9C3D6E572858DA62EE6749FA4C90E001C566808"
+  data-source-fingerprint="sha256:148EF2A2596250A5F36A503A3371382053D773FAABC5A81E62FC133DBD208A13"
   data-source-digest="sha256:535EF551FA773AEC7F8D06241BE8E8AED28E1B87FD9D10E3C208E700A2F8FC54"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:56Z"
+  data-generated-at="2026-09-13T05:51:47Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;export_trajectories&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Export what actually happened in past runs - conversation turns with their tool calls, or autonomous task runs with their events - as analysable records.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;export_trajectories(kind, since_hours, limit, include_content, tool_calls_only)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;kind&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;since_hours&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;include_content&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tool_calls_only&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;kind is &quot;conversation&quot; or &quot;task&quot;. They are separate streams and are not joined: a chat session and an autonomous task share no key in the schema, and stitching them on a guess would invent history. include_content defaults to FALSE. Conversation turns contain everything Weavor has ever said, so the default is structure plus tool calls without the prose -- enough to study which tools were reached for and how often a call came back an error. Pass True only when the prose is genuinely what is being studied. Returns a summary alongside the records: the tool histogram is usually the point.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;export_trajectories&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Export what actually happened in past runs - conversation turns with their tool calls, or autonomous task runs with their events - as analysable records.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;export_trajectories(kind, since_hours, limit, include_content, tool_calls_only)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;kind&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;since_hours&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;include_content&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tool_calls_only&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;kind is &quot;conversation&quot; or &quot;task&quot;. They are separate streams and are not joined: a chat session and an autonomous task share no key in the schema, and stitching them on a guess would invent history. include_content defaults to FALSE. Conversation turns contain everything Weavor has ever said, so the default is structure plus tool calls without the prose -- enough to study which tools were reached for and how often a call came back an error. Pass True only when the prose is genuinely what is being studied. Returns a summary alongside the records: the tool histogram is usually the point.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:56Z",
+    "created_or_updated": "2026-09-13T05:51:47Z",
     "schema": "neural-node/v2",
     "doc_target": "export_trajectories",
-    "source_fingerprint": "sha256:635A9C9D4CCC5EBFDDF4CFA9D9C3D6E572858DA62EE6749FA4C90E001C566808",
+    "source_fingerprint": "sha256:148EF2A2596250A5F36A503A3371382053D773FAABC5A81E62FC133DBD208A13",
     "source_files": [
       "sdk/agent/agent_authoring.py"
     ],
@@ -125,16 +125,16 @@
           "type": "string"
         },
         "since_hours": {
-          "type": "string"
+          "type": "integer"
         },
         "limit": {
-          "type": "string"
+          "type": "integer"
         },
         "include_content": {
-          "type": "string"
+          "type": "boolean"
         },
         "tool_calls_only": {
-          "type": "string"
+          "type": "boolean"
         }
       },
       "required": []

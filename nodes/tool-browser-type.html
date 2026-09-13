@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="browser_type"
   data-source-files="sdk/agent/web_browser.py"
-  data-source-fingerprint="sha256:2D914DC1E23223D8A3711B5651B9751A394A2517D6351A957BBD1AE79457A444"
+  data-source-fingerprint="sha256:764D2995D87F5CA366AE695BD80D4FF2BD5CCB1A465A211CB2D2E5223AF9F387"
   data-source-digest="sha256:9A849A9B6C4E9B96488776DA080290243A5B9C987143F17DAD32ECE8E88DD2F6"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:24Z"
+  data-generated-at="2026-09-13T05:51:15Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;browser_type&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Type text into an input in the automation browser, addressed by the index from browser_read (or a CSS selector). Optionally press Enter afterwards.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;browser_type(text*, index, selector, press_enter)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;text&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;index&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;selector&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;press_enter&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME browser_type - fill an input by browser_read index or CSS selector SYNOPSIS browser_type(text: str, index: int | None = None, selector: str | None = None, press_enter: bool = False) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.web_browser&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;browser_type&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Type text into an input in the automation browser, addressed by the index from browser_read (or a CSS selector). Optionally press Enter afterwards.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;browser_type(text*, index, selector, press_enter)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;text&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;index&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;selector&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;press_enter&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME browser_type - fill an input by browser_read index or CSS selector SYNOPSIS browser_type(text: str, index: int | None = None, selector: str | None = None, press_enter: bool = False) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.web_browser&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:24Z",
+    "created_or_updated": "2026-09-13T05:51:15Z",
     "schema": "neural-node/v2",
     "doc_target": "browser_type",
-    "source_fingerprint": "sha256:2D914DC1E23223D8A3711B5651B9751A394A2517D6351A957BBD1AE79457A444",
+    "source_fingerprint": "sha256:764D2995D87F5CA366AE695BD80D4FF2BD5CCB1A465A211CB2D2E5223AF9F387",
     "source_files": [
       "sdk/agent/web_browser.py"
     ],
@@ -125,13 +125,13 @@
           "type": "string"
         },
         "index": {
-          "type": "string"
+          "type": "integer"
         },
         "selector": {
           "type": "string"
         },
         "press_enter": {
-          "type": "string"
+          "type": "boolean"
         }
       },
       "required": [

@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="code.apply_patch"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:1EB15CBC29B04CF5F7C7B2930062CA1D227BB1F573E7B299C3661AE2F7A08AA2"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:DBE3C382F622303A24FC5A3215F24F01E9319C364764BC728E2EAD2CAE26F5BB"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:26Z"
+  data-generated-at="2026-09-13T05:51:16Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;code.apply_patch&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Apply a bounded exact-replacement patch inside the workspace. Each old_text must match exactly once. Absolute paths are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.apply_patch(replacements*, expected_files, dry_run)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;replacements&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;expected_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;dry_run&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;code.apply_patch&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Apply a bounded exact-replacement patch inside the workspace. Each old_text must match exactly once. Absolute paths are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;code.apply_patch(replacements*, expected_files, dry_run)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;replacements&lt;/code&gt; (array, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;expected_files&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;dry_run&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:26Z",
+    "created_or_updated": "2026-09-13T05:51:16Z",
     "schema": "neural-node/v2",
     "doc_target": "code.apply_patch",
-    "source_fingerprint": "sha256:1EB15CBC29B04CF5F7C7B2930062CA1D227BB1F573E7B299C3661AE2F7A08AA2",
+    "source_fingerprint": "sha256:DBE3C382F622303A24FC5A3215F24F01E9319C364764BC728E2EAD2CAE26F5BB",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -122,13 +122,15 @@
       "type": "object",
       "properties": {
         "replacements": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "expected_files": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "dry_run": {
-          "type": "string"
+          "type": "boolean"
         }
       },
       "required": [

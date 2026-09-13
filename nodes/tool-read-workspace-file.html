@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="read_workspace_file"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:4065BAD1CD1A846F347D1F154E9227C9A43E9FE685EE0E35C7A8AC2752365F15"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:BB7F4935CABEEF3C0FFF43E5158414B90E2FBB1A28C67C75C9DE3C376C66F64F"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:13Z"
+  data-generated-at="2026-09-13T05:52:01Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;read_workspace_file&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read the text content of a file path within the workspace directory.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;read_workspace_file(file_path*, start_line, end_line)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;start_line&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;end_line&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Reads text content from a file located relative to the workspace root. Supports optional line range slicing.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;read_workspace_file&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read the text content of a file path within the workspace directory.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;read_workspace_file(file_path*, start_line, end_line)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;file_path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;start_line&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;end_line&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Reads text content from a file located relative to the workspace root. Supports optional line range slicing.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:13Z",
+    "created_or_updated": "2026-09-13T05:52:01Z",
     "schema": "neural-node/v2",
     "doc_target": "read_workspace_file",
-    "source_fingerprint": "sha256:4065BAD1CD1A846F347D1F154E9227C9A43E9FE685EE0E35C7A8AC2752365F15",
+    "source_fingerprint": "sha256:BB7F4935CABEEF3C0FFF43E5158414B90E2FBB1A28C67C75C9DE3C376C66F64F",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -125,10 +125,10 @@
           "type": "string"
         },
         "start_line": {
-          "type": "string"
+          "type": "integer"
         },
         "end_line": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": [

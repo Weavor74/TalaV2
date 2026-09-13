@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="generate_detailed_neural_node"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:30EC9D081AB4E1C7D804B0D47EEDE840B6E51A52B3324B099D6546F36C1FD710"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:7DB0AFD1CB32405813C6FAECEAE9E0B817EF04F78F8E4201D32B3685A143D823"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:57Z"
+  data-generated-at="2026-09-13T05:51:48Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;generate_detailed_neural_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Generate a highly detailed HTML Neural Node from a structured markdown document. Use this for deep documentation. CRITICAL: When generating Function Documentation, you MUST format your detailed_markdown EXACTLY using this layout: # Function Doc: `[Function Name]` ## 1. Purpose `[Function Name]` does this: [Short description] Use it when: [When this function should be used] Do not use it when: [When this function should not be used] ## 2. Basic Info | Field | Value | |---|---| | Function | `[Function Name]` | | Type | `[Utility / Data / API / UI / Validation / Other]` | | Input | `[Main input type]` | | Output | `[Main output type]` | | Changes State? | `[Yes / No]` | | Can Fail? | `[Yes / No]` | ## 3. Inputs | Name | Required | Type | Meaning | |---|---|---|---| | `[inputName]` | Yes | `[type]` | `[what it means]` | ## 4. Output The function returns: [Describe the output] Example output: [example output] ## 5. Behavior 1. Receive input. 2. Check that input is valid. 3. Do the main task. 4. Return the result. 5. Handle errors safely. ## 6. Errors | Problem | What Should Happen | |---|---| | Missing input | [return error / return null / throw error] | ## 7. Side Effects [Does not change anything outside itself] OR [Writes file / updates state / etc] ## 8. Safe Use Rules - Validate input before use. - Do not log secrets. - Do not expose private data. - Sanitize file paths, commands, queries, and HTML. - Confirm permission before write, delete, send, or execute actions. ## 9. Example Input: [example] Steps: [what it does] Output: [example] ## 10. Test Checklist - [ ] Works with valid input. - [ ] Handles missing input. - [ ] Handles bad input. - [ ] Returns expected output. - [ ] Handles errors safely. - [ ] Does not create unwanted side effects. ## 11. Invocation &amp; Integration [How to call or trigger this component] [For functions: provide the exact import path and syntax] [For UI/Panels: explain how to visually trigger or render it] ## 12. Notes [Any limits or assumptions]&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;generate_detailed_neural_node(node_id*, title*, node_type*, detailed_markdown*, execution_authority)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_type&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;detailed_markdown&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;execution_authority&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Generate a detailed HTML Neural Node from a markdown document.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;generate_detailed_neural_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Generate a highly detailed HTML Neural Node from a structured markdown document. Use this for deep documentation. CRITICAL: When generating Function Documentation, you MUST format your detailed_markdown EXACTLY using this layout: # Function Doc: `[Function Name]` ## 1. Purpose `[Function Name]` does this: [Short description] Use it when: [When this function should be used] Do not use it when: [When this function should not be used] ## 2. Basic Info | Field | Value | |---|---| | Function | `[Function Name]` | | Type | `[Utility / Data / API / UI / Validation / Other]` | | Input | `[Main input type]` | | Output | `[Main output type]` | | Changes State? | `[Yes / No]` | | Can Fail? | `[Yes / No]` | ## 3. Inputs | Name | Required | Type | Meaning | |---|---|---|---| | `[inputName]` | Yes | `[type]` | `[what it means]` | ## 4. Output The function returns: [Describe the output] Example output: [example output] ## 5. Behavior 1. Receive input. 2. Check that input is valid. 3. Do the main task. 4. Return the result. 5. Handle errors safely. ## 6. Errors | Problem | What Should Happen | |---|---| | Missing input | [return error / return null / throw error] | ## 7. Side Effects [Does not change anything outside itself] OR [Writes file / updates state / etc] ## 8. Safe Use Rules - Validate input before use. - Do not log secrets. - Do not expose private data. - Sanitize file paths, commands, queries, and HTML. - Confirm permission before write, delete, send, or execute actions. ## 9. Example Input: [example] Steps: [what it does] Output: [example] ## 10. Test Checklist - [ ] Works with valid input. - [ ] Handles missing input. - [ ] Handles bad input. - [ ] Returns expected output. - [ ] Handles errors safely. - [ ] Does not create unwanted side effects. ## 11. Invocation &amp; Integration [How to call or trigger this component] [For functions: provide the exact import path and syntax] [For UI/Panels: explain how to visually trigger or render it] ## 12. Notes [Any limits or assumptions]&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;generate_detailed_neural_node(node_id*, title*, node_type*, detailed_markdown*, execution_authority)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_type&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;detailed_markdown&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;execution_authority&lt;/code&gt; (number, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Generate a detailed HTML Neural Node from a markdown document.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:57Z",
+    "created_or_updated": "2026-09-13T05:51:48Z",
     "schema": "neural-node/v2",
     "doc_target": "generate_detailed_neural_node",
-    "source_fingerprint": "sha256:30EC9D081AB4E1C7D804B0D47EEDE840B6E51A52B3324B099D6546F36C1FD710",
+    "source_fingerprint": "sha256:7DB0AFD1CB32405813C6FAECEAE9E0B817EF04F78F8E4201D32B3685A143D823",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -134,7 +134,7 @@
           "type": "string"
         },
         "execution_authority": {
-          "type": "string"
+          "type": "number"
         }
       },
       "required": [

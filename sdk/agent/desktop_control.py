@@ -16,11 +16,13 @@ import subprocess
 import sys
 import time
 import uuid
+import threading
 
 from sdk.agent.tools import register_tool
 
 _lock = asyncio.Lock()
 _observations = {}
+_input_stop = threading.Event()
 
 # How long an observation authorizes a bounded action for. Vision analysis of
 # a "thinking" model (e.g. Ollama's muse-glimmer) can itself take minutes, and
@@ -211,11 +213,13 @@ def _check_halt():
            Reject all desktop work while the persistent emergency halt is set.
     """
     from sdk.agent.gates import RevocationHalt
+    if _input_stop.is_set():
+        raise RuntimeError("Desktop input stopped")
     if RevocationHalt.is_halted():
         raise RuntimeError("Desktop control stopped by emergency halt")
 
 
-def _capture():
+def _capture(foreground_only=False):
     """NAME
            _capture - capture pixels and their native coordinate context
     DESCRIPTION
@@ -224,19 +228,48 @@ def _capture():
     _check_halt()
     pg = _backend()
     window = _get_active_window(pg)
-    shot = pg.screenshot()
+    screen_size = tuple(pg.size())
+
+    # Cropping to the foreground window needs its rectangle, which only the
+    # pygetwindow backend supplies (Windows). Elsewhere the request degrades
+    # to a full-screen capture rather than guessing at a rectangle -- same
+    # rule _visible_windows follows, and for the same reason.
+    origin = (0, 0)
+    region = None
+    native = getattr(window, "_native", None) if window else None
+    if foreground_only and native is not None and not window.isMinimized:
+        try:
+            left, top = max(0, int(native.left)), max(0, int(native.top))
+            right = min(screen_size[0], int(native.left) + int(native.width))
+            bottom = min(screen_size[1], int(native.top) + int(native.height))
+        except Exception:
+            left = top = right = bottom = 0
+        if right > left and bottom > top:
+            origin = (left, top)
+            region = (left, top, right - left, bottom - top)
+    shot = pg.screenshot(region=region) if region else pg.screenshot()
     buffer = io.BytesIO()
     shot.save(buffer, format="JPEG", quality=85)
     token = uuid.uuid4().hex
     _observations.clear()
-    # The logical screen size is stored alongside the image size: on HiDPI
-    # displays (macOS Retina especially) the screenshot has more pixels than
-    # the screen has input coordinates, so observed pixel coordinates must be
-    # scaled back before dispatch.
-    _observations[token] = (time.monotonic(), window.id if window else None, shot.size, tuple(pg.size()))
+    # Three numbers describe the mapping from this image back to input
+    # coordinates: where the capture starts, how many pixels it holds, and how
+    # much logical screen those pixels cover. A full-screen capture on a HiDPI
+    # display (macOS Retina especially) has more pixels than the screen has
+    # input coordinates; a cropped capture starts somewhere other than the
+    # origin. _act applies both with one formula, so neither case is special.
+    captured_logical = (region[2], region[3]) if region else screen_size
+    _observations[token] = (
+        time.monotonic(), window.id if window else None, shot.size,
+        captured_logical, origin,
+    )
     windows = _visible_windows(pg, window.id if window else None)
     return {"success": True, "observation_id": token, "width": shot.width,
-            "height": shot.height, "active_window": window.title if window else "",
+            "height": shot.height, "image_origin": origin,
+            # The raw HWND, not the string window id: desktop_accessibility
+            # hands this straight to the Win32 automation API.
+            "window_handle": getattr(native, "_hWnd", None),
+            "active_window": window.title if window else "",
             "windows": windows, "mime_type": "image/jpeg",
             "data": base64.b64encode(buffer.getvalue()).decode("ascii")}
 
@@ -470,11 +503,26 @@ def _act(observation_id, action, x, y, text, keys, amount, window_id):
     if action in {"click", "double_click", "right_click", "move", "drag"}:
         if isinstance(x, bool) or isinstance(y, bool) or not isinstance(x, int) or not isinstance(y, int):
             raise ValueError("x and y must be integer pixel coordinates")
-        if not (0 <= x < observation[2][0] and 0 <= y < observation[2][1]):
-            raise ValueError("Coordinates outside observed primary screen")
-        # Scale observed image pixels to input coordinates (HiDPI/Retina).
-        x = int(round(x * observation[3][0] / observation[2][0]))
-        y = int(round(y * observation[3][1] / observation[2][1]))
+        # One mapping covers both capture shapes.
+        #
+        # A full-screen observation has origin (0, 0), so coordinates arrive as
+        # image pixels and this is the HiDPI rescale it always was. A cropped
+        # one (desktop_observe's foreground_only, used by desktop_agent) has a
+        # non-zero origin, and its caller has already translated image pixels
+        # into screen coordinates exactly once -- so subtracting the origin
+        # puts them back into image space, where the same bounds check and the
+        # same rescale apply, and adding it returns the input coordinate.
+        #
+        # Without the subtraction the bounds check rejects the translated
+        # coordinate outright: a window at x=1200 cropped to 800 pixels wide
+        # yields a screen x of 1200-2000, every one of which reads as
+        # "outside" an 800-pixel image.
+        origin = observation[4] if len(observation) > 4 else (0, 0)
+        ix, iy = x - origin[0], y - origin[1]
+        if not (0 <= ix < observation[2][0] and 0 <= iy < observation[2][1]):
+            raise ValueError("Coordinates outside the observed region")
+        x = origin[0] + int(round(ix * observation[3][0] / observation[2][0]))
+        y = origin[1] + int(round(iy * observation[3][1] / observation[2][1]))
     if action == "click":
         pg.click(x, y)
     elif action == "double_click":
@@ -615,6 +663,7 @@ def _act(observation_id, action, x, y, text, keys, amount, window_id):
         _observations.clear()
         _observations[chained_observation] = (
             time.monotonic(), target.id, observation[2], observation[3],
+            observation[4] if len(observation) > 4 else (0, 0),
         )
     else:
         raise ValueError("Unknown desktop action")

@@ -1,0 +1,34 @@
+{
+  "success": false,
+  "status": "failed",
+  "error": "Observed control changed or disappeared",
+  "model": "qwen2.5vl:3b",
+  "steps": [
+    {
+      "step": 1,
+      "proposal": {
+        "action": "click",
+        "evidence": "The input field is active and ready for text entry.",
+        "x": null,
+        "y": null,
+        "text": "",
+        "keys": [],
+        "amount": 0,
+        "window_id": "",
+        "element_id": "E1"
+      },
+      "result": {
+        "success": false,
+        "error": "Observed control changed or disappeared",
+        "execution": "may_be_partial"
+      }
+    }
+  ],
+  "registry_success": false,
+  "rpc_error": "Observed control changed or disappeared",
+  "via": "live_harness_rpc",
+  "independent_check": {
+    "entry": "",
+    "status": "Waiting"
+  }
+}

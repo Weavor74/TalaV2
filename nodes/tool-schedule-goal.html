@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="schedule_goal"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:6479E50847EBE73C56F18E41CF69D05DA3D68BC5B1BEA557D55679BE749A7A88"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:85C5B3D8FC2C10406582C1BD1C68D71E067A3CF6AB1353DDBAC9E12256214E45"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:19Z"
+  data-generated-at="2026-09-13T05:52:06Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;schedule_goal&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Schedule a recurring autonomous goal on a cron expression (5-field, e.g. &#x27;0 8 * * *&#x27; = daily 8am). The goal runs unattended through the GoalEngine and can use any tool, including messaging channels.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;schedule_goal(name*, cron_expr*, goal_text*, enabled)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cron_expr&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;goal_text&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;enabled&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Persists a heartbeat job and hot-reloads the scheduler. Standard 5-field cron syntax (minute hour day-of-month month day-of-week). Examples: &#x27;0 8 * * *&#x27; daily 8:00, &#x27;*/30 * * * *&#x27; every 30 min, &#x27;0 9 * * 1&#x27; Mondays 9:00.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;schedule_goal&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Schedule a recurring autonomous goal on a cron expression (5-field, e.g. &#x27;0 8 * * *&#x27; = daily 8am). The goal runs unattended through the GoalEngine and can use any tool, including messaging channels.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;schedule_goal(name*, cron_expr*, goal_text*, enabled)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cron_expr&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;goal_text&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;enabled&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Persists a heartbeat job and hot-reloads the scheduler. Standard 5-field cron syntax (minute hour day-of-month month day-of-week). Examples: &#x27;0 8 * * *&#x27; daily 8:00, &#x27;*/30 * * * *&#x27; every 30 min, &#x27;0 9 * * 1&#x27; Mondays 9:00.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:19Z",
+    "created_or_updated": "2026-09-13T05:52:06Z",
     "schema": "neural-node/v2",
     "doc_target": "schedule_goal",
-    "source_fingerprint": "sha256:6479E50847EBE73C56F18E41CF69D05DA3D68BC5B1BEA557D55679BE749A7A88",
+    "source_fingerprint": "sha256:85C5B3D8FC2C10406582C1BD1C68D71E067A3CF6AB1353DDBAC9E12256214E45",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -131,7 +131,7 @@
           "type": "string"
         },
         "enabled": {
-          "type": "string"
+          "type": "boolean"
         }
       },
       "required": [

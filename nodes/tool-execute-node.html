@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="execute_node"
   data-source-files="sdk/agent/node_execution.py"
-  data-source-fingerprint="sha256:EDC4888C87C5F8315383B6F01A9CE872E8BCBFC94E2264166D0D72CAD66B52E4"
+  data-source-fingerprint="sha256:FEBE2D603233B64829ED0616E73C4B30979AA4B05110D3D215C0EB18CA942053"
   data-source-digest="sha256:FE8A81DC0596B46B04E8F73FED6255952E6EFFD0B80126B013898AEA3B1BE124"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:54Z"
+  data-generated-at="2026-09-13T05:51:45Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;execute_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run the workflow described by an HTML Neural Node, passing optional inputs. Only workflow nodes that declare execution authority can be run; documentation and tool-catalogue nodes cannot. Use list_neural_nodes to find one and read_neural_node to inspect it first.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;execute_node(node_id*, inputs)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;inputs&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Completes the read/enumerate/write/act set. Tala could already read a node, list nodes and update one, but had no way to run what a node described -- so a compiled workflow node documented how to execute itself to a reader with no mechanism to do so. The workflow specification is read from the node&#x27;s own node-state block rather than from a JSON sidecar, so the document that was retrieved is the document that runs. Refuses any node whose type is not a workflow, and any node declaring execution authority below 0.5. Returns success=False with the reason rather than raising, and never reports a failed workflow as a successful call.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.node_execution&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;execute_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run the workflow described by an HTML Neural Node, passing optional inputs. Only workflow nodes that declare execution authority can be run; documentation and tool-catalogue nodes cannot. Use list_neural_nodes to find one and read_neural_node to inspect it first.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;execute_node(node_id*, inputs)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;inputs&lt;/code&gt; (object, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Completes the read/enumerate/write/act set. Tala could already read a node, list nodes and update one, but had no way to run what a node described -- so a compiled workflow node documented how to execute itself to a reader with no mechanism to do so. The workflow specification is read from the node&#x27;s own node-state block rather than from a JSON sidecar, so the document that was retrieved is the document that runs. Refuses any node whose type is not a workflow, and any node declaring execution authority below 0.5. Returns success=False with the reason rather than raising, and never reports a failed workflow as a successful call.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.node_execution&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:54Z",
+    "created_or_updated": "2026-09-13T05:51:45Z",
     "schema": "neural-node/v2",
     "doc_target": "execute_node",
-    "source_fingerprint": "sha256:EDC4888C87C5F8315383B6F01A9CE872E8BCBFC94E2264166D0D72CAD66B52E4",
+    "source_fingerprint": "sha256:FEBE2D603233B64829ED0616E73C4B30979AA4B05110D3D215C0EB18CA942053",
     "source_files": [
       "sdk/agent/node_execution.py"
     ],
@@ -125,7 +125,7 @@
           "type": "string"
         },
         "inputs": {
-          "type": "string"
+          "type": "object"
         }
       },
       "required": [

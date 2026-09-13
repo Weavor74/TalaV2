@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="test.run_validation"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:AB77DCEBCA310B07E7ECF4F53F78BBA8090B619718C7B9159A12E1874A71D762"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:7B3B1D1ACC9E3AC8A2D3E7E916643D2C6B9603EC8BF4A078826EAFF449C05FF1"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:37Z"
+  data-generated-at="2026-09-13T05:52:22Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;test.run_validation&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run allowlisted validation commands such as python -m py_compile or pytest. Arbitrary shell commands are not allowed.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;test.run_validation(commands*, timeout)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;commands&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;test.run_validation&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run allowlisted validation commands such as python -m py_compile or pytest. Arbitrary shell commands are not allowed.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;test.run_validation(commands*, timeout)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;commands&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout&lt;/code&gt; (number, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:37Z",
+    "created_or_updated": "2026-09-13T05:52:22Z",
     "schema": "neural-node/v2",
     "doc_target": "test.run_validation",
-    "source_fingerprint": "sha256:AB77DCEBCA310B07E7ECF4F53F78BBA8090B619718C7B9159A12E1874A71D762",
+    "source_fingerprint": "sha256:7B3B1D1ACC9E3AC8A2D3E7E916643D2C6B9603EC8BF4A078826EAFF449C05FF1",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -125,7 +125,7 @@
           "type": "string"
         },
         "timeout": {
-          "type": "string"
+          "type": "number"
         }
       },
       "required": [

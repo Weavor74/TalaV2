@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="create_swarm_topology"
   data-source-files="sdk/agent/agent_authoring.py"
-  data-source-fingerprint="sha256:55618235C5A5C3E06072DE25ABC26C91F722B9F5B8E60D3FDE026EF3266AAD4F"
+  data-source-fingerprint="sha256:4508C1A198416F03606F70A89571E5F4F4CDE6EC8E63440CD6325E958C61D284"
   data-source-digest="sha256:535EF551FA773AEC7F8D06241BE8E8AED28E1B87FD9D10E3C208E700A2F8FC54"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:39Z"
+  data-generated-at="2026-09-13T05:51:27Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;create_swarm_topology&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Author a swarm topology: a DAG of named nodes with roles and gate conditions on the edges. Each node may name an agent_id to run as.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_swarm_topology(topology_id*, name*, nodes*, edges*)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;topology_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;nodes&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;edges&lt;/code&gt; (string, required)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;nodes: [{&quot;id&quot;: &quot;scout&quot;, &quot;role&quot;: &quot;planner&quot;, &quot;description&quot;: &quot;...&quot;, &quot;agent_id&quot;: &quot;agent-xxxx&quot;}] -- agent_id is optional edges: [{&quot;from_node&quot;: &quot;scout&quot;, &quot;to_node&quot;: &quot;survey&quot;, &quot;condition&quot;: &quot;success&quot;}] Validated through the same ``topology_from_spec`` the loader uses, so a topology that would not load back is refused rather than written. Edge conditions are checked against the rules GatedVerifier actually implements. An unknown condition can never pass, and that branch would stall silently on every run.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;create_swarm_topology&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Author a swarm topology: a DAG of named nodes with roles and gate conditions on the edges. Each node may name an agent_id to run as.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_swarm_topology(topology_id*, name*, nodes*, edges*)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;topology_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;nodes&lt;/code&gt; (array, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;edges&lt;/code&gt; (array, required)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;nodes: [{&quot;id&quot;: &quot;scout&quot;, &quot;role&quot;: &quot;planner&quot;, &quot;description&quot;: &quot;...&quot;, &quot;agent_id&quot;: &quot;agent-xxxx&quot;}] -- agent_id is optional edges: [{&quot;from_node&quot;: &quot;scout&quot;, &quot;to_node&quot;: &quot;survey&quot;, &quot;condition&quot;: &quot;success&quot;}] Validated through the same ``topology_from_spec`` the loader uses, so a topology that would not load back is refused rather than written. Edge conditions are checked against the rules GatedVerifier actually implements. An unknown condition can never pass, and that branch would stall silently on every run.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:39Z",
+    "created_or_updated": "2026-09-13T05:51:27Z",
     "schema": "neural-node/v2",
     "doc_target": "create_swarm_topology",
-    "source_fingerprint": "sha256:55618235C5A5C3E06072DE25ABC26C91F722B9F5B8E60D3FDE026EF3266AAD4F",
+    "source_fingerprint": "sha256:4508C1A198416F03606F70A89571E5F4F4CDE6EC8E63440CD6325E958C61D284",
     "source_files": [
       "sdk/agent/agent_authoring.py"
     ],
@@ -128,10 +128,12 @@
           "type": "string"
         },
         "nodes": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "edges": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         }
       },
       "required": [

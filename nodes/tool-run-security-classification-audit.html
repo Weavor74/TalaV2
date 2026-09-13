@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="run_security_classification_audit"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:012FCC527E9F29408C053C0DBB2C0B680110690353B1C51DE8F8837E9B31A1EA"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:32AAFDAE7495541CB2CC595C2467A2EDC943086C43D91CEEC162FC0798654F21"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:15Z"
+  data-generated-at="2026-09-13T05:52:02Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;run_security_classification_audit&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Scan A2UI fields, heuristically classify them, and enforce manual approval on ambiguity.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_security_classification_audit(schema_fields*)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;schema_fields&lt;/code&gt; (string, required)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Classifies each field. If any field is UNCATEGORIZED, triggers manual alert. Otherwise, returns mapping for A2UI locking.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;run_security_classification_audit&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Scan A2UI fields, heuristically classify them, and enforce manual approval on ambiguity.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_security_classification_audit(schema_fields*)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;schema_fields&lt;/code&gt; (array, required)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Classifies each field. If any field is UNCATEGORIZED, triggers manual alert. Otherwise, returns mapping for A2UI locking.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:15Z",
+    "created_or_updated": "2026-09-13T05:52:02Z",
     "schema": "neural-node/v2",
     "doc_target": "run_security_classification_audit",
-    "source_fingerprint": "sha256:012FCC527E9F29408C053C0DBB2C0B680110690353B1C51DE8F8837E9B31A1EA",
+    "source_fingerprint": "sha256:32AAFDAE7495541CB2CC595C2467A2EDC943086C43D91CEEC162FC0798654F21",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -122,7 +122,8 @@
       "type": "object",
       "properties": {
         "schema_fields": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         }
       },
       "required": [

@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="create_function_node"
   data-source-files="sdk/agent/node_execution.py"
-  data-source-fingerprint="sha256:37156365CF13B0BF20D2BE95CF2A6E112D89B9B61F64D87907C522EAFBBFDF58"
+  data-source-fingerprint="sha256:0A916F34C8FC0192C65589A1C02C55C1C8716A6858B9E7F7146E64A0EC508ABB"
   data-source-digest="sha256:FE8A81DC0596B46B04E8F73FED6255952E6EFFD0B80126B013898AEA3B1BE124"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:38Z"
+  data-generated-at="2026-09-13T05:51:26Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;create_function_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Author an HTML-NN that carries executable Python. The node is written and recorded but NOT admitted to run: a person reviews the code and admits it before it can execute.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_function_node(node_id*, title*, code*, description, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;code&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;description&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Writes a `function` node whose node-state block holds `code`, and records its arrival as locally authored. It cannot run yet. Authoring does not admit, even here. The obvious shortcut is to treat locally written code as reviewed -- you wrote it, after all -- but this tool is in the registry, so the writer is as often the model as the person, and self-admission would make &quot;never a start without review&quot; true only for code that came from elsewhere. That is precisely backwards: code Tala writes for herself is the case the review exists for. So the flow is the same for everyone. Write, read, admit. The code runs with `call_tool(name, **kwargs)` in scope, `inputs` bound to whatever the caller passed, and `return` for its value -- the same contract as run_tool_script.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.node_execution&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;create_function_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Author an HTML-NN that carries executable Python. The node is written and recorded but NOT admitted to run: a person reviews the code and admits it before it can execute.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_function_node(node_id*, title*, code*, description, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;code&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;description&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (number, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Writes a `function` node whose node-state block holds `code`, and records its arrival as locally authored. It cannot run yet. Authoring does not admit, even here. The obvious shortcut is to treat locally written code as reviewed -- you wrote it, after all -- but this tool is in the registry, so the writer is as often the model as the person, and self-admission would make &quot;never a start without review&quot; true only for code that came from elsewhere. That is precisely backwards: code Tala writes for herself is the case the review exists for. So the flow is the same for everyone. Write, read, admit. The code runs with `call_tool(name, **kwargs)` in scope, `inputs` bound to whatever the caller passed, and `return` for its value -- the same contract as run_tool_script.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.node_execution&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:38Z",
+    "created_or_updated": "2026-09-13T05:51:26Z",
     "schema": "neural-node/v2",
     "doc_target": "create_function_node",
-    "source_fingerprint": "sha256:37156365CF13B0BF20D2BE95CF2A6E112D89B9B61F64D87907C522EAFBBFDF58",
+    "source_fingerprint": "sha256:0A916F34C8FC0192C65589A1C02C55C1C8716A6858B9E7F7146E64A0EC508ABB",
     "source_files": [
       "sdk/agent/node_execution.py"
     ],
@@ -134,7 +134,7 @@
           "type": "string"
         },
         "timeout_seconds": {
-          "type": "string"
+          "type": "number"
         }
       },
       "required": [

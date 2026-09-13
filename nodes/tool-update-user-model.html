@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="update_user_model"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:82EF31CE8725E40B3825D27B2E295189BAE5B4EE7C2F62B8D43D304803AA2A28"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:8F62E2C824D3BF7184D60A695520A2E5713BAD96FA8A69DB6D34D74965DBF4EC"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:46Z"
+  data-generated-at="2026-09-13T05:52:31Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;update_user_model&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Distill recent conversations into an updated model of the user (preferences, projects, communication style) and persist it as an HTML-NN learning node. Schedule this with schedule_goal for continuous refinement.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;update_user_model(focus, max_turns)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;focus&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;max_turns&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Reads the most recent conversation turns across ALL sessions (in-app chat and messaging channels alike), asks the active LLM to distill durable facts about the user, and stores the result as a &#x27;User Model&#x27; learning node so it becomes recallable RAG context in future conversations.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;update_user_model&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Distill recent conversations into an updated model of the user (preferences, projects, communication style) and persist it as an HTML-NN learning node. Schedule this with schedule_goal for continuous refinement.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;update_user_model(focus, max_turns)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;focus&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;max_turns&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Reads the most recent conversation turns across ALL sessions (in-app chat and messaging channels alike), asks the active LLM to distill durable facts about the user, and stores the result as a &#x27;User Model&#x27; learning node so it becomes recallable RAG context in future conversations.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:46Z",
+    "created_or_updated": "2026-09-13T05:52:31Z",
     "schema": "neural-node/v2",
     "doc_target": "update_user_model",
-    "source_fingerprint": "sha256:82EF31CE8725E40B3825D27B2E295189BAE5B4EE7C2F62B8D43D304803AA2A28",
+    "source_fingerprint": "sha256:8F62E2C824D3BF7184D60A695520A2E5713BAD96FA8A69DB6D34D74965DBF4EC",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -125,7 +125,7 @@
           "type": "string"
         },
         "max_turns": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": []

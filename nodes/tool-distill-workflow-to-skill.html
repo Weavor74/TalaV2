@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="distill_workflow_to_skill"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:8442D805B0C4A756CD12C280C38C3363BA79F81B8665E04B31D204D37A664695"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:1D2AD2D3FA2D2A0B0E9E37A84E757EC4DA7434120E02BB8F3637217DDF6413AE"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:44Z"
+  data-generated-at="2026-09-13T05:51:36Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;distill_workflow_to_skill&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Autonomously generate a reusable HTML Neural Node Skill from a solved complex workflow. Use this tool when you discover a useful multi-step sequence to memorize it for future use.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;distill_workflow_to_skill(skill_name*, description*, workflow_steps*, requirements)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;skill_name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;description&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;workflow_steps&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;requirements&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Generate an HTML Neural Node skill file and anchor it to the ledger.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;distill_workflow_to_skill&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Autonomously generate a reusable HTML Neural Node Skill from a solved complex workflow. Use this tool when you discover a useful multi-step sequence to memorize it for future use.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;distill_workflow_to_skill(skill_name*, description*, workflow_steps*, requirements)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;skill_name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;description&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;workflow_steps&lt;/code&gt; (array, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;requirements&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Generate an HTML Neural Node skill file and anchor it to the ledger.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:44Z",
+    "created_or_updated": "2026-09-13T05:51:36Z",
     "schema": "neural-node/v2",
     "doc_target": "distill_workflow_to_skill",
-    "source_fingerprint": "sha256:8442D805B0C4A756CD12C280C38C3363BA79F81B8665E04B31D204D37A664695",
+    "source_fingerprint": "sha256:1D2AD2D3FA2D2A0B0E9E37A84E757EC4DA7434120E02BB8F3637217DDF6413AE",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -128,10 +128,12 @@
           "type": "string"
         },
         "workflow_steps": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "requirements": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         }
       },
       "required": [

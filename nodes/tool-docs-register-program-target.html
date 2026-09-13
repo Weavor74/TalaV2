@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="docs.register_program_target"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:9D974876A25473FBB1AA34CB15948AB39D06A7CF887CF2F3E224EB9F12F4029C"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:A1C53257448600FFE7F4FF94AF3FFB50D408DECC28ADD59FAF692DD1AD2C2F56"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:52Z"
+  data-generated-at="2026-09-13T05:51:43Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;docs.register_program_target&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Register a new program documentation target in Tala&#x27;s user-data target registry, create its HTML-NN documentation node, and validate it from disk.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;docs.register_program_target(doc_target*, title*, semantic_memory*, node_id, source_files, references, relationships, include_in_codebase, overwrite)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;doc_target&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;semantic_memory&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;source_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;references&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;relationships&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;include_in_codebase&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;overwrite&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;docs.register_program_target&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Register a new program documentation target in Tala&#x27;s user-data target registry, create its HTML-NN documentation node, and validate it from disk.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;docs.register_program_target(doc_target*, title*, semantic_memory*, node_id, source_files, references, relationships, include_in_codebase, overwrite)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;doc_target&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;title&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;semantic_memory&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;source_files&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;references&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;relationships&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;include_in_codebase&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;overwrite&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:52Z",
+    "created_or_updated": "2026-09-13T05:51:43Z",
     "schema": "neural-node/v2",
     "doc_target": "docs.register_program_target",
-    "source_fingerprint": "sha256:9D974876A25473FBB1AA34CB15948AB39D06A7CF887CF2F3E224EB9F12F4029C",
+    "source_fingerprint": "sha256:A1C53257448600FFE7F4FF94AF3FFB50D408DECC28ADD59FAF692DD1AD2C2F56",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -134,19 +134,22 @@
           "type": "string"
         },
         "source_files": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "references": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "relationships": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "include_in_codebase": {
-          "type": "string"
+          "type": "boolean"
         },
         "overwrite": {
-          "type": "string"
+          "type": "boolean"
         }
       },
       "required": [

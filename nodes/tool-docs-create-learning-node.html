@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="docs.create_learning_node"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:4A96FBB7C5491AD50CF86B6FF0A2EEF3ABDFD5B45BB7CB8F40ADCE9547528A31"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:19814BB30B60848D90CD0263E975A017659F7A084237097A6C30BECC86D97A9B"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:46Z"
+  data-generated-at="2026-09-13T05:51:38Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;docs.create_learning_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Create a fresh HTML-NN learning event node for durable knowledge Tala just learned, and connect it back to the canonical topic node.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;docs.create_learning_node(topic*, summary*, canonical_node_id, details, source_files, relationships, references, tags, node_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;topic&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;summary&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;canonical_node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;details&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;source_files&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;relationships&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;references&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tags&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;docs.create_learning_node&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Create a fresh HTML-NN learning event node for durable knowledge Tala just learned, and connect it back to the canonical topic node.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;docs.create_learning_node(topic*, summary*, canonical_node_id, details, source_files, relationships, references, tags, node_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;topic&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;summary&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;canonical_node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;details&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;source_files&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;relationships&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;references&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tags&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;node_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:46Z",
+    "created_or_updated": "2026-09-13T05:51:38Z",
     "schema": "neural-node/v2",
     "doc_target": "docs.create_learning_node",
-    "source_fingerprint": "sha256:4A96FBB7C5491AD50CF86B6FF0A2EEF3ABDFD5B45BB7CB8F40ADCE9547528A31",
+    "source_fingerprint": "sha256:19814BB30B60848D90CD0263E975A017659F7A084237097A6C30BECC86D97A9B",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -131,19 +131,24 @@
           "type": "string"
         },
         "details": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "source_files": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "relationships": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "references": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "tags": {
-          "type": "string"
+          "type": "array",
+          "items": {}
         },
         "node_id": {
           "type": "string"

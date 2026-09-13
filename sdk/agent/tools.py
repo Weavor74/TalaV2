@@ -14,7 +14,7 @@ from __future__ import annotations
 import inspect
 import logging
 import os
-from typing import Any, Callable, TYPE_CHECKING
+from typing import Any, Callable, TYPE_CHECKING, get_args, get_origin, get_type_hints
 
 if TYPE_CHECKING:
     from pathlib import Path
@@ -57,6 +57,8 @@ def _coerce_declared_numbers(sig, arguments: dict) -> dict:
                 coerced[key] = int(text)
             elif "float" in declared and "str" not in declared:
                 coerced[key] = float(text)
+            elif declared in ("bool", "<class 'bool'>") and text.lower() in ("true", "false"):
+                coerced[key] = text.lower() == "true"
         except (TypeError, ValueError):
             pass  # not a number after all; let the tool refuse it itself
     return coerced
@@ -488,6 +490,10 @@ class ToolRegistry:
     def _generate_schema(func: Callable[..., Any]) -> dict[str, Any]:
         """Generate a basic parameter schema from the function signature."""
         sig = inspect.signature(func)
+        try:
+            hints = get_type_hints(func)
+        except (NameError, TypeError):
+            hints = {}
         properties = {}
         required = []
 
@@ -497,18 +503,25 @@ class ToolRegistry:
             if param.kind in (inspect.Parameter.VAR_POSITIONAL, inspect.Parameter.VAR_KEYWORD):
                 continue
             param_type = "string"
-            if param.annotation == int:
+            annotation = hints.get(param_name, param.annotation)
+            args = [arg for arg in get_args(annotation) if arg is not type(None)]
+            if len(args) == 1 and type(None) in get_args(annotation):
+                annotation = args[0]
+            annotation = get_origin(annotation) or annotation
+            if annotation == int:
                 param_type = "integer"
-            elif param.annotation == float:
+            elif annotation == float:
                 param_type = "number"
-            elif param.annotation == bool:
+            elif annotation == bool:
                 param_type = "boolean"
-            elif param.annotation == dict:
+            elif annotation == dict:
                 param_type = "object"
-            elif param.annotation == list:
+            elif annotation == list:
                 param_type = "array"
 
             properties[param_name] = {"type": param_type}
+            if param_type == "array":
+                properties[param_name]["items"] = {}
             if param.default == inspect.Parameter.empty:
                 required.append(param_name)
 
@@ -4754,6 +4767,7 @@ from sdk.agent import vault_tools  # noqa: E402,F401
 # keeps the cycle resolvable.
 from sdk.agent import agent_authoring  # noqa: E402,F401
 from sdk.agent import desktop_control  # noqa: E402,F401
+from sdk.agent import desktop_agent  # noqa: E402,F401
 
 # Registers analyze_screen / generate_image, and provides _analyze_screen_image
 # to desktop_control. Moved out of this file to stay under the size ratchet;

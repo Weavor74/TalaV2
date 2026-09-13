@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="browser_read"
   data-source-files="sdk/agent/web_browser.py"
-  data-source-fingerprint="sha256:6E04A03DFF94C02F527403A3BE6E2C9548A05030E2A059A1B819DE7B980638FF"
+  data-source-fingerprint="sha256:4136AC56CF5B501C23F3AD04144AEAEBC908DF2E828970ACF5E8E628ADE61BD3"
   data-source-digest="sha256:9A849A9B6C4E9B96488776DA080290243A5B9C987143F17DAD32ECE8E88DD2F6"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:22Z"
+  data-generated-at="2026-09-13T05:51:14Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;browser_read&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read the current automation-browser page: title, visible text, and an indexed list of interactive elements (links, buttons, inputs). Use the indexes with browser_click / browser_type.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;browser_read(max_chars)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;max_chars&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME browser_read - read page text and enumerate interactive elements SYNOPSIS browser_read(max_chars: int = 4000) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.web_browser&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;browser_read&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read the current automation-browser page: title, visible text, and an indexed list of interactive elements (links, buttons, inputs). Use the indexes with browser_click / browser_type.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;browser_read(max_chars)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;max_chars&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME browser_read - read page text and enumerate interactive elements SYNOPSIS browser_read(max_chars: int = 4000) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.web_browser&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,10 +100,10 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:22Z",
+    "created_or_updated": "2026-09-13T05:51:14Z",
     "schema": "neural-node/v2",
     "doc_target": "browser_read",
-    "source_fingerprint": "sha256:6E04A03DFF94C02F527403A3BE6E2C9548A05030E2A059A1B819DE7B980638FF",
+    "source_fingerprint": "sha256:4136AC56CF5B501C23F3AD04144AEAEBC908DF2E828970ACF5E8E628ADE61BD3",
     "source_files": [
       "sdk/agent/web_browser.py"
     ],
@@ -122,7 +122,7 @@
       "type": "object",
       "properties": {
         "max_chars": {
-          "type": "string"
+          "type": "integer"
         }
       },
       "required": []

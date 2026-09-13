@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="starcitizen_lookup"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:018CF1B8250E70AD50E2758DFC4D935D3A6CA1CF300BFA9879290D710D1C134F"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:CF105E0F56E6AA3D805665E8B53C12A97688ADA902A4810E78DA797A20B215D0"
+  data-source-digest="sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:31Z"
+  data-generated-at="2026-09-13T05:52:18Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;starcitizen_lookup&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Look up canonical Star Citizen universe data: ships and their real stats (mass, cargo, crew, IR/EM emission signatures), star systems, celestial objects, manufacturers, commodities, weapons, factions, and the in-universe written record via galactapedia articles and comm-links. Use this for any question about the Star Citizen universe rather than answering from memory. Resources: celestial-objects, comm-links, commodities, factions, galactapedia, ground-vehicles, items, locations, manufacturers, starsystems, vehicle-weapons, vehicles, weapons.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;starcitizen_lookup(resource*, query, identifier, limit, full_text)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;resource&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;identifier&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;full_text&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;`resource` is one of the keys in _SC_RESOURCES. Provide `query` for a partial-name search, or `identifier` to fetch one record directly by slug/id/code. Results are trimmed to the fields that carry meaning -- a raw vehicle record is several KB of nested port and component trees. Set `full_text=True` on a galactapedia identifier fetch to get the whole article body instead of a summary. Public API, no credentials. Search is rate-limited to 60 requests per minute per IP, so callers should batch rather than loop.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;starcitizen_lookup&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Look up canonical Star Citizen universe data: ships and their real stats (mass, cargo, crew, IR/EM emission signatures), star systems, celestial objects, manufacturers, commodities, weapons, factions, and the in-universe written record via galactapedia articles and comm-links. Use this for any question about the Star Citizen universe rather than answering from memory. Resources: celestial-objects, comm-links, commodities, factions, galactapedia, ground-vehicles, items, locations, manufacturers, starsystems, vehicle-weapons, vehicles, weapons.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;starcitizen_lookup(resource*, query, identifier, limit, full_text)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;resource&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;identifier&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;full_text&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;`resource` is one of the keys in _SC_RESOURCES. Provide `query` for a partial-name search, or `identifier` to fetch one record directly by slug/id/code. Results are trimmed to the fields that carry meaning -- a raw vehicle record is several KB of nested port and component trees. Set `full_text=True` on a galactapedia identifier fetch to get the whole article body instead of a summary. Public API, no credentials. Search is rate-limited to 60 requests per minute per IP, so callers should batch rather than loop.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:31Z",
+    "created_or_updated": "2026-09-13T05:52:18Z",
     "schema": "neural-node/v2",
     "doc_target": "starcitizen_lookup",
-    "source_fingerprint": "sha256:018CF1B8250E70AD50E2758DFC4D935D3A6CA1CF300BFA9879290D710D1C134F",
+    "source_fingerprint": "sha256:CF105E0F56E6AA3D805665E8B53C12A97688ADA902A4810E78DA797A20B215D0",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:FFB1C44E1B62FFEB2A50C09C783D6AE840D67AFFE600B18BE45C18001EF97ACA",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -131,10 +131,10 @@
           "type": "string"
         },
         "limit": {
-          "type": "string"
+          "type": "integer"
         },
         "full_text": {
-          "type": "string"
+          "type": "boolean"
         }
       },
       "required": [
