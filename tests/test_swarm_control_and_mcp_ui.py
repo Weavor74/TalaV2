@@ -93,7 +93,9 @@ def test_only_the_irreversible_action_confirms():
 def test_pause_cascades_to_child_nodes():
     """A swarm parent must take its dispatched nodes with it, which is what
     makes controlling a swarm through task.control correct at all."""
-    server = SERVER.read_text(encoding="utf-8")
+    # handle_task_control moved to task_rpc.py in the size-ratchet cut-down;
+    # the cascade requirement follows the code.
+    server = Path("python/harness/task_rpc.py").read_text(encoding="utf-8")
     block = server.split("async def handle_task_control", 1)[1][:1400]
 
     assert "parent_id = $1" in block

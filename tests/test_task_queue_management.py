@@ -14,11 +14,12 @@ from pathlib import Path
 
 import pytest
 
-from python.harness.server import _HANDLERS, _TASK_LIVE_STATUSES
+from python.harness.server import _HANDLERS
+from python.harness.task_rpc import _TASK_LIVE_STATUSES
 
 RENDERER = Path("renderer/renderer.js")
 INDEX = Path("renderer/index.html")
-SERVER = Path("python/harness/server.py")
+SERVER = Path("python/harness/task_rpc.py")  # task handlers moved here (size-ratchet cut-down)
 
 
 # --- the RPCs exist and are reachable ---------------------------------------

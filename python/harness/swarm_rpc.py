@@ -16,6 +16,7 @@ from typing import Any
 
 from python.harness import db
 from python.harness.jsonrpc import JsonRpcError, _err, _ok
+from python.harness.task_rpc import handle_task_control
 
 logger = logging.getLogger(__name__)
 
@@ -132,25 +133,17 @@ async def handle_swarm_start(params: dict[str, Any], req_id: Any) -> str:
         logger.exception("swarm.start error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
-def _task_control():
-    # Lazy: task.control still lives in server.py (it belongs to the task.*
-    # slice of the cut-down); at call time server is fully imported, so this
-    # cannot cycle. Swap to `from python.harness.task_rpc import ...` when
-    # that slice lands.
-    from python.harness.server import handle_task_control
-    return handle_task_control
-
 async def handle_swarm_pause(params: dict[str, Any], req_id: Any) -> str:
     params["action"] = "pause"
-    return await _task_control()(params, req_id)
+    return await handle_task_control(params, req_id)
 
 async def handle_swarm_resume(params: dict[str, Any], req_id: Any) -> str:
     params["action"] = "resume"
-    return await _task_control()(params, req_id)
+    return await handle_task_control(params, req_id)
 
 async def handle_swarm_cancel(params: dict[str, Any], req_id: Any) -> str:
     params["action"] = "abort"
-    return await _task_control()(params, req_id)
+    return await handle_task_control(params, req_id)
 
 async def handle_swarm_status(params: dict[str, Any], req_id: Any) -> str:
     task_id = params.get("task_id")
