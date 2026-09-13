@@ -75,8 +75,10 @@ async def list_agents() -> dict[str, Any]:
 @register_tool(
     name="create_agent",
     description=(
-        "Define a new agent persona that swarm nodes can run as. Sets a name, role and system "
-        "prompt only - it grants no tools, no model and no authority."
+        "Define a new agent persona that swarm nodes can run as. Sets a name, role, system "
+        "prompt and optionally a birthdate (ISO date) for its own astrological chart - it "
+        "grants no tools, no model and no authority. Without a birthdate the persona "
+        "inherits the install's Primary chart."
     ),
 )
 async def create_agent(
@@ -84,13 +86,15 @@ async def create_agent(
     system_prompt: str,
     role: str = "",
     tag: str = "",
+    birthdate: str = "",
+    birth_hour: float | None = None,
 ) -> dict[str, Any]:
     """
     NAME
            create_agent - define a new agent persona
 
     SYNOPSIS
-           create_agent(name, system_prompt, role, tag) -> dict[str, Any]
+           create_agent(name, system_prompt, role, tag, birthdate, birth_hour) -> dict[str, Any]
 
     DESCRIPTION
            Creates a persona a swarm node can be assigned to. It sets voice and
@@ -99,6 +103,13 @@ async def create_agent(
            An existing name is refused rather than overwritten. A persona may be
            mid-use by a running swarm, and silently replacing its system prompt
            would change that run's behaviour underneath it.
+
+           birthdate (YYYY-MM-DD, optional birth_hour 0-24 UT) gives the persona
+           its own natal chart for the astro-emotion layer. Left unset, the
+           emotion service resolves the install's Primary chart instead
+           (profiles.config.primary_agent_birthdate on the master profile),
+           and only then the canonical origin chart -- Tala's own date is not
+           assumed to be the right default for every install.
     """
     from python.harness import db
 
@@ -111,6 +122,19 @@ async def create_agent(
             "success": False,
             "error": "'system_prompt' is required; a persona with no prompt changes nothing",
         }
+    birthdate = (birthdate or "").strip()
+    if birthdate:
+        import datetime
+
+        try:
+            datetime.date.fromisoformat(birthdate)
+        except ValueError:
+            return {
+                "success": False,
+                "error": "'birthdate' must be an ISO date (YYYY-MM-DD); the persona's chart is derived from it",
+            }
+    if birth_hour is not None and not (isinstance(birth_hour, (int, float)) and 0.0 <= float(birth_hour) < 24.0):
+        return {"success": False, "error": "'birth_hour' must be a decimal hour from 0 to 24 (UT)"}
 
     try:
         existing = await db.fetchrow(
@@ -128,6 +152,10 @@ async def create_agent(
 
         agent_id = f"agent-{uuid.uuid4().hex[:8]}"
         config = {"system_prompt": system_prompt, "tag": tag.strip()}
+        if birthdate:
+            config["birthdate"] = birthdate
+            if birth_hour is not None:
+                config["birth_hour"] = float(birth_hour)
         await db.execute(
             """
             INSERT INTO agents (id, name, type, role, crew_type, config, updated_at)

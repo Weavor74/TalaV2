@@ -118,38 +118,69 @@ def _parse_birthdate(raw: str, hour: float = 12.0):
         return None
 
 
-async def _resolve_birthdate(agent_id: str | None):
+async def _resolve_primary_birthdate():
     """
-    Tala's chart: the agent's configured birthdate, else the canonical one.
+    The install's Primary chart, else the canonical origin chart.
 
-    Returns ``(Birthdate, source)``. An unreachable database or an agent
-    row without a birthdate must not change who she is -- it falls back to
-    TALA_NATAL, reported as ``tala-origin``, never to a different chart.
+    TALA_NATAL is one fixed 1977 chart, and it is not assumed to be the
+    right default for every install: an operator sets their own Primary as
+    ``primary_agent_birthdate`` (optional ``primary_agent_birth_hour``) on
+    the master profile's config, and every agent without a chart of its own
+    inherits *that*. Only an install that configured nothing — or one whose
+    database is unreachable, which must not change who she is — falls back
+    to the origin chart.
     """
-    from python.astrology.ephemeris import TALA_NATAL
-
-    if not agent_id:
-        return TALA_NATAL, "tala-origin"
-
     try:
         from python.harness import db
 
-        row = await db.fetchrow("SELECT config FROM agents WHERE id = $1", agent_id)
+        row = await db.fetchrow("SELECT config FROM profiles WHERE is_master = TRUE LIMIT 1")
         if row:
             cfg = row["config"]
             if isinstance(cfg, str):
                 cfg = json.loads(cfg)
+            cfg = cfg or {}
             parsed = _parse_birthdate(
-                (cfg or {}).get("birthdate", ""), (cfg or {}).get("birth_hour", 12.0) or 12.0
+                cfg.get("primary_agent_birthdate", ""),
+                cfg.get("primary_agent_birth_hour", 12.0) or 12.0,
             )
             if parsed:
-                return parsed, "agent-config"
-    except Exception as exc:
-        log.warning(
-            "emotion_service: could not load birthdate for agent %s (%s) — using canonical chart",
-            agent_id, exc,
-        )
+                return parsed, "primary-identity"
+    except Exception:
+        log.debug("emotion_service: no primary chart available — using the origin chart")
+    from python.astrology.ephemeris import TALA_NATAL
+
     return TALA_NATAL, "tala-origin"
+
+
+async def _resolve_birthdate(agent_id: str | None):
+    """
+    The acting agent's chart: its own configured birthdate, else the
+    install's Primary, else the canonical origin chart.
+
+    Returns ``(Birthdate, source)`` with source one of "agent-config",
+    "primary-identity" or "tala-origin". Each step falls through only to
+    the next fixed point, never to an invented chart.
+    """
+    if agent_id:
+        try:
+            from python.harness import db
+
+            row = await db.fetchrow("SELECT config FROM agents WHERE id = $1", agent_id)
+            if row:
+                cfg = row["config"]
+                if isinstance(cfg, str):
+                    cfg = json.loads(cfg)
+                parsed = _parse_birthdate(
+                    (cfg or {}).get("birthdate", ""), (cfg or {}).get("birth_hour", 12.0) or 12.0
+                )
+                if parsed:
+                    return parsed, "agent-config"
+        except Exception as exc:
+            log.warning(
+                "emotion_service: could not load birthdate for agent %s (%s) — trying the primary chart",
+                agent_id, exc,
+            )
+    return await _resolve_primary_birthdate()
 
 
 async def _resolve_user_birthdate():

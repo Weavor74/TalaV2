@@ -66,9 +66,12 @@ def test_create_agent_cannot_grant_authority():
 
 
 def test_create_agent_signature_is_persona_only():
+    """birthdate/birth_hour are persona too: they set the agent's natal chart
+    for the astro-emotion layer (voice and mood colour), and grant nothing —
+    the authority-shaped names stay forbidden by the test above."""
     params = set(inspect.signature(agent_authoring.create_agent).parameters)
 
-    assert params == {"name", "system_prompt", "role", "tag"}
+    assert params == {"name", "system_prompt", "role", "tag", "birthdate", "birth_hour"}
 
 
 # --- refusals ---------------------------------------------------------------

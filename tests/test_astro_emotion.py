@@ -552,3 +552,83 @@ async def test_missing_database_degrades_to_origin_chart(tmp_path, monkeypatch):
 
     assert state["birth_source"] == "tala-origin"
     assert state["primary_emotion"]
+
+
+# ---------------------------------------------------------------------------
+# Per-agent charts and the Primary fallback
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_agent_configured_chart_outranks_everything(tmp_path, monkeypatch):
+    """An agent with its own birthdate uses it — never the Primary, never Tala's."""
+    import python.harness.emotion_service as svc
+
+    async def fake_fetchrow(query, *args):
+        if "agents" in query:
+            return {"config": {"birthdate": "2001-02-03", "birth_hour": 6.5}}
+        if "profiles" in query:
+            return {"config": {"primary_agent_birthdate": "1991-11-05"}}
+        return None
+
+    import python.harness.db as db_mod
+    monkeypatch.setattr(db_mod, "fetchrow", fake_fetchrow)
+
+    birth, source = await svc._resolve_birthdate("agent-x")
+    assert source == "agent-config"
+    assert (birth.year, birth.month, birth.day, birth.hour) == (2001, 2, 3, 6.5)
+
+
+@pytest.mark.asyncio
+async def test_agent_without_chart_inherits_the_primary_not_tala(tmp_path, monkeypatch):
+    """The install's configured Primary outranks the hardcoded origin chart:
+    Tala's 1977 default is not assumed to be the right default for every
+    install."""
+    import python.harness.emotion_service as svc
+
+    async def fake_fetchrow(query, *args):
+        if "agents" in query:
+            return {"config": {}}
+        if "profiles" in query:
+            return {"config": {"primary_agent_birthdate": "1991-11-05"}}
+        return None
+
+    import python.harness.db as db_mod
+    monkeypatch.setattr(db_mod, "fetchrow", fake_fetchrow)
+
+    birth, source = await svc._resolve_birthdate("agent-x")
+    assert source == "primary-identity"
+    assert (birth.year, birth.month, birth.day) == (1991, 11, 5)
+
+    # No agent at all (Tala herself) also prefers the configured Primary.
+    birth, source = await svc._resolve_birthdate(None)
+    assert source == "primary-identity"
+
+
+@pytest.mark.asyncio
+async def test_unconfigured_install_still_reaches_the_origin_chart(tmp_path, monkeypatch):
+    """No agent chart and no Primary must still resolve — to the origin chart,
+    never to an invented one."""
+    import python.harness.emotion_service as svc
+
+    async def fake_fetchrow(query, *args):
+        return {"config": {}}
+
+    import python.harness.db as db_mod
+    monkeypatch.setattr(db_mod, "fetchrow", fake_fetchrow)
+
+    birth, source = await svc._resolve_birthdate("agent-x")
+    assert source == "tala-origin"
+    assert (birth.year, birth.month, birth.day) == (1977, 7, 20)
+
+
+@pytest.mark.asyncio
+async def test_create_agent_refuses_a_malformed_birthdate():
+    """Validation happens before any DB access, so a bad date fails clean."""
+    from sdk.agent.agent_authoring import create_agent
+
+    res = await create_agent(name="x", system_prompt="y", birthdate="not-a-date")
+    assert not res["success"] and "birthdate" in res["error"]
+
+    res = await create_agent(name="x", system_prompt="y", birthdate="2001-02-03", birth_hour=99.0)
+    assert not res["success"] and "birth_hour" in res["error"]
