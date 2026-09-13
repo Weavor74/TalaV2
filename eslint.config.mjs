@@ -59,13 +59,13 @@ export default [
     // The two god files, pinned at their current size. Down only.
     files: ['renderer/renderer.js'],
     rules: {
-      'max-lines': ['error', { max: 16557, skipBlankLines: false, skipComments: false }],
+      'max-lines': ['error', { max: 16526, skipBlankLines: false, skipComments: false }],
     },
   },
   {
     files: ['electron/main.js'],
     rules: {
-      'max-lines': ['error', { max: 1180, skipBlankLines: false, skipComments: false }],
+      'max-lines': ['error', { max: 1166, skipBlankLines: false, skipComments: false }],
     },
   },
   {

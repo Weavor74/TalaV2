@@ -51,44 +51,9 @@ document.addEventListener('DOMContentLoaded', () => {
    2. Helpers
    ═══════════════════════════════════════════════════════════════════ */
 
-/**
- * Safely query a single DOM element.
- * @param {string} selector
- * @param {Element} [root=document]
- * @returns {Element|null}
- */
-function qs(selector, root = document) {
-  return root.querySelector(selector);
-}
-
-/**
- * Format a timestamp as HH:MM:SS.
- * @param {Date} [d]
- * @returns {string}
- */
-function fmtTime(d = new Date()) {
-  return d.toTimeString().slice(0, 8);
-}
-
-/**
- * Invoke a whitelisted IPC channel with a payload.
- * Falls back gracefully if the contextBridge is not available (e.g., during tests).
- *
- * // Context Bridge Relay: Provides a type-safe boundary between the sandboxed UI (renderer)
- * // and the Node.js/Python backend. All OS-level operations (file I/O, database queries)
- * // must pass through this funnel to prevent malicious Neural Nodes from escaping the browser sandbox.
- *
- * @param {string} channel
- * @param {*} [data]
- * @returns {Promise<*>}
- */
-async function invoke(channel, data) {
-  if (window.tala && typeof window.tala.invoke === 'function') {
-    return window.tala.invoke(channel, data);
-  }
-  console.warn('[renderer] window.tala not available — running in degraded mode');
-  return null;
-}
+// qs, fmtTime and invoke live in helpers.js — a classic script loaded before
+// this module, so they are shared globals that companion scripts
+// (desktop_commands.js, thinking_blocks.js) and Jest can reach too.
 
 /* ═══════════════════════════════════════════════════════════════════
    3. UIController — top-level app shell
@@ -5829,30 +5794,8 @@ const AgentChat = {
       return;
     }
 
-    const desktopCommand = text.match(/^\/desktop(-cpu)?\s+([\s\S]+)$/i);
-    if (desktopCommand) {
-      const expectation = desktopCommand[2].match(/\s+--expect\s+"([^"]+)"\s*$/);
-      const task = expectation ? desktopCommand[2].slice(0, expectation.index) : desktopCommand[2];
-      this.appendMessage('agent', 'Tala', 'Running the local desktop agent. Use /desktop-stop to stop it.');
-      let result;
-      try {
-        result = await invoke('python:rpc', {method: 'desktop.run', params: {task, cpu_only: Boolean(desktopCommand[1]), success_text: expectation?.[1] || '', _timeoutMs: 1800000}});
-      } catch (error) {
-        this.appendMessage('agent', 'Tala', `Desktop task failed: ${error.message || error}`);
-        return;
-      }
-      const output = result?.output;
-      this.appendMessage('agent', 'Tala', result?.success
-        ? `Desktop agent reports completion from visual evidence: ${output?.evidence || 'No evidence returned.'}`
-        : `Desktop task failed: ${result?.error || output?.error || 'No result returned.'}`);
-      return;
-    }
-
-    if (text.trim().toLowerCase() === '/desktop-stop') {
-      const result = await invoke('python:rpc', {method: 'desktop.stop', params: {}}).catch((error) => ({error: error?.message || String(error)}));
-      this.appendMessage('agent', 'Tala', result?.success ? 'Desktop stop requested.' : `Could not request desktop stop: ${result?.error || 'no response from the harness'}`);
-      return;
-    }
+    // /desktop, /desktop-cpu, /desktop-stop — extracted to desktop_commands.js.
+    if (await handleDesktopChatCommand(this, text)) return;
 
     // Handle Slash Commands
     if (text.startsWith('/')) {

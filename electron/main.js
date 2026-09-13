@@ -45,6 +45,7 @@ const path    = require('node:path');
 const fs      = require('node:fs');
 const { spawn, spawnSync }  = require('node:child_process');
 const { registerHandlers } = require('./ipc-handlers');
+const { rpcTimeoutMs } = require('./rpc_policy');
 const { initBlockchain, spawnBlockchain, stopBlockchain } = require('./blockchain-process');
 
 // Lazily require 'ws' (installed via npm). We import it here so the entire
@@ -867,23 +868,7 @@ ${shellCmd} "${startScript}" &
     const request = JSON.stringify({ jsonrpc: '2.0', id, method, params });
 
     return new Promise((resolve) => {
-      let customTimeout = params && (params.timeout_ms || params.timeoutMs || params._timeoutMs);
-      const longRunningMethods = new Set([
-        'inference.generate',
-        'desktop.run',
-        'workflow.execute',
-        'task.submit',
-        'task.list',
-        'task.get_telemetry',
-        'research.crawl_and_summarize',
-        'self_improvement.execute_goal',
-        'self_improvement.execute_plan',
-        'code.generate',
-        'code.repair'
-      ]);
-      const timeoutMs = customTimeout ? Number(customTimeout)
-                       : longRunningMethods.has(method) ? 1_800_000
-                       : 300_000;
+      const timeoutMs = rpcTimeoutMs(method, params && (params.timeout_ms || params.timeoutMs || params._timeoutMs));
       const timer = setTimeout(() => {
         pendingRpcCalls.delete(id);
         resolve({

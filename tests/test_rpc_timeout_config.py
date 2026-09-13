@@ -1,10 +1,15 @@
 from pathlib import Path
 
 def test_electron_rpc_timeout_values():
+    # The method -> budget table moved to rpc_policy.js (size-ratchet
+    # extraction); main.js must consume the policy rather than keep a copy.
+    policy_js = Path("electron/rpc_policy.js").read_text(encoding="utf-8")
+    assert "1_800_000" in policy_js or "1800000" in policy_js
+    assert "LONG_RUNNING_METHODS" in policy_js
+    assert "desktop.run" in policy_js and "inference.generate" in policy_js
     main_js = Path("electron/main.js").read_text(encoding="utf-8")
-    assert "1_800_000" in main_js or "1800000" in main_js
-    assert "customTimeout" in main_js
-    assert "longRunningMethods" in main_js
+    assert "rpcTimeoutMs(" in main_js
+    assert "longRunningMethods" not in main_js  # no drifting second copy
 
 def test_server_read_timeout_values():
     server_py = Path("python/harness/server.py").read_text(encoding="utf-8")
