@@ -225,7 +225,10 @@ async def test_rpc_stop_cancels_run_even_before_input_loop_starts(monkeypatch):
     result = json.loads(await task)
     assert stop['result']['stop_requested']
     assert result['result']['output']['status'] == 'stopped'
-    assert not server._desktop_rpc_tasks
+    # The in-flight set moved into python.harness.desktop_rpc along with
+    # the two handlers; server re-exports the handlers by name, not the state.
+    from python.harness import desktop_rpc
+    assert not desktop_rpc._desktop_rpc_tasks
 
 
 @pytest.mark.parametrize('action,method', [('click','click'), ('double_click','doubleClick'), ('right_click','click'), ('move','moveTo'), ('drag','dragTo'), ('scroll','scroll'), ('hotkey','hotkey')])
