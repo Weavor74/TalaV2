@@ -480,6 +480,21 @@ class HeartbeatScheduler:
         except Exception as exc:
             log.error("HeartbeatScheduler: failed to run suspended-goal resume sweep: %s", exc)
 
+        # The reflection loop rides the tick rather than being a heartbeat job.
+        #
+        # A heartbeat fires goal_text through GoalEngine, which plans -- and a
+        # planner asked to fix a subsystem is exactly the free hand this must
+        # not have. Here it is a bounded sweep beside the zombie reaper and the
+        # resume sweep, and it gates itself on an interval, so a minute tick
+        # does not mean a reflection a minute.
+        try:
+            from sdk.agent.reflection import reflect_if_due
+            outcome = await reflect_if_due()
+            if outcome is not None:
+                log.info("HeartbeatScheduler: reflection — %s", outcome.get("last_status"))
+        except Exception as exc:  # noqa: BLE001
+            log.error("HeartbeatScheduler: failed to run reflection sweep: %s", exc)
+
         now = datetime.now(UTC)
         for job in self._jobs:
             if job.is_startup:

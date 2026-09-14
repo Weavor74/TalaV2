@@ -4756,6 +4756,7 @@ from sdk.agent import node_execution  # noqa: E402,F401
 # own diagnostics, which Steven named as the logging panel's actual purpose
 # (UI-086). Read-only: she cannot clear or archive them (Q-19).
 from sdk.agent import self_diagnosis  # noqa: E402,F401
+from sdk.agent import reflection  # noqa: E402,F401  (registers reflect_now)
 
 # Registers vault_list / vault_read / vault_search -- "things the local LLM
 # could reference" (UI-038). Read-only, and every read refuses when the active

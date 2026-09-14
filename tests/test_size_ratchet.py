@@ -29,7 +29,7 @@ PINNED = {
     "sdk/agent/documentation_nodes.py": 1956,
     "sdk/agent/goal_engine.py": 1694,
     "sdk/agent/graph_engine.py": 1785,
-    "sdk/agent/tools.py": 4780,
+    "sdk/agent/tools.py": 4781,
 }
 
 SCANNED_TREES = ("python", "sdk", "scripts")

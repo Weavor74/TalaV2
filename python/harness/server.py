@@ -9650,28 +9650,6 @@ async def _probe_autonomy() -> tuple[str, str]:
     return "HEALTHY", "idle, no failures in the last hour"
 
 
-async def _probe_reflection() -> tuple[str, str]:
-    """
-    Whether errors are reaching the log that reflection reads.
-
-    Reported DEGRADED unconditionally before, which is why OVERALL never moved.
-    Recent errors are a real signal; the absence of a reflection subsystem to
-    act on them is UI-086 and is not something this probe can invent.
-    """
-    try:
-        errors = await db.fetchval(
-            "SELECT COUNT(*) FROM agent_log WHERE level = 'ERROR' "
-            "AND created_at > NOW() - INTERVAL '5 minutes'"
-        ) or 0
-    except Exception as exc:
-        return UNKNOWN, f"could not read agent_log: {type(exc).__name__}"
-    if errors > 10:
-        return "CRITICAL", f"{errors} error(s) logged in the last 5 minutes"
-    if errors:
-        return "DEGRADED", f"{errors} error(s) logged in the last 5 minutes"
-    return "HEALTHY", "no errors logged in the last 5 minutes"
-
-
 async def _probe_telemetry() -> tuple[str, str]:
     try:
         total = await db.fetchval("SELECT COUNT(*) FROM heartbeats") or 0
@@ -9804,7 +9782,8 @@ async def handle_logging_get_health(params: dict[str, Any], req_id: Any) -> str:
     await record("QUEUE_BACKLOG_PRESSURE", _probe_queue)
     await record("BOOTSTRAP_RUNTIME_SERVICES", _probe_bootstrap)
     await record("AUTONOMY_ORCHESTRATOR", _probe_autonomy)
-    await record("REFLECTION_SERVICE", _probe_reflection)
+    from sdk.agent.reflection import probe as _reflection_probe  # noqa: PLC0415
+    await record("REFLECTION_SERVICE", _reflection_probe)
     await record("DASHBOARD_TELEMETRY", _probe_telemetry)
     await record("ARCHITECTURAL_INVARIANTS", _probe_invariants)
     await record("EMERGENCY_HALT", _probe_halt)
