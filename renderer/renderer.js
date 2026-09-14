@@ -6254,8 +6254,26 @@ const AgentChat = {
 
   async speakText(text) {
     if (!text) return;
+    // Speak the reply, not the deliberation.
+    //
+    // The harness normalises every model's chain-of-thought into
+    // <thinking>...</thinking> so its downstream consumers can strip it, and
+    // appendMessage does exactly that -- reasoning goes to the collapsible
+    // "Thought Process" section, the answer goes in the bubble. This path was
+    // the one consumer that skipped the split and passed raw output straight
+    // to TTS, so Tala read her own reasoning aloud before (and often instead
+    // of) answering.
+    //
+    // Stripped here rather than at the call site so any future caller gets it
+    // too. Safe on text that carries no blocks: parseThinkingBlocks returns it
+    // unchanged.
+    const spoken = parseThinkingBlocks(text).finalContent;
+    // A turn that is *only* deliberation has nothing to say out loud. Silence
+    // is the correct output; falling back to the raw text would reinstate the
+    // bug for exactly the turns that suffer it worst.
+    if (!spoken) return;
     try {
-      const result = await invoke('python:rpc', { method: 'voice.speak', params: { text } });
+      const result = await invoke('python:rpc', { method: 'voice.speak', params: { text: spoken } });
       if (result && result.audio_base64) {
         this.playAudio(result.audio_base64, result.mime_type);
       } else if (result && result.error) {
