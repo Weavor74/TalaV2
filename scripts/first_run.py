@@ -184,6 +184,59 @@ def install_playwright_browsers() -> None:
         )
 
 
+def ensure_ffmpeg() -> None:
+    """Provision ffmpeg, which Whisper shells out to for audio decoding.
+
+    Same shape as the Playwright browsers above, and for the same reason:
+    a non-Python dependency that pip cannot install, absent until something
+    tries to use it and then failing as a bare WinError 2 / FileNotFoundError
+    from inside a library, which reads as a bug rather than a missing tool.
+
+    Scope of the need, stated honestly: Tala's own STT path hands Whisper a
+    numpy array from sounddevice and needs no ffmpeg at all. It is required
+    the moment anything transcribes a *file* or a blob -- which is what
+    openai-whisper documents as a hard requirement -- so this provisions it
+    rather than waiting for the first such caller to discover it is missing.
+
+    Installed at user scope only. A first-run script must never ask for
+    elevation, so on Linux (where the package managers need root) this
+    prints the command instead of running it.
+    """
+    existing = shutil.which("ffmpeg")
+    if existing:
+        print(f"  - ffmpeg already present: {existing}")
+        return
+
+    manual = {
+        "win32": "winget install --id Gyan.FFmpeg.Essentials --scope user",
+        "darwin": "brew install ffmpeg",
+    }.get(sys.platform, "install ffmpeg with your distribution package manager")
+
+    installer: list[str] | None = None
+    if sys.platform == "win32" and shutil.which("winget"):
+        installer = [
+            "winget", "install", "--id", "Gyan.FFmpeg.Essentials", "--exact",
+            "--scope", "user", "--silent",
+            "--accept-package-agreements", "--accept-source-agreements",
+            "--disable-interactivity",
+        ]
+    elif sys.platform == "darwin" and shutil.which("brew"):
+        installer = ["brew", "install", "ffmpeg"]
+
+    if installer is None:
+        print("  - ffmpeg not found and no user-scope installer available.")
+        print(f"  - Voice file transcription will fail until you run: {manual}")
+        return
+
+    print("  - Installing ffmpeg (needed to transcribe audio files)...")
+    result = _run(installer, check=False)
+    if result.returncode != 0 or not shutil.which("ffmpeg"):
+        print(
+            "  - ffmpeg install did not complete. Voice file transcription will\n"
+            f"  - be unavailable until you run: {manual}"
+        )
+
+
 def migrate_database() -> bool:
     python = _venv_python()
     if not python.exists():
@@ -243,6 +296,7 @@ def main() -> int:
         print("[4/5] Installing Python dependencies...")
         install_python_dependencies()
         install_playwright_browsers()
+        ensure_ffmpeg()
     else:
         print("[4/5] Skipping Python dependencies")
 

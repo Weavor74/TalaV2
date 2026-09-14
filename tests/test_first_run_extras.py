@@ -56,6 +56,38 @@ def test_every_optional_extra_sync_is_inexact():
     )
 
 
+def _function_names_called_in(func_name: str) -> set[str]:
+    """Plain-name calls made inside one top-level function of first_run.py."""
+    tree = ast.parse(FIRST_RUN.read_text(encoding="utf-8"))
+    for node in tree.body:
+        if isinstance(node, ast.FunctionDef) and node.name == func_name:
+            return {
+                n.func.id for n in ast.walk(node)
+                if isinstance(n, ast.Call) and isinstance(n.func, ast.Name)
+            }
+    raise AssertionError(f"{func_name}() not found in first_run.py")
+
+
+def test_ffmpeg_provisioning_is_actually_called():
+    """A provisioning function nothing invokes is the house failure mode: the
+    capability looks installed because the code to install it exists."""
+    assert "ensure_ffmpeg" in _function_names_called_in("main"), (
+        "ensure_ffmpeg() is defined but main() never calls it, so a fresh "
+        "install would not get ffmpeg"
+    )
+
+
+def test_first_run_never_asks_for_elevation():
+    """It runs unattended from the Electron shell on first launch. A sudo or
+    an elevated winget there either hangs on a prompt nobody sees or fails."""
+    source = FIRST_RUN.read_text(encoding="utf-8")
+    tree = ast.parse(source)
+    for node in ast.walk(tree):
+        if isinstance(node, ast.Constant) and isinstance(node.value, str):
+            assert not node.value.startswith("sudo"), f"elevation in: {node.value!r}"
+    assert '"--scope", "machine"' not in source, "machine-scope install needs admin"
+
+
 def test_the_base_sync_stays_exact():
     """The pruning default is right for the core set -- it is how a removed
     dependency actually leaves the environment. Only the optional extras, which
