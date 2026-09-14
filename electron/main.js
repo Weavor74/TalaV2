@@ -358,6 +358,12 @@ function createWindow() {
         "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; " +
         "font-src 'self' https://fonts.gstatic.com; " +
         "img-src 'self' data:; " +
+        // TTS hands the renderer a data:audio/... URI (voice.speak returns
+        // base64, not a file). Without media-src this falls back to
+        // default-src 'self', which blocks it -- synthesis succeeds, the
+        // audio element is constructed, and play() rejects with a bare
+        // DOMException that reads as a broken voice backend.
+        "media-src 'self' data:; " +
         "frame-src 'self' file: https://duckduckgo.com https://*.duckduckgo.com http: https:; " +
         "connect-src 'self' http://127.0.0.1:8332 https://talacore.app;"
       ];
