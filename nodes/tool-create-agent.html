@@ -22,13 +22,13 @@
   data-governance-status="context-only"
   data-doc-target="create_agent"
   data-source-files="sdk/agent/agent_authoring.py"
-  data-source-fingerprint="sha256:BB25221CA3F64325DF9F59E1DDC0F61668958B86D714DCCBCD67CAB042D5FF14"
-  data-source-digest="sha256:535EF551FA773AEC7F8D06241BE8E8AED28E1B87FD9D10E3C208E700A2F8FC54"
+  data-source-fingerprint="sha256:062DBD1F1269B5E6CF35BB9422CED75DDA74100F8538E5B66A41F2938FF5EEDE"
+  data-source-digest="sha256:54C6CFF45DE7547A0E2320A464CEF09CEAE24658079D8B2464DFCEA9AE65AF77"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:37Z"
+  data-generated-at="2026-09-14T09:55:42Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +37,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;create_agent&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Define a new agent persona that swarm nodes can run as. Sets a name, role and system prompt only - it grants no tools, no model and no authority.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_agent(name*, system_prompt*, role, tag)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;system_prompt&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;role&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tag&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Creates a persona a swarm node can be assigned to. It sets voice and framing; it does not widen what the node may do. An existing name is refused rather than overwritten. A persona may be mid-use by a running swarm, and silently replacing its system prompt would change that run&#x27;s behaviour underneath it.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;create_agent&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Define a new agent persona that swarm nodes can run as. Sets a name, role, system prompt and optionally a birthdate (ISO date) for its own astrological chart - it grants no tools, no model and no authority. Without a birthdate the persona inherits the install&#x27;s Primary chart.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;create_agent(name*, system_prompt*, role, tag, birthdate, birth_hour)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;system_prompt&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;role&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tag&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;birthdate&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;birth_hour&lt;/code&gt; (number, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Creates a persona a swarm node can be assigned to. It sets voice and framing; it does not widen what the node may do. An existing name is refused rather than overwritten. A persona may be mid-use by a running swarm, and silently replacing its system prompt would change that run&#x27;s behaviour underneath it. birthdate (YYYY-MM-DD, optional birth_hour 0-24 UT) gives the persona its own natal chart for the astro-emotion layer. Left unset, the emotion service resolves the install&#x27;s Primary chart instead (profiles.config.primary_agent_birthdate on the master profile), and only then the canonical origin chart -- Tala&#x27;s own date is not assumed to be the right default for every install.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.agent_authoring&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +100,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:37Z",
+    "created_or_updated": "2026-09-14T09:55:42Z",
     "schema": "neural-node/v2",
     "doc_target": "create_agent",
-    "source_fingerprint": "sha256:BB25221CA3F64325DF9F59E1DDC0F61668958B86D714DCCBCD67CAB042D5FF14",
+    "source_fingerprint": "sha256:062DBD1F1269B5E6CF35BB9422CED75DDA74100F8538E5B66A41F2938FF5EEDE",
     "source_files": [
       "sdk/agent/agent_authoring.py"
     ],
-    "source_digest": "sha256:535EF551FA773AEC7F8D06241BE8E8AED28E1B87FD9D10E3C208E700A2F8FC54",
+    "source_digest": "sha256:54C6CFF45DE7547A0E2320A464CEF09CEAE24658079D8B2464DFCEA9AE65AF77",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -116,8 +116,8 @@
   },
   "tool": {
     "name": "create_agent",
-    "description": "Define a new agent persona that swarm nodes can run as. Sets a name, role and system prompt only - it grants no tools, no model and no authority.",
-    "signature": "create_agent(name*, system_prompt*, role, tag)",
+    "description": "Define a new agent persona that swarm nodes can run as. Sets a name, role, system prompt and optionally a birthdate (ISO date) for its own astrological chart - it grants no tools, no model and no authority. Without a birthdate the persona inherits the install's Primary chart.",
+    "signature": "create_agent(name*, system_prompt*, role, tag, birthdate, birth_hour)",
     "schema": {
       "type": "object",
       "properties": {
@@ -132,6 +132,12 @@
         },
         "tag": {
           "type": "string"
+        },
+        "birthdate": {
+          "type": "string"
+        },
+        "birth_hour": {
+          "type": "number"
         }
       },
       "required": [

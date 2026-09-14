@@ -46,6 +46,8 @@ import logging
 from datetime import UTC, datetime
 from typing import Any, Awaitable, Callable
 
+from sdk.agent.tools import register_tool
+
 log = logging.getLogger(__name__)
 
 #: How often the sweep is allowed to run. The scheduler ticks every minute;
@@ -361,7 +363,16 @@ async def probe() -> tuple[str, str]:
 # reflection would say is to wait; and a loop that can only be observed through
 # its own side effects is the thing this subsystem was built to stop being.
 
-async def _reflect_now_tool(minutes: int = 60, dry_run_first: bool = True) -> dict[str, Any]:
+@register_tool(
+    name="reflect_now",
+    description=(
+        "Run a self-reflection cycle now: read own health and verify own "
+        "documentation, apply any repair that is registered for what was "
+        "found, and report findings that have no automatic repair. Returns "
+        "what was seen and what was done."
+    ),
+)
+async def reflect_now(minutes: int = 60, dry_run_first: bool = True) -> dict[str, Any]:
     """
     NAME
            reflect_now - run a reflection cycle immediately
@@ -378,19 +389,3 @@ async def _reflect_now_tool(minutes: int = 60, dry_run_first: bool = True) -> di
            be used to starve the automatic one.
     """
     return await reflect_once(minutes=minutes, dry_run_first=dry_run_first)
-
-
-def _register() -> None:
-    from sdk.agent.tools import register_tool
-    register_tool(
-        name="reflect_now",
-        description=(
-            "Run a self-reflection cycle now: read own health and verify own "
-            "documentation, apply any repair that is registered for what was "
-            "found, and report findings that have no automatic repair. Returns "
-            "what was seen and what was done."
-        ),
-    )(_reflect_now_tool)
-
-
-_register()
