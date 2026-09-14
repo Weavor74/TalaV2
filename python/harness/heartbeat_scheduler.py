@@ -291,6 +291,9 @@ class HeartbeatScheduler:
         self._running = False
         self._tick_task: asyncio.Task | None = None
         self._running_tasks: set[asyncio.Task] = set()
+        #: job id -> its in-flight task. A job already running is not fired
+        #: again; see _spawn_job.
+        self._in_flight: dict[str, asyncio.Task] = {}
 
     # ------------------------------------------------------------------
     # Lifecycle
@@ -508,14 +511,39 @@ class HeartbeatScheduler:
             )
             self._spawn_job(job)
 
-    def _spawn_job(self, job: HeartbeatJob) -> None:
-        """Launch a job as a background asyncio Task."""
+    def _spawn_job(self, job: HeartbeatJob) -> bool:
+        """
+        Launch a job as a background asyncio Task, unless it is already running.
+
+        A cron expression says how often to *start* work, and said nothing about
+        how long the work takes. The nightly corpus job fires every 30 minutes
+        and its own goal sets a 1800-second timeout, because each story takes
+        over two minutes -- so a slow run was still going when the next one
+        fired, and nothing stopped them from generating into the same corpus at
+        once. Every job here has the same exposure; this is not specific to that
+        one.
+
+        A skipped tick is the right outcome rather than a queued one: these are
+        periodic jobs, and the next occurrence is the retry. Queueing them would
+        turn a slow night into a backlog that never drains.
+        """
+        running = self._in_flight.get(job.id)
+        if running is not None and not running.done():
+            log.info(
+                "HeartbeatScheduler: job %r is still running from its last fire; "
+                "skipping this occurrence", job.name,
+            )
+            return False
+
         task = asyncio.create_task(
             self._run_job(job),
             name=f"heartbeat-job-{job.id[:8]}",
         )
         self._running_tasks.add(task)
+        self._in_flight[job.id] = task
         task.add_done_callback(self._running_tasks.discard)
+        task.add_done_callback(lambda _t, _id=job.id: self._in_flight.pop(_id, None))
+        return True
 
     # ------------------------------------------------------------------
     # Job execution
@@ -655,5 +683,13 @@ class HeartbeatScheduler:
         job = self.get_job(job_id)
         if job is None:
             return {"success": False, "error": f"Job {job_id!r} not found"}
-        self._spawn_job(job)
+        # Reported success unconditionally before. _spawn_job now declines to
+        # start a job that is already running, and a caller told "fired" for a
+        # fire that did not happen would be waiting on output nothing is
+        # producing.
+        if not self._spawn_job(job):
+            return {
+                "success": False,
+                "error": f"Job {job.name!r} is already running; not started again",
+            }
         return {"success": True, "message": f"Job {job.name!r} fired manually"}
