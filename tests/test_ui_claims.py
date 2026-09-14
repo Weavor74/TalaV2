@@ -275,3 +275,31 @@ def test_the_git_panel_says_whose_version_control_it_is():
 
     assert "Tala does not use git for herself" in text
     assert "Your version control, for your own code and content" in text
+
+
+# -- The About panel names the repository it actually lives in ----------------
+
+def test_the_about_panel_names_the_real_repository():
+    """It said ``Weavor74/tala-app``. The remote is ``Weavor74/TalaV2``.
+
+    Harmless-looking and not: the panel presents it as where to get the source
+    and how to request access, so the one field a reader would act on was the
+    wrong one. Checked against the git remote rather than a hardcoded string,
+    so renaming the repository fails here instead of going unnoticed.
+    """
+    import subprocess
+
+    result = subprocess.run(
+        ["git", "remote", "get-url", "origin"],
+        cwd=ROOT, capture_output=True, text=True, check=False,
+    )
+    if result.returncode != 0:
+        import pytest
+        pytest.skip("no git remote configured (a source tarball, not a clone)")
+
+    url = result.stdout.strip().removesuffix(".git")
+    owner_repo = "/".join(url.replace(":", "/").split("/")[-2:])
+
+    assert owner_repo in markup(), (
+        f"the About panel does not name the repository it lives in ({owner_repo})"
+    )
