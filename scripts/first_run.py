@@ -124,10 +124,18 @@ def install_python_dependencies() -> None:
     if uv:
         # Core deps + test (pytest must be present for the self-test suite).
         _run([uv, "sync", "--extra", "test"])
+        # --inexact on every optional sync, because uv sync removes
+        # extraneous packages by default: without it the transformers sync
+        # below uninstalls everything the voice sync just installed, and the
+        # next one would uninstall transformers. Each extra is meant to
+        # accumulate and to fail independently, which is exactly what the
+        # default pruning behaviour prevents. Observed on this install:
+        # transformers and accelerate present, openai-whisper and numba
+        # absent, after this function had reported both steps done.
         # Voice deps require numba which is incompatible with Python >= 3.13.
         # Treat as non-fatal so the installer does not abort on newer Pythons.
         print("  - Attempting to install voice features (requires Python < 3.13)...")
-        result = _run([uv, "sync", "--extra", "test", "--extra", "voice"], check=False)
+        result = _run([uv, "sync", "--inexact", "--extra", "test", "--extra", "voice"], check=False)
         if result.returncode != 0:
             print(
                 "  - Voice feature install failed (likely Python >= 3.13 / numba incompatibility).\n"
@@ -135,7 +143,7 @@ def install_python_dependencies() -> None:
                 "  -   uv pip install -e .[voice]"
             )
         print("  - Attempting to install embedded engine (transformers)...")
-        _run([uv, "sync", "--extra", "test", "--extra", "transformers"], check=False)
+        _run([uv, "sync", "--inexact", "--extra", "test", "--extra", "transformers"], check=False)
         return
 
     print("  - uv not found; falling back to stdlib venv + pip")
