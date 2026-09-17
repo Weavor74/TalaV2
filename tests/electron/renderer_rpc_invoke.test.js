@@ -1,27 +1,57 @@
 /**
- * Highs H3: renderer must not call window.tala.invoke with bare RPC method names.
+ * Highs H3: renderer must not call window.tala.invoke/request with bare RPC method names.
+ * Smoke (2026-09-17): gateway.status / plugins.* / mcp.* used window.tala.request and
+ * hit preload fail-closed after H3 — they must go through helpers.invoke remap.
  */
 'use strict';
 
 const fs = require('node:fs');
 const path = require('node:path');
 
+function collectBareDottedCalls(src, method) {
+  const bad = [];
+  const re = new RegExp(`window\\.tala\\.${method}\\(\\s*['"]([^'"]+)['"]`, 'g');
+  let m;
+  while ((m = re.exec(src))) {
+    const ch = m[1];
+    if (ch === 'python:rpc') continue;
+    if (ch.includes(':')) continue; // file:/vault:/etc allowlisted form
+    if (ch.includes('.')) bad.push(ch);
+  }
+  return bad;
+}
+
 describe('renderer RPC invoke migration (H3)', () => {
+  const rendererSrc = fs.readFileSync(
+    path.join(__dirname, '../../renderer/renderer.js'),
+    'utf8',
+  );
+
   test('no window.tala.invoke("swarm.*"|"task.*"|dotted RPC) remain', () => {
-    const src = fs.readFileSync(
-      path.join(__dirname, '../../renderer/renderer.js'),
-      'utf8',
-    );
-    const bad = [];
-    const re = /window\.tala\.invoke\(\s*['"]([^'"]+)['"]/g;
-    let m;
-    while ((m = re.exec(src))) {
-      const ch = m[1];
-      if (ch === 'python:rpc') continue;
-      if (ch.includes(':')) continue; // file:/vault:/etc allowlisted form
-      if (ch.includes('.')) bad.push(ch);
+    expect(collectBareDottedCalls(rendererSrc, 'invoke')).toEqual([]);
+  });
+
+  test('no window.tala.request(dotted RPC) remain (gateway/plugins/mcp)', () => {
+    expect(collectBareDottedCalls(rendererSrc, 'request')).toEqual([]);
+  });
+
+  test('gateway.status / plugins.* / mcp.* go through helpers.invoke', () => {
+    for (const method of [
+      'gateway.status',
+      'plugins.list',
+      'plugins.reload',
+      'plugins.validate',
+      'mcp.discover',
+      'mcp.connect_server',
+      'mcp.list_servers',
+      'mcp.remove_server',
+      'mcp.list_tools',
+    ]) {
+      expect(rendererSrc).toMatch(new RegExp(`invoke\\(\\s*['"]${method.replace('.', '\\.')}['"]`));
+      expect(rendererSrc).not.toMatch(
+        new RegExp(`window\\.tala\\.(invoke|request)\\(\\s*['"]${method.replace('.', '\\.')}['"]`),
+      );
     }
-    expect(bad).toEqual([]);
   });
 
   test('helpers.invoke remaps dotted method names to python:rpc', () => {
@@ -32,5 +62,10 @@ describe('renderer RPC invoke migration (H3)', () => {
     expect(src).toMatch(/python:rpc/);
     expect(src).toMatch(/_TALA_IPC_CHANNELS/);
     expect(src).toMatch(/method:\s*channel/);
+  });
+
+  test('TelemetryPoller maps harness.health connecting stub to WS connecting', () => {
+    expect(rendererSrc).toMatch(/status === 'connecting'/);
+    expect(rendererSrc).toMatch(/wsUi = 'connecting'/);
   });
 });

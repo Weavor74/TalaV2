@@ -77,3 +77,16 @@ describe('preload allowlist fail-closed (H3)', () => {
     expect(guard[1]).toMatch(/reject|throw|Error/i);
   });
 });
+
+describe('preload allowlist stays closed for smoke-found RPC names', () => {
+  test.each([
+    'gateway.status',
+    'plugins.list',
+    'mcp.discover',
+    'shell.run',
+  ])('%s is rejected (must use helpers.invoke → python:rpc)', async (channel) => {
+    const { exposed, ipcRenderer } = loadPreload();
+    await expect(exposed.tala.request(channel, {})).rejects.toThrow(/not allowlisted/i);
+    expect(ipcRenderer.invoke).not.toHaveBeenCalled();
+  });
+});

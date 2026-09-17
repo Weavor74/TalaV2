@@ -7337,13 +7337,26 @@ const TelemetryPoller = {
     const { status, active_agent, tokens_used, token_balance, token_mode,
             last_latency_ms } = health;
 
-    // WS / harness status
-    StatusBar.setWsStatus(status === 'ok' ? 'ok' : 'error');
+    // WS / harness status — main.js returns status:'connecting' when
+    // wsConnected is false (stub), so map that distinctly from hard error.
+    let wsUi = 'error';
+    let harnessLabel = 'Degraded';
+    let harnessDotCls = 'error';
+    if (status === 'ok') {
+      wsUi = 'ok';
+      harnessLabel = 'Running';
+      harnessDotCls = 'ok';
+    } else if (status === 'connecting') {
+      wsUi = 'connecting';
+      harnessLabel = 'Connecting…';
+      harnessDotCls = 'connecting';
+    }
+    StatusBar.setWsStatus(wsUi);
     const harnessText = qs('#harness-status-text');
     const harnessDot  = qs('#harness-status .status-dot');
-    if (harnessText) harnessText.textContent = status === 'ok' ? 'Running' : 'Degraded';
+    if (harnessText) harnessText.textContent = harnessLabel;
     if (harnessDot) {
-      harnessDot.className = `status-dot status-${status === 'ok' ? 'ok' : 'error'}`;
+      harnessDot.className = `status-dot status-${harnessDotCls}`;
     }
 
     // Active agent
@@ -15808,8 +15821,7 @@ const GatewayStatusManager = {
 
   async checkStatus() {
     try {
-      if(!window.tala || !window.tala.request) return;
-      const res = await window.tala.request('gateway.status', {});
+      const res = await invoke('gateway.status', {});
       this.renderAuthPosture(res);
       if (res && res.status === 'online') {
         this.hidePanel();
@@ -15895,8 +15907,7 @@ const PluginRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Loading plugin manifests...</div>';
     try {
-      if(!window.tala || !window.tala.request) return;
-      const res = await window.tala.request('plugins.list', {});
+      const res = await invoke('plugins.list', {});
       if (res && res.plugins) {
         this.renderPlugins(res.plugins);
         this._loaded = true;
@@ -15912,7 +15923,7 @@ const PluginRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Reloading plugin manifests...</div>';
     try {
-      const res = await window.tala.request('plugins.reload', {});
+      const res = await invoke('plugins.reload', {});
       if (res && res.plugins) {
         this.renderPlugins(res.plugins);
         this._loaded = true;
@@ -15926,7 +15937,7 @@ const PluginRegistryManager = {
 
   async validatePlugin(pluginPath) {
     try {
-      const res = await window.tala.request('plugins.validate', { path: pluginPath });
+      const res = await invoke('plugins.validate', { path: pluginPath });
       if (res.valid) {
         alert("Plugin manifest is valid!");
       } else {
@@ -16079,7 +16090,7 @@ const MCPServerRegistryManager = {
   async discoverServers() {
     if (!this._discoveredList) return;
     try {
-      const res = await window.tala.request('mcp.discover', {});
+      const res = await invoke('mcp.discover', {});
       const found = (res && res.discovered) || [];
       this._discoveredCache = found;
       this._discovered.hidden = false;
@@ -16145,7 +16156,7 @@ const MCPServerRegistryManager = {
       ? { transport: 'sse', url: d.url }
       : { transport: 'stdio', command: d.command, args: d.args || [] };
     try {
-      const res = await window.tala.request('mcp.connect_server', { name: d.name, config, persist: true });
+      const res = await invoke('mcp.connect_server', { name: d.name, config, persist: true });
       IPCLog.append('ok', `Adopted MCP server "${d.name}" (${(res && res.tools_registered) || 0} tools registered).`);
       await this.discoverServers();
       await this.loadServers();
@@ -16163,7 +16174,7 @@ const MCPServerRegistryManager = {
 
     try {
       const config = this.buildConfig();
-      await window.tala.request('mcp.connect_server', { name, config, persist: true });
+      await invoke('mcp.connect_server', { name, config, persist: true });
       IPCLog.append('ok', `MCP server registered: ${name}`);
       if (this._form) this._form.reset();
       this.updateTransportFields();
@@ -16177,7 +16188,7 @@ const MCPServerRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Loading MCP servers...</div>';
     try {
-      const res = await window.tala.request('mcp.list_servers', {});
+      const res = await invoke('mcp.list_servers', {});
       this.renderServers(res?.servers || []);
       this._loaded = true;
     } catch (err) {
@@ -16187,7 +16198,7 @@ const MCPServerRegistryManager = {
 
   async removeServer(name) {
     try {
-      await window.tala.request('mcp.remove_server', { name });
+      await invoke('mcp.remove_server', { name });
       IPCLog.append('info', `MCP server removed: ${name}`);
       await this.loadServers();
     } catch (err) {
@@ -16200,7 +16211,7 @@ const MCPServerRegistryManager = {
     if (!target) return;
     target.innerHTML = '<span class="admin-tag admin-tag-muted">loading tools...</span>';
     try {
-      const res = await window.tala.request('mcp.list_tools', { server_name: name });
+      const res = await invoke('mcp.list_tools', { server_name: name });
       const tools = res?.tools || [];
       target.innerHTML = tools.length
         ? tools.slice(0, 12).map(tool => `<span class="admin-tag">${escapeHtml(tool.name || tool.qualified_name || 'tool')}</span>`).join('')
