@@ -64,8 +64,15 @@ describe('renderer RPC invoke migration (H3)', () => {
     expect(src).toMatch(/method:\s*channel/);
   });
 
-  test('TelemetryPoller maps harness.health connecting stub to WS connecting', () => {
-    expect(rendererSrc).toMatch(/status === 'connecting'/);
-    expect(rendererSrc).toMatch(/wsUi = 'connecting'/);
+  test('StatusBar WS badge is driven by main harness:ws-status / harness.ws_status', () => {
+    expect(rendererSrc).toMatch(/harness:ws-status/);
+    expect(rendererSrc).toMatch(/harness\.ws_status/);
+    expect(rendererSrc).toMatch(/window\.StatusBar\s*=\s*this/);
+    expect(rendererSrc).toMatch(/applyMainWsConnected/);
+    // TelemetryPoller must not own the WS badge anymore.
+    const tpStart = rendererSrc.indexOf('const TelemetryPoller');
+    const tpEnd = rendererSrc.indexOf('const BlockchainViewer');
+    const tp = rendererSrc.slice(tpStart, tpEnd);
+    expect(tp).not.toMatch(/StatusBar\.setWsStatus/);
   });
 });

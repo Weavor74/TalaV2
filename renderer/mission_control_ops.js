@@ -14,8 +14,12 @@ function mcWsDisabledAttr() {
 }
 
 function mcWsConnected() {
-  if (typeof StatusBar !== 'undefined' && typeof StatusBar.isWsConnected === 'function') {
-    return StatusBar.isWsConnected();
+  // StatusBar lives in the renderer ES module — classic scripts must use
+  // window.StatusBar (exposed from StatusBar.init), not a bare StatusBar bind.
+  const bar = (typeof window !== 'undefined' && window.StatusBar)
+    || (typeof StatusBar !== 'undefined' ? StatusBar : null);
+  if (bar && typeof bar.isWsConnected === 'function') {
+    return bar.isWsConnected();
   }
   return false;
 }

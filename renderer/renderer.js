@@ -6929,6 +6929,7 @@ const ConversationTabs = {
 const StatusBar = {
   _els: {},
   _wsStatus: 'unknown',
+  _wsPushBound: false,
 
   init() {
     this._els = {
@@ -6937,6 +6938,10 @@ const StatusBar = {
       tokenValue:   qs('#status-token-value'),
       agentName:    qs('#status-agent-name'),
     };
+    // Classic scripts (mission_control_ops.js) cannot see ES-module bindings.
+    window.StatusBar = this;
+    this._bindWsPush();
+    this._pullWsStatus();
   },
 
   /** Mission Control and other panels gate destructive actions on this. */
@@ -6944,7 +6949,37 @@ const StatusBar = {
     return this._wsStatus === 'ok';
   },
 
+  /**
+   * Apply main.js wsConnected truth. Prefer harness:ws-status push / harness.ws_status
+   * pull over inferring from harness.health RPC success.
+   */
+  applyMainWsConnected(connected) {
+    this.setWsStatus(connected ? 'ok' : 'connecting');
+  },
+
+  _bindWsPush() {
+    if (this._wsPushBound) return;
+    if (!window.tala || typeof window.tala.on !== 'function') return;
+    this._wsPushBound = true;
+    window.tala.on('harness:ws-status', (payload) => {
+      const connected = Boolean(payload && payload.connected);
+      this.applyMainWsConnected(connected);
+    });
+  },
+
+  async _pullWsStatus() {
+    try {
+      const res = await invoke('python:rpc', { method: 'harness.ws_status', params: {} });
+      if (res && typeof res.connected === 'boolean') {
+        this.applyMainWsConnected(res.connected);
+      }
+    } catch (err) {
+      console.warn('[StatusBar] harness.ws_status pull failed:', err);
+    }
+  },
+
   setWsStatus(status) {
+    const prev = this._wsStatus;
     const dot  = this._els.wsDot;
     const text = this._els.wsText;
     this._wsStatus = status || 'unknown';
@@ -6960,6 +6995,12 @@ const StatusBar = {
     }
     if (typeof MissionControl !== 'undefined' && typeof mcSyncDestructiveControls === 'function') {
       mcSyncDestructiveControls(MissionControl);
+    }
+    // Settings may have failed environment.get at boot while WS was down.
+    if (this._wsStatus === 'ok' && prev !== 'ok'
+        && typeof SettingsDashboard !== 'undefined'
+        && typeof SettingsDashboard.loadEnvironment === 'function') {
+      SettingsDashboard.loadEnvironment();
     }
   },
 
@@ -7337,21 +7378,17 @@ const TelemetryPoller = {
     const { status, active_agent, tokens_used, token_balance, token_mode,
             last_latency_ms } = health;
 
-    // WS / harness status — main.js returns status:'connecting' when
-    // wsConnected is false (stub), so map that distinctly from hard error.
-    let wsUi = 'error';
+    // Harness service label only — WS badge is driven by main.js wsConnected
+    // via harness:ws-status / harness.ws_status (not RPC success guessing).
     let harnessLabel = 'Degraded';
     let harnessDotCls = 'error';
     if (status === 'ok') {
-      wsUi = 'ok';
       harnessLabel = 'Running';
       harnessDotCls = 'ok';
     } else if (status === 'connecting') {
-      wsUi = 'connecting';
       harnessLabel = 'Connecting…';
       harnessDotCls = 'connecting';
     }
-    StatusBar.setWsStatus(wsUi);
     const harnessText = qs('#harness-status-text');
     const harnessDot  = qs('#harness-status .status-dot');
     if (harnessText) harnessText.textContent = harnessLabel;
@@ -7377,7 +7414,8 @@ const TelemetryPoller = {
 
   _handleDegraded() {
     this._retries++;
-    StatusBar.setWsStatus(this._retries < this.MAX_RETRIES ? 'connecting' : 'error');
+    // Do not flip the WS badge here — a health RPC miss is not the same as
+    // main.js wsConnected=false. harness:ws-status owns that indicator.
     const harnessText = qs('#harness-status-text');
     if (harnessText) harnessText.textContent = 'Connecting…';
     if (this._retries >= this.MAX_RETRIES) {
