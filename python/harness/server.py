@@ -82,6 +82,7 @@ from python.harness.heartbeat_rpc import (
     handle_heartbeat_create, handle_heartbeat_delete, handle_heartbeat_fire_now,
     handle_heartbeat_list, handle_heartbeat_reload, handle_heartbeat_update,
 )
+from python.harness.health_rpc import handle_harness_health
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
     handle_task_control, handle_task_create_worktree, handle_task_delete,
@@ -4112,58 +4113,6 @@ async def handle_vault_status(params: dict[str, Any], req_id: Any) -> str:
         "size_bytes": size_bytes,
     })
 
-
-async def handle_harness_health(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``harness.health`` — Return server health and status info.
-    """
-    # Two different numbers that were previously one (UI-001). The status bar
-    # is labelled "Tokens" and reads a *balance*: its display has a branch for
-    # the ghost sentinel returned by the wallet, which is a wallet function. It
-    # was being fed the lifetime sum of LLM tokens consumed instead — a
-    # monotonically growing number that can never equal the sentinel, which is
-    # why the ghost branch had never once fired.
-    #
-    # Both are reported now. Consumption is still worth knowing; it is just not
-    # a balance.
-    try:
-        row = await db.fetchrow(
-            "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total FROM token_ledger"
-        )
-        tokens_used = int(row["total"]) if row else 0
-    except Exception:
-        tokens_used = 0
-
-    try:
-        from python.harness.token_counter import wallet_state
-
-        wallet = await wallet_state()
-    except Exception as exc:
-        logger.debug("harness.health: could not read the wallet (%s)", exc)
-        wallet = {"balance": None, "mode": "unreachable", "unlimited": False,
-                  "reason": str(exc)}
-
-    active_agent = "Tala Engine"
-    try:
-        agent_row = await db.fetchrow("SELECT name FROM agents WHERE is_active = TRUE")
-        if agent_row:
-            chat_mode = get_current_chat_mode()
-            if chat_mode == "hybrid":
-                active_agent = f"{agent_row['name']} (Hybrid)"
-            else:
-                active_agent = agent_row["name"]
-    except Exception:
-        pass
-
-    return _ok(req_id, {
-        "status": "ok",
-        "active_agent": active_agent,
-        "tokens_used": tokens_used,          # lifetime LLM consumption
-        "token_balance": wallet["balance"],  # what the wallet holds
-        "token_mode": wallet["mode"],        # ghost | real | unreachable
-        "token_unlimited": wallet["unlimited"],
-        "last_latency_ms": 1,
-    })
 
 
 async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:

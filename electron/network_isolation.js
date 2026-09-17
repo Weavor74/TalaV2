@@ -56,6 +56,11 @@ function applyIsolationHints(method, result) {
     haltActive = Boolean(result.halted);
     changed = true;
   }
+  // Highs H5: abort/pause via task.control returns halted; learn it here.
+  if (method === 'task.control' && Object.prototype.hasOwnProperty.call(result, 'halted')) {
+    haltActive = Boolean(result.halted);
+    changed = true;
+  }
   if (method === 'harness.health' && Object.prototype.hasOwnProperty.call(result, 'halted')) {
     haltActive = Boolean(result.halted);
     changed = true;
@@ -83,10 +88,9 @@ function applyIsolationNotification(msg) {
       haltActive = Boolean(params.halted);
       recomputeNetworkIsolated();
     }
-  } else if (method === 'task_status_update' && params && params.action === 'abort') {
-    haltActive = true;
-    recomputeNetworkIsolated();
   }
+  // Note: task_status_update+action=abort was never broadcast; Abort sets
+  // halt via task.control hints and system.halt_changed (see task_rpc).
 }
 
 function onHarnessConnected() {

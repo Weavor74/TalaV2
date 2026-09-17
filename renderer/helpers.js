@@ -42,8 +42,24 @@ function fmtTime(d = new Date()) {
  * @param {*} [data]
  * @returns {Promise<*>}
  */
+/** IPC channels exposed by preload (colon form). Everything else with a dot is RPC. */
+const _TALA_IPC_CHANNELS = new Set([
+  'file:read', 'file:write', 'file:list', 'file:delete',
+  'vault:read', 'python:rpc', 'terminal:command', 'terminal:kill', 'git:status',
+]);
+
 async function invoke(channel, data) {
   if (window.tala && typeof window.tala.invoke === 'function') {
+    // Highs H3: preload fail-closed — map legacy method-name calls to python:rpc
+    // without reopening an unknown-channel fallthrough in preload itself.
+    if (
+      typeof channel === 'string'
+      && channel.includes('.')
+      && !channel.includes(':')
+      && !_TALA_IPC_CHANNELS.has(channel)
+    ) {
+      return window.tala.invoke('python:rpc', { method: channel, params: data || {} });
+    }
     return window.tala.invoke(channel, data);
   }
   console.warn('[renderer] window.tala not available — running in degraded mode');

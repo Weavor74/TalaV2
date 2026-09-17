@@ -1404,7 +1404,7 @@ const SwarmDashboardManager = {
   
   async refresh() {
     try {
-      const res = await window.tala.invoke('swarm.fleet.status', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.fleet.status', params: {} });
       const tbody = document.getElementById('swarm-tbody');
       if (!tbody) return;
       
@@ -1446,7 +1446,7 @@ const SwarmDashboardManager = {
   
   async pauseTask(taskId) {
     try {
-      await window.tala.invoke('swarm.fleet.pause', { task_id: taskId });
+      await window.tala.invoke('python:rpc', { method: 'swarm.fleet.pause', params: { task_id: taskId } });
       this.refresh();
     } catch (err) {
       alert("Pause failed: " + err);
@@ -1455,7 +1455,7 @@ const SwarmDashboardManager = {
   
   async resumeTask(taskId) {
     try {
-      await window.tala.invoke('swarm.fleet.resume', { task_id: taskId });
+      await window.tala.invoke('python:rpc', { method: 'swarm.fleet.resume', params: { task_id: taskId } });
       this.refresh();
     } catch (err) {
       alert("Resume failed: " + err);
@@ -1465,7 +1465,7 @@ const SwarmDashboardManager = {
   async terminateTask(taskId) {
     if (!confirm("Are you sure you want to terminate task " + taskId + " and prune its resources?")) return;
     try {
-      await window.tala.invoke('swarm.fleet.terminate', { task_id: taskId });
+      await window.tala.invoke('python:rpc', { method: 'swarm.fleet.terminate', params: { task_id: taskId } });
       this.refresh();
     } catch (err) {
       alert("Termination failed: " + err);
@@ -15038,7 +15038,7 @@ const AgentBuilder = {
 
   async refreshWorkers() {
     try {
-      const res = await window.tala.invoke('swarm.workers.active', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.workers.active', params: {} });
       this.activeWorkers = res.workers || [];
       const listEl = qs('#builder-workers-list');
       if (!listEl) return;
@@ -15064,7 +15064,7 @@ const AgentBuilder = {
     try {
       // reload:true so the list reflects what is actually on disk — a swarm
       // saved or deleted in this session must not linger from a stale registry.
-      const res = await window.tala.invoke('swarm.topology.list', { reload: true });
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.list', params: { reload: true } });
       const topologies = res.topologies || [];
       this.topologies = topologies;
       this.knownGateConditions = res.known_gate_conditions || ['success'];
@@ -15295,11 +15295,11 @@ const AgentBuilder = {
     const topology = this.collectTopologyForm();
     this.showTopologyEditorError('');
     try {
-      const res = await window.tala.invoke('swarm.topology.create', {
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.create', params: {
         topology,
         semantic_memory: qs('#topo-edit-prose').value.trim() || undefined,
         created_by: 'user',
-      });
+      } });
       if (res && res.success) {
         IPCLog.append('info', `Saved swarm "${topology.name}" as ${res.node_id}.html`);
         this.closeTopologyEditor();
@@ -15320,7 +15320,7 @@ const AgentBuilder = {
     if (!topology) return;
     if (!confirm(`Delete the swarm "${topology.name}"?\n\nThis removes its neural node (${topology.source_node_id}.html).`)) return;
     try {
-      const res = await window.tala.invoke('swarm.topology.delete', { topology_id: topology.topology_id });
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.delete', params: { topology_id: topology.topology_id } });
       if (res && res.success) {
         IPCLog.append('info', `Deleted swarm "${topology.name}"`);
         if (res.reverted_to_builtin) {
@@ -15367,7 +15367,7 @@ const AgentBuilder = {
       const goal = prompt("Enter the Swarm Goal:");
       if (!goal) return;
       try {
-        const res = await window.tala.invoke('swarm.start', { topology_id: topology.topology_id, goal });
+        const res = await window.tala.invoke('python:rpc', { method: 'swarm.start', params: { topology_id: topology.topology_id, goal } });
         if (res.success) {
           alert('Swarm launched! Parent Task ID: ' + res.task_id);
           this.switchTab('taskboard');
@@ -15528,7 +15528,7 @@ const AgentBuilder = {
 
   async refreshTaskBoard() {
     try {
-      const res = await window.tala.invoke('task.list', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'task.list', params: {} });
       const tasks = res.tasks || [];
       
       const cols = ['pending', 'planned', 'ready', 'running', 'review', 'blocked', 'done'];
@@ -15575,7 +15575,7 @@ const AgentBuilder = {
             e.stopPropagation();
             const workerId = prompt('Enter Worker ID to assign (e.g. from Workers tab):', t.assigned_agent_id || '');
             if (workerId) {
-              window.tala.invoke('task.assign_worker', { task_id: t.id, agent_id: workerId })
+              window.tala.invoke('python:rpc', { method: 'task.assign_worker', params: { task_id: t.id, agent_id: workerId } })
                 .then(() => this.refreshTaskBoard());
             }
           });
@@ -15585,7 +15585,7 @@ const AgentBuilder = {
         if (btnWorktree) {
           btnWorktree.addEventListener('click', (e) => {
             e.stopPropagation();
-            window.tala.invoke('task.create_worktree', { task_id: t.id }).then(res => {
+            window.tala.invoke('python:rpc', { method: 'task.create_worktree', params: { task_id: t.id } }).then(res => {
               if (res.error) alert(res.error.message);
               else this.refreshTaskBoard();
             });
@@ -15619,7 +15619,7 @@ const AgentBuilder = {
     
     // Fetch topology schema
     try {
-      const res = await window.tala.invoke('swarm.topology.list', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.list', params: {} });
       const topologies = res.topologies || [];
       const topology = topologies.find(t => t.topology_id === topologyId);
       
@@ -15723,7 +15723,7 @@ const AgentBuilder = {
     
     try {
       // Fetch Tasks to see active child tasks
-      const res = await window.tala.invoke('task.list', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'task.list', params: {} });
       const tasks = res.tasks || [];
       
       // Find children of monitored task
@@ -15757,7 +15757,7 @@ const AgentBuilder = {
       
       // Fetch Telemetry (simulated for now since get_telemetry RPC might not be implemented exactly this way,
       // but let's try calling task.get_telemetry)
-      const telRes = await window.tala.invoke('task.get_telemetry', { task_id: this.monitoredTask, include_children: true });
+      const telRes = await window.tala.invoke('python:rpc', { method: 'task.get_telemetry', params: { task_id: this.monitoredTask, include_children: true } });
       const events = telRes.events || [];
       
       const consoleEl = qs('#runs-telemetry-console');

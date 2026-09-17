@@ -301,7 +301,8 @@ async def _browse_node_from_disk(ref_id: str) -> str | None:
     for path in candidates:
         try:
             resolved = path.resolve()
-            if not str(resolved).startswith(str(nodes_dir)):
+            # Path boundary (not startswith): nodes vs nodes_evil prefix hole.
+            if not resolved.is_relative_to(nodes_dir):
                 continue
             if resolved.is_file():
                 text = resolved.read_text(encoding="utf-8", errors="replace")

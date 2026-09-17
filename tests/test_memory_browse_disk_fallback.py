@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import json
-from pathlib import Path
 from unittest.mock import AsyncMock
 
 import pytest
@@ -69,3 +68,33 @@ async def test_browse_node_prefers_db_content(monkeypatch):
     result = await mem.handle_memory_browse({"source_type": "node", "ref_id": "n1"})
     payload = json.loads(result["context"])
     assert payload["body"] == "from-db"
+
+
+@pytest.mark.asyncio
+async def test_browse_node_rejects_nodes_evil_symlink_escape(tmp_path, monkeypatch):
+    """H8: path boundary must use is_relative_to, not startswith(nodes)."""
+    nodes = tmp_path / "nodes"
+    nodes.mkdir()
+    evil = tmp_path / "nodes_evil"
+    evil.mkdir()
+    secret = evil / "leak.html"
+    secret.write_text(
+        "<!DOCTYPE html><html><body><article>LEAKED</article></body></html>",
+        encoding="utf-8",
+    )
+    link = nodes / "leak.html"
+    link.symlink_to(secret)
+
+    class _Settings:
+        REPO_ROOT = tmp_path
+
+    import python.harness.config as cfg
+    monkeypatch.setattr(cfg, "settings", _Settings())
+    monkeypatch.setattr(mem.db, "fetchrow", AsyncMock(return_value=None))
+
+    result = await mem.handle_memory_browse(
+        {"source_type": "node", "ref_id": "leak"}
+    )
+    ctx = result["context"]
+    assert "LEAKED" not in ctx
+    assert "not in the nodes table" in ctx or "REPO_ROOT/nodes" in ctx
