@@ -145,6 +145,42 @@ def test_c3_shim_fetches_ticket_not_config_wstoken():
     assert "history.replaceState" in shim
 
 
+def test_c3_electron_splits_ws_and_http_tokens():
+    """Architect C3: Electron must not copy WS secret into TALA_WEB_TOKEN."""
+    main = Path("electron/main.js").read_text(encoding="utf-8")
+    token_mod = Path("electron/token_files.js").read_text(encoding="utf-8")
+
+    ensure_ws_body = (
+        main.split("function ensureWsToken(appPath)", 1)[1]
+        .split("{", 1)[1]
+        .split("}", 1)[0]
+    )
+    assert "ensureWsTokenFile" in ensure_ws_body
+    assert "TALA_WEB_TOKEN" not in ensure_ws_body
+
+    env_fn = main.split("function firstRunEnv(appPath)", 1)[1].split("function ", 1)[0]
+    assert "TALA_WS_TOKEN: wsToken" in env_fn
+    assert "TALA_WEB_TOKEN: webUiToken" in env_fn
+    assert "TALA_WEB_TOKEN: ensureWsToken" not in env_fn
+    assert "ensureWebUiToken" in env_fn
+
+    # Main-process WS client authenticates with the WS credential via header.
+    connect = main.split("function connectWithRetry", 1)[1].split("candidate.once('open'", 1)[0]
+    assert "ensureWsToken" in connect
+    assert "Authorization" in connect
+    assert "ensureWebUiToken" not in connect
+
+    assert "web_ui_token.txt" in token_mod
+    assert "ws_token.txt" in token_mod
+    # Stop before the next JSDoc so we only assert on ensureWsToken itself.
+    ws_helper = token_mod.split("function ensureWsToken", 1)[1].split("/**", 1)[0]
+    assert "env.TALA_WS_TOKEN" in ws_helper
+    assert "env.TALA_WEB_TOKEN" not in ws_helper
+    web_helper = token_mod.split("function ensureWebUiToken", 1)[1]
+    assert "env.TALA_WEB_TOKEN" in web_helper
+    assert "env.TALA_WS_TOKEN" not in web_helper.split("{", 1)[1].split("}", 1)[0]
+
+
 # --- C4 --------------------------------------------------------------------
 
 def test_c4_webui_file_read_refuses_vault(tmp_path):

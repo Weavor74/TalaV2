@@ -47,6 +47,7 @@ const { spawn, spawnSync }  = require('node:child_process');
 const { registerHandlers } = require('./ipc-handlers');
 const { rpcTimeoutMs } = require('./rpc_policy');
 const { initBlockchain, spawnBlockchain, stopBlockchain } = require('./blockchain-process');
+const { ensureWsToken: ensureWsTokenFile, ensureWebUiToken: ensureWebUiTokenFile } = require('./token_files');
 
 // Lazily require 'ws' (installed via npm). We import it here so the entire
 // module doesn't fail if ws isn't yet installed (first run before npm install).
@@ -98,41 +99,49 @@ function resolveDataRoot(appPath) {
 }
 
 /**
- * Read -- or create -- the shared secret for the harness WebSocket.
+ * Read -- or create -- the long-lived secret for harness WebSocket port 8765.
  *
  * Mirrors python/harness/ws_auth.py::load_or_create_token(). Electron does it
  * *before* spawning Python and passes the value in the environment, so the two
  * cannot disagree and there is no window in which the renderer is connecting
  * while the harness is still writing the file.
  *
+ * Only TALA_WS_TOKEN may pin this value (UI-audit C3). TALA_WEB_TOKEN is a
+ * distinct HTTP UI credential and must never be copied here.
+ *
  * @param {string} appPath
  * @returns {string}
  */
 function ensureWsToken(appPath) {
-  const pinned = (process.env.TALA_WEB_TOKEN || process.env.TALA_WS_TOKEN || '').trim();
-  if (pinned) return pinned;
+  return ensureWsTokenFile(resolveDataRoot(appPath));
+}
 
-  const tokenPath = path.join(resolveDataRoot(appPath), 'vault', '.keys', 'ws_token.txt');
-  try {
-    if (fs.existsSync(tokenPath)) {
-      const existing = fs.readFileSync(tokenPath, 'utf8').trim();
-      if (existing) return existing;
-    }
-    fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
-    const token = require('node:crypto').randomBytes(32).toString('base64url');
-    fs.writeFileSync(tokenPath, token, { mode: 0o600 });
-    console.log(`[main] created a new harness WebSocket token at ${tokenPath}`);
-    return token;
-  } catch (err) {
-    console.error(`[main] could not establish a WebSocket token: ${err.message}`);
-    return '';
-  }
+/**
+ * Read -- or create -- the HTTP UI token for port 8767.
+ *
+ * Mirrors python/harness/webui.py::_load_or_create_web_token(). Deliberately a
+ * DIFFERENT secret from the WS token: the UI token may appear in a browser URL
+ * / history, while the WS token unlocks every RPC on 8765. Never copy
+ * ws_token.txt / TALA_WS_TOKEN into TALA_WEB_TOKEN (UI-audit C3).
+ *
+ * Browser clients on 8767 stay ticket-only for 8765; Electron's main-process
+ * WS client uses the WS credential via Authorization header instead.
+ *
+ * @param {string} appPath
+ * @returns {string}
+ */
+function ensureWebUiToken(appPath) {
+  return ensureWebUiTokenFile(resolveDataRoot(appPath));
 }
 
 function firstRunEnv(appPath) {
   const dataRoot = resolveDataRoot(appPath);
   const venvDir = path.join(dataRoot, '.venv');
   const envPath = path.join(dataRoot, '.env');
+  // Mint BOTH secrets before spawn so Python and Electron agree, and so the
+  // HTTP UI token is never the same string as the long-lived WS secret.
+  const wsToken = ensureWsToken(appPath);
+  const webUiToken = ensureWebUiToken(appPath);
   return {
     ...process.env,
     TALA_INSTALL_ROOT: appPath,
@@ -141,9 +150,10 @@ function firstRunEnv(appPath) {
     TALA_VENV_DIR: venvDir,
     TALA_ENV_PATH: envPath,
     TALA_WS_PORT: String(HARNESS_PORT),
-    // The harness refuses unauthenticated connections (SEC-W0-03). Established
-    // here, before the spawn, so both ends start from the same value.
-    TALA_WEB_TOKEN: ensureWsToken(appPath),
+    // 8765 long-lived credential (SEC-W0-03 / UI-audit C3).
+    TALA_WS_TOKEN: wsToken,
+    // 8767 HTTP UI credential — distinct from TALA_WS_TOKEN.
+    TALA_WEB_TOKEN: webUiToken,
     PYTHONUNBUFFERED: '1',
     // Serve the same renderer to a browser alongside the desktop window.
     //
