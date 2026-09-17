@@ -47,13 +47,10 @@ contextBridge.exposeInMainWorld('tala', {
    */
   invoke(channel, data) {
     if (!ALLOWED_CHANNELS.has(channel)) {
-      // Fallback: assume channel is a python JSON-RPC method
-      return ipcRenderer.invoke('python:rpc', { method: channel, params: data || {} }).then(res => {
-        if (res && res.__rpcError) {
-          throw new Error(res.error);
-        }
-        return res;
-      });
+      // FAIL CLOSED: unknown channels are rejected (no RPC fallthrough).
+      return Promise.reject(
+        new Error(`[preload] Channel "${channel}" is not allowlisted.`)
+      );
     }
     return ipcRenderer.invoke(channel, data).then(res => {
       if (res && res.__rpcError) {

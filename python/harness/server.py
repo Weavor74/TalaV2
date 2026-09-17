@@ -10724,6 +10724,10 @@ async def handle_system_release_halt(params: dict[str, Any], req_id: Any) -> str
                 "Halt release did not clear; remove emergency_halt.json by hand if present.",
                 {"halted": True},
             )
+        try:
+            await broadcast_notification("system.halt_changed", {"halted": False})
+        except Exception:
+            logger.debug("system.halt_changed broadcast failed", exc_info=True)
         return _ok(req_id, {"success": True, "halted": False})
     except Exception as exc:
         logger.exception("system.release_halt error")
@@ -12704,6 +12708,11 @@ async def handle_environment_set(params: dict[str, Any], req_id: Any) -> str:
             + (" with lockdown engaged" if state["lockdown"] else ""),
             {"state": state},
         )
+        # Highs H5: Electron derives networkIsolated from lockdown — notify clients.
+        try:
+            await broadcast_notification("environment.changed", state)
+        except Exception:
+            logger.debug("environment.changed broadcast failed", exc_info=True)
         return _ok(req_id, state)
     except Exception as exc:
         logger.exception("environment.set error")

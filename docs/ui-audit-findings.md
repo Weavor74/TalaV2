@@ -3678,7 +3678,7 @@ asks what a policy's subject is — Q-22 answers it: a **(grantee, resource)** p
 and not an agent. Both should be revisited rather than reopened.
 
 ### UI-102 — Network isolation is never enabled, so `vault:read` can never succeed
-**Severity: high · Status: FIXED 2026-08-23 · Found while answering Q-59**
+**Severity: high · Status: PARTIAL (2026-09-17 Highs H5)**
 
 
 > **Fixed by moving the control.** The flag was permanently false, so `vault:read` could
@@ -3707,8 +3707,10 @@ The flag exists and is read:
 | [main.js:458](../electron/main.js#L458) | `networkIsolated = false;` — on WebSocket connect |
 | [main.js:1079](../electron/main.js#L1079) | `isNetworkIsolated: () => networkIsolated` |
 
-**Nothing anywhere sets it to `true`.** It is initialised false and reset to false; there is no
-third assignment.
+**Highs H5 (2026-09-17):** Electron main now sets `networkIsolated` from lockdown / emergency
+halt / enabled network guard (and refreshes those after WS connect). It is **not** flipped solely
+because the local harness WS connects. Claiming isolated in the UI when those sources are off
+remains forbidden.
 
 The consequence lands on the vault. `vault:read`
 ([ipc-handlers.js:386](../electron/ipc-handlers.js#L386)) refuses unless isolation is active:
@@ -3719,10 +3721,10 @@ if (typeof isNetworkIsolated === 'function' && !isNetworkIsolated()) {
 }
 ```
 
-Since the flag can never be true, **`vault:read` always throws**. This sharpens UI-036/UI-037: the
-vault is not merely missing its UI — its one working backend capability is permanently unreachable.
-And it sharpens UI-039: the `Network Isolated` badge is not just hardcoded, it asserts a state the
-system has no way to enter.
+`vault:read` still **requires** isolation (fail-closed). With H5, isolation can become true under
+lockdown/halt/network-guard; when those are off, the IPC path correctly denies. The primary vault
+UI uses `vault.read` RPC (sealed-at-rest), not this Electron IPC channel. UI-039's badge was
+already retitled away from a false "Network Isolated" claim.
 
 **Good news for the build.** Lockdown does not start from nothing. The flag, the guard, and the
 enforcement point all exist — what is missing is a setter and a trigger. That is a much smaller job
@@ -3743,21 +3745,29 @@ Two notes for whoever builds it:
   present. Under lockdown they are unreachable by design yet would still render green.
 
 ### UI-103 — `AuthorizationGate` is never invoked, and the emergency halt is never checked
-**Severity: high · Status: FIXED 2026-08-28 · Found while answering Q-61**
+**Severity: high · Status: PARTIAL (2026-09-17 Highs) · Found while answering Q-61**
 
 
-> **Fixed.** `AuthorizationGate.request_authorization` now resolves against the grant model
-> and has a caller. The `priority = 1` lookup is **gone entirely** rather than tightened —
-> any credential that happened to sort first authorised any action, which was never the
-> intent and is not recoverable by improving the query. The emergency halt still runs first
-> and still wins, and the gate records `last_reason`, because a denial the caller cannot
-> explain is the same problem as a silent failure.
+> **Honest status (Highs H1, 2026-09-17).** Earlier "FIXED" prose overstated wiring.
+> `AuthorizationGate.request_authorization` still has **no production callers** — gates
+> live in `sdk/agent/gates.py` but ToolRegistry / RPC paths do not invoke the gate.
+> Prefer docs truth over wiring `AuthorizationGate` unless a cheap caller appears.
+>
+> **What *is* wired:** emergency halt. `RevocationHalt.is_halted()` is consulted by
+> `python/harness/halt_gate.py` at RPC dispatch, by `sdk/agent/tools.py` before tool
+> runs, and by shell/desktop paths. Abort trips the halt; `system.release_halt`
+> clears it (owner secret). The `priority = 1` credential lookup is gone from the
+> gate implementation itself.
+>
+> Remaining OPEN: give `AuthorizationGate` a real caller (or delete it) so the grant
+> model is enforced rather than only documented.
 
-Two adjacent safety primitives in `sdk/agent/gates.py` are both built and both inert.
+Two adjacent safety primitives in `sdk/agent/gates.py` — one still inert as a caller,
+one now enforced via `halt_gate`.
 
-**`AuthorizationGate.request_authorization()` has no callers.** A search across `python/` and
-`sdk/` returns only its own definition. So the `priority = 1` authorization bug (UI-081) is
-**latent, not active** — nothing is being wrongly authorized today, because nothing asks.
+**`AuthorizationGate.request_authorization()` has no production callers.** A search across
+`python/` and `sdk/` returns only its own definition (plus comments). So the historical
+`priority = 1` authorization bug (UI-081) remains **latent, not active** — nothing asks.
 
 Its existing shape is a good fit for the model Steven specified, which is worth noting before
 anyone redesigns it:
@@ -3771,16 +3781,26 @@ async def request_authorization(self, action_type: str, resource: str, risk_clas
   open
 - a `register_pre_approval()` path already exists for granting a specific `action:resource`
 
-**`RevocationHalt` is triggerable but never consulted.** `trigger_emergency_halt()` *is* called —
-from `task.control` when the action is `abort`
-([server.py:9591](../python/harness/server.py#L9591)). But `is_halted()` has **no callers
-anywhere**, so tripping the halt sets a flag nothing reads. Aborting a task raises an emergency halt
-that stops nothing.
+**`RevocationHalt` is now consulted (Highs H1).** `trigger_emergency_halt()` is still raised from
+`task.control` abort; `is_halted()` is read by `halt_gate` (RPC), ToolRegistry, and shell/desktop
+paths. Owner `system.release_halt` clears it. The stale "never consulted" claim above is
+historical.
 
-**Relevance to lockdown (Q-59).** `RevocationHalt` is a second half-built kill-switch primitive
-sitting beside `isNetworkIsolated()` (UI-102), which is also never enabled. Two independent halt
-mechanisms exist, neither functional. Worth deciding whether lockdown reuses one, or whether the
-other should be removed rather than left as a safety control that does nothing.
+**Relevance to lockdown (Q-59).** Halt and `networkIsolated` (UI-102 / Highs H5) are separate
+layers: halt blocks tools/RPCs; isolation gates `vault:read` when lockdown / halt / network guard
+is active. `AuthorizationGate` remains the unwired piece.
+
+
+
+### UI-audit Highs H2 — WebSocket :8765 is authenticated (Wave 0+)
+**Severity: docs · Status: CORRECTED 2026-09-17**
+
+Prose that still describes `ws://127.0.0.1:8765` as an unauthenticated / pre-Wave-0
+control channel is stale. Admission is enforced in
+[`python/harness/ws_auth.py`](../python/harness/ws_auth.py): Origin allowlist plus a
+local Bearer token (vault file, fail-closed without a valid token). Electron main
+sends `Authorization: Bearer …` on connect. Peer HMAC remains a separate class for
+contact sockets. Treat any residual "open 8765" wording as historical.
 
 ### UI-104 — Crews are an org structure, not a swarm front-end; and the naming already conflicts
 **Severity: high (design) · Status: built (2026-08-28) · Source: P2 answers, 2026-08-23**

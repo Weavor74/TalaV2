@@ -242,8 +242,15 @@ let pythonRestartCount = 0;
 /** Whether the Python WS connection is currently established. */
 let wsConnected = false;
 
-/** Tracks whether we are in "network isolated" mode (used by vault:read guard). */
-let networkIsolated = false;
+const {
+  isNetworkIsolated,
+  setNotify: setIsolationNotify,
+  setRefreshHook: setIsolationRefreshHook,
+  applyIsolationHints,
+  applyIsolationNotification,
+  onHarnessConnected,
+} = require('./network_isolation');
+
 
 /* ──────────────────────────────────────────────────────────────────
    electron-store config
@@ -521,8 +528,9 @@ function connectWithRetry(attempt) {
     // Hand off to the normal persistent connection machinery
     wsClient = candidate;
     wsConnected = true;
-    networkIsolated = false;
+    // Isolation is lockdown/halt/network-guard — not "WS connected".
     console.log('[main] WebSocket connected to Python harness.');
+    onHarnessConnected();
 
     candidate.on('message', raw => {
       let msg;
@@ -537,6 +545,7 @@ function connectWithRetry(attempt) {
           resolve(msg.result ?? null);
         }
       } else if (msg.id === undefined && msg.method) {
+        applyIsolationNotification(msg);
         sendLogToRenderer('python:notification', msg);
       }
     });
@@ -796,6 +805,7 @@ ${shellCmd} "${startScript}" &
           if (result && method === 'harness.health') {
             result.last_latency_ms = Date.now() - startTime;
           }
+          applyIsolationHints(method, result);
           resolve(result);
         },
         timer,
@@ -997,9 +1007,24 @@ app.whenReady().then(() => {
     callback(false);
   });
 
-  // Register sandboxed file + vault IPC handlers
+
+  setIsolationNotify(sendLogToRenderer);
+  setIsolationRefreshHook(() => {
+    if (!wsConnected || !wsClient || wsClient.readyState !== (WebSocket?.OPEN ?? 1)) return;
+    for (const method of ['environment.get', 'guardrails.get_network', 'harness.health']) {
+      const id = rpcIdCounter++;
+      const request = JSON.stringify({ jsonrpc: '2.0', id, method, params: {} });
+      const timer = setTimeout(() => { pendingRpcCalls.delete(id); }, 8_000);
+      pendingRpcCalls.set(id, {
+        resolve: (result) => applyIsolationHints(method, result),
+        timer,
+      });
+      try { wsClient.send(request); } catch { clearTimeout(timer); pendingRpcCalls.delete(id); }
+    }
+  });
+
   registerHandlers({
-    isNetworkIsolated: () => networkIsolated,
+    isNetworkIsolated,
   });
 
   // Register Python RPC relay

@@ -249,7 +249,11 @@ def security_model() -> dict[str, Any]:
             src, re.DOTALL,
         )
         if guard:
-            unlisted_forwarded = "python:rpc" in guard.group(1)
+            body = guard.group(1)
+            unlisted_forwarded = (
+                "ipcRenderer.invoke('python:rpc'" in body
+                or 'ipcRenderer.invoke("python:rpc"' in body
+            )
 
     return {
         "renderer_isolation": {

@@ -46,6 +46,10 @@ MODES
 Set with ``TALA_LEASE_MODE``. The default is deliberately ``open``: switching
 a dormant gate straight to blocking is how you discover, in production, which
 of your own routine operations you had forgotten were guarded.
+
+**Unsafe default (Highs H7):** ``open`` is fail-open. Production / unattended
+installs should set ``TALA_LEASE_MODE=enforce``. The Settings → Guardrails
+panel surfaces this warning when the mode is not enforce.
 """
 from __future__ import annotations
 

@@ -6928,6 +6928,7 @@ const ConversationTabs = {
 
 const StatusBar = {
   _els: {},
+  _wsStatus: 'unknown',
 
   init() {
     this._els = {
@@ -6938,35 +6939,27 @@ const StatusBar = {
     };
   },
 
+  /** Mission Control and other panels gate destructive actions on this. */
+  isWsConnected() {
+    return this._wsStatus === 'ok';
+  },
+
   setWsStatus(status) {
     const dot  = this._els.wsDot;
     const text = this._els.wsText;
-    if (!dot || !text) return;
-
-    // Remove all status classes
-    dot.className = 'status-dot';
-    const wsPulse = qs('#ws-pulse');
-    if (wsPulse) wsPulse.className = 'pulse-dot';
-
-    switch (status) {
-      case 'ok':
-        dot.classList.add('status-ok');
-        text.textContent = 'WS: connected';
-        if (wsPulse) wsPulse.classList.add('ok');
-        break;
-      case 'error':
-        dot.classList.add('status-error');
-        text.textContent = 'WS: error';
-        if (wsPulse) wsPulse.classList.add('error');
-        break;
-      case 'connecting':
-        dot.classList.add('status-connecting');
-        text.textContent = 'WS: connecting…';
-        if (wsPulse) wsPulse.classList.add('connecting');
-        break;
-      default:
-        dot.classList.add('status-unknown');
-        text.textContent = 'WS: unknown';
+    this._wsStatus = status || 'unknown';
+    if (dot && text) {
+      dot.className = 'status-dot';
+      const wsPulse = qs('#ws-pulse');
+      if (wsPulse) wsPulse.className = 'pulse-dot';
+      const map = { ok: ['status-ok', 'WS: connected', 'ok'], error: ['status-error', 'WS: error', 'error'], connecting: ['status-connecting', 'WS: connecting…', 'connecting'] };
+      const [cls, label, pulse] = map[status] || ['status-unknown', 'WS: unknown', null];
+      dot.classList.add(cls);
+      text.textContent = label;
+      if (wsPulse && pulse) wsPulse.classList.add(pulse);
+    }
+    if (typeof MissionControl !== 'undefined' && typeof mcSyncDestructiveControls === 'function') {
+      mcSyncDestructiveControls(MissionControl);
     }
   },
 
@@ -12091,6 +12084,8 @@ const MissionControl = {
 
     if (this._btnRefresh) this._btnRefresh.addEventListener('click', () => this.refreshAll());
     mcBindOwnerControls(this);
+    if (this._btnTaskClear) this._btnTaskClear.setAttribute('data-title-connected', this._btnTaskClear.title || 'Clear Queue');
+    if (typeof mcSyncDestructiveControls === 'function') mcSyncDestructiveControls(this);
     if (this._btnScan) this._btnScan.addEventListener('click', () => this.runScan());
     if (this._btnLint) this._btnLint.addEventListener('click', () => this.runLint());
     if (this._btnRevert) this._btnRevert.addEventListener('click', () => this.runRevert());
@@ -12219,6 +12214,8 @@ const MissionControl = {
   },
 
   async controlTask(id, action) {
+    // Abort / Resume / Pause need a live harness WS (H4).
+    if (typeof mcRequireWs === 'function' && !mcRequireWs(`${action} task`)) return;
     // Aborting is not reversible and cascades to children, so it confirms;
     // pause and resume do not, because their whole value is being quick.
     if (action === 'abort') {
@@ -12230,11 +12227,14 @@ const MissionControl = {
       await invoke('python:rpc', { method: 'task.control', params: { task_id: id, action } });
       await this.loadTasks();
     } catch (err) {
-      IPCLog.append('error', `Could not ${action} task: ${err.message || err}`);
+      const msg = `Could not ${action} task: ${err.message || err}`;
+      IPCLog.append('error', msg);
+      alert(msg);
     }
   },
 
   async deleteTask(id) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('delete task')) return;
     const task = (this._taskCache || []).find(t => t.id === id);
     const label = task ? `"${task.description}"` : id;
     if (!confirm(`Delete task ${label} and any sub-tasks? This cannot be undone.`)) return;
@@ -12242,7 +12242,9 @@ const MissionControl = {
       await invoke('python:rpc', { method: 'task.delete', params: { task_id: id } });
       await this.loadTasks();
     } catch (err) {
-      IPCLog.append('error', `Could not delete task: ${err.message || err}`);
+      const msg = `Could not delete task: ${err.message || err}`;
+      IPCLog.append('error', msg);
+      alert(msg);
     }
   },
 
@@ -12682,17 +12684,23 @@ const MissionControl = {
                   <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; text-transform: uppercase;">
                     ${t.status}
                   </span>
-                  ${t.status === 'review'
-                    ? `<button class="btn btn-primary" data-task-action="approve" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 9px;">Approve</button>
-                       <button class="btn btn-ghost" data-task-action="reject" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;">Reject</button>`
-                    : MissionControl.TASK_LIVE_STATUSES.includes(t.status)
-                    ? `<button class="btn btn-ghost" data-task-action="pause" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Pause</button>
-                       <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Abort</button>`
-                    : t.status === 'paused'
-                    ? `<button class="btn btn-ghost" data-task-action="resume" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Resume</button>
-                       <button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`
-                    : `<button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`}
-                  <button class="btn btn-ghost" data-task-action="delete" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;">Delete</button>
+                  ${(() => {
+                    const dis = (typeof mcWsDisabledAttr === 'function') ? mcWsDisabledAttr() : '';
+                    if (t.status === 'review') {
+                      return `<button class="btn btn-primary" data-task-action="approve" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 9px;"${dis}>Approve</button>
+                       <button class="btn btn-ghost" data-task-action="reject" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;"${dis}>Reject</button>`;
+                    }
+                    if (MissionControl.TASK_LIVE_STATUSES.includes(t.status)) {
+                      return `<button class="btn btn-ghost" data-task-action="pause" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis}>Pause</button>
+                       <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis}>Abort</button>`;
+                    }
+                    if (t.status === 'paused') {
+                      return `<button class="btn btn-ghost" data-task-action="resume" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis}>Resume</button>
+                       <button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`;
+                    }
+                    return `<button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`;
+                  })()}
+                  <button class="btn btn-ghost" data-task-action="delete" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;"${(typeof mcWsDisabledAttr === 'function') ? mcWsDisabledAttr() : ''}>Delete</button>
                 </div>
               </div>
               ${bodyContent}
