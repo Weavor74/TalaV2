@@ -93,9 +93,19 @@ def test_a_missing_server_token_refuses_rather_than_opens(monkeypatch):
 
 # -- the token file ----------------------------------------------------------
 
-def test_token_is_pinned_by_env(monkeypatch):
-    monkeypatch.setenv("TALA_WEB_TOKEN", "pinned-value")
-    assert ws_auth.load_or_create_token() == "pinned-value"
+def test_ws_token_env_pins_and_web_token_does_not(monkeypatch, tmp_path):
+    """UI-audit C3: only TALA_WS_TOKEN pins 8765; TALA_WEB_TOKEN stays HTTP-only."""
+    monkeypatch.setenv("TALA_WS_TOKEN", "ws-only-token")
+    monkeypatch.setenv("TALA_WEB_TOKEN", "http-ui-token")
+    assert ws_auth.load_or_create_token() == "ws-only-token"
+
+    monkeypatch.delenv("TALA_WS_TOKEN", raising=False)
+    monkeypatch.setenv("TALA_WEB_TOKEN", "http-ui-token")
+    monkeypatch.setattr(ws_auth, "_token_path", lambda: tmp_path / "vault" / ".keys" / "ws_token.txt")
+    created = ws_auth.load_or_create_token()
+    assert created != "http-ui-token"
+    assert len(created) >= 32
+
 
 
 def test_token_is_created_once_and_reused(monkeypatch, tmp_path):
@@ -189,3 +199,20 @@ async def test_the_gate_works_on_a_real_handshake():
     finally:
         server.close()
         await server.wait_closed()
+
+
+def test_ws_ticket_is_single_use(monkeypatch):
+    """UI-audit C3: short-lived tickets burn on first handshake."""
+    ws_auth._TICKETS.clear()
+    issued = ws_auth.mint_ws_ticket(ttl_seconds=30)
+    ticket = issued["ticket"]
+    assert ws_auth.check(f"/?token={ticket}", {}, TOKEN) is None
+    # Second use must fail — burned.
+    assert ws_auth.check(f"/?token={ticket}", {}, TOKEN)[0] == 401
+
+
+def test_web_token_env_does_not_become_ws_secret(monkeypatch, tmp_path):
+    monkeypatch.delenv("TALA_WS_TOKEN", raising=False)
+    monkeypatch.setenv("TALA_WEB_TOKEN", "must-not-be-ws")
+    monkeypatch.setattr(ws_auth, "_token_path", lambda: tmp_path / "ws_token.txt")
+    assert ws_auth.load_or_create_token() != "must-not-be-ws"

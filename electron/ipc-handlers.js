@@ -169,6 +169,32 @@ async function safePath(baseDir, userPath) {
 }
 
 /**
+ * UI-audit C4: file:* must not reach vault secrets while vault:read is gated.
+ * Path confinement alone puts vault/ inside the sandbox root; this separates
+ * the two the same way python/harness/webui.py._refuse_secret_path does.
+ */
+function refuseSecretPath(baseDir, resolved) {
+  const baseCmp = foldCase(path.resolve(baseDir));
+  const resolvedCmp = foldCase(path.resolve(resolved));
+  let relative;
+  if (resolvedCmp === baseCmp) return;
+  if (!resolvedCmp.startsWith(baseCmp + path.sep)) return;
+  relative = resolvedCmp.slice(baseCmp.length + 1).split(path.sep);
+  if (!relative.length || (relative.length === 1 && relative[0] === '')) return;
+  const top = relative[0];
+  if (top === 'vault' || top === '.env') {
+    throw new Error(`Access denied: "${relative.join('/')}" holds secrets and is not served by file:*.`);
+  }
+  if (top === 'blockchain' && relative[1] === 'data') {
+    throw new Error(`Access denied: "${relative.join('/')}" holds the chain's keys and is not served by file:*.`);
+  }
+  const name = relative[relative.length - 1];
+  if (name.endsWith('.pem') || name === 'wallet_seed_phrase.txt' || name === 'poa_keys.json' || name === 'admin_secret.txt') {
+    throw new Error(`Access denied: "${relative.join('/')}" is key material and is not served by file:*.`);
+  }
+}
+
+/**
  * Is this a Neural Node HTML file? Separator-normalized: a Windows renderer
  * sends `nodes\x.html`, which a bare includes('nodes/') misses, letting the
  * write skip schema validation and blockchain anchoring while still landing
@@ -213,6 +239,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     const { filePath, encoding = 'utf8' } = payload ?? {};
 
     const resolved = await safePath(userData, filePath);
+    refuseSecretPath(userData, resolved);
 
     // Stat first to avoid reading huge files accidentally
     const stat = await fs.stat(resolved);
@@ -268,6 +295,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     }
 
     const resolved = await safePath(userData, filePath);
+    refuseSecretPath(userData, resolved);
 
     // Ensure parent directory exists
     await fs.mkdir(path.dirname(resolved), { recursive: true });
@@ -336,6 +364,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     }
 
     const resolved = await safePath(userData, filePath);
+    refuseSecretPath(userData, resolved);
 
     // Verify it exists and is a regular file
     const stat = await fs.stat(resolved);
@@ -387,6 +416,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     const { dir = '.', recursive = false, withSizes = false } = payload ?? {};
 
     const resolved = await safePath(userData, dir);
+    refuseSecretPath(userData, resolved);
 
     // Ensure it exists and is a directory
     let stat;
@@ -524,4 +554,4 @@ async function listDir(dir, base, recursive, depth, limit, withSizes = false) {
 // The pure helpers are exported for the jest suite (tests/electron/): the
 // containment guard is exactly where sandbox-escape bugs live, so it gets
 // direct unit coverage in addition to the handler-level tests.
-module.exports = { registerHandlers, safePath, foldCase, isNodesHtmlPath, listDir };
+module.exports = { registerHandlers, safePath, refuseSecretPath, foldCase, isNodesHtmlPath, listDir };

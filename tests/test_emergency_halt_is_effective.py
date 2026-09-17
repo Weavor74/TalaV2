@@ -75,12 +75,10 @@ async def test_the_halt_is_checked_before_anything_else():
 
 
 @pytest.mark.asyncio
-async def test_resume_releases_the_halt(monkeypatch):
+async def test_resume_does_not_release_the_halt(monkeypatch):
     """
-    The other half of abort being real.
-
-    Without a release path the first abort locks the agent out of every tool
-    permanently, with nothing in the UI able to undo it.
+    Model A (UI-audit C2): Resume requeues a task; it must NOT unlock tools.
+    system.release_halt is the only deliberate unlock.
     """
     from python.harness import server
 
@@ -98,8 +96,8 @@ async def test_resume_releases_the_halt(monkeypatch):
     payload = json.loads(raw)["result"]
 
     assert payload["success"] is True
-    assert payload["halted"] is False
-    assert RevocationHalt.is_halted() is False
+    assert payload["halted"] is True
+    assert RevocationHalt.is_halted() is True
 
 
 @pytest.mark.asyncio
@@ -149,3 +147,34 @@ def test_the_demo_passcode_is_gone_entirely():
     assert not offenders, (
         f"the hardcoded demo passcode has been reintroduced in: {offenders}"
     )
+
+
+@pytest.mark.asyncio
+async def test_system_release_halt_requires_owner_secret(monkeypatch, tmp_path):
+    from python.harness import server
+    from python.harness import admin_auth
+
+    secret_path = tmp_path / "harness_admin_secret.txt"
+    monkeypatch.setenv("TALA_HARNESS_ADMIN_SECRET_FILE", str(secret_path))
+    monkeypatch.delenv("TALA_HARNESS_ADMIN_SECRET", raising=False)
+    secret = admin_auth.load_or_create_harness_admin_secret()
+
+    RevocationHalt.trigger_emergency_halt()
+    refused = json.loads(await server.handle_system_release_halt({}, 1))
+    assert "error" in refused
+
+    ok = json.loads(await server.handle_system_release_halt({"harness_secret": secret}, 2))
+    assert ok["result"]["success"] is True
+    assert RevocationHalt.is_halted() is False
+
+
+@pytest.mark.asyncio
+async def test_halt_exception_path_fail_closed(monkeypatch):
+    """UI-audit C1: unreadable halt state must refuse tools, not run them."""
+    def boom():
+        raise RuntimeError("halt unreadable")
+
+    monkeypatch.setattr(RevocationHalt, "is_halted", boom)
+    result = await ToolRegistry.run_tool("get_system_info", {})
+    assert result.get("success") is False
+    assert result.get("halted") is True

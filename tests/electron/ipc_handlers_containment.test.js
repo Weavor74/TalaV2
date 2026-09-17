@@ -228,3 +228,17 @@ describe('isNodesHtmlPath', () => {
     expect(isNodesHtmlPath(input)).toBe(expected);
   });
 });
+
+describe('file:* vault refusal (UI-audit C4)', () => {
+  test('file:read must not bypass vault:read', async () => {
+    await expect(invoke('file:read', { filePath: 'vault/note.txt' })).rejects.toThrow(
+      /secrets|Access denied/
+    );
+  });
+
+  test('file:write refuses vault paths', async () => {
+    await expect(
+      invoke('file:write', { filePath: 'vault/planted.txt', data: 'x' })
+    ).rejects.toThrow(/secrets|Access denied/);
+  });
+});

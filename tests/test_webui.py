@@ -248,3 +248,21 @@ def test_standalone_mode_also_refuses_a_tokenless_public_bind():
     main_body = src.split("async def _main")[1]
     assert "TALA_WEB_TOKEN" in main_body
     assert "Refusing to serve" in main_body
+
+
+def test_file_read_refuses_vault_paths(tmp_path):
+    """UI-audit C4: vault:read is gated; file:read must not bypass it."""
+    (tmp_path / "vault").mkdir()
+    (tmp_path / "vault" / "key.txt").write_text("secret", encoding="utf-8")
+    with pytest.raises(PermissionError):
+        webui._bridge_file_read(tmp_path, {"filePath": "vault/key.txt"})
+
+
+def test_config_endpoint_omits_secrets():
+    """UI-audit C3: /tala-web-config.js must not embed HTTP or WS secrets."""
+    src = (ROOT / "python" / "harness" / "webui.py").read_text(encoding="utf-8")
+    # The config payload construction must not include these keys.
+    config_fn = src.split("async def config(", 1)[1].split("async def ", 1)[0]
+    assert '"wsToken"' not in config_fn
+    assert '"token": token' not in config_fn
+    assert "wsTicketUrl" in config_fn

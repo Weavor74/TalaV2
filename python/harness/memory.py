@@ -887,3 +887,62 @@ async def handle_memory_get_user_model(params: dict[str, Any]) -> dict[str, Any]
     """
     state = sync_manager.reconstruct_memory()
     return {"status": "success", "user_model": state}
+
+
+async def handle_memory_rebuild_from_disk(params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Rebuild Chroma + FTS memory indexes from nodes/*.html on disk (UI-audit C6).
+
+    Disk HTML is the source of truth. An empty Chroma collection with hundreds
+    of files on disk is reported as MEMORY_AUTHORITY CRITICAL; calling this
+    re-syncs so health can recover without wiping operator data.
+    """
+    params = params or {}
+    from pathlib import Path as _Path
+    from python.harness.config import settings
+    from python.harness import retrieval
+
+    nodes_dir = _Path(params.get("nodes_dir") or (settings.REPO_ROOT / "nodes"))
+    if not nodes_dir.is_dir():
+        return {"status": "failed", "error": f"nodes_dir not found: {nodes_dir}"}
+
+    disk_html = sorted(p for p in nodes_dir.glob("*.html") if "_archive_legacy" not in str(p))
+    # Force a full Chroma pass by clearing mtime cache for this rebuild.
+    retrieval._INDEXED_MTIMES.clear()
+    retrieval.index_nodes(nodes_dir)
+
+    chroma_count = 0
+    try:
+        if retrieval.node_collection is not None:
+            chroma_count = int(retrieval.node_collection.count() or 0)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "error": f"chroma unreadable after index: {type(exc).__name__}: {exc}",
+            "disk_html": len(disk_html),
+        }
+
+    fts_ok = 0
+    fts_fail = 0
+    # Cap FTS reindex in one call unless force_all — tests and recovery need
+    # the path to work; a 300-node full FTS pass can be slow in CI.
+    force_all = bool(params.get("force_all", True))
+    limit = None if force_all else int(params.get("limit") or 50)
+    targets = disk_html if limit is None else disk_html[:limit]
+    for path in targets:
+        try:
+            res = await handle_memory_reindex_node({"node_path": str(path)})
+            if res.get("status") == "success":
+                fts_ok += 1
+            else:
+                fts_fail += 1
+        except Exception:
+            fts_fail += 1
+
+    return {
+        "status": "success" if chroma_count > 0 or not disk_html else "failed",
+        "disk_html": len(disk_html),
+        "chroma_indexed": chroma_count,
+        "fts_reindexed": fts_ok,
+        "fts_failed": fts_fail,
+    }

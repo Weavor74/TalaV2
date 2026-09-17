@@ -313,11 +313,24 @@ class ToolRegistry:
                     "halted": True,
                     "error": (
                         f"Emergency halt is engaged; tool {name!r} was not run. "
-                        "Resume a task in Mission Control to release it."
+                        "Release it with system.release_halt (owner secret)."
                     ),
                 }
         except Exception as exc:
-            log.error("ToolRegistry: could not read halt state for %r: %s", name, exc)
+            # Fail-closed: a kill switch that cannot be read must refuse, not
+            # continue. UI-audit C1.
+            log.error(
+                "ToolRegistry: could not read halt state for %r: %s -- refusing",
+                name, exc,
+            )
+            return {
+                "success": False,
+                "halted": True,
+                "error": (
+                    f"Emergency halt state unreadable; tool {name!r} was not run. "
+                    "Release it with system.release_halt when the gate is healthy."
+                ),
+            }
         # -------------------------------------------------------------------
 
         # --- LEASE GATE ----------------------------------------------------
@@ -352,8 +365,20 @@ class ToolRegistry:
                     ),
                 }
         except Exception as exc:
-            # The gate must not be the thing that breaks tool execution.
-            log.error("ToolRegistry: lease check raised for %r: %s", name, exc)
+            # Fail-closed: a lease check that crashes is not permission to act.
+            # UI-audit C1.
+            log.error(
+                "ToolRegistry: lease check raised for %r: %s -- refusing",
+                name, exc,
+            )
+            return {
+                "success": False,
+                "lease_denied": True,
+                "error": (
+                    f"Lease check failed for tool {name!r}; execution refused. "
+                    f"({type(exc).__name__}: {exc})"
+                ),
+            }
         # -------------------------------------------------------------------
 
         # Governance gating using RiskClassifier

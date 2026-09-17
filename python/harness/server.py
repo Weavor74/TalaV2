@@ -92,7 +92,8 @@ from python.harness.task_rpc import (
 from python.harness.memory_rpc import (
     handle_memory_browse, handle_memory_delete_node, handle_memory_get_user_model,
     handle_memory_record_completed_turn, handle_memory_reindex_node,
-    handle_memory_reindex_profiles, handle_memory_save_node,
+    handle_memory_reindex_profiles,
+    handle_memory_rebuild_from_disk, handle_memory_save_node,
     handle_memory_scan_context, handle_memory_search, handle_memory_session_search,
 )
 from sdk.agent.exceptions import (
@@ -9682,8 +9683,8 @@ async def _probe_halt() -> tuple[str, str]:
 
     if RevocationHalt.is_halted():
         return "CRITICAL", (
-            "emergency halt engaged -- every tool call is being refused. "
-            "Resume a task in Mission Control to release it."
+            "emergency halt engaged -- tool execution and destructive RPCs "
+            "are refused. Release with system.release_halt (owner secret)."
         )
     return "HEALTHY", "emergency halt not engaged; tool execution permitted"
 
@@ -10696,6 +10697,37 @@ async def handle_system_capabilities(params: dict[str, Any], req_id: Any) -> str
 from python.harness.admin_auth import (
     require_harness_admin_secret as _require_harness_admin_secret,
 )
+
+
+async def handle_system_release_halt(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``system.release_halt`` — owner-gated unlock for the emergency halt.
+
+    Model A (UI-audit C2): Abort engages the halt; Resume must never release
+    it. This is the only deliberate unlock path, gated by the harness admin
+    secret so a Mission Control "Resume" click cannot globally re-arm tools.
+    """
+    if not _require_harness_admin_secret(params):
+        return _err(
+            req_id,
+            JsonRpcError.INVALID_REQUEST,
+            "Unauthorized: system.release_halt requires a valid harness admin secret.",
+        )
+    try:
+        from sdk.agent.gates import RevocationHalt
+        RevocationHalt.release_emergency_halt()
+        still = RevocationHalt.is_halted()
+        if still:
+            return _err(
+                req_id,
+                JsonRpcError.INTERNAL_ERROR,
+                "Halt release did not clear; remove emergency_halt.json by hand if present.",
+                {"halted": True},
+            )
+        return _ok(req_id, {"success": True, "halted": False})
+    except Exception as exc:
+        logger.exception("system.release_halt error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
 async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> str:
@@ -14532,6 +14564,7 @@ _HANDLERS: dict[str, Any] = {
     "system.info":        handle_system_info,
     "system.self_test":   handle_system_self_test,
     "system.capabilities": handle_system_capabilities,
+    "system.release_halt": handle_system_release_halt,
     "system.trigger_update": handle_system_trigger_update,
     "git.get_providers":  handle_git_get_providers,
     "git.save_providers": handle_git_save_providers,
@@ -14731,6 +14764,7 @@ _HANDLERS: dict[str, Any] = {
     "memory.save_node": handle_memory_save_node,
     "memory.delete_node": handle_memory_delete_node,
     "memory.reindex_profiles": handle_memory_reindex_profiles,
+    "memory.rebuild_from_disk": handle_memory_rebuild_from_disk,
     "research.unified_search": handle_research_unified_search,
     "research.distill_to_node": handle_research_distill_to_node,
     # Heartbeat / cron scheduler
@@ -14804,16 +14838,23 @@ async def _handle_webrtc_message(peer_username: str, raw_message: Any) -> None:
             f"'{method}' is not reachable over a peer connection",
         )
     else:
-        try:
-            # No streaming-method check here any more: the RELAYABLE_METHODS
-            # gate above already refuses everything but the peer surface, so
-            # inference.generate, workflow.execute, telemetry.stream_subscribe
-            # and crew.run never reach this line -- they are rejected earlier,
-            # with a message that says why.
-            response = await handler(params, req_id)
-        except Exception as exc:
-            logger.exception("Unhandled error in WebRTC handler '%s'", method)
-            response = _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+        from python.harness.halt_gate import check_rpc as _halt_check_rpc
+        halted_refusal = _halt_check_rpc(
+            method, params if isinstance(params, dict) else {}, req_id,
+        )
+        if halted_refusal is not None:
+            response = halted_refusal
+        else:
+            try:
+                # No streaming-method check here any more: the RELAYABLE_METHODS
+                # gate above already refuses everything but the peer surface, so
+                # inference.generate, workflow.execute, telemetry.stream_subscribe
+                # and crew.run never reach this line -- they are rejected earlier,
+                # with a message that says why.
+                response = await handler(params, req_id)
+            except Exception as exc:
+                logger.exception("Unhandled error in WebRTC handler '%s'", method)
+                response = _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
     logger.debug("WebRTC <- %s id=%s", method, req_id)
     try:
@@ -14966,6 +15007,20 @@ async def _handle_connection(ws: ServerConnection, path: str = "") -> None:
             )
             try:
                 await ws.send(response)
+            except Exception:
+                pass
+            return
+
+        # Model A (UI-audit C2): one halt check before any handler runs.
+        # Fail-closed on read error. Allowlist: status reads, task.control
+        # abort/pause, system.release_halt. Resume does not unlock.
+        from python.harness.halt_gate import check_rpc as _halt_check_rpc
+        halted_refusal = _halt_check_rpc(
+            method, params if isinstance(params, dict) else {}, req_id,
+        )
+        if halted_refusal is not None:
+            try:
+                await ws.send(halted_refusal)
             except Exception:
                 pass
             return

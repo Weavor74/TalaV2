@@ -57,6 +57,50 @@ _TOKEN_FILE = "ws_token.txt"
 _TOKEN_HEADERS = ("authorization", "x-tala-token")
 _TOKEN_QUERY = "token"
 
+# ---------------------------------------------------------------------------
+# Short-lived single-use WS tickets (8767 exchange → 8765 burn)
+# ---------------------------------------------------------------------------
+#: ticket_id -> expires_monotonic. Minted by the web UI after HTTP auth;
+#: accepted once by the WS handshake, then deleted.
+_TICKETS: dict[str, float] = {}
+TICKET_TTL_SECONDS = 60.0
+_TICKET_PREFIX = "tala-ws-ticket:"
+
+
+def mint_ws_ticket(ttl_seconds: float | None = None) -> dict[str, Any]:
+    """
+    Issue a short-lived single-use ticket that 8765 will accept in place of
+    the long-lived WS token. Called only after 8767 has authenticated the
+    HTTP UI token (header preferred).
+    """
+    import time as _time
+
+    ttl = float(TICKET_TTL_SECONDS if ttl_seconds is None else ttl_seconds)
+    now = _time.monotonic()
+    # Prune expired entries so a busy UI cannot grow this forever.
+    expired = [k for k, exp in _TICKETS.items() if exp <= now]
+    for k in expired:
+        _TICKETS.pop(k, None)
+
+    ticket = _TICKET_PREFIX + secrets.token_urlsafe(24)
+    _TICKETS[ticket] = now + max(5.0, ttl)
+    return {"ticket": ticket, "expires_in": int(max(5.0, ttl))}
+
+
+def consume_ws_ticket(supplied: str) -> bool:
+    """
+    True if *supplied* is a live ticket; burns it (single-use). False otherwise.
+    """
+    import time as _time
+
+    if not supplied or not supplied.startswith(_TICKET_PREFIX):
+        return False
+    expires = _TICKETS.pop(supplied, None)
+    if expires is None:
+        return False
+    return _time.monotonic() <= expires
+
+
 
 def _token_path() -> Path:
     from sdk.agent.documentation_nodes import resolve_user_data_dir
@@ -67,15 +111,15 @@ def load_or_create_token() -> str:
     """
     The shared secret for 8765.
 
-    ``TALA_WEB_TOKEN`` wins when set, so an operator who pins one gets the one
-    they pinned. Otherwise it is read from -- or created in -- the vault
-    alongside ``credential_key.bin``, which is already the convention for
-    key material and is already excluded from git.
+    Only ``TALA_WS_TOKEN`` may pin this value. The HTTP UI token
+    (``TALA_WEB_TOKEN``) is a different credential — collapsing them meant a
+    browser history ``?token=`` for 8767 also unlocked every RPC on 8765
+    (UI-audit C3).
 
     Returns "" only if the token can be neither read nor written, which is
     reported by the caller rather than silently disabling the gate.
     """
-    pinned = (os.environ.get("TALA_WEB_TOKEN") or os.environ.get("TALA_WS_TOKEN") or "").strip()
+    pinned = (os.environ.get("TALA_WS_TOKEN") or "").strip()
     if pinned:
         return pinned
 
@@ -158,6 +202,11 @@ def _token_refusal(path: str, headers: Any, token: str) -> tuple[int, str] | Non
     supplied = _supplied_token(path, headers)
     if not supplied:
         return 401, "a token is required"
+    # Short-lived single-use tickets from the 8767 exchange (UI-audit C3).
+    # Checked before the long-lived compare so a ticket can never be mistaken
+    # for a truncated long-lived secret.
+    if consume_ws_ticket(supplied):
+        return None
     if not secrets.compare_digest(supplied, token):
         return 401, "invalid token"
     return None

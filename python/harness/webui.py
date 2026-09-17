@@ -311,18 +311,13 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         if not authorised(request):
             return web.Response(status=401, text="// unauthorised")
         import json as _json
-        # Two different secrets, deliberately not merged. `token` gates this
-        # HTTP surface and is optional on loopback; `wsToken` is what 8765
-        # demands of every connection since SEC-W0-03. Reusing one for both
-        # would make turning off the convenience gate also turn off the
-        # security one.
-        from python.harness import ws_auth
-
+        # UI-audit C3: never embed the HTTP UI token or the long-lived WS
+        # secret in page script. Config carries only endpoints; the shim
+        # exchanges X-Tala-Token for a short-lived single-use WS ticket.
         payload = _json.dumps({
             "wsUrl": f"ws://{request.host.split(':')[0]}:{ws_port}",
             "bridgeUrl": "/api/bridge",
-            "token": token,
-            "wsToken": ws_auth.load_or_create_token(),
+            "wsTicketUrl": "/api/ws-ticket",
         })
         return web.Response(
             text=f"window.__TALA_WEB_CONFIG__ = {payload};",
@@ -334,6 +329,29 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         return web.Response(
             text=(_RENDERER_DIR / "tala-web-shim.js").read_text(encoding="utf-8"),
             content_type="application/javascript",
+        )
+
+    async def ws_ticket(request: web.Request) -> web.Response:
+        """
+        Short-lived single-use WS ticket exchange (UI-audit C3).
+
+        Requires the HTTP UI token via ``X-Tala-Token`` (preferred) or a
+        one-shot query param. Origin-checked. Response is no-store and never
+        includes the long-lived WS secret.
+        """
+        if not origin_allowed(request):
+            return web.json_response({"error": "origin not allowed"}, status=403)
+        if _rate_limited(str(request.remote or "?") + ":ticket"):
+            return web.json_response({"error": "rate limited"}, status=429)
+        # Prefer header; query is accepted only to complete the first paint
+        # before the shim can strip ``?token=`` from history.
+        if not authorised(request):
+            return web.json_response({"error": "unauthorised"}, status=401)
+        from python.harness import ws_auth
+        issued = ws_auth.mint_ws_ticket()
+        return web.json_response(
+            issued,
+            headers={"Cache-Control": "no-store"},
         )
 
     async def bridge(request: web.Request) -> web.Response:
@@ -369,6 +387,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
     app.router.add_get("/index.html", index)
     app.router.add_get("/tala-web-config.js", config)
     app.router.add_get("/tala-web-shim.js", shim)
+    app.router.add_post("/api/ws-ticket", ws_ticket)
     app.router.add_post("/api/bridge", bridge)
     app.router.add_static("/", _RENDERER_DIR, show_index=False)
     return app
@@ -403,8 +422,8 @@ async def start(host: str | None = None,
 
     # A token is required on EVERY interface, loopback included. Loopback is
     # not "this user": it is every process on the machine, and -- because
-    # this UI hands page script the wsToken for the full 247-handler RPC
-    # surface -- it must never answer an unauthenticated GET. When the
+    # this UI can unlock the full 247-handler RPC surface via short-lived
+    # WS tickets after HTTP auth -- it must never answer an unauthenticated GET. When the
     # operator has not pinned one, a per-install token is minted into the
     # vault next to the WS token, owner-only, and its location is logged.
     if not token:
