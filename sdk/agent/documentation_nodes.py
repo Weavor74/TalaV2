@@ -11,7 +11,7 @@ import os
 import re
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from html import escape, unescape
+from html import escape
 from pathlib import Path
 from typing import Any
 
@@ -469,41 +469,11 @@ def purpose_of(node_id: str, declared: str = "") -> str:
     return PURPOSE_DESCRIPTION
 
 
-UNVERIFIED_MARK = "[Behaviour unverified]"
-
-UNVERIFIED_NOTICE = (
-    f"  <p>{UNVERIFIED_MARK} The source of this module has changed since this "
-    "description was derived, and re-deriving produced the same text — the "
-    "change was inside code this description does not cover (a function body, "
-    "not a name or a docstring). Treat the behaviour described here as "
-    "unverified and read the source before relying on it.</p>\n"
+from sdk.agent.documentation_warnings import (
+    UNVERIFIED_MARK as UNVERIFIED_MARK,
+    UNVERIFIED_NOTICE as UNVERIFIED_NOTICE,
+    carried_notice,
 )
-
-
-def _strip_unverified_notice(html: str) -> str:
-    return re.sub(rf"\s*<p>\s*{re.escape(UNVERIFIED_MARK)}.*?</p>", "", html, flags=re.DOTALL)
-
-
-def _carried_unverified_notice(previous_content: str | None) -> bool:
-    return bool(previous_content) and UNVERIFIED_MARK in previous_content
-
-
-def _semantic_memory_text(html: str) -> str:
-    """
-    The stored prose as plain words, for comparing against what was just
-    derived.
-
-    Tags have to come out. What is passed in is raw prose; what is stored has
-    been rendered into paragraphs, so comparing them with the markup left in
-    never matches — which silently disabled the notice-preservation below
-    until a test caught it.
-    """
-    match = re.search(r'<section id="semantic-memory">(.*?)</section>', html, re.DOTALL)
-    if not match:
-        return ""
-    text = _strip_unverified_notice(match.group(1))
-    text = re.sub(r"<[^>]+>", " ", text)
-    return " ".join(unescape(text).split())
 
 
 def _source_digest(source_files: list[str]) -> str:
@@ -729,11 +699,7 @@ def create_documentation_node(
     # in the store -- including the ones still true -- because each node is
     # rewritten from the template. The warning would survive exactly until
     # somebody regenerated, which is the one thing guaranteed to happen.
-    if (
-        _carried_unverified_notice(previous_content)
-        and _semantic_memory_text(previous_content or "") == " ".join(semantic_memory.split())
-    ):
-        semantic_memory = UNVERIFIED_NOTICE + semantic_memory
+    notice, baseline = carried_notice(previous_content, semantic_memory, digest)
 
     state_data = {
         "title": title,
@@ -794,6 +760,7 @@ def create_documentation_node(
   data-source-files="{escape(';'.join(source_files_list))}"
   data-source-fingerprint="{escape(fingerprint)}"
   data-source-digest="{escape(digest)}"
+  data-description-baseline-digest="{escape(baseline)}"
   data-document-purpose="{escape(document_purpose)}"
   data-document-accountability="{escape(document_accountability)}"
   data-conforming-implementations="{escape(';'.join(conforming))}"
@@ -807,7 +774,7 @@ def create_documentation_node(
   </header>
 
   <section id="semantic-memory">
-{_render_paragraphs(semantic_memory)}
+{notice}{_render_paragraphs(semantic_memory)}
   </section>
 
   <section id="source-evidence">

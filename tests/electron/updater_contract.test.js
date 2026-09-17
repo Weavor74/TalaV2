@@ -12,6 +12,7 @@
 
 const fs = require('node:fs');
 const path = require('node:path');
+const vm = require('node:vm');
 
 const MAIN = fs.readFileSync(path.join(__dirname, '..', '..', 'electron', 'main.js'), 'utf8');
 
@@ -25,6 +26,48 @@ function appUpdateBlock() {
 }
 
 describe('app.update — the only update path', () => {
+  function updateHarness(hash) {
+    let handler;
+    const writeFileSync = jest.fn();
+    const spawn = jest.fn(() => ({ unref() {} }));
+    const context = {
+      ipcMain: { handle: (_channel, fn) => { handler = fn; } },
+      fetchExpectedUpdateHash: async () => hash,
+      URL, __dirname: 'C:\\Tala\\electron',
+      process: { platform: 'win32', env: {} },
+      setTimeout: jest.fn(),
+      require: (name) => {
+        if (name === 'fs') return { writeFileSync };
+        if (name === 'child_process') return { spawn };
+        if (name === 'path') return path.win32;
+        if (name === 'os') return { tmpdir: () => 'C:\\Temp' };
+        return require(name);
+      },
+    };
+    const start = MAIN.indexOf('function registerPythonRpcHandler()');
+    const end = MAIN.indexOf('function sendLogToRenderer(', start);
+    vm.runInNewContext(MAIN.slice(start, end) + '\nregisterPythonRpcHandler();', context);
+    return { update: (url) => handler(null, { method: 'app.update', params: { url } }), writeFileSync, spawn };
+  }
+
+  test('no hash means no script, no download and no updater process', async () => {
+    const harness = updateHarness(null);
+    expect(await harness.update('https://talacore.app/tala-windows.zip')).toMatchObject({ __rpcError: true });
+    expect(harness.writeFileSync).not.toHaveBeenCalled();
+    expect(harness.spawn).not.toHaveBeenCalled();
+  });
+
+  test('PowerShell receives URL metacharacters as environment data', async () => {
+    const harness = updateHarness('a'.repeat(64));
+    const url = 'https://talacore.app/$(Write-Output%20injected).zip';
+    expect(await harness.update(url)).toMatchObject({ success: true });
+    const script = harness.writeFileSync.mock.calls[0][1];
+    expect(script).toContain('$updateUrl = $env:TALA_UPDATE_URL');
+    expect(script).toContain('Invoke-WebRequest -Uri $updateUrl');
+    expect(script).not.toContain('injected');
+    expect(harness.spawn.mock.calls[0][2].env.TALA_UPDATE_URL).toBe(new URL(url).href);
+  });
+
   test('downloads are pinned to the release host over https', () => {
     const block = appUpdateBlock();
     expect(block).toContain("const UPDATE_HOST = 'talacore.app'");
@@ -47,10 +90,10 @@ describe('app.update — the only update path', () => {
     expect(MAIN).toContain("https.get('https://talacore.app/version.json'");
   });
 
-  test('a missing published hash is "cannot verify", never "verified"', () => {
+  test('a missing published hash refuses the update', () => {
     expect(MAIN).toContain('callers must treat null as "cannot verify," not "verified."');
     const block = appUpdateBlock();
-    expect(block).toContain('proceeding without integrity verification');
+    expect(block).toContain("return { __rpcError: true, error: 'Refusing update: no valid published SHA-256 hash is available.' }");
   });
 
   test('both platform scripts verify the hash before extracting', () => {

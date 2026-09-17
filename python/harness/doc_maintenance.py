@@ -58,6 +58,7 @@ CONTRACT_NODE_ID = "system-architecture-contract"
 #: Defined where every regeneration path can see it, so a rewrite cannot
 #: quietly clear a warning that is still true.
 from sdk.agent.documentation_nodes import UNVERIFIED_MARK, UNVERIFIED_NOTICE
+from sdk.agent.documentation_warnings import description_baseline, _semantic_memory_text
 
 
 def _published_contract(node_path: Path) -> dict[str, Any] | None:
@@ -267,6 +268,8 @@ async def refresh_stale_documentation() -> dict[str, Any]:
     rewritten, unhandled, unverified = [], [], []
     for entry in stale:
         target = entry.get("doc_target") or ""
+        old_html = Path(entry["path"]).read_text(encoding="utf-8") if entry.get("path") else ""
+        baseline = description_baseline(old_html)
         before = _semantic_memory_of(Path(entry["path"])) if entry.get("path") else ""
         if not _regenerate_module_node(target):
             unhandled.append({
@@ -289,13 +292,15 @@ async def refresh_stale_documentation() -> dict[str, Any]:
         # describing Amazon. The node is then honestly source-current and
         # quietly wrong, which is worse than being marked stale.
         after = _semantic_memory_of(Path(entry["path"])) if entry.get("path") else ""
-        if before and after and before == after:
+        new_html = Path(entry["path"]).read_text(encoding="utf-8") if entry.get("path") else ""
+        restored = bool(baseline and f'data-source-digest="{baseline}"' in new_html)
+        if before and after and before == after and not restored:
             unverified.append({
                 "node_id": entry["node_id"],
                 "doc_target": target,
                 "why": "the source changed inside code this description does not cover",
             })
-            _mark_description_unverified(Path(entry["path"]))
+            _mark_description_unverified(Path(entry["path"]), baseline)
 
     log.info(
         "doc maintenance: %d document(s) had changed code — rewrote %d, %d came "
@@ -318,11 +323,10 @@ def _semantic_memory_of(path: Path) -> str:
         html = path.read_text(encoding="utf-8", errors="replace")
     except OSError:
         return ""
-    match = re.search(r'<section id="semantic-memory">(.*?)</section>', html, re.DOTALL)
-    return " ".join(match.group(1).split()) if match else ""
+    return _semantic_memory_text(html)
 
 
-def _mark_description_unverified(path: Path) -> None:
+def _mark_description_unverified(path: Path, baseline: str = "") -> None:
     """
     Say so on the node, and say it where recall will see it.
 
@@ -339,6 +343,9 @@ def _mark_description_unverified(path: Path) -> None:
     if UNVERIFIED_MARK in html:
         return
 
+    if baseline:
+        html = re.sub(r'\s*data-description-baseline-digest="[^"]*"', "", html)
+        html = html.replace("<article", f'<article data-description-baseline-digest="{baseline}"', 1)
     html = re.sub(
         r'(<section id="semantic-memory">)',
         lambda m: m.group(1) + "\n" + UNVERIFIED_NOTICE, html, count=1,

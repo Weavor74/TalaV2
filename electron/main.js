@@ -77,52 +77,7 @@ const HARNESS_URL   = `ws://${HARNESS_HOST}:${HARNESS_PORT}`;
 const MAX_RESTARTS  = 3;
 const RESTART_BASE_DELAY_MS = 1_500; // base for exponential back-off
 
-/**
- * Resolves the absolute path to the Python executable within the local virtual environment.
- * Handles cross-platform differences (Windows 'Scripts/python.exe' vs Unix 'bin/python').
- */
-function venvPythonPath(basePath) {
-  const venvBinDir = process.platform === 'win32' ? 'Scripts' : 'bin';
-  const pythonName = process.platform === 'win32' ? 'python.exe' : 'python';
-  return path.join(basePath, '.venv', venvBinDir, pythonName);
-}
-
-/**
- * Resolves a working system Python interpreter, preferring `python3`.
- *
- * A bare `python` does not exist on modern macOS or most Linux distros, and on
- * Windows it can hit the Microsoft Store stub (which exits non-zero), so each
- * candidate is probed with `--version` before being trusted. Returns null when
- * no interpreter is found so callers can surface a real error instead of a
- * confusing ENOENT.
- */
-let cachedSystemPython;
-function systemPythonCommand() {
-  if (cachedSystemPython !== undefined) return cachedSystemPython;
-  cachedSystemPython = null;
-  for (const candidate of ['python3', 'python']) {
-    try {
-      const probe = spawnSync(candidate, ['--version'], { stdio: 'ignore' });
-      if (!probe.error && probe.status === 0) {
-        cachedSystemPython = candidate;
-        break;
-      }
-    } catch { /* keep looking */ }
-  }
-  return cachedSystemPython;
-}
-
-/**
- * Resolves the POSIX shell to spawn, via PATH rather than a hardcoded
- * /bin/bash (which does not exist on NixOS). Falls back to `sh`.
- */
-let cachedPosixShell;
-function posixShellCommand() {
-  if (cachedPosixShell !== undefined) return cachedPosixShell;
-  const probe = spawnSync('bash', ['-c', 'true'], { stdio: 'ignore' });
-  cachedPosixShell = (!probe.error && probe.status === 0) ? 'bash' : 'sh';
-  return cachedPosixShell;
-}
+const { venvPythonPath, systemPythonCommand, posixShellCommand } = require('./runtime_commands');
 
 /**
  * Resolves the directory Tala's data (.venv, .env, nodes/, workflows/,
@@ -666,7 +621,7 @@ function fetchExpectedUpdateHash(platformKey) {
         try {
           const data = JSON.parse(body);
           const hash = data && data.sha256 && data.sha256[platformKey];
-          resolve(typeof hash === 'string' && hash ? hash : null);
+          resolve(typeof hash === 'string' && /^[a-f0-9]{64}$/i.test(hash) ? hash : null);
         } catch {
           resolve(null);
         }
@@ -707,7 +662,7 @@ function registerPythonRpcHandler() {
       const platformKey = process.platform === 'win32' ? 'windows' : process.platform === 'darwin' ? 'macos' : 'linux';
       const expectedHash = await fetchExpectedUpdateHash(platformKey);
       if (!expectedHash) {
-        console.warn(`[main] No published sha256 for platform "${platformKey}" in ${UPDATE_HOST}/version.json — proceeding without integrity verification. Publish a sha256 map alongside each release to enable it.`);
+        return { __rpcError: true, error: 'Refusing update: no valid published SHA-256 hash is available.' };
       }
 
       return new Promise((resolve, reject) => {
@@ -732,6 +687,7 @@ if ($actualHash.ToLower() -ne "${expectedHash.toLowerCase()}") {
 Write-Host "Integrity check passed." -ForegroundColor Green
 ` : '';
           const scriptContent = `
+$updateUrl = $env:TALA_UPDATE_URL
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " Tala Cognitive Engine Room Updater" -ForegroundColor Cyan
@@ -740,12 +696,12 @@ Write-Host ""
 Write-Host "Waiting for Tala to close..."
 Start-Sleep -Seconds 3
 
-Write-Host "Downloading update from ${url}..." -ForegroundColor Yellow
+Write-Host "Downloading update from $updateUrl..." -ForegroundColor Yellow
 try {
-    Invoke-WebRequest -Uri "${url}" -OutFile "${zipPath}" -UseBasicParsing -ErrorAction Stop
+    Invoke-WebRequest -Uri $updateUrl -OutFile "${zipPath}" -UseBasicParsing -ErrorAction Stop
 } catch {
     Write-Host "Invoke-WebRequest failed, retrying with WebClient..." -ForegroundColor Yellow
-    (New-Object System.Net.WebClient).DownloadFile("${url}", "${zipPath}")
+    (New-Object System.Net.WebClient).DownloadFile($updateUrl, "${zipPath}")
 }
 
 if (-not (Test-Path "${zipPath}") -or (Get-Item "${zipPath}").Length -lt 1000) {
@@ -772,6 +728,7 @@ exit
           fs.writeFileSync(scriptPath, scriptContent);
           const child = spawn('cmd.exe', ['/c', 'start', 'powershell.exe', '-ExecutionPolicy', 'Bypass', '-WindowStyle', 'Normal', '-NoExit', '-File', scriptPath], {
             detached: true,
+            env: { ...process.env, TALA_UPDATE_URL: parsedUrl.href },
             stdio: 'ignore'
           });
           child.unref();

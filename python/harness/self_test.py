@@ -82,7 +82,14 @@ def _run_step(name: str, command: Sequence[str], timeout: float) -> SelfTestStep
     except subprocess.TimeoutExpired as exc:
         exit_code = 124
         stdout = exc.stdout or ""
-        stderr = (exc.stderr or "") + f"\nTimed out after {timeout:.0f}s"
+        stderr = exc.stderr or ""
+        # TimeoutExpired may carry bytes even with text=True. Keep the report
+        # serializable and preserve the last named test instead of crashing.
+        if isinstance(stdout, bytes):
+            stdout = stdout.decode("utf-8", errors="replace")
+        if isinstance(stderr, bytes):
+            stderr = stderr.decode("utf-8", errors="replace")
+        stderr += f"\nTimed out after {timeout:.0f}s"
 
     duration = time.perf_counter() - started
     return SelfTestStep(
@@ -125,7 +132,8 @@ def build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[str
         ("electron syntax check", ["node", "--check", "electron/main.js"], 30.0),
         (
             "python tests",
-            [python_exe, "-m", "pytest", "tests", "--ignore=tests/benchmarks", "--basetemp=data/pytest_temp", "-q"],
+            [python_exe, "-u", "-m", "pytest", "tests", "--ignore=tests/benchmarks",
+             "--basetemp=data/pytest_temp", "-v", "--tb=short", "--durations=10"],
             600.0,
         ),
         ("javascript tests", ["npx", "jest", "--runInBand"], 120.0),

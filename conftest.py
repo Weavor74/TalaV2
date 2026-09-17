@@ -170,6 +170,19 @@ def _isolate_user_data() -> None:
 _isolate_user_data()
 
 
+@pytest.fixture(autouse=True)
+def isolate_documentation_anchoring(monkeypatch):
+    """Document tests must not submit their temporary nodes to the live chain.
+
+    Database and filesystem isolation alone left this HTTP write untouched.
+    With the chain offline, bulk regeneration also waited once per document.
+    Tests of anchoring itself exercise sdk.agent.anchor separately.
+    """
+    from sdk.agent import documentation_nodes
+
+    monkeypatch.setattr(documentation_nodes, "canonicalize_and_anchor", lambda **kwargs: None)
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Stash the deselected count where the summary hook can reach it. pytest
     # reports deselection through the hook below rather than on the config.

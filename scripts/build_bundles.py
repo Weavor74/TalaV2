@@ -8,6 +8,7 @@ import fnmatch
 import re
 import subprocess
 import sys
+import argparse
 
 #: Entry names that must never appear in a published bundle.
 #:
@@ -50,6 +51,10 @@ def _assert_no_secrets(zip_path):
 #: Module-level so tests/test_release_node_classification.py can pin it.
 BASE_EXCLUDES = [
         ".git/*",
+        ".claude/*",
+        ".cursor/*",
+        ".agents/*",
+        ".pytest_cache/*",
         ".venv/*",
         "node_modules/*",
         "data/*",
@@ -91,7 +96,7 @@ BASE_EXCLUDES = [
 ]
 
 
-def build_bundles():
+def build_bundles(*, bump_version=True):
     root_dir = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 
     # Bump version and generate version.json. The zips on disk are still the
@@ -99,7 +104,8 @@ def build_bundles():
     # the NEW version in package.json), so hashing is deferred: the sha256 map
     # is stamped after the build, from the fresh zips.
     bump_script = os.path.join(root_dir, "scripts", "bump_version.py")
-    subprocess.run([sys.executable, bump_script, "--allow-missing-bundles"], check=True)
+    if bump_version:
+        subprocess.run([sys.executable, bump_script, "--allow-missing-bundles"], check=True)
 
     public_dir = os.path.join(root_dir, "blockchain", "public")
     os.makedirs(public_dir, exist_ok=True)
@@ -149,6 +155,7 @@ def build_bundles():
                             skip_dir = True
                             break
                 if skip_dir:
+                    dirnames.clear()
                     continue
 
                 for filename in filenames:
@@ -188,4 +195,8 @@ def build_bundles():
     print(f"version.json sha256 map stamped for {sorted(sha256_map)}.")
 
 if __name__ == "__main__":
-    build_bundles()
+    parser = argparse.ArgumentParser(description="Build local release archives without publishing them.")
+    parser.add_argument("--no-version-bump", action="store_true",
+                        help="Rebuild the current version without changing release notes or version numbers.")
+    args = parser.parse_args()
+    build_bundles(bump_version=not args.no_version_bump)

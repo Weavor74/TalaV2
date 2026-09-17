@@ -17,17 +17,6 @@ if [ ! -x "$VENV_PY" ] || [ ! -f "$ROOT_DIR/.env" ]; then
     uv run python scripts/first_run.py
 fi
 
-echo "Starting Tala Python Backend..."
-"$VENV_PY" -m python.harness.server &
-BACKEND_PID=$!
-
-cleanup() {
-    echo "UI closed or interrupted. Shutting down backend..."
-    if kill -0 $BACKEND_PID 2>/dev/null; then
-        kill $BACKEND_PID
-    fi
-}
-trap cleanup EXIT INT TERM
-
+# Electron owns the harness lifecycle; do not race it with a second backend.
 echo "Starting Tala Electron UI..."
-npm start
+exec npm start

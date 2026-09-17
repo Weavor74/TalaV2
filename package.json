@@ -106,6 +106,7 @@
     ],
     "testPathIgnorePatterns": [
       "/node_modules/",
+      "/.claude/",
       "/.tala_snapshots/",
       "/scratch/",
       "/blockchain/"
