@@ -22,13 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="learning.event"
   data-source-files=""
-  data-source-fingerprint="sha256:C46EB1461A26776DA5DBB5A04A83E7DDD858782ED3DAD168100E2FE8802E30DB"
+  data-source-fingerprint="sha256:972DE4A32C63518160203C954AC6FC756403983BEC9DE70164B570BDCA6041DC"
   data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-description-baseline-digest=""
   data-document-purpose="record"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-17T10:48:49Z"
+  data-generated-at="2026-09-17T13:09:03Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -90,6 +91,8 @@ Parallel execution result:
 - Treating &quot;fast&quot; as done before correctness is proven.
 - Forgetting to poll running sessions.
 - Hiding skipped checks behind a success summary.</p>
+    <p>## Conflicts with Tala</p>
+    <p>This skill says never to let a background process outlive the turn. Tala&#x27;s heartbeat scheduler and always-on daemon do exactly that by design. The rule is about stray processes in a one-shot session, not about Tala&#x27;s scheduled services.</p>
   </section>
 
   <section id="source-evidence">
@@ -155,10 +158,10 @@ Parallel execution result:
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-17T10:48:49Z",
+    "created_or_updated": "2026-09-17T13:09:03Z",
     "schema": "neural-node/v2",
     "doc_target": "learning.event",
-    "source_fingerprint": "sha256:C46EB1461A26776DA5DBB5A04A83E7DDD858782ED3DAD168100E2FE8802E30DB",
+    "source_fingerprint": "sha256:972DE4A32C63518160203C954AC6FC756403983BEC9DE70164B570BDCA6041DC",
     "source_files": [],
     "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
     "document_purpose": "record",
