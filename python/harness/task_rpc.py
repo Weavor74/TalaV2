@@ -299,6 +299,13 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
             # in flight, and persists so a restart does not clear it.
             await trigger_emergency_halt(f"task {task_id} aborted from Mission Control")
             await db.execute("UPDATE tasks SET status = 'failed' WHERE id = $1 OR parent_id = $1", task_id)
+            # Highs H5: Electron haltActive learns Abort via system.halt_changed
+            # (release already broadcasts; trigger path previously did not).
+            try:
+                from python.harness.server import broadcast_notification
+                await broadcast_notification("system.halt_changed", {"halted": True})
+            except Exception:
+                logger.debug("system.halt_changed broadcast failed", exc_info=True)
         elif action == "pause":
             # 'paused', NOT 'blocked'. resume_suspended_goals selects
             # "status = 'blocked' AND parent_id IS NULL" at startup and

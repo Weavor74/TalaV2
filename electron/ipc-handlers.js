@@ -502,8 +502,9 @@ function registerHandlers({ isNetworkIsolated } = {}) {
 
   /* ── vault:read ─────────────────────────────────────────────────── */
   ipcMain.handle('vault:read', async (_event, payload) => {
-    // Extra guard: the vault must only be read when network isolation is active.
-    // isNetworkIsolated is a runtime flag set by main.js based on current WS state.
+    // Extra guard: vault:read requires real network isolation (lockdown / emergency
+    // halt / enabled network guard). main.js sets isNetworkIsolated from those
+    // sources — not from whether the local harness WebSocket is connected.
     if (typeof isNetworkIsolated === 'function' && !isNetworkIsolated()) {
       throw new Error(
         'vault:read blocked: network connections are active. ' +

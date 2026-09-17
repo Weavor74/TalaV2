@@ -16,11 +16,13 @@ the port and the allocated time -- is already expressible as grant constraints
 in :mod:`python.harness.access`. What was missing is the place that asks before
 a connection is made.
 
-**Opt-in by design.** With no network rules configured, everything is permitted
-exactly as it is today. That follows the same rule as storage and databases:
-*"You can have 0 databases or 1000 databases. How you use them is up to the
-user not to the develouper."* A firewall that switches itself on and starts
-denying traffic the user never asked it to deny is not a feature.
+**Opt-in by design (unsafe default — Highs H7).** With no network rules
+configured, everything is permitted exactly as it is today. That follows the
+same rule as storage and databases: *"You can have 0 databases or 1000
+databases. How you use them is up to the user not to the develouper."* A
+firewall that switches itself on and starts denying traffic the user never
+asked it to deny is not a feature. Settings → Guardrails must warn when the
+network guard is off so the fail-open posture is visible.
 
 Three things can deny, in order:
 

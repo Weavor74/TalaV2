@@ -867,3 +867,23 @@ need to become configurable before it can reach it.
 
 **P0 and P1 together are 10 questions, mostly one-liners.** That is the smallest set that makes the
 system safe to keep building on.
+
+
+---
+
+## Highs pass notes (2026-09-17)
+
+### H2 — :8765 authentication
+`python/harness/ws_auth.py` is the Wave 0+ admission gate (Origin + Bearer token).
+Docs that still describe an unauthenticated local JSON-RPC socket are stale; prefer
+this module over historical audit prose.
+
+### H6 — Resume ≠ RELEASE HALT
+Verified: Mission Control Resume uses `task.control` resume only;
+`mcReleaseEmergencyHalt` alone calls `system.release_halt`. No further code change.
+
+### H7 — Fail-open defaults retained
+Lease mode defaults to `open` (`TALA_LEASE_MODE`); network guard defaults to
+`enabled: false` / `default: allow`. Tightening would break intentional opt-in
+tests. Documented as unsafe defaults; Settings UI should warn when guard is off /
+lease is not `enforce`.

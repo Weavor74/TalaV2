@@ -1453,6 +1453,14 @@
                           <textarea id="gr-custom-list" rows="2" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; font-family: inherit; resize: vertical;" placeholder="e.g. ignore previous instructions, roleplay as..."></textarea>
                         </div>
 
+                        <!-- Highs H7: surface fail-open defaults -->
+                        <div id="guardrails-unsafe-defaults-warning" style="margin: var(--space-3) 0; padding: 10px 12px; border-radius: 6px; background: rgba(255, 193, 7, 0.12); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.35); font-size: 0.78rem; line-height: 1.4;">
+                          <strong>Unsafe defaults:</strong> the harness network guard is <em>off</em> until you enable it
+                          (Settings network rules), and lease mode defaults to <code>open</code>
+                          (<code>TALA_LEASE_MODE=enforce</code> for fail-closed). Text prompt rules alone do not
+                          firewall outbound connections or gate ledger/file tools.
+                        </div>
+
                         <!-- Form Actions -->
                         <div class="form-actions-compact" style="display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-4);">
                           <button type="button" class="btn btn-secondary" id="btn-guardrails-reset" style="padding: var(--space-2) var(--space-3); font-size: 0.75rem;">Reset Config</button>
@@ -3002,6 +3010,9 @@
             <h1 class="view-title">Mission Control</h1>
             <div class="view-actions">
               <button class="btn btn-ghost" id="btn-mc-refresh" title="Refresh state">Refresh</button>
+              <div id="mc-ws-disconnected" hidden style="width:100%; margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(220,53,69,0.15); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.35); font-size: 0.8rem;">
+                WebSocket disconnected — Clear Queue, Abort, Resume, RELEASE HALT, and task delete are disabled until the harness reconnects.
+              </div>
               <button class="btn btn-secondary" id="btn-mc-halt" style="background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4);" title="Halt current loop">HALT LOOP</button>
               <button class="btn btn-secondary" id="btn-mc-release-halt" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35);" title="Release emergency halt (owner secret; not Resume)">RELEASE HALT</button>
             </div>

@@ -271,6 +271,66 @@ async def handle_memory_session_search(params: dict[str, Any]) -> dict[str, Any]
     return out
 
 
+
+async def _browse_node_from_disk(ref_id: str) -> str | None:
+    """
+    Read an HTML Neural Node from REPO_ROOT/nodes when the DB row is missing.
+
+    ``ref_id`` may be a bare node id (``concept-foo``), an id with ``.html``,
+    or a basename. Returns None when no readable file matches.
+    """
+    from pathlib import Path
+
+    from python.harness.config import settings
+
+    raw = str(ref_id or "").strip()
+    if not raw:
+        return None
+    nodes_dir = (settings.REPO_ROOT / "nodes").resolve()
+    if not nodes_dir.is_dir():
+        return None
+
+    candidates: list[Path] = []
+    name = Path(raw).name
+    if name.endswith(".html"):
+        candidates.append(nodes_dir / name)
+    else:
+        candidates.append(nodes_dir / f"{name}.html")
+        candidates.append(nodes_dir / name)
+
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+            # Path boundary (not startswith): nodes vs nodes_evil prefix hole.
+            if not resolved.is_relative_to(nodes_dir):
+                continue
+            if resolved.is_file():
+                text = resolved.read_text(encoding="utf-8", errors="replace")
+                try:
+                    from sdk.agent.parser import parse_html
+                    node = parse_html(text)
+                    payload = {
+                        "id": getattr(node, "id", name),
+                        "title": getattr(node, "title", None),
+                        "type": getattr(node, "type", None),
+                        "source": "disk",
+                        "path": str(resolved),
+                        "content": getattr(node, "content", None) or text,
+                    }
+                    for attr in ("state_data", "summary", "tags", "execution_authority"):
+                        if hasattr(node, attr):
+                            payload[attr] = getattr(node, attr)
+                    return json.dumps(payload, indent=2, default=str)
+                except Exception:
+                    return json.dumps(
+                        {"id": name, "source": "disk", "path": str(resolved), "html": text},
+                        indent=2,
+                    )
+        except OSError:
+            continue
+    return None
+
+
 async def handle_memory_browse(params: dict[str, Any]) -> dict[str, Any]:
     """
     Return surrounding context for a given reference (e.g., surrounding turns).
@@ -305,7 +365,15 @@ async def handle_memory_browse(params: dict[str, Any]) -> dict[str, Any]:
         if row:
             context = json.dumps(row["content_json"], indent=2)
         else:
-            context = f"No detailed context available for {source_type} {ref_id}."
+            # C6 world: many HTML-NNs live only on disk under REPO_ROOT/nodes.
+            # DB miss must fall back to that store rather than empty nonsense.
+            context = await _browse_node_from_disk(ref_id)
+            if context is None:
+                context = (
+                    f"No detailed context available for {source_type} {ref_id}: "
+                    f"not in the nodes table and no matching HTML under "
+                    f"REPO_ROOT/nodes/."
+                )
     elif source_type == "profile":
         allow_private = params.get("allow_private", False)
         sql = "SELECT config FROM profiles WHERE id = $1"
