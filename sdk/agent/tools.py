@@ -1773,6 +1773,7 @@ async def create_learning_node_tool(
     references: list | None = None,
     tags: list | None = None,
     node_id: str | None = None,
+    force: bool = False,
 ) -> dict[str, Any]:
     from sdk.agent.documentation_nodes import create_learning_documentation_node
 
@@ -1787,6 +1788,7 @@ async def create_learning_node_tool(
             references=references,
             tags=tags,
             node_id=node_id,
+            force=force,
         )
     except Exception as exc:
         return {
@@ -4462,7 +4464,7 @@ def _parse_skill_md(raw: str) -> dict[str, str]:
     name="import_skill_md",
     description="Import an agentskills.io-format SKILL.md (from a file path or URL) as an HTML-NN skill knowledge node so its instructions become recallable context.",
 )
-async def import_skill_md(source: str) -> dict[str, Any]:
+async def import_skill_md(source: str, max_body_chars: int = 16000) -> dict[str, Any]:
     """
     NAME
            import_skill_md - import an open-standard SKILL.md into the node graph
@@ -4476,6 +4478,9 @@ async def import_skill_md(source: str) -> dict[str, Any]:
            name/description plus a markdown instruction body). The skill
            is persisted as a schema-valid HTML-NN learning node tagged
            'skill' so graph activation surfaces it when relevant.
+
+           Bodies longer than ``max_body_chars`` are clipped, and the clip is
+           reported in the result rather than applied in silence.
     """
     from pathlib import Path as _Path
 
@@ -4499,20 +4504,67 @@ async def import_skill_md(source: str) -> dict[str, Any]:
 
     parsed = _parse_skill_md(raw)
     summary = parsed["description"] or parsed["body"][:300]
-    body = parsed["body"][:8000]
 
+    # The clamp was a bare ``[:8000]`` and said nothing when it bit. A skill's
+    # tail is where its output format and report schema live, so the half that
+    # vanished was the actionable half -- and the caller was told the import
+    # succeeded. Keep a limit, but make the clip visible.
+    full_body = parsed["body"]
+    body = full_body[:max_body_chars]
+    truncated_chars = len(full_body) - len(body)
+
+    # ``assess_learning_quality`` screens *self-narrated* lessons: benchmark
+    # boilerplate, a node minted per completed goal. An imported SKILL.md is
+    # neither -- it is third-party prose a caller explicitly named, which is
+    # the ``force=True`` case that gate documents. It also failed closed: a
+    # skip returns ``{"status": "skipped"}``, which carries no ``created`` and
+    # no ``errors``, so the import reported failure with an empty error list
+    # and no reason anywhere.
     node_result = await create_learning_node_tool(
         topic=f"Skill: {parsed['name']}",
         summary=f"{summary}\n\n{body}",
         tags=["skill", "agentskills-io", parsed["name"].lower().replace(" ", "-")[:40]],
         references=[src] if src.lower().startswith("http") else None,
+        force=True,
     )
-    return {
-        "success": bool(node_result.get("created") or node_result.get("updated") or node_result.get("unchanged")),
+
+    if node_result.get("status") == "skipped":
+        return {
+            "success": False,
+            "skill_name": parsed["name"],
+            "node": {},
+            "errors": [
+                "learning-quality gate skipped this node: "
+                f"{node_result.get('reason') or 'no reason reported'}"
+            ],
+        }
+
+    # A staged node is the *designed* outcome for anything auto-authored: it
+    # lands in nodes/_staging/ on probation and ``node_staging`` promotes it
+    # after N clean verification cycles. Counting only created/updated/
+    # unchanged called every successful import a failure -- validation passed,
+    # the file was written, and the caller was told "success": false with no
+    # error to explain it.
+    staged = bool(node_result.get("staged"))
+    result = {
+        "success": bool(
+            node_result.get("created")
+            or node_result.get("updated")
+            or node_result.get("unchanged")
+            or (staged and node_result.get("validation_passed"))
+        ),
+        "staged": staged,
         "skill_name": parsed["name"],
-        "node": {k: node_result.get(k) for k in ("node_id", "file_name", "validation_passed")},
+        "node": {k: node_result.get(k) for k in ("node_id", "file_name", "validation_passed", "path")},
         "errors": node_result.get("errors") or [],
     }
+    if truncated_chars:
+        result["truncated_chars"] = truncated_chars
+        result["warning"] = (
+            f"Body clipped by {truncated_chars} characters at max_body_chars="
+            f"{max_body_chars}; re-import with a larger limit to keep it whole."
+        )
+    return result
 
 
 @register_tool(
