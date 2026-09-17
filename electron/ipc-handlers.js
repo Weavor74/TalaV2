@@ -196,6 +196,14 @@ function refuseSecretPath(baseDir, resolved) {
     const baseStat = fssync.statSync(baseDir);
     let cur = path.resolve(resolved);
     const parts = [];
+    // file:write targets often do not exist yet — climb until a real parent
+    // so the inode walk can still see vault/ as the top segment.
+    while (!fssync.existsSync(cur)) {
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      parts.push(path.basename(cur));
+      cur = parent;
+    }
     for (;;) {
       const st = fssync.statSync(cur);
       if (st.dev === baseStat.dev && st.ino === baseStat.ino) {
