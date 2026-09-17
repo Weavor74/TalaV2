@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: recursive-decision-ledger</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-recursive-decision-ledger"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:E2418E1518A2AC43A2A3DEE86F5237A158E3457939063B71C5CA02B14735ED95"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:48Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: recursive-decision-ledger</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: recursive-decision-ledger.</p>
+    <p>Use when the user asks for repeated rollouts, marked decision processes, high-dimensional search, stochastic optimization, local-optima exploration, ensemble comparison, or recursive reasoning with a visible evidence trail.</p>
+    <p># Recursive Decision Ledger</p>
+    <p>Use this skill when the user is trying to force deeper computation through
+repeated rollouts or &quot;Prime Gauss&quot; style recursive prompting. Preserve the useful
+part: repeated trials, prior memory, fresh information, and explicit marks.
+Remove the unsafe part: pretending the loop proves certainty.</p>
+    <p>## Ledger Contract</p>
+    <p>Every rollout should record:</p>
+    <p>- rollout id and timestamp;
+- prior accepted winner and prior watchlist;
+- fresh information ingested;
+- search space size;
+- model families or heuristics used;
+- trial count and effective trial count;
+- top candidates;
+- decision marks;
+- coherence marks against the prior ledger;
+- promotion gate result.</p>
+    <p>Prefer JSONL for append-only ledgers and Markdown for human summaries.</p>
+    <p>## Rollout Loop</p>
+    <p>1. Load the prior ledger.
+2. Capture new information at time-step zero.
+3. Run the bounded search.
+4. Mark each candidate: accept, watch, reject, decay watch, or needs replay.
+5. Compare winners against prior winners and latest marked rollout.
+6. Downgrade candidates when drift, tail risk, stale data, or failed replay
+   invalidates the previous mark.
+7. Append artifacts before summarizing.</p>
+    <p>## Coherence Mark</p>
+    <p>Include a compact coherence mark:</p>
+    <p>```text
+Ensemble matches prior winner: true
+Recursive matches prior winner: false
+Latest rollout match: true
+Live promotion allowed: false
+Reason: replay and freshness gates not satisfied
+```</p>
+    <p>## Promotion Rules</p>
+    <p>For trading, capital allocation, production deploys, migrations, or destructive
+ops, recursive confidence is not approval.</p>
+    <p>Default to paper, dry-run, read-only, preview, or staged mode unless the user
+explicitly approves the live action and the repo/service gate supports it.</p>
+    <p>Promote only when:</p>
+    <p>- the candidate beats the prior accepted winner on the chosen metric;
+- correctness and replay checks pass;
+- risk limits are explicit;
+- the evidence is durable;
+- the user has approved the live step when needed.</p>
+    <p>## Summary Shape</p>
+    <p>Lead with the decision, not the drama:</p>
+    <p>```text
+Rollout 15 complete. The prior winner still holds, but edge deteriorated 17%.
+Status: watch, not live. Next gate: 20 replay fills with fresh orderbook age
+below threshold.
+```</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-recursive-decision-ledger"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/recursive-decision-ledger/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: recursive-decision-ledger",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "recursive-decision-ledger",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:48Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:E2418E1518A2AC43A2A3DEE86F5237A158E3457939063B71C5CA02B14735ED95",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

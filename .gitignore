@@ -33,7 +33,16 @@ nodes/settings-*.html
 nodes/settings-*_lora/
 # Probation areas for newly authored nodes: transient by definition. A node
 # is tracked once it earns promotion into nodes/ (see sdk/agent/node_staging.py).
-nodes/_staging/
+#
+# TEMPORARY (2026-09-17): nodes/_staging/ is un-ignored so the ECC SKILL.md
+# imports have a copy in git while they sit on probation. They exist in exactly
+# one place on disk otherwise, which is the condition that made the 2026-08-11
+# rollback permanent. Restore the line below once they promote into nodes/,
+# and `git rm --cached -r nodes/_staging` at the same time.
+# nodes/_staging/
+# ...but not its ledger: passes/dwell counters, rewritten every cycle. Same
+# churn argument as settings-* above.
+nodes/_staging/.promotion_ledger.json
 nodes/_quarantine/
 nodes/*.html.bak
 nodes/_archive_legacy/

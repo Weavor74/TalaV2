@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: agent-harness-construction</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-agent-harness-construction"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:B612D9C0C480CF9CD198F573BD68D4B2AAF8C84E72EBA690340576B41214D97C"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:46Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: agent-harness-construction</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: agent-harness-construction.</p>
+    <p>Design and optimize AI agent action spaces, tool definitions, and observation formatting for higher completion rates. Use when defining or revising an agent&#x27;s tool set, action space, or observation format.</p>
+    <p># Agent Harness Construction</p>
+    <p>Use this skill when you are improving how an agent plans, calls tools, recovers from errors, and converges on completion.</p>
+    <p>## Core Model</p>
+    <p>Agent output quality is constrained by:
+1. Action space quality
+2. Observation quality
+3. Recovery quality
+4. Context budget quality</p>
+    <p>## Action Space Design</p>
+    <p>1. Use stable, explicit tool names.
+2. Keep inputs schema-first and narrow.
+3. Return deterministic output shapes.
+4. Avoid catch-all tools unless isolation is impossible.</p>
+    <p>## Granularity Rules</p>
+    <p>- Use micro-tools for high-risk operations (deploy, migration, permissions).
+- Use medium tools for common edit/read/search loops.
+- Use macro-tools only when round-trip overhead is the dominant cost.</p>
+    <p>## Observation Design</p>
+    <p>Every tool response should include:
+- `status`: success|warning|error
+- `summary`: one-line result
+- `next_actions`: actionable follow-ups
+- `artifacts`: file paths / IDs</p>
+    <p>## Error Recovery Contract</p>
+    <p>For every error path, include:
+- root cause hint
+- safe retry instruction
+- explicit stop condition</p>
+    <p>## Context Budgeting</p>
+    <p>1. Keep system prompt minimal and invariant.
+2. Move large guidance into skills loaded on demand.
+3. Prefer references to files over inlining long documents.
+4. Compact at phase boundaries, not arbitrary token thresholds.</p>
+    <p>## Architecture Pattern Guidance</p>
+    <p>- ReAct: best for exploratory tasks with uncertain path.
+- Function-calling: best for structured deterministic flows.
+- Hybrid (recommended): ReAct planning + typed tool execution.</p>
+    <p>## Benchmarking</p>
+    <p>Track:
+- completion rate
+- retries per task
+- pass@1 and pass@3
+- cost per successful task</p>
+    <p>## Anti-Patterns</p>
+    <p>- Too many tools with overlapping semantics.
+- Opaque tool output with no recovery hints.
+- Error-only output without next steps.
+- Context overloading with irrelevant references.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-agent-harness-construction"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/agent-harness-construction/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: agent-harness-construction",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "agent-harness-construction",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:46Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:B612D9C0C480CF9CD198F573BD68D4B2AAF8C84E72EBA690340576B41214D97C",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

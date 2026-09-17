@@ -1,0 +1,250 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: agent-self-evaluation</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-agent-self-evaluation"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:4183BA999C4F52660CF8A9BE0D4D938D45DD67E13227F5413C43A0F3375190D2"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:48Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: agent-self-evaluation</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: agent-self-evaluation.</p>
+    <p>Use after completing any non-trivial task. The agent self-rates its output on 5 axes — accuracy, completeness, clarity, actionability, conciseness — with concrete evidence per criterion. Produces a structured 1-5 scorecard with specific improvement suggestions.</p>
+    <p># Agent Self-Evaluation</p>
+    <p>After completing a complex task, the agent pauses to rate its own output against a structured 5-axis rubric. This is NOT a pass/fail gate — it&#x27;s a deliberate reflection step that catches omissions, flags overconfidence, and surface areas for improvement before the user has to.</p>
+    <p>## When to Activate</p>
+    <p>- After writing code that spans 3+ files or 50+ lines
+- After completing a multi-step workflow (implement → test → review)
+- After a debugging session that involved 3+ attempts
+- After producing a design document, architecture decision, or written analysis
+- When the user asks &quot;how good was that?&quot; or &quot;rate yourself&quot;
+- At the end of any session Stop hook (if configured — see `references/hook-integration.md`)</p>
+    <p>## Core Concepts</p>
+    <p>### The 5 Evaluation Axes</p>
+    <p>| Axis | Question | What it catches |
+|---|---|---|
+| **Accuracy** | Are the facts, claims, and outputs correct? | Hallucinations, wrong API names, incorrect syntax, false statements |
+| **Completeness** | Did it cover everything the user asked for? | Missed edge cases, unhandled error paths, forgotten requirements, skipped subtasks |
+| **Clarity** | Is the explanation understandable and well-structured? | Confusing explanations, jargon without definition, missing context, rambling |
+| **Actionability** | Can the user act on the output immediately? | Vague suggestions, missing steps, &quot;you should X&quot; without showing how, no verification path |
+| **Conciseness** | Did it use the minimum words/tokens needed? | Redundancy, over-explanation, repeating the user&#x27;s question verbatim, filler content |</p>
+    <p>### Scoring Scale</p>
+    <p>```
+5 — Exceptional: no reasonable improvement possible
+4 — Good: minor nits only, no substantive gaps
+3 — Adequate: meets the request but has a notable weakness on at least one axis
+2 — Weak: has a clear gap that affects usability or correctness
+1 — Poor: fundamentally misses the request or contains significant errors
+```</p>
+    <p>### The Evidence Rule</p>
+    <p>Every score below 5 MUST cite specific evidence. A score of 3 cannot just say &quot;could be better&quot; — it must say exactly what is missing or wrong. The mantra: **&quot;Show the gap, don&#x27;t just name it.&quot;**</p>
+    <p>## Workflow</p>
+    <p>### Step 1: Collect the Raw Material</p>
+    <p>Gather what you&#x27;ll evaluate:</p>
+    <p>```
+- The original user request (read back from conversation)
+- Your final response/output (the deliverable)
+- Any tool outputs that verify correctness (test results, exit codes, lint output)
+- Any user feedback received during the task (corrections, &quot;try again&quot;, &quot;that&#x27;s not right&quot;)
+```</p>
+    <p>### Step 2: Score Each Axis Independently</p>
+    <p>Work through the 5 axes one at a time. For each:</p>
+    <p>1. Read the axis question
+2. Find evidence (or lack of evidence) in the output
+3. Assign a score 1-5
+4. If score &lt; 5, write a one-sentence improvement note citing the gap</p>
+    <p>Do NOT average the scores in your head first and then work backwards. Score each axis fresh.</p>
+    <p>### Step 3: Produce the Evaluation Report</p>
+    <p>Use the template from `templates/evaluation-report.md`. The report must include:</p>
+    <p>```
+- One-line summary
+- 5-axis scorecard (score + evidence per axis)
+- Overall score (simple average, rounded to 1 decimal)
+- 1-3 specific improvements ranked by impact
+- Self-check: &quot;Would the user agree with this assessment?&quot;
+```</p>
+    <p>### Step 4: Apply the Improvement</p>
+    <p>If any axis scored 3 or below:</p>
+    <p>1. State what you would do differently
+2. If the gap is fixable in &lt; 30 seconds (missing link, unclear phrasing), fix it now
+3. If the gap requires rework, flag it explicitly: &quot;This axis scored [reason] because [evidence]. Re-running with [specific fix] would likely raise it to [score].&quot;</p>
+    <p>## Code Examples</p>
+    <p>### Example: Good Evaluation (Score 4+)</p>
+    <p>```
+Task: Add retry logic to HTTP client</p>
+    <p>Scorecard:
+  Accuracy:    5 — All API calls correct. Verified: retries use
+                  exponential backoff. No hallucinated methods.
+  Completeness: 4 — Covered happy path + 3 error cases. Missing:
+                  timeout handling for hung connections.
+  Clarity:      5 — Code comments explain backoff formula.
+                  PR description links to incident that motivated this.
+  Actionability:5 — Single merge. No follow-up tasks. Tests pass.
+  Conciseness:  4 — 47 lines total. The retry loop could be extracted
+                  into a helper to drop ~8 lines.</p>
+    <p>Overall: 4.6 — One gap (timeout handling). Fix before merging.
+```</p>
+    <p>### Example: Weak Evaluation (Score 2-3)</p>
+    <p>```
+Task: Add retry logic to HTTP client</p>
+    <p>Scorecard:
+  Accuracy:    2 — Used urllib3 which doesn&#x27;t match our
+                  httpx-based codebase. Wrong library.
+  Completeness: 3 — Works for GET. POST/PUT not handled (user
+                  said &quot;all HTTP requests&quot;).
+  Clarity:      4 — Code is readable. Good variable names.
+  Actionability:2 — &quot;Add tests&quot; mentioned but no test file created.
+                  User has to write tests before merging.
+  Conciseness:  3 — 120 lines. The retry config is duplicated in
+                  3 places instead of one shared RetryConfig object.</p>
+    <p>Overall: 2.8 — Wrong library used. Needs httpx rewrite.
+  Fix accuracy first (switch to httpx), then extend to all
+  HTTP methods, then consolidate config.
+```</p>
+    <p>## Anti-Patterns</p>
+    <p>### &quot;Everything is a 5&quot;</p>
+    <p>```
+FAIL: Accuracy:    5 — All good.
+   Completeness: 5 — Everything covered.
+   Clarity:      5 — Clear.
+```</p>
+    <p>No evidence cited. This is self-congratulation, not evaluation. A real 5 requires proving there&#x27;s nothing to improve.</p>
+    <p>### Over-penalizing for scope creep</p>
+    <p>```
+FAIL: Completeness: 2 — Didn&#x27;t handle WebSocket connections or
+   gRPC streaming (user didn&#x27;t ask for these)
+```</p>
+    <p>Only evaluate against what the user actually requested, not what you could have additionally built.</p>
+    <p>### Using the evaluation to re-litigate</p>
+    <p>```
+FAIL: &quot;As I said earlier, this approach is wrong. Score: 1&quot;
+```</p>
+    <p>The evaluation is about the delivered output, not about re-arguing design decisions that were already made. If the approach was wrong, that should have been caught before delivery.</p>
+    <p>### Mixing personal preference with objective gaps</p>
+    <p>```
+FAIL: &quot;Score: 3. I don&#x27;t like Python decorators.&quot;
+```</p>
+    <p>&quot;Don&#x27;t like&quot; is not evidence. Cite a concrete readability, testability, or correctness concern, or leave the score at 4+.</p>
+    <p>## Best Practices</p>
+    <p>- **Evaluate the output, not the process.** The user cares about what you delivered, not how many iterations you took.
+- **One improvement per weak axis.** Don&#x27;t list 5 things for one axis — pick the highest-impact gap.
+- **Tie improvements to user impact.** &quot;Missing error handling means the user&#x27;s API call will crash silently&quot; beats &quot;add error handling.&quot;
+- **Be specific about what &#x27;fixed&#x27; looks like.** &quot;Re-run with httpx transport configured for retries&quot; beats &quot;fix the library issue.&quot;
+- **Use tool outputs as evidence.** If tests passed, cite them. If lint is clean, cite it. Don&#x27;t guess — grep for the proof.
+- **If you can&#x27;t find any gaps, try harder.** A perfect score across all 5 axes is rare. Ask: &quot;If I were the user, what would annoy me about this output?&quot;</p>
+    <p>## Related Skills</p>
+    <p>- `agent-eval` — Head-to-head comparison of different coding agents on benchmark tasks
+- `verification-loop` — Systematic verification of outputs against expected results
+- `security-review` — Security-focused code review checklist</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-agent-self-evaluation"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/agent-self-evaluation/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: agent-self-evaluation",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "agent-self-evaluation",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:48Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:4183BA999C4F52660CF8A9BE0D4D938D45DD67E13227F5413C43A0F3375190D2",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

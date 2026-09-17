@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: cost-aware-llm-pipeline</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-cost-aware-llm-pipeline"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:E6D3843657F1B6D37B16EB70627521C46216BFC39AD0BF351A07959146B89DF2"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:50Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: cost-aware-llm-pipeline</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: cost-aware-llm-pipeline.</p>
+    <p>Cost optimization patterns for LLM API usage — model routing by task complexity, budget tracking, retry logic, and prompt caching. Use when LLM spend needs to come down, or when routing tasks across model tiers and budgets.</p>
+    <p># Cost-Aware LLM Pipeline</p>
+    <p>Patterns for controlling LLM API costs while maintaining quality. Combines model routing, budget tracking, retry logic, and prompt caching into a composable pipeline.</p>
+    <p>## When to Activate</p>
+    <p>- Building applications that call LLM APIs (Claude, GPT, etc.)
+- Processing batches of items with varying complexity
+- Need to stay within a budget for API spend
+- Optimizing cost without sacrificing quality on complex tasks</p>
+    <p>## Core Concepts</p>
+    <p>### 1. Model Routing by Task Complexity</p>
+    <p>Automatically select cheaper models for simple tasks, reserving expensive models for complex ones.</p>
+    <p>```python
+MODEL_SONNET = &quot;claude-sonnet-5&quot;
+MODEL_HAIKU = &quot;claude-haiku-4-5-20251001&quot;</p>
+    <p>_SONNET_TEXT_THRESHOLD = 10_000  # chars
+_SONNET_ITEM_THRESHOLD = 30     # items</p>
+    <p>def select_model(
+    text_length: int,
+    item_count: int,
+    force_model: str | None = None,
+) -&gt; str:
+    &quot;&quot;&quot;Select model based on task complexity.&quot;&quot;&quot;
+    if force_model is not None:
+        return force_model
+    if text_length &gt;= _SONNET_TEXT_THRESHOLD or item_count &gt;= _SONNET_ITEM_THRESHOLD:
+        return MODEL_SONNET  # Complex task
+    return MODEL_HAIKU  # Simple task (3-4x cheaper)
+```</p>
+    <p>### 2. Immutable Cost Tracking</p>
+    <p>Track cumulative spend with frozen dataclasses. Each API call returns a new tracker — never mutates state.</p>
+    <p>```python
+from dataclasses import dataclass</p>
+    <p>@dataclass(frozen=True, slots=True)
+class CostRecord:
+    model: str
+    input_tokens: int
+    output_tokens: int
+    cost_usd: float</p>
+    <p>@dataclass(frozen=True, slots=True)
+class CostTracker:
+    budget_limit: float = 1.00
+    records: tuple[CostRecord, ...] = ()</p>
+    <p>def add(self, record: CostRecord) -&gt; &quot;CostTracker&quot;:
+        &quot;&quot;&quot;Return new tracker with added record (never mutates self).&quot;&quot;&quot;
+        return CostTracker(
+            budget_limit=self.budget_limit,
+            records=(*self.records, record),
+        )</p>
+    <p>@property
+    def total_cost(self) -&gt; float:
+        return sum(r.cost_usd for r in self.records)</p>
+    <p>@property
+    def over_budget(self) -&gt; bool:
+        return self.total_cost &gt; self.budget_limit
+```</p>
+    <p>### 3. Narrow Retry Logic</p>
+    <p>Retry only on transient errors. Fail fast on authentication or bad request errors.</p>
+    <p>```python
+from anthropic import (
+    APIConnectionError,
+    InternalServerError,
+    RateLimitError,
+)</p>
+    <p>_RETRYABLE_ERRORS = (APIConnectionError, RateLimitError, InternalServerError)
+_MAX_RETRIES = 3</p>
+    <p>def call_with_retry(func, *, max_retries: int = _MAX_RETRIES):
+    &quot;&quot;&quot;Retry only on transient errors, fail fast on others.&quot;&quot;&quot;
+    for attempt in range(max_retries):
+        try:
+            return func()
+        except _RETRYABLE_ERRORS:
+            if attempt == max_retries - 1:
+                raise
+            time.sleep(2 ** attempt)  # Exponential backoff
+    # AuthenticationError, BadRequestError etc. → raise immediately
+```</p>
+    <p>### 4. Prompt Caching</p>
+    <p>Cache long system prompts to avoid resending them on every request.</p>
+    <p>```python
+messages = [
+    {
+        &quot;role&quot;: &quot;user&quot;,
+        &quot;content&quot;: [
+            {
+                &quot;type&quot;: &quot;text&quot;,
+                &quot;text&quot;: system_prompt,
+                &quot;cache_control&quot;: {&quot;type&quot;: &quot;ephemeral&quot;},  # Cache this
+            },
+            {
+                &quot;type&quot;: &quot;text&quot;,
+                &quot;text&quot;: user_input,  # Variable part
+            },
+        ],
+    }
+]
+```</p>
+    <p>## Composition</p>
+    <p>Combine all four techniques in a single pipeline function:</p>
+    <p>```python
+def process(text: str, config: Config, tracker: CostTracker) -&gt; tuple[Result, CostTracker]:
+    # 1. Route model
+    model = select_model(len(text), estimated_items, config.force_model)</p>
+    <p># 2. Check budget
+    if tracker.over_budget:
+        raise BudgetExceededError(tracker.total_cost, tracker.budget_limit)</p>
+    <p># 3. Call with retry + caching
+    response = call_with_retry(lambda: client.messages.create(
+        model=model,
+        messages=build_cached_messages(system_prompt, text),
+    ))</p>
+    <p># 4. Track cost (immutable)
+    record = CostRecord(model=model, input_tokens=..., output_tokens=..., cost_usd=...)
+    tracker = tracker.add(record)</p>
+    <p>return parse_result(response), tracker
+```</p>
+    <p>## Pricing Reference (2026)</p>
+    <p>| Model | Input ($/1M tokens) | Output ($/1M tokens) | Relative Cost |
+|-------|---------------------|----------------------|---------------|
+| Haiku 3.5 (legacy) | $0.80 | $4.00 | 0.8x |
+| Haiku 4.5 | $1.00 | $5.00 | 1x |
+| Sonnet 5 | $2.00 | $10.00 | 2x |
+| Sonnet 4.6 | $3.00 | $15.00 | 3x |
+| Opus 4.8 | $5.00 | $25.00 | 5x |
+| Fable 5 / Mythos 5 | $10.00 | $50.00 | 10x |
+| Opus 4.0 / 4.1 (legacy) | $15.00 | $75.00 | 15x |</p>
+    <p>## Best Practices</p>
+    <p>- **Start with the cheapest model** and only route to expensive models when complexity thresholds are met
+- **Set explicit budget limits** before processing batches — fail early rather than overspend
+- **Log model selection decisions** so you can tune thresholds based on real data
+- **Use prompt caching** for system prompts over 1024 tokens — saves both cost and latency
+- **Never retry on authentication or validation errors** — only transient failures (network, rate limit, server error)</p>
+    <p>## Anti-Patterns to Avoid</p>
+    <p>- Using the most expensive model for all requests regardless of complexity
+- Retrying on all errors (wastes budget on permanent failures)
+- Mutating cost tracking state (makes debugging and auditing difficult)
+- Hardcoding model names throughout the codebase (use constants or config)
+- Ignoring prompt caching for repetitive system prompts</p>
+    <p>## When to Use</p>
+    <p>- Any application calling Claude, OpenAI, or similar LLM APIs
+- Batch processing pipelines where cost adds up quickly
+- Multi-model architectures that need intelligent routing
+- Production systems that need budget guardrails</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-cost-aware-llm-pipeline"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/cost-aware-llm-pipeline/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: cost-aware-llm-pipeline",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "cost-aware-llm-pipeline",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:50Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:E6D3843657F1B6D37B16EB70627521C46216BFC39AD0BF351A07959146B89DF2",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

@@ -1,0 +1,273 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: production-audit</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-production-audit"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:4BE4556D658DA16AD2AD5D5CF779D40D7C6ED54547700A924BAA0B34EC49FD56"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:49Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: production-audit</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: production-audit.</p>
+    <p>Local-evidence production readiness audit for shipped apps, pre-launch reviews, post-merge checks, and &quot;what breaks in prod?&quot; questions without sending repo data to an external audit service. Use when auditing production readiness before launch, after a merge, or when asked what breaks in prod.</p>
+    <p># Production Audit</p>
+    <p>Use this skill when the user asks whether an application is ready to ship, what
+could break in production, or what must be fixed before a launch. This is a
+maintainer-safe rewrite of the stale community production-audit idea: it keeps
+the useful production-readiness lens and removes unpinned external execution and
+third-party data sharing.</p>
+    <p>## When to Use</p>
+    <p>- The user asks &quot;is this production-ready&quot;, &quot;what would break in prod&quot;, &quot;what
+  did we miss&quot;, &quot;audit this repo&quot;, or &quot;ready to ship?&quot;
+- A feature was merged and needs a pre-deploy or post-merge risk pass.
+- A public launch, demo, customer rollout, or investor walkthrough is close.
+- CI is green but the user wants production risk, not only test status.
+- A deployed URL, release branch, PR, or current checkout is available for
+  evidence gathering.</p>
+    <p>## When Not to Use</p>
+    <p>- During active implementation when the right lens is line-level secure coding;
+  use `security-review` first.
+- For pure libraries, templates, docs-only repos, or scaffolds unless the user
+  wants packaging/release readiness rather than application readiness.
+- When the user asks for a formal compliance audit. This skill is engineering
+  triage, not legal, financial, medical, or regulatory certification.
+- When the only available evidence is a product idea with no repo, deployment,
+  CI, or runtime surface.</p>
+    <p>## How It Works</p>
+    <p>Build the audit from local and user-authorized evidence. Do not run unpinned
+remote code, upload repository contents to third-party services, or call
+external scanners unless the user explicitly approves that specific tool and
+data flow.</p>
+    <p>Use this order:</p>
+    <p>1. Establish the release surface.
+2. Read recent changes and current branch state.
+3. Inspect runtime, auth, data, payment, background-job, AI, and deployment
+   boundaries that actually exist in the repo.
+4. Check CI, tests, migrations, environment documentation, and rollback path.
+5. Produce a short ship/block recommendation with specific fixes.</p>
+    <p>## Evidence Checklist</p>
+    <p>Start with cheap, local signals:</p>
+    <p>```text
+git status --short --branch
+git log --oneline --decorate -20
+git diff --stat origin/main...HEAD
+```</p>
+    <p>Then inspect the project-specific surface:</p>
+    <p>- Package scripts, CI workflows, release scripts, Docker files, and deployment
+  manifests.
+- API routes, webhooks, auth middleware, background workers, cron jobs, and
+  database migrations.
+- Environment variable documentation and startup checks.
+- Observability hooks, error reporting, logs, health checks, and dashboards.
+- Rollback, seed, migration, and backfill instructions.
+- E2E coverage for the user paths that matter most.</p>
+    <p>If a deployed URL is in scope, use browser or HTTP checks only against that URL
+and avoid credentialed actions unless the user supplies a safe test account.</p>
+    <p>## Risk Lenses</p>
+    <p>### Security And Auth</p>
+    <p>- Are public routes, API routes, and admin routes clearly separated?
+- Are auth and authorization enforced server-side?
+- Are secrets kept out of client bundles, logs, example output, and checked-in
+  files?
+- Are rate limits, CSRF protections, CORS policy, and upload validation present
+  where the app needs them?
+- Does the AI or agent surface defend against prompt injection, tool abuse, and
+  untrusted content crossing into privileged actions?</p>
+    <p>### Data Integrity</p>
+    <p>- Do migrations run forward cleanly and have a rollback or recovery plan?
+- Are destructive migrations, backfills, and data imports staged safely?
+- Do database policies, grants, and service-role boundaries match the app&#x27;s
+  tenancy model?
+- Are retries idempotent for writes, jobs, and webhook handlers?</p>
+    <p>### Payments And Webhooks</p>
+    <p>- Are webhook signatures verified before parsing trusted payload fields?
+- Is each payment, subscription, or fulfillment webhook idempotent?
+- Are replay, duplicate delivery, and out-of-order delivery handled?
+- Are test-mode and live-mode credentials separated?</p>
+    <p>### Operations</p>
+    <p>- Can the app start from a clean checkout using documented commands?
+- Are required environment variables named, validated, and fail-fast?
+- Is there a health check that proves dependencies are reachable?
+- Are deploy, rollback, and incident-owner paths documented?
+- Are logs useful without leaking secrets or personal data?</p>
+    <p>### User Experience</p>
+    <p>- Are the launch-critical paths covered on desktop and mobile?
+- Are forms usable on mobile without input zoom, layout overlap, or blocked
+  submission states?
+- Do loading, empty, error, and permission-denied states tell the user what
+  happened?
+- Is there a support or recovery path when a critical operation fails?</p>
+    <p>## Scoring</p>
+    <p>Use scores to force prioritization, not to imply mathematical certainty.</p>
+    <p>| Band | Score | Meaning |
+| --- | --- | --- |
+| Blocked | 0-49 | Do not ship until the top risks are fixed |
+| Risky | 50-69 | Ship only behind a small rollout or internal beta |
+| Launchable With Caveats | 70-84 | Ship if owners accept the listed risks |
+| Strong | 85-100 | No obvious launch blockers from available evidence |</p>
+    <p>Cap the score at `69` if any of these are true:</p>
+    <p>- Authentication or authorization is missing on sensitive data.
+- Payment or fulfillment webhooks are not idempotent.
+- Required migrations cannot be run safely.
+- Secrets are exposed in client bundles, logs, or committed files.
+- There is no rollback path for a high-impact release.</p>
+    <p>Cap the score at `84` if CI is not green or the launch-critical path was not
+tested end to end.</p>
+    <p>## Output Format</p>
+    <p>Lead with one sentence:</p>
+    <p>```text
+Production audit: 76/100, launchable with caveats, with webhook idempotency and rollback docs as the two risks to fix before public launch.
+```</p>
+    <p>Then list:</p>
+    <p>- `Blockers`: must-fix items before deploy.
+- `High-value fixes`: next fixes if the user wants to improve the score.
+- `Evidence checked`: files, commands, CI, deployed URL, or PRs inspected.
+- `Evidence missing`: what would change confidence if provided.
+- `Next action`: one concrete fix or verification step.</p>
+    <p>Keep strengths short. The user asked for readiness, so the useful answer is the
+remaining risk and the next action.</p>
+    <p>## Example</p>
+    <p>User:</p>
+    <p>```text
+is this ready to ship?
+```</p>
+    <p>Response:</p>
+    <p>```text
+Production audit: 68/100, risky, because Stripe webhooks are verified but not idempotent and there is no rollback note for the pending migration.</p>
+    <p>Blockers:
+- Add idempotency for `checkout.session.completed` before fulfilling orders.
+- Write and test the rollback path for `20260511_add_billing_state.sql`.</p>
+    <p>High-value fixes:
+- Add a health check that verifies database and payment-provider reachability.
+- Add one E2E path for upgrade, webhook fulfillment, and billing-page refresh.</p>
+    <p>Evidence checked:
+- `api/stripe/webhook.ts`
+- `db/migrations/20260511_add_billing_state.sql`
+- GitHub Actions run for the release branch</p>
+    <p>Next action: Want me to patch webhook idempotency first?
+```</p>
+    <p>## Anti-Patterns</p>
+    <p>- Running `npx &lt;package&gt;@latest` or a remote scanner as the default audit path.
+- Uploading source, secrets, customer data, or private topology to an external
+  audit service without explicit approval.
+- Producing a score without naming the evidence checked.
+- Treating green CI as production readiness.
+- Ending with a generic &quot;let me know what you want to do.&quot;</p>
+    <p>## See Also</p>
+    <p>- Skill: `security-review`
+- Skill: `deployment-patterns`
+- Skill: `e2e-testing`
+- Skill: `tdd-workflow`
+- Skill: `verification-loop`</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-production-audit"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/production-audit/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: production-audit",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "production-audit",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:49Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:4BE4556D658DA16AD2AD5D5CF779D40D7C6ED54547700A924BAA0B34EC49FD56",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

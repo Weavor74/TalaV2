@@ -1,0 +1,313 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: agent-architecture-audit</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-agent-architecture-audit"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:75AB4038C5175400054206FB3B5804A9923FCD8C4D2DD62DA97625EE96636632"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T11:07:41Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: agent-architecture-audit</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: agent-architecture-audit.</p>
+    <p>Full-stack diagnostic for agent and LLM applications. Audits the 12-layer agent stack for wrapper regression, memory pollution, tool discipline failures, hidden repair loops, and rendering corruption. Produces severity-ranked findings with code-first fixes. Essential for developers building agent applications, autonomous loops, or any LLM-powered feature. Use when an agent or LLM feature misbehaves and the failing layer is unknown, or before shipping an agent stack.</p>
+    <p># Agent Architecture Audit</p>
+    <p>A diagnostic workflow for agent systems that hide failures behind wrapper layers, stale memory, retry loops, or transport/rendering mutations.</p>
+    <p>## When to Activate</p>
+    <p>**MANDATORY for:**
+- Releasing any agent or LLM-powered application to production
+- Shipping features with tool calling, memory, or multi-step workflows
+- Agent behavior degrades after adding wrapper layers
+- User reports &quot;the agent is getting worse&quot; or &quot;tools are flaky&quot;
+- Same model works in playground but breaks inside your wrapper
+- Debugging agent behavior for more than 15 minutes without finding root cause</p>
+    <p>**Especially critical when:**
+- You&#x27;ve added new prompt layers, tool definitions, or memory systems
+- Different agents in your system behave inconsistently
+- The model was fine yesterday but is hallucinating today
+- You suspect hidden repair/retry loops silently mutating responses</p>
+    <p>**Do not use for:**
+- General code debugging — use `agent-introspection-debugging`
+- Code review — use language-specific reviewer agents
+- Security scanning — use `security-review` or `security-review/scan`
+- Agent performance benchmarking — use `agent-eval`
+- Writing new features — use the appropriate workflow skill</p>
+    <p>## The 12-Layer Stack</p>
+    <p>Every agent system has these layers. Any of them can corrupt the answer:</p>
+    <p>| # | Layer | What Goes Wrong |
+|---|-------|----------------|
+| 1 | System prompt | Conflicting instructions, instruction bloat |
+| 2 | Session history | Stale context injection from previous turns |
+| 3 | Long-term memory | Pollution across sessions, old topics in new conversations |
+| 4 | Distillation | Compressed artifacts re-entering as pseudo-facts |
+| 5 | Active recall | Redundant re-summary layers wasting context |
+| 6 | Tool selection | Wrong tool routing, model skips required tools |
+| 7 | Tool execution | Hallucinated execution — claims to call but doesn&#x27;t |
+| 8 | Tool interpretation | Misread or ignored tool output |
+| 9 | Answer shaping | Format corruption in final response |
+| 10 | Platform rendering | Transport-layer mutation (UI, API, CLI mutates valid answers) |
+| 11 | Hidden repair loops | Silent fallback/retry agents running second LLM pass |
+| 12 | Persistence | Expired state or cached artifacts reused as live evidence |</p>
+    <p>## Common Failure Patterns</p>
+    <p>### 1. Wrapper Regression</p>
+    <p>The base model produces correct answers, but the wrapper layers make it worse.</p>
+    <p>**Symptoms:**
+- Model works fine in playground or direct API call, breaks in your agent
+- Added a new prompt layer, existing behavior degraded
+- Agent sounds confident but is confidently wrong
+- &quot;It was working before the last update&quot;</p>
+    <p>### 2. Memory Contamination</p>
+    <p>Old topics leak into new conversations through history, memory retrieval, or distillation.</p>
+    <p>**Symptoms:**
+- Agent brings up unrelated past topics
+- User corrections don&#x27;t stick (old memory overwrites new)
+- Same-session artifacts re-enter as pseudo-facts
+- Memory grows without bound, degrading response quality over time</p>
+    <p>### 3. Tool Discipline Failure</p>
+    <p>Tools are declared in the prompt but not enforced in code. The model skips them or hallucinates execution.</p>
+    <p>**Symptoms:**
+- &quot;Must use tool X&quot; in prompt, but model answers without calling it
+- Tool results look correct but were never actually executed
+- Different tools fight over the same responsibility
+- Model uses tool when it shouldn&#x27;t, or skips it when it must</p>
+    <p>### 4. Rendering/Transport Corruption</p>
+    <p>The agent&#x27;s internal answer is correct, but the platform layer mutates it during delivery.</p>
+    <p>**Symptoms:**
+- Logs show correct answer, user sees broken output
+- Markdown rendering, JSON parsing, or streaming fragments corrupt valid responses
+- Hidden fallback agent quietly replaces the answer before delivery
+- Output differs between terminal and UI</p>
+    <p>### 5. Hidden Agent Layers</p>
+    <p>Silent repair, retry, summarization, or recall agents run without explicit contracts.</p>
+    <p>**Symptoms:**
+- Output changes between internal generation and user delivery
+- &quot;Auto-fix&quot; loops run a second LLM pass the user doesn&#x27;t know about
+- Multiple agents modify the same output without coordination
+- Answers get &quot;smoothed&quot; or &quot;corrected&quot; by invisible layers</p>
+    <p>## Audit Workflow</p>
+    <p>### Phase 1: Scope</p>
+    <p>Define what you&#x27;re auditing:</p>
+    <p>- **Target system** — what agent application?
+- **Entrypoints** — how do users interact with it?
+- **Model stack** — which LLM(s) and providers?
+- **Symptoms** — what does the user report?
+- **Time window** — when did it start?
+- **Layers to audit** — which of the 12 layers apply?</p>
+    <p>### Phase 2: Evidence Collection</p>
+    <p>Gather evidence from the codebase:</p>
+    <p>- **Source code** — agent loop, tool router, memory admission, prompt assembly
+- **Logs** — historical session traces, tool call records
+- **Config** — prompt templates, tool schemas, provider settings
+- **Memory files** — SOPs, knowledge bases, session archives</p>
+    <p>Use `rg` to search for anti-patterns:</p>
+    <p>```bash
+# Tool requirements expressed only in prompt text (not code)
+rg &quot;must.*tool|必须.*工具|required.*call&quot; --type md</p>
+    <p># Tool execution without validation
+rg &quot;tool_call|toolCall|tool_use&quot; --type py --type ts</p>
+    <p># Hidden LLM calls outside main agent loop
+rg &quot;completion|chat\.create|messages\.create|llm\.invoke&quot;</p>
+    <p># Memory admission without user-correction priority
+rg &quot;memory.*admit|long.*term.*update|persist.*memory&quot; --type py --type ts</p>
+    <p># Fallback loops that run additional LLM calls
+rg &quot;fallback|retry.*llm|repair.*prompt|re-?prompt&quot; --type py --type ts</p>
+    <p># Silent output mutation
+rg &quot;mutate|rewrite.*response|transform.*output|shap&quot; --type py --type ts
+```</p>
+    <p>### Phase 3: Failure Mapping</p>
+    <p>For each finding, document:</p>
+    <p>- **Symptom** — what the user sees
+- **Mechanism** — how the wrapper causes it
+- **Source layer** — which of the 12 layers
+- **Root cause** — the deepest cause
+- **Evidence** — file:line or log:row reference
+- **Confidence** — 0.0 to 1.0</p>
+    <p>### Phase 4: Fix Strategy</p>
+    <p>Default fix order (code-first, not prompt-first):</p>
+    <p>1. **Code-gate tool requirements** — enforce in code, not just prompt text
+2. **Remove or narrow hidden repair agents** — make fallback explicit with contracts
+3. **Reduce context duplication** — same info through prompt + history + memory + distillation
+4. **Tighten memory admission** — user corrections &gt; agent assertions
+5. **Tighten distillation triggers** — don&#x27;t compress what shouldn&#x27;t be compressed
+6. **Reduce rendering mutation** — pass-through, don&#x27;t transform
+7. **Convert to typed JSON envelopes** — structured internal flow, not freeform prose</p>
+    <p>## Severity Model</p>
+    <p>| Level | Meaning | Action |
+|-------|---------|--------|
+| `critical` | Agent can confidently produce wrong operational behavior | Fix before next release |
+| `high` | Agent frequently degrades correctness or stability | Fix this sprint |
+| `medium` | Correctness usually survives but output is fragile or wasteful | Plan for next cycle |
+| `low` | Mostly cosmetic or maintainability issues | Backlog |</p>
+    <p>## Output Format</p>
+    <p>Present findings to the user in this order:</p>
+    <p>1. **Severity-ranked findings** (most critical first)
+2. **Architecture diagnosis** (which layer corrupted what, and why)
+3. **Ordered fix plan** (code-first, not prompt-first)</p>
+    <p>Do not lead with compliments or summaries. If the system is broken, say so directly.</p>
+    <p>## Quick Diagnostic Questions</p>
+    <p>When auditing an agent system, answer these:</p>
+    <p>| # | Question | If Yes → |
+|---|----------|----------|
+| 1 | Can the model skip a required tool and still answer? | Tool not code-gated |
+| 2 | Does old conversation content appear in new turns? | Memory contamination |
+| 3 | Is the same info in system prompt AND memory AND history? | Context duplication |
+| 4 | Does the platform run a second LLM pass before delivery? | Hidden repair loop |
+| 5 | Does the output differ between internal generation and user delivery? | Rendering corruption |
+| 6 | Are &quot;must use tool X&quot; rules only in prompt text? | Tool discipline failure |
+| 7 | Can the agent&#x27;s own monologue become persistent memory? | Memory poisoning |</p>
+    <p>## Anti-Patterns to Avoid</p>
+    <p>- Avoid blaming the model before falsifying wrapper-layer regressions.
+- Avoid blaming memory without showing the contamination path.
+- Do not let a clean current state erase a dirty historical incident.
+- Do not treat markdown prose as a trustworthy internal protocol.
+- Do not accept &quot;must use tool&quot; in prompt text when code never enforces it.
+- Keep findings direct, evidence-backed, and severity-ranked.</p>
+    <p>## Report Schema</p>
+    <p>Audits should produce structured reports following this shape:</p>
+    <p>```json
+{
+  &quot;schema_version&quot;: &quot;ecc.agent-architecture-audit.report.v1&quot;,
+  &quot;executive_verdict&quot;: {
+    &quot;overall_health&quot;: &quot;high_risk&quot;,
+    &quot;primary_failure_mode&quot;: &quot;string&quot;,
+    &quot;most_urgent_fix&quot;: &quot;string&quot;
+  },
+  &quot;scope&quot;: {
+    &quot;target_name&quot;: &quot;string&quot;,
+    &quot;model_stack&quot;: [&quot;string&quot;],
+    &quot;layers_to_audit&quot;: [&quot;string&quot;]
+  },
+  &quot;findings&quot;: [
+    {
+      &quot;severity&quot;: &quot;critical|high|medium|low&quot;,
+      &quot;title&quot;: &quot;string&quot;,
+      &quot;mechanism&quot;: &quot;string&quot;,
+      &quot;source_layer&quot;: &quot;string&quot;,
+      &quot;root_cause&quot;: &quot;string&quot;,
+      &quot;evidence_refs&quot;: [&quot;file:line&quot;],
+      &quot;confidence&quot;: 0.0,
+      &quot;recommended_fix&quot;: &quot;string&quot;
+    }
+  ],
+  &quot;ordered_fix_plan&quot;: [
+    { &quot;order&quot;: 1, &quot;goal&quot;: &quot;string&quot;, &quot;why_now&quot;: &quot;string&quot;, &quot;expected_effect&quot;: &quot;string&quot; }
+  ]
+}
+```</p>
+    <p>## Related Skills</p>
+    <p>- `agent-introspection-debugging` — Debug agent runtime failures (loops, timeouts, state errors)
+- `agent-eval` — Benchmark agent performance head-to-head
+- `security-review` — Security audit for code and configuration
+- `autonomous-agent-harness` — Set up autonomous agent operations
+- `agent-harness-construction` — Build agent harnesses from scratch</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-agent-architecture-audit"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/agent-architecture-audit/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: agent-architecture-audit",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "agent-architecture-audit",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T11:07:41Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:75AB4038C5175400054206FB3B5804A9923FCD8C4D2DD62DA97625EE96636632",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

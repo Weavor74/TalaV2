@@ -1,0 +1,243 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: content-hash-cache-pattern</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-content-hash-cache-pattern"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:7697E852AEE8B33AB02DFA51B05AA63B2640848FD980A2BE1E7FA7F77A72175C"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:50Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: content-hash-cache-pattern</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: content-hash-cache-pattern.</p>
+    <p>Cache expensive file processing results using SHA-256 content hashes — path-independent, auto-invalidating, with service layer separation. Use when repeated file processing is slow and results should be cached and invalidated by content rather than path.</p>
+    <p># Content-Hash File Cache Pattern</p>
+    <p>Cache expensive file processing results (PDF parsing, text extraction, image analysis) using SHA-256 content hashes as cache keys. Unlike path-based caching, this approach survives file moves/renames and auto-invalidates when content changes.</p>
+    <p>## When to Activate</p>
+    <p>- Building file processing pipelines (PDF, images, text extraction)
+- Processing cost is high and same files are processed repeatedly
+- Need a `--cache/--no-cache` CLI option
+- Want to add caching to existing pure functions without modifying them</p>
+    <p>## Core Pattern</p>
+    <p>### 1. Content-Hash Based Cache Key</p>
+    <p>Use file content (not path) as the cache key:</p>
+    <p>```python
+import hashlib
+from pathlib import Path</p>
+    <p>_HASH_CHUNK_SIZE = 65536  # 64KB chunks for large files</p>
+    <p>def compute_file_hash(path: Path) -&gt; str:
+    &quot;&quot;&quot;SHA-256 of file contents (chunked for large files).&quot;&quot;&quot;
+    if not path.is_file():
+        raise FileNotFoundError(f&quot;File not found: {path}&quot;)
+    sha256 = hashlib.sha256()
+    with open(path, &quot;rb&quot;) as f:
+        while True:
+            chunk = f.read(_HASH_CHUNK_SIZE)
+            if not chunk:
+                break
+            sha256.update(chunk)
+    return sha256.hexdigest()
+```</p>
+    <p>**Why content hash?** File rename/move = cache hit. Content change = automatic invalidation. No index file needed.</p>
+    <p>### 2. Frozen Dataclass for Cache Entry</p>
+    <p>```python
+from dataclasses import dataclass</p>
+    <p>@dataclass(frozen=True, slots=True)
+class CacheEntry:
+    file_hash: str
+    source_path: str
+    document: ExtractedDocument  # The cached result
+```</p>
+    <p>### 3. File-Based Cache Storage</p>
+    <p>Each cache entry is stored as `{hash}.json` — O(1) lookup by hash, no index file required.</p>
+    <p>```python
+import json
+from typing import Any</p>
+    <p>def write_cache(cache_dir: Path, entry: CacheEntry) -&gt; None:
+    cache_dir.mkdir(parents=True, exist_ok=True)
+    cache_file = cache_dir / f&quot;{entry.file_hash}.json&quot;
+    data = serialize_entry(entry)
+    cache_file.write_text(json.dumps(data, ensure_ascii=False), encoding=&quot;utf-8&quot;)</p>
+    <p>def read_cache(cache_dir: Path, file_hash: str) -&gt; CacheEntry | None:
+    cache_file = cache_dir / f&quot;{file_hash}.json&quot;
+    if not cache_file.is_file():
+        return None
+    try:
+        raw = cache_file.read_text(encoding=&quot;utf-8&quot;)
+        data = json.loads(raw)
+        return deserialize_entry(data)
+    except (json.JSONDecodeError, ValueError, KeyError):
+        return None  # Treat corruption as cache miss
+```</p>
+    <p>### 4. Service Layer Wrapper (SRP)</p>
+    <p>Keep the processing function pure. Add caching as a separate service layer.</p>
+    <p>```python
+def extract_with_cache(
+    file_path: Path,
+    *,
+    cache_enabled: bool = True,
+    cache_dir: Path = Path(&quot;.cache&quot;),
+) -&gt; ExtractedDocument:
+    &quot;&quot;&quot;Service layer: cache check -&gt; extraction -&gt; cache write.&quot;&quot;&quot;
+    if not cache_enabled:
+        return extract_text(file_path)  # Pure function, no cache knowledge</p>
+    <p>file_hash = compute_file_hash(file_path)</p>
+    <p># Check cache
+    cached = read_cache(cache_dir, file_hash)
+    if cached is not None:
+        logger.info(&quot;Cache hit: %s (hash=%s)&quot;, file_path.name, file_hash[:12])
+        return cached.document</p>
+    <p># Cache miss -&gt; extract -&gt; store
+    logger.info(&quot;Cache miss: %s (hash=%s)&quot;, file_path.name, file_hash[:12])
+    doc = extract_text(file_path)
+    entry = CacheEntry(file_hash=file_hash, source_path=str(file_path), document=doc)
+    write_cache(cache_dir, entry)
+    return doc
+```</p>
+    <p>## Key Design Decisions</p>
+    <p>| Decision | Rationale |
+|----------|-----------|
+| SHA-256 content hash | Path-independent, auto-invalidates on content change |
+| `{hash}.json` file naming | O(1) lookup, no index file needed |
+| Service layer wrapper | SRP: extraction stays pure, cache is a separate concern |
+| Manual JSON serialization | Full control over frozen dataclass serialization |
+| Corruption returns `None` | Graceful degradation, re-processes on next run |
+| `cache_dir.mkdir(parents=True)` | Lazy directory creation on first write |</p>
+    <p>## Best Practices</p>
+    <p>- **Hash content, not paths** — paths change, content identity doesn&#x27;t
+- **Chunk large files** when hashing — avoid loading entire files into memory
+- **Keep processing functions pure** — they should know nothing about caching
+- **Log cache hit/miss** with truncated hashes for debugging
+- **Handle corruption gracefully** — treat invalid cache entries as misses, never crash</p>
+    <p>## Anti-Patterns to Avoid</p>
+    <p>```python
+# BAD: Path-based caching (breaks on file move/rename)
+cache = {&quot;/path/to/file.pdf&quot;: result}</p>
+    <p># BAD: Adding cache logic inside the processing function (SRP violation)
+def extract_text(path, *, cache_enabled=False, cache_dir=None):
+    if cache_enabled:  # Now this function has two responsibilities
+        ...</p>
+    <p># BAD: Using dataclasses.asdict() with nested frozen dataclasses
+# (can cause issues with complex nested types)
+data = dataclasses.asdict(entry)  # Use manual serialization instead
+```</p>
+    <p>## When to Use</p>
+    <p>- File processing pipelines (PDF parsing, OCR, text extraction, image analysis)
+- CLI tools that benefit from `--cache/--no-cache` options
+- Batch processing where the same files appear across runs
+- Adding caching to existing pure functions without modifying them</p>
+    <p>## When NOT to Use</p>
+    <p>- Data that must always be fresh (real-time feeds)
+- Cache entries that would be extremely large (consider streaming instead)
+- Results that depend on parameters beyond file content (e.g., different extraction configs)</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-content-hash-cache-pattern"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/content-hash-cache-pattern/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: content-hash-cache-pattern",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "content-hash-cache-pattern",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:50Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:7697E852AEE8B33AB02DFA51B05AA63B2640848FD980A2BE1E7FA7F77A72175C",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

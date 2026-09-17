@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: parallel-execution-optimizer</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-parallel-execution-optimizer"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:C46EB1461A26776DA5DBB5A04A83E7DDD858782ED3DAD168100E2FE8802E30DB"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:49Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: parallel-execution-optimizer</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: parallel-execution-optimizer.</p>
+    <p>Use when the user wants a task done much faster through parallel work, concurrent agents, batched tool calls, isolated worktrees, or many independent verification lanes without losing correctness.</p>
+    <p># Parallel Execution Optimizer</p>
+    <p>Use this skill when speed comes from doing independent work at the same time:
+repo inspection, file reads, API checks, browser checks, build/test lanes,
+deploy readbacks, or multi-worktree implementation passes.</p>
+    <p>## Core Pattern</p>
+    <p>Turn urgency into a dependency graph before acting.</p>
+    <p>1. Define the objective and done signal.
+2. Split work into lanes.
+3. Mark each lane as parallel, sequential, or gated.
+4. Run independent reads/checks together.
+5. Keep writes isolated by file, worktree, branch, service, or dataset.
+6. Merge only after evidence shows the lanes are compatible.
+7. End with a verification table, not a vague speed claim.</p>
+    <p>## Lane Matrix</p>
+    <p>Before a large push, write a compact matrix:</p>
+    <p>```text
+Lane | Can run in parallel? | Write surface | Risk | Verification
+Repo scan | yes | none | low | rg/git status outputs
+Backend patch | maybe | src/api | medium | unit tests
+Frontend patch | maybe | app/components | medium | browser screenshot
+Deploy readback | after build | remote service | high | live URL + logs
+```</p>
+    <p>Only run lanes in parallel when their write surfaces do not collide.</p>
+    <p>## Execution Rules</p>
+    <p>- Batch file reads, searches, status checks, and metadata queries.
+- Use isolated worktrees for large unrelated implementation lanes.
+- Start long-running tests, builds, backfills, and deploys in separate sessions,
+  then poll them deliberately.
+- If a lane discovers a blocker that changes the plan, pause dependent lanes
+  and update the matrix.
+- Never let a background process outlive the turn unless the user explicitly
+  asked for a continuing service.
+- Do not parallelize destructive commands, migrations, writes to the same table,
+  or live customer-impacting deploys without an explicit gate.</p>
+    <p>## Output Shape</p>
+    <p>Use this when reporting:</p>
+    <p>```text
+Parallel execution result:
+- Lanes run: 5
+- Lanes completed: 4
+- Blocked lane: deploy readback, waiting on DNS propagation
+- Fast path found: batched repo scan + focused tests
+- Verification: lint pass, unit pass, live smoke pass
+```</p>
+    <p>## Failure Modes</p>
+    <p>- More concurrency that creates conflicting edits.
+- Benchmarking the tool instead of the task.
+- Treating &quot;fast&quot; as done before correctness is proven.
+- Forgetting to poll running sessions.
+- Hiding skipped checks behind a success summary.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-parallel-execution-optimizer"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/parallel-execution-optimizer/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: parallel-execution-optimizer",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "parallel-execution-optimizer",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:49Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:C46EB1461A26776DA5DBB5A04A83E7DDD858782ED3DAD168100E2FE8802E30DB",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

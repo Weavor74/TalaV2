@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Learning: Skill: team-agent-orchestration</title>
+</head>
+<body>
+<article
+  data-node-id="learning-skill-team-agent-orchestration"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="learning.event"
+  data-source-files=""
+  data-source-fingerprint="sha256:1CF0C8F4EC8C0E1CFC9EFC4F6CC5B229592BB55634A21A60C6BAED955A42A720"
+  data-source-digest="sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"
+  data-document-purpose="record"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T10:48:51Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Learning: Skill: team-agent-orchestration</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Durable learning event captured by Tala.</p>
+    <p>Topic: Skill: team-agent-orchestration.</p>
+    <p>Run team-based orchestration for agent squads using work items, ownership, agent Kanban, merge gates, and control pane handoffs. Use when coordinating an agent squad with work items, ownership, Kanban, and merge gates.</p>
+    <p># Team Agent Orchestration</p>
+    <p>Use this skill when agents are being managed like a team rather than a single assistant. The purpose is to make team-based orchestration reliable: clear work items, explicit ownership, agent Kanban state, branch isolation, control pane visibility, and merge gates.</p>
+    <p>## When To Activate</p>
+    <p>- The task spans multiple agents, tools, harnesses, branches, or worktrees.
+- The user mentions team orchestration, agent Kanban, squad, conductor, control pane, manager, desktop app, Zellij, tmux, Hermes, Devin, Codex, Claude Code, or multi-agent work.
+- A project needs shared workflow state across people and agents.
+- Existing agent fan-out is producing output but not mergeable product.</p>
+    <p>## Operating Model</p>
+    <p>Treat every agent as a teammate with a narrow contract:</p>
+    <p>- **Owner**: the person or agent accountable for the work item.
+- **Scope**: files, branch, tool surface, and forbidden areas.
+- **State**: backlog, ready, running, review, blocked, merged, or archived.
+- **Evidence**: tests, screenshots, logs, review notes, or eval reports.
+- **Merge gate**: the exact condition that allows integration.</p>
+    <p>## Agent Kanban</p>
+    <p>Use agent Kanban when work must be visible across sessions.</p>
+    <p>| Column | Meaning | Exit Criteria |
+| --- | --- | --- |
+| Backlog | Candidate work item, not yet shaped | Acceptance criteria written |
+| Ready | Shaped and assignable | Owner and branch/worktree assigned |
+| Running | Agent is actively working | Handoff artifact and changed files exist |
+| Review | Work is complete but not merged | Tests, diff review, and risk check pass |
+| Blocked | Needs external input or failed gate | Blocker has owner and next action |
+| Merged | Integrated into mainline | PR merged or local main updated |
+| Archived | No longer relevant | Reason recorded |</p>
+    <p>Each card should fit this schema:</p>
+    <p>```json
+{
+  &quot;id&quot;: &quot;agent-card-001&quot;,
+  &quot;title&quot;: &quot;Build dynamic workflow skill&quot;,
+  &quot;owner&quot;: &quot;codex&quot;,
+  &quot;state&quot;: &quot;running&quot;,
+  &quot;branch&quot;: &quot;product/dynamic-workflow-team-orchestration&quot;,
+  &quot;worktree&quot;: &quot;.&quot;,
+  &quot;acceptance&quot;: [
+    &quot;Skill exists&quot;,
+    &quot;Tests cover required concepts&quot;,
+    &quot;Content artifact contains video and article angles&quot;
+  ],
+  &quot;merge_gate&quot;: &quot;lint, focused tests, and catalog check pass&quot;,
+  &quot;handoff&quot;: &quot;path/to/handoff.md&quot;
+}
+```</p>
+    <p>## Team-Based Orchestration Flow</p>
+    <p>1. **Shape the board**: convert fuzzy ambition into work items with owners and merge gates.
+2. **Pick execution mode**: single-agent, dynamic workflow mode, dmux/tmux, worktree fan-out, or external desktop orchestrator.
+3. **Assign boundaries**: one owner per card, clear file scope, and no overlapping writes without an integrator.
+4. **Run agents**: each agent writes evidence and handoff notes, not just code.
+5. **Review in sequence**: tests first, then diff review, then security/risk checks, then content/product polish.
+6. **Merge deliberately**: one integrator resolves conflicts and updates the control pane or status artifact.
+7. **Extract reusable skill**: if the card pattern repeats, promote it into `skills/`.</p>
+    <p>## Control Pane Requirements</p>
+    <p>A useful control pane for team orchestration should show:</p>
+    <p>- Active work items and their agent Kanban state.
+- Owner, harness, branch, worktree, and last heartbeat.
+- Links to handoff artifacts, tests, screenshots, and PRs.
+- Blockers grouped by owner and unblock action.
+- Merge readiness by gate, not vibes.
+- Reusable workflow candidates that should become shared skills.</p>
+    <p>Do not add more automation until the operator can answer: who owns this, what changed, what gate failed, and what can safely merge?</p>
+    <p>## Dynamic Workflow Compatibility</p>
+    <p>When a card needs dynamic workflow mode:</p>
+    <p>- Put the task-local harness under the card owner.
+- Store inputs and outputs on the card.
+- Require an eval before moving from Running to Review.
+- Promote the harness to a shared skill only after repeat use.</p>
+    <p>## Failure Modes To Watch</p>
+    <p>- **Agent soup**: many agents running, no owner or merge gate.
+- **Invisible work**: useful output exists only in a chat transcript.
+- **Board theater**: a Kanban board exists but cards have no acceptance criteria.
+- **Overlapping writes**: parallel agents edit the same files without worktrees.
+- **No product artifact**: the process produces docs but no runnable or publishable surface.</p>
+    <p>## Output Standard</p>
+    <p>Finish each orchestration pass with:</p>
+    <p>- Board/card changes.
+- Merged or pending branches.
+- Tests and eval evidence.
+- Blockers with owner and next action.
+- New shared skill candidates.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li>No source files were provided for this documentation node.</li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-tala-html-nn-memory-runtime.html" data-target-node-id="system-tala-html-nn-memory-runtime" data-relationship-type="supports" data-relationship-weight="0.90" data-navigation-role="memory-runtime" data-authority-required="none">Tala HTML-NN Memory Runtime</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-learning-skill-team-agent-orchestration"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "learning.event"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "https://raw.githubusercontent.com/Weavor74/ECC/main/skills/team-agent-orchestration/SKILL.md",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Learning: Skill: team-agent-orchestration",
+  "description": "Program documentation for learning.event.",
+  "tags": [
+    "skill",
+    "agentskills-io",
+    "team-agent-orchestration",
+    "learning"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T10:48:51Z",
+    "schema": "neural-node/v2",
+    "doc_target": "learning.event",
+    "source_fingerprint": "sha256:1CF0C8F4EC8C0E1CFC9EFC4F6CC5B229592BB55634A21A60C6BAED955A42A720",
+    "source_files": [],
+    "source_digest": "sha256:E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855",
+    "document_purpose": "record",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>
