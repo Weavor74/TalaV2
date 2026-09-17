@@ -15,6 +15,8 @@ const path = require('node:path');
 const vm = require('node:vm');
 
 const MAIN = fs.readFileSync(path.join(__dirname, '..', '..', 'electron', 'main.js'), 'utf8');
+const HARNESS_ADMIN = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'electron', 'harness_admin.js'), 'utf8');
 
 function appUpdateBlock() {
   // The app.update handler, from its method check to the next method check.
@@ -87,11 +89,11 @@ describe('app.update — the only update path', () => {
     const block = appUpdateBlock();
     expect(block).toContain('fetchExpectedUpdateHash(platformKey)');
     // and the fetch helper itself goes to the pinned host, not a caller-supplied URL
-    expect(MAIN).toContain("https.get('https://talacore.app/version.json'");
+    expect(HARNESS_ADMIN).toContain("https.get('https://talacore.app/version.json'");
   });
 
-  test('a missing published hash refuses the update', () => {
-    expect(MAIN).toContain('callers must treat null as "cannot verify," not "verified."');
+  test('a missing published hash is "cannot verify", never "verified"', () => {
+    expect(HARNESS_ADMIN).toMatch(/cannot verify/);
     const block = appUpdateBlock();
     expect(block).toContain("return { __rpcError: true, error: 'Refusing update: no valid published SHA-256 hash is available.' }");
   });

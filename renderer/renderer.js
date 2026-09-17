@@ -6,6 +6,7 @@
 
 'use strict';
 
+
 /* ═══════════════════════════════════════════════════════════════════
    1. Bootstrap
    ═══════════════════════════════════════════════════════════════════ */
@@ -12042,14 +12043,12 @@ const WorkflowManager = {
   }
 };
 
-
 /* ═══════════════════════════════════════════════════════════════════
    21. MissionControl — Developer dashboard panel
    ═══════════════════════════════════════════════════════════════════ */
 const MissionControl = {
   init() {
     this._btnRefresh = qs('#btn-mc-refresh');
-    this._btnHalt = qs('#btn-mc-halt');
     this._btnScan = qs('#btn-mc-scan');
     this._btnLint = qs('#btn-mc-lint');
     this._btnRevert = qs('#btn-mc-revert');
@@ -12091,7 +12090,7 @@ const MissionControl = {
     }
 
     if (this._btnRefresh) this._btnRefresh.addEventListener('click', () => this.refreshAll());
-    if (this._btnHalt) this._btnHalt.addEventListener('click', () => this.haltCurrentLoop());
+    mcBindOwnerControls(this);
     if (this._btnScan) this._btnScan.addEventListener('click', () => this.runScan());
     if (this._btnLint) this._btnLint.addEventListener('click', () => this.runLint());
     if (this._btnRevert) this._btnRevert.addEventListener('click', () => this.runRevert());
@@ -12247,17 +12246,7 @@ const MissionControl = {
     }
   },
 
-  async clearTaskQueue() {
-    const count = (this._taskCache || []).length;
-    if (!confirm(`Clear the entire task queue? This deletes all ${count} task(s) and their telemetry, and cannot be undone.`)) return;
-    try {
-      await invoke('python:rpc', { method: 'task.clear', params: {} });
-      IPCLog.append('info', 'Task queue cleared.');
-      await this.loadTasks();
-    } catch (err) {
-      IPCLog.append('error', `Could not clear the queue: ${err.message || err}`);
-    }
-  },
+  async clearTaskQueue() { return mcClearTaskQueue(this, this._taskCache); },
 
   /* ── Scheduled goals ──────────────────────────────────────────────
      The cron scheduler has run from server startup since it was built, but
@@ -12862,25 +12851,8 @@ const MissionControl = {
     }
   },
 
-  async haltCurrentLoop() {
-    try {
-      const result = await invoke('python:rpc', { method: 'task.list', params: {} });
-      if (result && result.tasks && result.tasks.length > 0) {
-        const active = result.tasks[0];
-        const haltRes = await invoke('python:rpc', { method: 'task.control', params: { task_id: active.id, action: 'abort' } });
-        if (haltRes && haltRes.success) {
-          alert('Task queue loop halted and emergency lockdown enabled.');
-          await this.refreshAll();
-        } else {
-          alert('Failed to halt task.');
-        }
-      } else {
-        alert('No active task queue running.');
-      }
-    } catch (err) {
-      alert(`Halt loop error: ${err.message}`);
-    }
-  }
+  async haltCurrentLoop() { return mcHaltCurrentLoop(this); },
+  async releaseEmergencyHalt() { return mcReleaseEmergencyHalt(this); },
 };
 
 /* ═══════════════════════════════════════════════════════════════════

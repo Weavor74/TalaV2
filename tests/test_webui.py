@@ -208,6 +208,25 @@ def test_electron_starts_the_harness_with_the_web_ui_enabled():
     )
 
 
+
+
+def test_electron_first_run_env_splits_http_and_ws_tokens():
+    """UI-audit C3: desktop spawn must pin distinct TALA_WS_TOKEN and TALA_WEB_TOKEN."""
+    main_js = (ROOT / "electron" / "main.js").read_text(encoding="utf-8")
+    env_block = main_js.split("function firstRunEnv")[1].split("function ", 1)[0]
+    assert "TALA_WS_TOKEN: wsToken" in env_block
+    assert "TALA_WEB_TOKEN: webUiToken" in env_block
+    assert "ensureWebUiToken" in env_block
+    assert "TALA_WEB_TOKEN: ensureWsToken" not in env_block
+    ensure_ws_body = (
+        main_js.split("function ensureWsToken(appPath)", 1)[1]
+        .split("{", 1)[1]
+        .split("}", 1)[0]
+    )
+    assert "ensureWsTokenFile" in ensure_ws_body
+    assert "TALA_WEB_TOKEN" not in ensure_ws_body
+
+
 def test_web_ui_can_be_turned_off():
     """`TALA_WEB_UI=0` must mean off, not 'any value is truthy'."""
     import os
@@ -248,3 +267,21 @@ def test_standalone_mode_also_refuses_a_tokenless_public_bind():
     main_body = src.split("async def _main")[1]
     assert "TALA_WEB_TOKEN" in main_body
     assert "Refusing to serve" in main_body
+
+
+def test_file_read_refuses_vault_paths(tmp_path):
+    """UI-audit C4: vault:read is gated; file:read must not bypass it."""
+    (tmp_path / "vault").mkdir()
+    (tmp_path / "vault" / "key.txt").write_text("secret", encoding="utf-8")
+    with pytest.raises(PermissionError):
+        webui._bridge_file_read(tmp_path, {"filePath": "vault/key.txt"})
+
+
+def test_config_endpoint_omits_secrets():
+    """UI-audit C3: /tala-web-config.js must not embed HTTP or WS secrets."""
+    src = (ROOT / "python" / "harness" / "webui.py").read_text(encoding="utf-8")
+    # The config payload construction must not include these keys.
+    config_fn = src.split("async def config(", 1)[1].split("async def ", 1)[0]
+    assert '"wsToken"' not in config_fn
+    assert '"token": token' not in config_fn
+    assert "wsTicketUrl" in config_fn

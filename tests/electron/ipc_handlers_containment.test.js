@@ -15,8 +15,8 @@ const os = require('node:os');
 const path = require('node:path');
 
 // Sandbox root, created before the module under test reads TALA_USER_DATA.
-const mockSandbox = fs.mkdtempSync(path.join(os.tmpdir(), 'tala-ipc-sandbox-'));
-const mockOutside = fs.mkdtempSync(path.join(os.tmpdir(), 'tala-ipc-outside-'));
+const mockSandbox = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tala-ipc-sandbox-')));
+const mockOutside = fs.realpathSync(fs.mkdtempSync(path.join(os.tmpdir(), 'tala-ipc-outside-')));
 process.env.TALA_USER_DATA = mockSandbox;
 
 const mockRegisteredHandlers = new Map();
@@ -31,6 +31,7 @@ jest.mock('electron', () => ({
 const {
   registerHandlers,
   safePath,
+  refuseSecretPath,
   isNodesHtmlPath,
 } = require('../../electron/ipc-handlers.js');
 
@@ -55,9 +56,12 @@ afterAll(() => {
 
 describe('safePath', () => {
   test('accepts a relative path inside the sandbox', async () => {
-    await expect(safePath(mockSandbox, 'inside.txt')).resolves.toBe(
-      fs.realpathSync(path.join(mockSandbox, 'inside.txt'))
-    );
+    const got = await safePath(mockSandbox, 'inside.txt');
+    const expected = fs.realpathSync(path.join(mockSandbox, 'inside.txt'));
+    // Same file even when Win 8.3 short TEMP vs long realpath spellings differ.
+    expect(fs.statSync(got).ino).toBe(fs.statSync(expected).ino);
+    expect(fs.statSync(got).dev).toBe(fs.statSync(expected).dev);
+    expect(path.basename(got)).toBe('inside.txt');
   });
 
   test('rejects ../ traversal out of the sandbox', async () => {
@@ -226,5 +230,40 @@ describe('isNodesHtmlPath', () => {
     [42, false],
   ])('%s → %s', (input, expected) => {
     expect(isNodesHtmlPath(input)).toBe(expected);
+  });
+});
+
+describe('file:* vault refusal (UI-audit C4)', () => {
+  test('file:read must not bypass vault:read (refuseSecretPath, not containment)', async () => {
+    // Must be refuseSecretPath wording — matching only /Access denied/ can
+    // false-pass when safePath wrongly denies due to /var vs /private/var.
+    await expect(invoke('file:read', { filePath: 'vault/note.txt' })).rejects.toThrow(
+      /holds secrets/
+    );
+  });
+
+  test('file:write refuses vault paths', async () => {
+    await expect(
+      invoke('file:write', { filePath: 'vault/planted.txt', data: 'x' })
+    ).rejects.toThrow(/holds secrets/);
+  });
+
+  test('refuseSecretPath rejects .env at sandbox root', () => {
+    const envPath = path.join(mockSandbox, '.env');
+    fs.writeFileSync(envPath, 'SECRET=1');
+    expect(() => refuseSecretPath(mockSandbox, envPath)).toThrow(/holds secrets/);
+  });
+
+  test('refuseSecretPath rejects symlink into vault', () => {
+    const link = path.join(mockSandbox, 'vault-link');
+    try { fs.unlinkSync(link); } catch { /* */ }
+    fs.symlinkSync(path.join(mockSandbox, 'vault', 'note.txt'), link);
+    const real = fs.realpathSync(link);
+    expect(() => refuseSecretPath(mockSandbox, real)).toThrow(/holds secrets/);
+  });
+
+  test('file:read refuses .env via handler', async () => {
+    fs.writeFileSync(path.join(mockSandbox, '.env'), 'SECRET=1');
+    await expect(invoke('file:read', { filePath: '.env' })).rejects.toThrow(/holds secrets/);
   });
 });
