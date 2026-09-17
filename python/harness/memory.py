@@ -899,7 +899,6 @@ async def handle_memory_rebuild_from_disk(params: dict[str, Any] | None = None) 
     explicit empty recovery — not a silent success that looks healthy.
     """
     params = params or {}
-    from pathlib import Path as _Path
     from python.harness.config import settings
     from python.harness import retrieval
 

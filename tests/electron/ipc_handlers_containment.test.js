@@ -56,9 +56,12 @@ afterAll(() => {
 
 describe('safePath', () => {
   test('accepts a relative path inside the sandbox', async () => {
-    await expect(safePath(mockSandbox, 'inside.txt')).resolves.toBe(
-      fs.realpathSync(path.join(mockSandbox, 'inside.txt'))
-    );
+    const got = await safePath(mockSandbox, 'inside.txt');
+    const expected = fs.realpathSync(path.join(mockSandbox, 'inside.txt'));
+    // Same file even when Win 8.3 short TEMP vs long realpath spellings differ.
+    expect(fs.statSync(got).ino).toBe(fs.statSync(expected).ino);
+    expect(fs.statSync(got).dev).toBe(fs.statSync(expected).dev);
+    expect(path.basename(got)).toBe('inside.txt');
   });
 
   test('rejects ../ traversal out of the sandbox', async () => {

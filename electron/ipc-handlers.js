@@ -187,24 +187,51 @@ async function safePath(baseDir, userPath) {
  * the two the same way python/harness/webui.py._refuse_secret_path does.
  */
 function refuseSecretPath(baseDir, resolved) {
-  let realBase;
+  // Relative-to-sandbox via inode walk when possible. String prefix compares
+  // break on Windows when TEMP is an 8.3 short path (RUNNER~1) but async
+  // realpath returns the long form (runneradmin) — the paths name the same
+  // directory, but startsWith fails and this gate would silently no-op (C4).
+  let relative = null;
   try {
-    realBase = fssync.realpathSync(baseDir);
+    const baseStat = fssync.statSync(baseDir);
+    let cur = path.resolve(resolved);
+    const parts = [];
+    for (;;) {
+      const st = fssync.statSync(cur);
+      if (st.dev === baseStat.dev && st.ino === baseStat.ino) {
+        relative = parts.reverse();
+        break;
+      }
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      parts.push(path.basename(cur));
+      cur = parent;
+    }
   } catch {
-    realBase = path.resolve(baseDir);
+    relative = null;
   }
-  let realResolved;
-  try {
-    realResolved = fssync.realpathSync(resolved);
-  } catch {
-    realResolved = path.resolve(resolved);
+
+  if (relative === null) {
+    let realBase;
+    try {
+      realBase = fssync.realpathSync(baseDir);
+    } catch {
+      realBase = path.resolve(baseDir);
+    }
+    let realResolved;
+    try {
+      realResolved = fssync.realpathSync(resolved);
+    } catch {
+      realResolved = path.resolve(resolved);
+    }
+    const baseCmp = foldCase(realBase);
+    const resolvedCmp = foldCase(realResolved);
+    if (resolvedCmp === baseCmp) return;
+    if (!resolvedCmp.startsWith(baseCmp + path.sep)) return;
+    relative = resolvedCmp.slice(baseCmp.length + 1).split(path.sep);
   }
-  const baseCmp = foldCase(realBase);
-  const resolvedCmp = foldCase(realResolved);
-  if (resolvedCmp === baseCmp) return;
-  if (!resolvedCmp.startsWith(baseCmp + path.sep)) return;
-  const relative = resolvedCmp.slice(baseCmp.length + 1).split(path.sep);
-  if (!relative.length || (relative.length === 1 && relative[0] === '')) return;
+
+  if (!relative.length) return;
   const top = relative[0];
   if (top === 'vault' || top === '.env') {
     throw new Error(`Access denied: "${relative.join('/')}" holds secrets and is not served by file:*.`);
