@@ -23,10 +23,10 @@ logger = logging.getLogger(__name__)
 
 #: Read-only health / status surfaces permitted while the kill switch is on.
 HALTED_STATUS_METHODS: frozenset[str] = frozenset({
+    # Read-only status surfaces only. system.self_test / system.capabilities
+    # are operational (and can be expensive); they are refused while halted.
     "harness.health",
     "system.info",
-    "system.self_test",
-    "system.capabilities",
     "system.architecture_contract",
     "task.status",
     "task.list",

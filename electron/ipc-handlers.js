@@ -31,6 +31,7 @@
 
 const path = require('node:path');
 const fs   = require('node:fs/promises');
+const fssync = require('node:fs');
 const { app, ipcMain } = require('electron');
 
 /* ──────────────────────────────────────────────────────────────────
@@ -131,14 +132,26 @@ function foldCase(p) {
     : p;
 }
 
+async function resolveRealBase(baseDir) {
+  // OS-correct containment: compare realpaths. On macOS /var → /private/var;
+  // on Windows TEMP may be an 8.3 short path. Comparing a logical baseDir to a
+  // realpath'd child falsely denies in-sandbox paths (and can false-pass C4
+  // vault refusal tests that only match /Access denied/).
+  try {
+    return await fs.realpath(baseDir);
+  } catch {
+    return path.resolve(baseDir);
+  }
+}
+
 async function safePath(baseDir, userPath) {
   if (!userPath || typeof userPath !== 'string') {
     throw new Error('Path must be a non-empty string.');
   }
 
-  // Normalize separators and resolve relative to base
-  const joined   = path.resolve(baseDir, userPath);
-  const baseCmp  = foldCase(baseDir);
+  const realBase = await resolveRealBase(baseDir);
+  const joined   = path.resolve(realBase, userPath);
+  const baseCmp  = foldCase(realBase);
 
   // Attempt to resolve real path (follows symlinks) so traversal via
   // symlinks pointing outside the sandbox is caught.
@@ -153,10 +166,10 @@ async function safePath(baseDir, userPath) {
     if (!parentCmp.startsWith(baseCmp + path.sep) && parentCmp !== baseCmp) {
       throw new Error(`Access denied: parent of "${userPath}" is outside the sandbox.`);
     }
-    realResolved = joined;
+    // Parent is inside; keep unresolved leaf under the real base.
+    realResolved = path.join(parentReal, path.basename(joined));
   }
 
-  // Ensure the real resolved path begins with baseDir
   const resolvedCmp = foldCase(realResolved);
   const safe = resolvedCmp === baseCmp ||
                resolvedCmp.startsWith(baseCmp + path.sep);
@@ -174,12 +187,23 @@ async function safePath(baseDir, userPath) {
  * the two the same way python/harness/webui.py._refuse_secret_path does.
  */
 function refuseSecretPath(baseDir, resolved) {
-  const baseCmp = foldCase(path.resolve(baseDir));
-  const resolvedCmp = foldCase(path.resolve(resolved));
-  let relative;
+  let realBase;
+  try {
+    realBase = fssync.realpathSync(baseDir);
+  } catch {
+    realBase = path.resolve(baseDir);
+  }
+  let realResolved;
+  try {
+    realResolved = fssync.realpathSync(resolved);
+  } catch {
+    realResolved = path.resolve(resolved);
+  }
+  const baseCmp = foldCase(realBase);
+  const resolvedCmp = foldCase(realResolved);
   if (resolvedCmp === baseCmp) return;
   if (!resolvedCmp.startsWith(baseCmp + path.sep)) return;
-  relative = resolvedCmp.slice(baseCmp.length + 1).split(path.sep);
+  const relative = resolvedCmp.slice(baseCmp.length + 1).split(path.sep);
   if (!relative.length || (relative.length === 1 && relative[0] === '')) return;
   const top = relative[0];
   if (top === 'vault' || top === '.env') {
@@ -228,9 +252,15 @@ function registerHandlers({ isNetworkIsolated } = {}) {
   // calls its confinement root; it just isn't Electron's userData API
   // anymore. Must match main.js's resolveDataRoot() exactly, or the app,
   // the harness, and this sandbox end up looking at different directories.
-  const userData  = process.env.TALA_USER_DATA
+  const userDataRaw = process.env.TALA_USER_DATA
     ? path.resolve(process.env.TALA_USER_DATA)
     : appPath;
+  let userData;
+  try {
+    userData = fssync.realpathSync(userDataRaw);
+  } catch {
+    userData = userDataRaw;
+  }
   const vaultDir  = path.join(userData, 'vault');
   const pythonRuntimeBase = userData;
 

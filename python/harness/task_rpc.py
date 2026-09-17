@@ -333,7 +333,7 @@ async def handle_task_clear(params: dict[str, Any], req_id: Any) -> str:
 
     UI-audit C5: confirm-only UX was insufficient. Require an explicit
     ``confirm="CLEAR_QUEUE"`` token, refuse while the emergency halt is
-    engaged (dispatch also gates this), and accept an optional owner secret.
+    engaged (dispatch also gates this), and require a valid harness_secret.
     """
     confirm = str(params.get("confirm") or "").strip()
     if confirm != "CLEAR_QUEUE":
@@ -361,16 +361,15 @@ async def handle_task_clear(params: dict[str, Any], req_id: Any) -> str:
             {"halted": True},
         )
 
-    # Optional owner gate: when harness_secret is supplied it must be valid;
-    # when absent, confirm token alone is accepted for local Mission Control.
-    if "harness_secret" in params:
-        from python.harness.admin_auth import require_harness_admin_secret
-        if not require_harness_admin_secret(params):
-            return _err(
-                req_id,
-                JsonRpcError.INVALID_REQUEST,
-                "Unauthorized: invalid harness admin secret for task.clear.",
-            )
+    # Owner gate required (UI-audit C5): confirm alone is insufficient for
+    # truncate. Electron injects harness_secret the same way as trigger_update.
+    from python.harness.admin_auth import require_harness_admin_secret
+    if not require_harness_admin_secret(params):
+        return _err(
+            req_id,
+            JsonRpcError.INVALID_REQUEST,
+            "Unauthorized: task.clear requires a valid harness admin secret.",
+        )
 
     try:
         await db.execute("TRUNCATE TABLE tasks CASCADE;")

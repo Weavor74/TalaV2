@@ -18,6 +18,7 @@ from python.harness.server import _HANDLERS
 from python.harness.task_rpc import _TASK_LIVE_STATUSES
 
 RENDERER = Path("renderer/renderer.js")
+MISSION_OPS = Path("renderer/mission_control_ops.js")
 INDEX = Path("renderer/index.html")
 SERVER = Path("python/harness/task_rpc.py")  # task handlers moved here (size-ratchet cut-down)
 
@@ -105,27 +106,35 @@ def test_queue_controls_exist():
 
 def test_every_task_rpc_the_ui_needs_is_called():
     renderer = RENDERER.read_text(encoding="utf-8")
+    ops = MISSION_OPS.read_text(encoding="utf-8")
+    ui = renderer + "\n" + ops
 
     for method in ("task.submit", "task.update", "task.delete", "task.clear", "task.control"):
-        assert f"'{method}'" in renderer, f"the panel never calls {method}"
+        assert f"'{method}'" in ui, f"the panel never calls {method}"
 
 
 def test_destructive_task_actions_confirm_first():
     renderer = RENDERER.read_text(encoding="utf-8")
+    ops = MISSION_OPS.read_text(encoding="utf-8")
 
-    for fn, stop in (("async deleteTask(", "async clearTaskQueue("),
-                     ("async clearTaskQueue(", "/* ── Scheduled goals")):
-        block = renderer.split(fn, 1)[1].split(stop, 1)[0]
-        assert "confirm(" in block, f"{fn} must confirm before destroying anything"
+    # deleteTask remains in renderer.js; clear lives in mission_control_ops.js
+    del_block = renderer.split("async deleteTask(", 1)[1].split("async clearTaskQueue(", 1)[0]
+    assert "confirm(" in del_block, "async deleteTask( must confirm before destroying anything"
+    assert "confirm(" in ops.split("async function mcClearTaskQueue", 1)[1].split(
+        "async function mcHaltCurrentLoop", 1
+    )[0], "mcClearTaskQueue must confirm before destroying anything"
 
 
 def test_clear_names_the_scale_of_what_it_destroys():
     """It is a TRUNCATE CASCADE of every task and all telemetry, not a tidy-up
     of finished rows."""
-    renderer = RENDERER.read_text(encoding="utf-8")
-    block = renderer.split("async clearTaskQueue(", 1)[1].split("/* ── Scheduled goals", 1)[0]
+    ops = MISSION_OPS.read_text(encoding="utf-8")
+    block = ops.split("async function mcClearTaskQueue", 1)[1].split(
+        "async function mcHaltCurrentLoop", 1
+    )[0]
 
     assert "telemetry" in block and "cannot be undone" in block
+    assert "CLEAR_QUEUE" in block
 
 
 def test_task_description_is_escaped_into_the_row():

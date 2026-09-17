@@ -893,39 +893,55 @@ async def handle_memory_rebuild_from_disk(params: dict[str, Any] | None = None) 
     """
     Rebuild Chroma + FTS memory indexes from nodes/*.html on disk (UI-audit C6).
 
-    Disk HTML is the source of truth. An empty Chroma collection with hundreds
-    of files on disk is reported as MEMORY_AUTHORITY CRITICAL; calling this
-    re-syncs so health can recover without wiping operator data.
+    Disk HTML under the pinned repo ``nodes/`` directory is the source of
+    truth. Success is honest: Chroma must be readable after index, FTS
+    reindex failures fail the call, and an empty disk is reported as an
+    explicit empty recovery — not a silent success that looks healthy.
     """
     params = params or {}
     from pathlib import Path as _Path
     from python.harness.config import settings
     from python.harness import retrieval
 
-    nodes_dir = _Path(params.get("nodes_dir") or (settings.REPO_ROOT / "nodes"))
+    # Pin nodes_dir: never trust a caller-supplied path (attacker-controlled
+    # params must not reindex arbitrary trees into memory).
+    nodes_dir = (settings.REPO_ROOT / "nodes").resolve()
+    allow_empty = bool(params.get("allow_empty", False))
     if not nodes_dir.is_dir():
         return {"status": "failed", "error": f"nodes_dir not found: {nodes_dir}"}
 
     disk_html = sorted(p for p in nodes_dir.glob("*.html") if "_archive_legacy" not in str(p))
-    # Force a full Chroma pass by clearing mtime cache for this rebuild.
     retrieval._INDEXED_MTIMES.clear()
-    retrieval.index_nodes(nodes_dir)
+    try:
+        retrieval.index_nodes(nodes_dir)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "error": f"chroma index failed: {type(exc).__name__}: {exc}",
+            "disk_html": len(disk_html),
+            "nodes_dir": str(nodes_dir),
+        }
 
     chroma_count = 0
     try:
-        if retrieval.node_collection is not None:
-            chroma_count = int(retrieval.node_collection.count() or 0)
+        if retrieval.node_collection is None:
+            return {
+                "status": "failed",
+                "error": "chroma node collection is not initialised",
+                "disk_html": len(disk_html),
+                "nodes_dir": str(nodes_dir),
+            }
+        chroma_count = int(retrieval.node_collection.count() or 0)
     except Exception as exc:
         return {
             "status": "failed",
             "error": f"chroma unreadable after index: {type(exc).__name__}: {exc}",
             "disk_html": len(disk_html),
+            "nodes_dir": str(nodes_dir),
         }
 
     fts_ok = 0
     fts_fail = 0
-    # Cap FTS reindex in one call unless force_all — tests and recovery need
-    # the path to work; a 300-node full FTS pass can be slow in CI.
     force_all = bool(params.get("force_all", True))
     limit = None if force_all else int(params.get("limit") or 50)
     targets = disk_html if limit is None else disk_html[:limit]
@@ -939,10 +955,46 @@ async def handle_memory_rebuild_from_disk(params: dict[str, Any] | None = None) 
         except Exception:
             fts_fail += 1
 
+    if fts_fail > 0:
+        return {
+            "status": "failed",
+            "error": f"FTS reindex failed for {fts_fail} node(s)",
+            "disk_html": len(disk_html),
+            "chroma_indexed": chroma_count,
+            "fts_reindexed": fts_ok,
+            "fts_failed": fts_fail,
+            "nodes_dir": str(nodes_dir),
+        }
+
+    if not disk_html:
+        # Deliberate empty recovery only when the operator opts in.
+        status = "empty" if allow_empty else "failed"
+        return {
+            "status": status,
+            "error": None if allow_empty else "nodes/ has no HTML to rebuild; pass allow_empty=true for empty recovery",
+            "disk_html": 0,
+            "chroma_indexed": chroma_count,
+            "fts_reindexed": 0,
+            "fts_failed": 0,
+            "nodes_dir": str(nodes_dir),
+        }
+
+    if chroma_count <= 0:
+        return {
+            "status": "failed",
+            "error": "chroma still empty after indexing disk HTML",
+            "disk_html": len(disk_html),
+            "chroma_indexed": chroma_count,
+            "fts_reindexed": fts_ok,
+            "fts_failed": fts_fail,
+            "nodes_dir": str(nodes_dir),
+        }
+
     return {
-        "status": "success" if chroma_count > 0 or not disk_html else "failed",
+        "status": "success",
         "disk_html": len(disk_html),
         "chroma_indexed": chroma_count,
         "fts_reindexed": fts_ok,
         "fts_failed": fts_fail,
+        "nodes_dir": str(nodes_dir),
     }

@@ -55,11 +55,14 @@ def test_c2_halt_gate_blocks_destructive_when_halted():
     assert halt_gate.check_rpc("environment.set", {"preset": "lockdown"}, 1) is not None
     # resume blocked while halted
     assert halt_gate.check_rpc("task.control", {"task_id": "t", "action": "resume"}, 1) is not None
-    # allowlist
+    # allowlist (status reads + abort/pause + release_halt only)
     assert halt_gate.check_rpc("harness.health", {}, 1) is None
     assert halt_gate.check_rpc("task.control", {"task_id": "t", "action": "abort"}, 1) is None
     assert halt_gate.check_rpc("task.control", {"task_id": "t", "action": "pause"}, 1) is None
     assert halt_gate.check_rpc("system.release_halt", {}, 1) is None
+    # Tightened: operational surfaces are refused while halted
+    assert halt_gate.check_rpc("system.self_test", {}, 1) is not None
+    assert halt_gate.check_rpc("system.capabilities", {}, 1) is not None
 
 
 def test_c2_halt_gate_fail_closed_on_read_error(monkeypatch):
@@ -88,6 +91,19 @@ def test_c2_dispatch_wires_halt_gate():
     assert "halt_gate" in src or "_halt_check_rpc" in src
     webrtc = inspect.getsource(server._handle_webrtc_message)
     assert "halt_gate" in webrtc or "_halt_check_rpc" in webrtc
+
+
+def test_c2_electron_injects_release_halt_secret():
+    """Mission Control can call release_halt; Resume must not silently unlock."""
+    main = Path("electron/main.js").read_text(encoding="utf-8")
+    admin = Path("electron/harness_admin.js").read_text(encoding="utf-8")
+    ops = Path("renderer/mission_control_ops.js").read_text(encoding="utf-8")
+    assert "injectOwnerSecret" in main
+    assert "system.release_halt" in admin
+    assert "system.release_halt" in ops
+    assert "release_emergency_halt" not in ops
+    html = Path("renderer/index.html").read_text(encoding="utf-8")
+    assert "btn-mc-release-halt" in html
 
 
 # --- C3 --------------------------------------------------------------------
@@ -120,8 +136,32 @@ async def test_c3_ws_ticket_exchange_origin_and_auth():
     ws_auth._TICKETS.clear()
     app = webui._make_app(8765, "http-secret")
     async with TestClient(TestServer(app)) as client:
-        bad = await client.post("/api/ws-ticket")
-        assert bad.status == 401
+        # No Origin → refuse before auth (ticket mint requires Origin)
+        bare = await client.post("/api/ws-ticket")
+        assert bare.status == 403
+
+        # Origin present but unauthorised → 401
+        unauth = await client.post(
+            "/api/ws-ticket",
+            headers={"Origin": "http://127.0.0.1:8767"},
+        )
+        assert unauth.status == 401
+
+        # Absent Origin must not mint even with a valid token
+        no_origin = await client.post(
+            "/api/ws-ticket",
+            headers={"X-Tala-Token": "http-secret"},
+        )
+        assert no_origin.status == 403
+
+        bad_origin = await client.post(
+            "/api/ws-ticket",
+            headers={
+                "X-Tala-Token": "http-secret",
+                "Origin": "https://evil.example",
+            },
+        )
+        assert bad_origin.status == 403
 
         ok = await client.post(
             "/api/ws-ticket",
@@ -213,10 +253,22 @@ async def test_c5_task_clear_requires_confirm_and_refuses_when_halted(monkeypatc
     err = json.loads(raw)["error"]
     assert "CLEAR_QUEUE" in err["message"]
 
+    # confirm alone is not enough — harness_secret required
+    raw_sec = await task_rpc.handle_task_clear({"confirm": "CLEAR_QUEUE"}, 9)
+    err_sec = json.loads(raw_sec)["error"]
+    assert "secret" in err_sec["message"].lower() or "unauthorized" in err_sec["message"].lower()
+
     RevocationHalt.trigger_emergency_halt()
-    raw2 = await task_rpc.handle_task_clear({"confirm": "CLEAR_QUEUE"}, 2)
+    raw2 = await task_rpc.handle_task_clear(
+        {"confirm": "CLEAR_QUEUE", "harness_secret": "x"}, 2
+    )
     err2 = json.loads(raw2)["error"]
     assert "halt" in err2["message"].lower()
+
+    # Renderer must send CLEAR_QUEUE
+    ops = Path("renderer/mission_control_ops.js").read_text(encoding="utf-8")
+    assert "CLEAR_QUEUE" in ops
+    assert "task.clear" in ops
 
 
 # --- C6 --------------------------------------------------------------------
@@ -271,18 +323,100 @@ async def test_c6_rebuild_from_disk_indexes_html(tmp_path, monkeypatch):
     # retrieval imports parse_file at module level — patch that binding.
     monkeypatch.setattr(retrieval, "parse_file", lambda p: FakeNode())
 
-    result = await memory.handle_memory_rebuild_from_disk({
-        "nodes_dir": str(nodes),
-        "force_all": True,
-    })
+    from dataclasses import replace as _dc_replace
+    from python.harness import config as harness_config
+    monkeypatch.setattr(
+        harness_config,
+        "settings",
+        _dc_replace(harness_config.settings, REPO_ROOT=tmp_path),
+    )
+
+    result = await memory.handle_memory_rebuild_from_disk({"force_all": True})
     assert result["status"] == "success"
     assert result["disk_html"] >= 1
     assert result["chroma_indexed"] >= 1
+    assert result["fts_failed"] == 0
+    # nodes_dir is pinned — caller cannot redirect it
+    assert Path(result["nodes_dir"]).resolve() == nodes.resolve()
 
-    # Health probe should not be CRITICAL for empty chroma anymore.
-    status, detail = await __import__("python.harness.server", fromlist=["_probe_memory"])._probe_memory()
-    assert status in ("HEALTHY", "UNKNOWN", "DEGRADED", "CRITICAL", "MAINTENANCE")
-    # If probe can see our monkeypatched collection, it should be healthy.
-    if retrieval.node_collection is not None and retrieval.node_collection.count() > 0:
-        # Probe may still hit DB for memory_index — tolerate UNKNOWN from DB.
-        assert status != "CRITICAL" or "no HTML-NN indexed" not in detail
+    status, detail = await __import__(
+        "python.harness.server", fromlist=["_probe_memory"]
+    )._probe_memory()
+    assert retrieval.node_collection is not None
+    assert retrieval.node_collection.count() > 0
+    # Honest recovery: must not still report empty-index CRITICAL.
+    assert "no HTML-NN indexed" not in detail
+    assert status in ("HEALTHY", "UNKNOWN", "DEGRADED")
+
+
+
+@pytest.mark.asyncio
+async def test_c6_rebuild_fails_when_fts_fails(tmp_path, monkeypatch):
+    from python.harness import memory, retrieval, config as harness_config
+
+    nodes = tmp_path / "nodes"
+    nodes.mkdir()
+    (nodes / "skill-demo.html").write_text("<html></html>", encoding="utf-8")
+    from dataclasses import replace as _dc_replace
+    monkeypatch.setattr(
+        harness_config,
+        "settings",
+        _dc_replace(harness_config.settings, REPO_ROOT=tmp_path),
+    )
+
+    chroma_dir = tmp_path / "chroma"
+    chroma_dir.mkdir()
+    import chromadb
+    coll = chromadb.PersistentClient(path=str(chroma_dir)).get_or_create_collection(
+        name="tala_neural_nodes"
+    )
+    monkeypatch.setattr(retrieval, "node_collection", coll)
+    retrieval._INDEXED_MTIMES.clear()
+
+    class FakeNode:
+        node_id = "skill-demo"
+        node_type = "skill"
+        semantic_memory = "x"
+        governance_status = "active"
+        weight_relevance = 1.0
+        weight_confidence = 1.0
+        trust_tier = "verified"
+        source = "local"
+        state_data = {"title": "Demo"}
+        metadata = {}
+        relationships = []
+
+    monkeypatch.setattr(retrieval, "parse_file", lambda p: FakeNode())
+
+    async def fail_reindex(params):
+        return {"status": "failed", "error": "boom"}
+
+    monkeypatch.setattr(memory, "handle_memory_reindex_node", fail_reindex)
+    result = await memory.handle_memory_rebuild_from_disk({"force_all": True})
+    assert result["status"] == "failed"
+    assert result["fts_failed"] >= 1
+
+
+@pytest.mark.asyncio
+async def test_c6_empty_disk_is_not_silent_success(tmp_path, monkeypatch):
+    from python.harness import memory, retrieval, config as harness_config
+
+    nodes = tmp_path / "nodes"
+    nodes.mkdir()
+    from dataclasses import replace as _dc_replace
+    monkeypatch.setattr(
+        harness_config,
+        "settings",
+        _dc_replace(harness_config.settings, REPO_ROOT=tmp_path),
+    )
+    chroma_dir = tmp_path / "chroma"
+    chroma_dir.mkdir()
+    import chromadb
+    coll = chromadb.PersistentClient(path=str(chroma_dir)).get_or_create_collection(
+        name="tala_neural_nodes"
+    )
+    monkeypatch.setattr(retrieval, "node_collection", coll)
+    result = await memory.handle_memory_rebuild_from_disk({})
+    assert result["status"] == "failed"
+    empty = await memory.handle_memory_rebuild_from_disk({"allow_empty": True})
+    assert empty["status"] == "empty"

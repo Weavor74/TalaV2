@@ -283,15 +283,17 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         supplied = request.headers.get("X-Tala-Token") or request.query.get("token")
         return secrets.compare_digest(str(supplied or ""), token)
 
-    def origin_allowed(request: web.Request) -> bool:
+    def origin_allowed(request: web.Request, *, require_origin: bool = False) -> bool:
         # The same drive-by gate 8765 applies (see ws_auth): a browser stamps
         # Origin on every cross-origin POST and page script cannot forge it,
-        # so a hostile page CSRF-ing /api/bridge announces itself here. An
-        # absent Origin is a non-browser client, which the token already
-        # gates.
+        # so a hostile page CSRF-ing /api/bridge announces itself here.
+        # Ticket mint requires Origin (UI-audit C3): absent Origin used to
+        # allow mint for any bearer of the HTTP token. Long-lived ?token=
+        # on the first paint remains intentional for non-web bootstrap and is
+        # stripped from history by the shim after exchange.
         origin = str(request.headers.get("Origin") or "").strip().rstrip("/")
         if not origin:
-            return True
+            return not require_origin
         from python.harness import ws_auth
         return origin in ws_auth._allowed_origins()
 
@@ -339,7 +341,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         one-shot query param. Origin-checked. Response is no-store and never
         includes the long-lived WS secret.
         """
-        if not origin_allowed(request):
+        if not origin_allowed(request, require_origin=True):
             return web.json_response({"error": "origin not allowed"}, status=403)
         if _rate_limited(str(request.remote or "?") + ":ticket"):
             return web.json_response({"error": "rate limited"}, status=429)
