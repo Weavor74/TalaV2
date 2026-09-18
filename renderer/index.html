@@ -2374,6 +2374,9 @@
                     </h2>
                     
                     <div id="swarm-dashboard-content" style="margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2);">
+                    <div id="swarm-ws-disconnected" hidden style="margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(220,53,69,0.15); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.35); font-size: 0.8rem;">
+                      WebSocket disconnected — Pause / Resume / Kill and Refresh are disabled until the harness reconnects.
+                    </div>
                       <!-- Dynamically populated Swarm Worktrees, Docker Sandboxes, and Ports status table -->
                       <div class="table-container" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: var(--space-3); overflow-x: auto;">
                         <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem;">
@@ -2875,6 +2878,9 @@
                   </div>
                 </div>
                 <div class="topology-main" style="flex: 1; display: flex; flex-direction: column; position: relative;">
+                  <div id="agent-builder-swarm-ws-disconnected" hidden style="margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(220,53,69,0.15); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.35); font-size: 0.8rem;">
+                    WebSocket disconnected — Run Swarm / Save / Delete are disabled until the harness reconnects.
+                  </div>
                   <div class="topology-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
                     <h3 id="topology-title" style="margin: 0; font-size: 1rem;">Select a Topology</h3>
                     <div style="display: flex; gap: var(--space-2);">
