@@ -218,15 +218,31 @@ class ToolRegistry:
                 log.error("ToolRegistry: failed to load skill from %s: %s", html_file.name, e)
 
     @classmethod
+    def _authorization_gate(cls):
+        """Shared AuthorizationGate — one instance so pre-approvals stick."""
+        gate = getattr(cls, "_auth_gate_singleton", None)
+        if gate is None:
+            from sdk.agent.gates import AuthorizationGate
+            gate = AuthorizationGate()
+            cls._auth_gate_singleton = gate
+        return gate
+
+    @classmethod
     async def run_tool(
         cls,
         name: str,
         arguments: dict[str, Any],
         authority_level: str = "auto",
+        *,
+        principal: Any | None = None,
     ) -> dict[str, Any]:
         """
         Execute a registered tool by name with specified arguments.
-        Enforces governance gating using RiskClassifier.
+        Enforces AuthorizationGate (grant model + halt), leases, and RiskClassifier.
+
+        *principal* defaults to the owner for the authenticated local harness
+        session. Peer or plugin callers that must be grant-scoped should pass
+        an explicit ``Principal``; without a grant the gate fails closed.
         """
         cls.auto_discover_skills()
         tool_entry = cls._tools.get(name.lower())
@@ -292,15 +308,9 @@ class ToolRegistry:
         # ---------------------------------------
 
         # --- EMERGENCY HALT ------------------------------------------------
-        # Mission Control's abort calls trigger_emergency_halt(), which sets
-        # _EMERGENCY_HALT_ACTIVE. Until now exactly one place read that flag --
-        # AuthorizationGate.request_authorization -- and that method had no
-        # callers, so the kill switch set a variable nobody looked at. Abort
-        # marked rows failed in the database and left tool execution running.
-        #
-        # This is the control you reach for when something is going wrong, so
-        # it is checked first, before permissions, leases and risk: a halted
+        # Checked first, before AuthorizationGate / leases / risk: a halted
         # system should not be evaluating whether it is allowed to act.
+        # AuthorizationGate also refuses while halted (defense in depth).
         try:
             from sdk.agent.gates import RevocationHalt
 
@@ -333,6 +343,58 @@ class ToolRegistry:
             }
         # -------------------------------------------------------------------
 
+        # --- AUTHORIZATION GATE (UI-103 / Highs H1) ------------------------
+        # Production caller for AuthorizationGate.request_authorization.
+        # Fail-closed: a gate that cannot decide must refuse, not proceed.
+        try:
+            from python.harness.access import OWNER, Principal
+            from sdk.agent.governance import RiskClassifier
+
+            acting = principal
+            if acting is None:
+                # Authenticated local Electron/WS session = owner. Grant-scoped
+                # peers/agents must pass Principal explicitly.
+                acting = Principal(OWNER)
+            risk_for_gate = RiskClassifier.classify_action("execute_tool", name)
+            gate = cls._authorization_gate()
+            allowed = await gate.request_authorization(
+                "execute_tool",
+                name,
+                risk_for_gate,
+                principal=acting,
+                context={
+                    "plugin_id": plugin_id,
+                    "authority_level": authority_level,
+                },
+            )
+            if not allowed:
+                log.warning(
+                    "ToolRegistry: AuthorizationGate refused %r for %s: %s",
+                    name, acting, gate.last_reason or "denied",
+                )
+                return {
+                    "success": False,
+                    "authorization_denied": True,
+                    "error": (
+                        f"AuthorizationGate refused tool {name!r}: "
+                        f"{gate.last_reason or 'not authorized'}."
+                    ),
+                }
+        except Exception as exc:
+            log.error(
+                "ToolRegistry: authorization check raised for %r: %s -- refusing",
+                name, exc,
+            )
+            return {
+                "success": False,
+                "authorization_denied": True,
+                "error": (
+                    f"Authorization check failed for tool {name!r}; "
+                    f"execution refused. ({type(exc).__name__}: {exc})"
+                ),
+            }
+        # -------------------------------------------------------------------
+
         # --- LEASE GATE ----------------------------------------------------
         # sdk/agent/leases.py has stated since Milestone 6 that "a lease MUST
         # be approved before the guarded operation executes" for ledger, wallet
@@ -341,9 +403,8 @@ class ToolRegistry:
         # no code enforced. run_tool is the single chokepoint every one of the
         # 97 tools passes through, so it is where the rule can actually hold.
         #
-        # Default mode is `open`: guarded operations are auto-approved and
-        # recorded, so behaviour is unchanged and the machinery runs. Set
-        # TALA_LEASE_MODE=enforce to make them block for sign-off.
+        # Default mode is `enforce` (Highs H7): guarded operations block for
+        # sign-off. Set TALA_LEASE_MODE=open for first-run / local bootstrapping.
         try:
             from sdk.agent import lease_policy
 

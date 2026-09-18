@@ -882,8 +882,12 @@ this module over historical audit prose.
 Verified: Mission Control Resume uses `task.control` resume only;
 `mcReleaseEmergencyHalt` alone calls `system.release_halt`. No further code change.
 
-### H7 — Fail-open defaults retained
-Lease mode defaults to `open` (`TALA_LEASE_MODE`); network guard defaults to
-`enabled: false` / `default: allow`. Tightening would break intentional opt-in
-tests. Documented as unsafe defaults; Settings UI should warn when guard is off /
-lease is not `enforce`.
+### H7 — Safer defaults (2026-09-18)
+Lease mode defaults to `enforce` (`TALA_LEASE_MODE`); unknown values fail closed
+to `enforce`. Network guard code defaults to `enabled: true` / `default: deny`
+(loopback always allowed). First-run / CPU-only bootstrap: set
+`TALA_LEASE_MODE=open` in `.env` (see `.env.example`) and/or disable network
+rules via Settings → Guardrails. Pytest `conftest` forces lease `open` so the
+suite does not stall on approvals. Settings banner warns when posture is
+*relaxed* from these defaults. Existing saved `guardrails_config.network` rows
+are unchanged (migration: only the no-key code default flipped).

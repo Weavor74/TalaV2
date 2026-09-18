@@ -19,6 +19,11 @@ from pathlib import Path
 
 import pytest
 
+# Highs H7: production default is lease enforce. The suite must not stall on
+# human approval for every file/ledger tool — force open unless a test sets
+# the mode itself.
+os.environ.setdefault("TALA_LEASE_MODE", "open")
+
 # --- database isolation ------------------------------------------------------
 #
 # The suite wrote into the running application's Postgres. Its fixtures create

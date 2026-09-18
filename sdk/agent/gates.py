@@ -61,13 +61,12 @@ class AuthorizationGate:
         """
         Whether this action is permitted, for this principal, on this resource.
 
-        This gate had no callers anywhere (UI-103), which is why the
-        ``priority = 1`` bug it used to carry was latent rather than active:
-        nothing was being wrongly authorised because nothing asked. It now
-        resolves against the grant model in ``python.harness.access``, which is
-        the model Steven specified -- by invitation, per resource, default
-        deny, and with the agent a principal like any peer (Q-63: "An agent,
-        should be assigned just like a peer").
+        Production caller: ``ToolRegistry.run_tool`` (UI-103 / Highs H1).
+        Local authenticated harness sessions act as the owner principal by
+        default; peer/agent callers must pass an explicit ``Principal`` and
+        hold a grant. Resolves against ``python.harness.access`` — by
+        invitation, per resource, default deny, agent as a principal like any
+        peer (Q-63).
 
         The old ``auth_credentials WHERE priority = 1`` lookup is gone. Any
         credential that happened to sort first authorised any action, which was
