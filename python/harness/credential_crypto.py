@@ -22,6 +22,10 @@ Design notes:
   decrypt, the caller gets the row back untouched and a logged error — a
   credential you cannot read is recoverable, one that was silently dropped is
   not.
+* **Log a bad ciphertext once.** The same sealed value is decrypted on every
+  chat turn and every settings load. Re-logging InvalidTag each time trains
+  everyone to ignore it; the first failure still fires at ERROR with a clear
+  remediation line, later attempts for that envelope stay silent.
 * **Selective.** Only fields that actually hold secrets are encrypted, so a
   human or a query can still tell an SSH credential from an API key without a
   key.
@@ -30,15 +34,24 @@ Design notes:
 from __future__ import annotations
 
 import base64
+import hashlib
 import json
 import logging
 import os
+import threading
 from pathlib import Path
 from typing import Any
 
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 
 log = logging.getLogger(__name__)
+
+#: Ciphertexts that already failed to decrypt under the current process.
+#: Fingerprinted by nonce+ciphertext so a bad row logs once and then stays
+#: quiet across the chat/settings paths that re-decrypt the same envelope on
+#: every request. A real key mismatch is still reported — just not fifty times.
+_failed_decrypt_fps: set[str] = set()
+_failed_decrypt_lock = threading.Lock()
 
 ENVELOPE_MARKER = "__enc"
 ENVELOPE_VERSION = "aesgcm-v1"
@@ -135,6 +148,19 @@ def _encrypt_value(key: bytes, plaintext: str) -> dict[str, str]:
     }
 
 
+def clear_decrypt_failure_cache() -> None:
+    """Forget which envelopes have already been reported (tests / key restore)."""
+    with _failed_decrypt_lock:
+        _failed_decrypt_fps.clear()
+
+
+def _envelope_fingerprint(envelope: dict[str, Any]) -> str:
+    """Stable id for a ciphertext without logging the ciphertext itself."""
+    n = str(envelope.get("n", ""))
+    ct = str(envelope.get("ct", ""))
+    return hashlib.sha256(f"{n}\0{ct}".encode("utf-8")).hexdigest()[:32]
+
+
 def _decrypt_value(key: bytes, envelope: dict[str, Any], field: str = "") -> str | None:
     try:
         nonce = base64.b64decode(envelope["n"])
@@ -153,23 +179,37 @@ def _decrypt_value(key: bytes, envelope: dict[str, Any], field: str = "") -> str
         # the data is intact but the key is not the one that encrypted it. That
         # is almost always a key/data split: the key lives in the user-data root
         # (vault/.keys/credential_key.bin) while the ciphertext lives in
-        # Postgres, so pointing TALA_USER_DATA somewhere new mints a fresh key
-        # and every stored secret stops decrypting while the database is
-        # untouched.
+        # Postgres or a sealed HTML-NN (concept-user-profile, vault docs).
+        # Pointing TALA_USER_DATA somewhere new, or deleting the key file,
+        # mints a fresh key and every stored secret stops decrypting while the
+        # ciphertext store is untouched.
+        #
+        # Chat and settings re-walk the same sealed values constantly. Log the
+        # first failure for each ciphertext at ERROR; stay silent after that
+        # so a real problem is still visible without drowning the console.
+        is_tag = type(exc).__name__ == "InvalidTag"
         detail = (
             "the key does not match the one that encrypted it (the key lives in "
-            "the user-data root, the value lives in the database, so they can be "
-            "separated)"
-            if type(exc).__name__ == "InvalidTag"
+            "vault/.keys/credential_key.bin under the user-data root; ciphertext "
+            "lives in Postgres or a sealed HTML-NN — restore the original key, "
+            "or re-enter the secret and save so it is sealed with the current key)"
+            if is_tag
             else str(exc)
         )
-        log.error(
-            "credential_crypto: %s failed to decrypt (%s): %s. "
-            "Leaving it as-is rather than dropping it.",
-            f"field {field!r}" if field else "a value",
-            type(exc).__name__,
-            detail,
-        )
+        fp = _envelope_fingerprint(envelope)
+        with _failed_decrypt_lock:
+            first = fp not in _failed_decrypt_fps
+            if first:
+                _failed_decrypt_fps.add(fp)
+        if first:
+            log.error(
+                "credential_crypto: %s failed to decrypt (%s): %s. "
+                "Leaving it as-is rather than dropping it. "
+                "Further attempts for this ciphertext will not be re-logged.",
+                f"field {field!r}" if field else "a value",
+                type(exc).__name__,
+                detail,
+            )
         return None
 
 
