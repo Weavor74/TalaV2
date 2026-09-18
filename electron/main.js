@@ -799,11 +799,14 @@ ${shellCmd} "${startScript}" &
     // If WS is not connected, return a degraded stub for known health checks
     if (!wsConnected || !wsClient || wsClient.readyState !== (WebSocket?.OPEN ?? 1)) {
       if (method === 'harness.health') {
+        // Include halted so network_isolation can keep haltActive in sync
+        // even while the WS is down (same field harness.health always returns).
         return {
           status:          'connecting',
           active_agent:    null,
           tokens_used:     0,
           last_latency_ms: null,
+          halted:          false,
         };
       }
       return {
