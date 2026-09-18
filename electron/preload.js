@@ -78,6 +78,7 @@ contextBridge.exposeInMainWorld('tala', {
       'terminal:exit',
       'blockchain:output',
       'harness:output',
+      'harness:ws-status',
       'python:notification',
     ]);
     if (!allowedEvents.has(channel)) {

@@ -242,6 +242,19 @@ let pythonRestartCount = 0;
 /** Whether the Python WS connection is currently established. */
 let wsConnected = false;
 
+/**
+ * Push main-process WS truth to the renderer. StatusBar / Mission Control /
+ * Settings must not infer connectedness from RPC success alone.
+ */
+function notifyWsStatus() {
+  const open = WebSocket?.OPEN ?? 1;
+  const connected = Boolean(
+    wsConnected && wsClient && wsClient.readyState === open
+  );
+  sendLogToRenderer('harness:ws-status', { connected });
+}
+
+
 const {
   isNetworkIsolated,
   setNotify: setIsolationNotify,
@@ -471,6 +484,7 @@ function spawnPython(attempt = 0) {
       pythonProcess = null;
       wsClient = null;
       wsConnected = false;
+      notifyWsStatus();
 
       // Resolve all pending RPC calls with error payload
       for (const [id, pending] of pendingRpcCalls) {
@@ -530,6 +544,7 @@ function connectWithRetry(attempt) {
     wsConnected = true;
     // Isolation is lockdown/halt/network-guard — not "WS connected".
     console.log('[main] WebSocket connected to Python harness.');
+    notifyWsStatus();
     onHarnessConnected();
 
     candidate.on('message', raw => {
@@ -553,12 +568,14 @@ function connectWithRetry(attempt) {
     candidate.on('error', err => {
       console.error(`[main] WebSocket error: ${err.message}`);
       wsConnected = false;
+      notifyWsStatus();
     });
 
     candidate.on('close', (code, reason) => {
       console.warn(`[main] WebSocket closed (code=${code}, reason=${reason}).`);
       wsConnected = false;
       wsClient = null;
+      notifyWsStatus();
       if (pythonProcess && !app.isQuiting) {
         setTimeout(() => connectWithRetry(0), 3_000);
       }
@@ -763,6 +780,15 @@ ${shellCmd} "${startScript}" &
 
     if (method === 'app.version') {
       return { version: require('../package.json').version };
+    }
+
+    // Main-local WS probe — does not require the socket to be up.
+    if (method === 'harness.ws_status') {
+      const open = WebSocket?.OPEN ?? 1;
+      const connected = Boolean(
+        wsConnected && wsClient && wsClient.readyState === open
+      );
+      return { connected, wsConnected };
     }
 
     // Owner-gated RPCs (trigger_update, release_halt, task.clear) get the

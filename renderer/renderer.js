@@ -6929,6 +6929,7 @@ const ConversationTabs = {
 const StatusBar = {
   _els: {},
   _wsStatus: 'unknown',
+  _wsPushBound: false,
 
   init() {
     this._els = {
@@ -6937,6 +6938,10 @@ const StatusBar = {
       tokenValue:   qs('#status-token-value'),
       agentName:    qs('#status-agent-name'),
     };
+    // Classic scripts (mission_control_ops.js) cannot see ES-module bindings.
+    window.StatusBar = this;
+    this._bindWsPush();
+    this._pullWsStatus();
   },
 
   /** Mission Control and other panels gate destructive actions on this. */
@@ -6944,7 +6949,37 @@ const StatusBar = {
     return this._wsStatus === 'ok';
   },
 
+  /**
+   * Apply main.js wsConnected truth. Prefer harness:ws-status push / harness.ws_status
+   * pull over inferring from harness.health RPC success.
+   */
+  applyMainWsConnected(connected) {
+    this.setWsStatus(connected ? 'ok' : 'connecting');
+  },
+
+  _bindWsPush() {
+    if (this._wsPushBound) return;
+    if (!window.tala || typeof window.tala.on !== 'function') return;
+    this._wsPushBound = true;
+    window.tala.on('harness:ws-status', (payload) => {
+      const connected = Boolean(payload && payload.connected);
+      this.applyMainWsConnected(connected);
+    });
+  },
+
+  async _pullWsStatus() {
+    try {
+      const res = await invoke('python:rpc', { method: 'harness.ws_status', params: {} });
+      if (res && typeof res.connected === 'boolean') {
+        this.applyMainWsConnected(res.connected);
+      }
+    } catch (err) {
+      console.warn('[StatusBar] harness.ws_status pull failed:', err);
+    }
+  },
+
   setWsStatus(status) {
+    const prev = this._wsStatus;
     const dot  = this._els.wsDot;
     const text = this._els.wsText;
     this._wsStatus = status || 'unknown';
@@ -6960,6 +6995,12 @@ const StatusBar = {
     }
     if (typeof MissionControl !== 'undefined' && typeof mcSyncDestructiveControls === 'function') {
       mcSyncDestructiveControls(MissionControl);
+    }
+    // Settings may have failed environment.get at boot while WS was down.
+    if (this._wsStatus === 'ok' && prev !== 'ok'
+        && typeof SettingsDashboard !== 'undefined'
+        && typeof SettingsDashboard.loadEnvironment === 'function') {
+      SettingsDashboard.loadEnvironment();
     }
   },
 
@@ -7337,13 +7378,22 @@ const TelemetryPoller = {
     const { status, active_agent, tokens_used, token_balance, token_mode,
             last_latency_ms } = health;
 
-    // WS / harness status
-    StatusBar.setWsStatus(status === 'ok' ? 'ok' : 'error');
+    // Harness service label only — WS badge is driven by main.js wsConnected
+    // via harness:ws-status / harness.ws_status (not RPC success guessing).
+    let harnessLabel = 'Degraded';
+    let harnessDotCls = 'error';
+    if (status === 'ok') {
+      harnessLabel = 'Running';
+      harnessDotCls = 'ok';
+    } else if (status === 'connecting') {
+      harnessLabel = 'Connecting…';
+      harnessDotCls = 'connecting';
+    }
     const harnessText = qs('#harness-status-text');
     const harnessDot  = qs('#harness-status .status-dot');
-    if (harnessText) harnessText.textContent = status === 'ok' ? 'Running' : 'Degraded';
+    if (harnessText) harnessText.textContent = harnessLabel;
     if (harnessDot) {
-      harnessDot.className = `status-dot status-${status === 'ok' ? 'ok' : 'error'}`;
+      harnessDot.className = `status-dot status-${harnessDotCls}`;
     }
 
     // Active agent
@@ -7364,7 +7414,8 @@ const TelemetryPoller = {
 
   _handleDegraded() {
     this._retries++;
-    StatusBar.setWsStatus(this._retries < this.MAX_RETRIES ? 'connecting' : 'error');
+    // Do not flip the WS badge here — a health RPC miss is not the same as
+    // main.js wsConnected=false. harness:ws-status owns that indicator.
     const harnessText = qs('#harness-status-text');
     if (harnessText) harnessText.textContent = 'Connecting…';
     if (this._retries >= this.MAX_RETRIES) {
@@ -15808,8 +15859,7 @@ const GatewayStatusManager = {
 
   async checkStatus() {
     try {
-      if(!window.tala || !window.tala.request) return;
-      const res = await window.tala.request('gateway.status', {});
+      const res = await invoke('gateway.status', {});
       this.renderAuthPosture(res);
       if (res && res.status === 'online') {
         this.hidePanel();
@@ -15895,8 +15945,7 @@ const PluginRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Loading plugin manifests...</div>';
     try {
-      if(!window.tala || !window.tala.request) return;
-      const res = await window.tala.request('plugins.list', {});
+      const res = await invoke('plugins.list', {});
       if (res && res.plugins) {
         this.renderPlugins(res.plugins);
         this._loaded = true;
@@ -15912,7 +15961,7 @@ const PluginRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Reloading plugin manifests...</div>';
     try {
-      const res = await window.tala.request('plugins.reload', {});
+      const res = await invoke('plugins.reload', {});
       if (res && res.plugins) {
         this.renderPlugins(res.plugins);
         this._loaded = true;
@@ -15926,7 +15975,7 @@ const PluginRegistryManager = {
 
   async validatePlugin(pluginPath) {
     try {
-      const res = await window.tala.request('plugins.validate', { path: pluginPath });
+      const res = await invoke('plugins.validate', { path: pluginPath });
       if (res.valid) {
         alert("Plugin manifest is valid!");
       } else {
@@ -16079,7 +16128,7 @@ const MCPServerRegistryManager = {
   async discoverServers() {
     if (!this._discoveredList) return;
     try {
-      const res = await window.tala.request('mcp.discover', {});
+      const res = await invoke('mcp.discover', {});
       const found = (res && res.discovered) || [];
       this._discoveredCache = found;
       this._discovered.hidden = false;
@@ -16145,7 +16194,7 @@ const MCPServerRegistryManager = {
       ? { transport: 'sse', url: d.url }
       : { transport: 'stdio', command: d.command, args: d.args || [] };
     try {
-      const res = await window.tala.request('mcp.connect_server', { name: d.name, config, persist: true });
+      const res = await invoke('mcp.connect_server', { name: d.name, config, persist: true });
       IPCLog.append('ok', `Adopted MCP server "${d.name}" (${(res && res.tools_registered) || 0} tools registered).`);
       await this.discoverServers();
       await this.loadServers();
@@ -16163,7 +16212,7 @@ const MCPServerRegistryManager = {
 
     try {
       const config = this.buildConfig();
-      await window.tala.request('mcp.connect_server', { name, config, persist: true });
+      await invoke('mcp.connect_server', { name, config, persist: true });
       IPCLog.append('ok', `MCP server registered: ${name}`);
       if (this._form) this._form.reset();
       this.updateTransportFields();
@@ -16177,7 +16226,7 @@ const MCPServerRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Loading MCP servers...</div>';
     try {
-      const res = await window.tala.request('mcp.list_servers', {});
+      const res = await invoke('mcp.list_servers', {});
       this.renderServers(res?.servers || []);
       this._loaded = true;
     } catch (err) {
@@ -16187,7 +16236,7 @@ const MCPServerRegistryManager = {
 
   async removeServer(name) {
     try {
-      await window.tala.request('mcp.remove_server', { name });
+      await invoke('mcp.remove_server', { name });
       IPCLog.append('info', `MCP server removed: ${name}`);
       await this.loadServers();
     } catch (err) {
@@ -16200,7 +16249,7 @@ const MCPServerRegistryManager = {
     if (!target) return;
     target.innerHTML = '<span class="admin-tag admin-tag-muted">loading tools...</span>';
     try {
-      const res = await window.tala.request('mcp.list_tools', { server_name: name });
+      const res = await invoke('mcp.list_tools', { server_name: name });
       const tools = res?.tools || [];
       target.innerHTML = tools.length
         ? tools.slice(0, 12).map(tool => `<span class="admin-tag">${escapeHtml(tool.name || tool.qualified_name || 'tool')}</span>`).join('')
