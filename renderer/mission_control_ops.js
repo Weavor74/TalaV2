@@ -76,6 +76,37 @@ function mcBindOwnerControls(mc) {
   mcSyncDestructiveControls(mc);
 }
 
+/** Enable/disable Swarm start/destructive controls from live WS state. */
+function swarmSyncWsControls() {
+  const connected = mcWsConnected();
+  const disableTitle = 'WebSocket disconnected — reconnect before using this control';
+  const targets = [
+    ['#btn-topology-start', 'Run Swarm'],
+    ['#btn-topology-delete', 'Delete swarm'],
+    ['#btn-topo-save', 'Save Swarm'],
+    ['#btn-refresh-swarm', 'Refresh Swarm'],
+  ];
+  for (const [sel, connectedTitle] of targets) {
+    const el = (typeof qs === 'function') ? qs(sel) : null;
+    if (!el) continue;
+    if (!el.getAttribute('data-title-connected')) {
+      el.setAttribute('data-title-connected', el.title || connectedTitle);
+    }
+    el.disabled = !connected;
+    el.title = connected
+      ? (el.getAttribute('data-title-connected') || connectedTitle)
+      : disableTitle;
+  }
+  // Per-row Pause / Resume / Kill are re-rendered in SwarmDashboardManager.refresh.
+  if (typeof window !== 'undefined' && window.SwarmDashboardManager) {
+    window.SwarmDashboardManager._wsConnected = connected;
+  }
+  for (const id of ['#swarm-ws-disconnected', '#agent-builder-swarm-ws-disconnected']) {
+    const banner = (typeof qs === 'function') ? qs(id) : null;
+    if (banner) banner.hidden = connected;
+  }
+}
+
 async function mcClearTaskQueue(mc, taskCache) {
   if (!mcRequireWs('clear the task queue')) return;
   const count = (taskCache || []).length;

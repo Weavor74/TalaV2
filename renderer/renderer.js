@@ -1381,15 +1381,16 @@ const ChannelsManager = {
    ═══════════════════════════════════════════════════════════════════ */
 const SwarmDashboardManager = {
   _initialized: false,
+  _wsConnected: false,
   init() {
     if (this._initialized) return;
     this._initialized = true;
-    
+
     const refreshBtn = document.getElementById('btn-refresh-swarm');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => this.refresh());
     }
-    
+
     // Auto-refresh every 5 seconds when visible
     setInterval(() => {
       const panel = document.getElementById('settings-panel-architecture');
@@ -1397,16 +1398,31 @@ const SwarmDashboardManager = {
         this.refresh();
       }
     }, 5000);
-    
+
+    if (typeof swarmSyncWsControls === 'function') swarmSyncWsControls();
     this.refresh();
   },
-  
+
   async refresh() {
+    // Status probes still attempt when WS is up; when down, skip RPC noise.
+    if (typeof mcWsConnected === 'function' && !mcWsConnected()) {
+      this._wsConnected = false;
+      const tbody = document.getElementById('swarm-tbody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" style="padding: var(--space-3); text-align: center; color: var(--text-muted);">WebSocket disconnected — reconnect to probe fleet swarm worktrees.</td>
+          </tr>
+        `;
+      }
+      return;
+    }
     try {
       const res = await window.tala.invoke('python:rpc', { method: 'swarm.fleet.status', params: {} });
       const tbody = document.getElementById('swarm-tbody');
       if (!tbody) return;
-      
+      const wsAttr = (typeof mcWsDisabledAttr === 'function') ? mcWsDisabledAttr() : '';
+
       if (!res.success || !res.tasks || res.tasks.length === 0) {
         tbody.innerHTML = `
           <tr>
@@ -1415,7 +1431,7 @@ const SwarmDashboardManager = {
         `;
         return;
       }
-      
+
       tbody.innerHTML = res.tasks.map(t => `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
           <td style="padding: var(--space-2); color: var(--accent-light); font-family: monospace;">${escapeHtml(t.id)}</td>
@@ -1431,9 +1447,9 @@ const SwarmDashboardManager = {
           </td>
           <td style="padding: var(--space-2); text-align: right;">
             <div style="display: flex; gap: 4px; justify-content: flex-end;">
-              <button onclick="SwarmDashboardManager.pauseTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #eab308; border-color: #eab308; color: #1e1e24;">Pause</button>
-              <button onclick="SwarmDashboardManager.resumeTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #22c55e; border-color: #22c55e; color: #1e1e24;" title="Resume — continue this paused task only. Does NOT release the emergency halt.">Resume</button>
-              <button onclick="SwarmDashboardManager.terminateTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #ef4444; border-color: #ef4444; color: white;">Kill</button>
+              <button onclick="SwarmDashboardManager.pauseTask('${t.id}')" class="btn-primary"${wsAttr} style="font-size: 0.7rem; padding: 2px 6px; background: #eab308; border-color: #eab308; color: #1e1e24;">Pause</button>
+              <button onclick="SwarmDashboardManager.resumeTask('${t.id}')" class="btn-primary"${wsAttr} style="font-size: 0.7rem; padding: 2px 6px; background: #22c55e; border-color: #22c55e; color: #1e1e24;" title="Resume — continue this paused task only. Does NOT release the emergency halt.">Resume</button>
+              <button onclick="SwarmDashboardManager.terminateTask('${t.id}')" class="btn-primary"${wsAttr} style="font-size: 0.7rem; padding: 2px 6px; background: #ef4444; border-color: #ef4444; color: white;">Kill</button>
             </div>
           </td>
         </tr>
@@ -1442,8 +1458,9 @@ const SwarmDashboardManager = {
       console.error("Swarm Dashboard Refresh error:", err);
     }
   },
-  
+
   async pauseTask(taskId) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('pause this swarm task')) return;
     try {
       await window.tala.invoke('python:rpc', { method: 'swarm.fleet.pause', params: { task_id: taskId } });
       this.refresh();
@@ -1451,8 +1468,9 @@ const SwarmDashboardManager = {
       alert("Pause failed: " + err);
     }
   },
-  
+
   async resumeTask(taskId) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('resume this swarm task')) return;
     try {
       await window.tala.invoke('python:rpc', { method: 'swarm.fleet.resume', params: { task_id: taskId } });
       this.refresh();
@@ -1460,8 +1478,9 @@ const SwarmDashboardManager = {
       alert("Resume failed: " + err);
     }
   },
-  
+
   async terminateTask(taskId) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('terminate this swarm task')) return;
     if (!confirm("Are you sure you want to terminate task " + taskId + " and prune its resources?")) return;
     try {
       await window.tala.invoke('python:rpc', { method: 'swarm.fleet.terminate', params: { task_id: taskId } });
@@ -6995,6 +7014,9 @@ const StatusBar = {
     }
     if (typeof MissionControl !== 'undefined' && typeof mcSyncDestructiveControls === 'function') {
       mcSyncDestructiveControls(MissionControl);
+    }
+    if (typeof swarmSyncWsControls === 'function') {
+      swarmSyncWsControls();
     }
     // Settings may have failed environment.get at boot while WS was down.
     if (this._wsStatus === 'ok' && prev !== 'ok'
@@ -15378,6 +15400,7 @@ const AgentBuilder = {
   },
 
   async saveTopology() {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('save this swarm')) return;
     const topology = this.collectTopologyForm();
     this.showTopologyEditorError('');
     try {
@@ -15404,6 +15427,7 @@ const AgentBuilder = {
   async deleteTopology() {
     const topology = this.selectedTopology;
     if (!topology) return;
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('delete this swarm')) return;
     if (!confirm(`Delete the swarm "${topology.name}"?\n\nThis removes its neural node (${topology.source_node_id}.html).`)) return;
     try {
       const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.delete', params: { topology_id: topology.topology_id } });
@@ -15447,9 +15471,11 @@ const AgentBuilder = {
     if (editBtn) editBtn.style.display = topology.editable ? 'block' : 'none';
     if (deleteBtn) deleteBtn.style.display = topology.editable ? 'block' : 'none';
     this.bindTopologyEditor();
+    if (typeof swarmSyncWsControls === 'function') swarmSyncWsControls();
 
 
     startBtn.onclick = async () => {
+      if (typeof mcRequireWs === 'function' && !mcRequireWs('start this swarm')) return;
       const goal = prompt("Enter the Swarm Goal:");
       if (!goal) return;
       try {
