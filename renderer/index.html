@@ -581,7 +581,8 @@
                     <div>
                       <div class="inference-router-eyebrow">ACTIVE SESSION ROUTING</div>
                       <h3 class="inference-router-title">Model Picker</h3>
-                      <p class="inference-router-copy">Choose the model Tala should use for this chat session. Auto mode follows provider priority and fallback; session routing passes the selected inference provider ID with chat requests.</p>
+                      <p class="inference-router-copy" id="inference-router-copy">Choose the model Tala should use for this chat session. Auto mode follows provider priority and fallback; session routing passes the selected inference provider ID with chat requests.</p>
+                      <p class="inference-router-copy inference-gpu-note" id="inference-gpu-note" hidden></p>
                     </div>
                     <div class="inference-router-status" id="inference-route-status">Auto priority</div>
                   </div>
@@ -2058,6 +2059,7 @@
                       <span style="margin-left: var(--space-4);">MODE: <span id="health-overall-mode" style="font-family: var(--font-mono); color: var(--accent-blue); font-weight: 600;">DEGRADED_AUTONOMY</span></span>
                     </div>
                   </div>
+                  <div id="health-actions-strip" class="health-actions-strip" hidden></div>
                   <div class="system-health-grid">
                     <div class="health-item">
                       <span class="status-dot status-ok" id="health-dot-DB_HEALTH_SERVICE"></span>
@@ -3013,8 +3015,13 @@
               <div id="mc-ws-disconnected" hidden style="width:100%; margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(220,53,69,0.15); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.35); font-size: 0.8rem;">
                 WebSocket disconnected — Clear Queue, Abort, Resume, RELEASE HALT, and task delete are disabled until the harness reconnects.
               </div>
-              <button class="btn btn-secondary" id="btn-mc-halt" style="background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4);" title="Halt current loop">HALT LOOP</button>
-              <button class="btn btn-secondary" id="btn-mc-release-halt" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35);" title="Release emergency halt (owner secret; not Resume)">RELEASE HALT</button>
+              <button class="btn btn-secondary" id="btn-mc-halt" style="background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4);" title="ABORT / HALT — engage the kill switch (abort active task + emergency halt). Does not unlock; use RELEASE HALT for that." data-help="Engages the emergency kill switch. Resume will not unlock.">ABORT / HALT</button>
+              <button class="btn btn-secondary" id="btn-mc-release-halt" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35);" title="RELEASE HALT — owner unlock of the kill switch (system.release_halt + secret). Not the same as Resume." data-help="Owner unlock only. Resume a paused task does NOT release the halt.">RELEASE HALT</button>
+              <div id="mc-halt-legend" class="mc-halt-legend" title="Three distinct controls">
+                <span><strong>ABORT/HALT</strong> = kill switch on</span>
+                <span><strong>Resume</strong> (per task) = continue work only — does not unlock</span>
+                <span><strong>RELEASE HALT</strong> = owner unlock</span>
+              </div>
             </div>
           </div>
           <div class="mission-control-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); padding: var(--space-4); height: calc(100% - 70px); overflow-y: auto;">
@@ -3474,7 +3481,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
               </div>
               <div class="ptc-name">Embedded</div>
-              <div class="ptc-desc">Built-in 1B model · Always available · No internet required · CPU inference</div>
+              <div class="ptc-desc" id="ptc-desc-embedded">Built-in 1B model · Always available · No internet required · CPU inference</div>
               <div class="ptc-badge ptc-badge-embedded">ALWAYS ON</div>
             </button>
 
@@ -3564,6 +3571,9 @@
   <script src="desktop_commands.js"></script>
   <script src="thinking_blocks.js"></script>
   <script src="mission_control_ops.js"></script>
+  <script src="health_ops.js"></script>
+  <script src="inference_gpu_ops.js"></script>
+  <script src="plugins_ops.js"></script>
   <script type="module" src="renderer.js"></script>
 
   <!-- ⎇ Add Git Provider Modal ⎇ -->

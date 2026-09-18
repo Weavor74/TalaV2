@@ -63,13 +63,13 @@ function mcBindOwnerControls(mc) {
   mc._btnHalt = qs('#btn-mc-halt');
   mc._btnReleaseHalt = qs('#btn-mc-release-halt');
   if (mc._btnHalt) {
-    mc._btnHalt.setAttribute('data-title-connected', mc._btnHalt.title || 'Halt current loop');
+    mc._btnHalt.setAttribute('data-title-connected', mc._btnHalt.title || 'ABORT / HALT — engage kill switch (abort + emergency halt). Does not unlock.');
     mc._btnHalt.addEventListener('click', () => mc.haltCurrentLoop());
   }
   if (mc._btnReleaseHalt) {
     mc._btnReleaseHalt.setAttribute(
       'data-title-connected',
-      mc._btnReleaseHalt.title || 'Release emergency halt (owner secret; not Resume)',
+      mc._btnReleaseHalt.title || 'RELEASE HALT — owner unlock (system.release_halt). Not Resume.',
     );
     mc._btnReleaseHalt.addEventListener('click', () => mc.releaseEmergencyHalt());
   }
@@ -108,7 +108,7 @@ async function mcHaltCurrentLoop(mc) {
         params: { task_id: active.id, action: 'abort' },
       });
       if (haltRes && haltRes.success) {
-        alert('Task queue loop halted and emergency lockdown enabled.');
+        alert('ABORT/HALT engaged: task aborted and emergency kill switch ON. Resume will not unlock — use RELEASE HALT (owner) for that.');
         await mc.refreshAll();
       } else {
         alert('Failed to halt task.');

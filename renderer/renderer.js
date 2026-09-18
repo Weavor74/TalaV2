@@ -6,7 +6,6 @@
 
 'use strict';
 
-
 /* ═══════════════════════════════════════════════════════════════════
    1. Bootstrap
    ═══════════════════════════════════════════════════════════════════ */
@@ -1433,7 +1432,7 @@ const SwarmDashboardManager = {
           <td style="padding: var(--space-2); text-align: right;">
             <div style="display: flex; gap: 4px; justify-content: flex-end;">
               <button onclick="SwarmDashboardManager.pauseTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #eab308; border-color: #eab308; color: #1e1e24;">Pause</button>
-              <button onclick="SwarmDashboardManager.resumeTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #22c55e; border-color: #22c55e; color: #1e1e24;">Resume</button>
+              <button onclick="SwarmDashboardManager.resumeTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #22c55e; border-color: #22c55e; color: #1e1e24;" title="Resume — continue this paused task only. Does NOT release the emergency halt.">Resume</button>
               <button onclick="SwarmDashboardManager.terminateTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #ef4444; border-color: #ef4444; color: white;">Kill</button>
             </div>
           </td>
@@ -1648,10 +1647,14 @@ const InferenceManager = {
       });
       if (response && response.providers && response.providers.length > 0) {
         this._providers = response.providers;
+        if (window.inferenceProbeGpuAndApply) await window.inferenceProbeGpuAndApply(this);
         this.render();
+      } else if (window.inferenceProbeGpuAndApply) {
+        await window.inferenceProbeGpuAndApply(this);
       }
     } catch (err) {
       console.warn('[InferenceManager] Failed to load providers:', err);
+      if (window.inferenceProbeGpuAndApply) await window.inferenceProbeGpuAndApply(this);
     }
   },
 
@@ -1952,12 +1955,8 @@ const InferenceManager = {
 
     let meta = '';
     if (p.type === 'embedded') {
-      if (p.status === 'downloading') {
-        const pct = p.progress !== undefined ? `${p.progress}%` : '0%';
-        meta = `Qwen/Qwen2.5-0.5B-Instruct · CPU inference · Downloading: ${pct}`;
-      } else {
-        meta = `Qwen/Qwen2.5-0.5B-Instruct · CPU inference · ~1B parameters · Always available`;
-      }
+      meta = window.inferenceEmbeddedMeta ? window.inferenceEmbeddedMeta(this, p)
+        : 'Qwen/Qwen2.5-0.5B-Instruct · CPU inference · Always available';
     }
     else if (p.type === 'local')  meta = [p.model, p.endpoint, p.engine].filter(Boolean).join(' · ') || 'Local endpoint';
     else if (p.type === 'remote') meta = [p.model, p.service, p.endpoint].filter(Boolean).join(' · ') || 'Remote API';
@@ -3723,6 +3722,7 @@ const LoggingManager = {
         if (item) item.title = detail ? `${service}: ${status} — ${detail}` : `${service}: ${status}`;
       }
     }
+    if (window.healthRenderActions) window.healthRenderActions(health);
   },
 
   renderEvents() {
@@ -12743,10 +12743,10 @@ const MissionControl = {
                     }
                     if (MissionControl.TASK_LIVE_STATUSES.includes(t.status)) {
                       return `<button class="btn btn-ghost" data-task-action="pause" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis}>Pause</button>
-                       <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis}>Abort</button>`;
+                       <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis} title="ABORT — stop this task (may engage emergency halt). Does not unlock; use RELEASE HALT.">Abort</button>`;
                     }
                     if (t.status === 'paused') {
-                      return `<button class="btn btn-ghost" data-task-action="resume" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis}>Resume</button>
+                      return `<button class="btn btn-ghost" data-task-action="resume" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis} title="Resume — continue this paused task only. Does NOT release the emergency halt.">Resume</button>
                        <button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`;
                     }
                     return `<button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`;
@@ -15997,41 +15997,11 @@ const PluginRegistryManager = {
 
     plugins.forEach(p => {
       const card = document.createElement('div');
-      const permissions = (p.permissions || []);
-      const tools = (p.tools || []);
-      const mcpServers = (p.mcp_servers || []);
-      const runtimeLabel = p.runtime_status === 'loaded' ? 'manifest loaded' : (p.runtime_status || 'unknown');
-      const permissionHtml = permissions.length
-        ? permissions.map(perm => `<span class="admin-tag${String(perm).includes('shell') ? ' admin-tag-risk' : ''}">${escapeHtml(perm)}</span>`).join('')
-        : '<span class="admin-tag admin-tag-muted">no permissions</span>';
-      const manifestStats = [
-        `${tools.length} tools`,
-        `${mcpServers.length} MCP`,
-        `v${p.version || 'unknown'}`
-      ];
-
-      card.className = `admin-plugin-card${p.valid ? '' : ' admin-plugin-card-error'}`;
-      card.innerHTML = `
-        <div class="admin-card-header">
-          <div class="admin-card-title-wrap">
-            <h4 class="admin-card-title">${escapeHtml(p.name || p.id || 'Unnamed Plugin')}</h4>
-            <div class="admin-card-meta">${escapeHtml(p.id || 'no-id')}</div>
-          </div>
-          <div class="admin-status-stack">
-            <span class="admin-status-chip ${p.valid ? 'status-ok' : 'status-error'}">${p.valid ? 'valid' : 'invalid'}</span>
-            <span class="admin-status-chip ${p.runtime_status === 'crashed' ? 'status-error' : 'status-info'}" title="Manifest parse state, not process liveness">${escapeHtml(runtimeLabel)}</span>
-          </div>
-        </div>
-        <div class="admin-card-meta-row">${manifestStats.map(escapeHtml).join(' / ')}</div>
-        <div class="admin-tag-row">${permissionHtml}</div>
-        ${p.error ? `<div class="admin-card-error-text">${escapeHtml(p.error)}</div>` : ''}
-        <div class="admin-card-actions">
-          <button class="btn btn-secondary btn-sm admin-plugin-validate">Validate</button>
-        </div>
-      `;
-
-      const btnValidate = card.querySelector('.admin-plugin-validate');
-      if (btnValidate) btnValidate.addEventListener('click', () => this.validatePlugin(p.path));
+      if (!window.pluginsBuildCardHtml) return;
+      const built = window.pluginsBuildCardHtml(p, escapeHtml);
+      card.className = built.className;
+      card.innerHTML = built.html;
+      if (window.pluginsWireCard) window.pluginsWireCard(card, p, (path) => this.validatePlugin(path));
       this._list.appendChild(card);
     });
   }
