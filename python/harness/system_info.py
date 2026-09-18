@@ -14,6 +14,17 @@ from typing import Any
 
 from python.harness import db
 
+
+def _run_cmd(cmd: list[str]) -> str:
+    """Run a subprocess; return stdout stripped, or "" on failure."""
+    import subprocess
+    try:
+        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
+        return result.stdout.strip()
+    except Exception:
+        return ""
+
+
 _ROOT_DIR = str(Path(__file__).resolve().parent.parent.parent)
 
 
@@ -183,7 +194,19 @@ async def collect_system_info() -> dict[str, Any]:
     if not gpu_info["devices"]:
         smi_out = _run(["nvidia-smi", "--query-gpu=name,memory.total", "--format=csv,noheader"])
         if smi_out:
-            gpu_info["nvidia_smi_detected"] = smi_out.splitlines()
+            lines = [ln.strip() for ln in smi_out.splitlines() if ln.strip()]
+            gpu_info["nvidia_smi_detected"] = lines
+            devices = []
+            for i, line in enumerate(lines):
+                # csv noheader: "Name, memory.total [MiB]"
+                parts = [p.strip() for p in line.split(",")]
+                name = parts[0] if parts else f"GPU-{i}"
+                mem = parts[1] if len(parts) > 1 else None
+                devices.append({"index": i, "name": name, "memory_total": mem, "source": "nvidia-smi"})
+            if devices:
+                gpu_info["available"] = True
+                gpu_info["devices"] = devices
+                gpu_info.setdefault("backend", "nvidia-smi")
 
     # If Tala's embedded model is already loaded in this process, report the
     # actual device it landed on -- the single most direct answer to "is
@@ -230,3 +253,20 @@ async def collect_system_info() -> dict[str, Any]:
         "python_packages": py_packages,
         "services":    services,
     }
+
+
+def has_gpu() -> bool:
+    """True when CUDA/torch or nvidia-smi reports at least one GPU device."""
+    try:
+        import torch as _torch
+        if _torch.cuda.is_available() and _torch.cuda.device_count() > 0:
+            return True
+    except Exception:
+        pass
+    try:
+        smi = _run_cmd(["nvidia-smi", "-L"])
+        if smi and any(line.strip().startswith("GPU ") for line in smi.splitlines()):
+            return True
+    except Exception:
+        pass
+    return False

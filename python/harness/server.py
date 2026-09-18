@@ -9756,16 +9756,10 @@ async def handle_logging_get_health(params: dict[str, Any], req_id: Any) -> str:
     else:
         overall, mode = "HEALTHY", "FULL_AUTONOMY"
 
-    return _ok(req_id, {
-        "services": services,
-        # What each status is based on, so the panel can explain itself and
-        # Tala can read her own health rather than a bare colour (UI-086).
-        "details": details,
-        "overall": overall,
-        "mode": mode,
-        "measured": len(services) - len(unknowns),
-        "unmeasured": unknowns,
-    })
+    from python.harness.health_actions import build_health_payload  # noqa: PLC0415
+    # actions[] tells the operator what to click when overall is MAINTENANCE
+    # while individual rows (e.g. MEMORY_AUTHORITY) still read HEALTHY.
+    return _ok(req_id, build_health_payload(services, details, overall, mode, unknowns))
 
 
 async def handle_logging_clear_events(params: dict[str, Any], req_id: Any) -> str:

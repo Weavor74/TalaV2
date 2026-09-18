@@ -6837,3 +6837,48 @@ button:focus:not(:focus-visible) {
 .node-port-list { display: flex; flex-direction: column; gap: 2px; }
 .port-socket-branch { background: #f0c05a; }
 .workflow-cable-branch { stroke: rgba(240, 192, 90, 0.75); stroke-dasharray: 4 3; }
+
+
+
+/* Health attention strip — concrete next clicks for MAINTENANCE/CRITICAL */
+.health-actions-strip {
+  margin: 0 0 var(--space-3);
+  padding: var(--space-3);
+  border: 1px solid rgba(250, 204, 21, 0.35);
+  background: rgba(250, 204, 21, 0.06);
+  border-radius: var(--radius-sm);
+}
+.health-actions-header { display: flex; flex-direction: column; gap: 2px; margin-bottom: var(--space-2); }
+.health-actions-title { font-size: 0.75rem; font-weight: 700; letter-spacing: 0.06em; color: #fbbf24; text-transform: uppercase; }
+.health-actions-sub { font-size: 0.72rem; color: var(--text-muted); }
+.health-actions-list { list-style: none; margin: 0; padding: 0; display: flex; flex-direction: column; gap: var(--space-2); }
+.health-action-row { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.health-action-meta { display: flex; flex-direction: column; gap: 2px; min-width: 0; flex: 1; }
+.health-action-service { font-family: var(--font-mono); font-size: 0.72rem; font-weight: 600; color: var(--text-primary); }
+.health-action-status { font-size: 0.68rem; font-weight: 700; color: #fbbf24; }
+.health-action-row[data-status="CRITICAL"] .health-action-status { color: var(--status-error); }
+.health-action-detail { font-size: 0.7rem; color: var(--text-secondary); }
+.health-action-btn { white-space: nowrap; }
+.health-action-pulse { box-shadow: 0 0 0 2px #4ade80; }
+
+.mc-halt-legend {
+  width: 100%;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px 14px;
+  margin-top: 6px;
+  font-size: 0.68rem;
+  color: var(--text-muted);
+}
+.mc-halt-legend strong { color: var(--text-secondary); font-weight: 600; }
+
+.admin-card-next-action {
+  margin-top: var(--space-2);
+  font-size: 0.72rem;
+  color: var(--text-secondary);
+}
+.inference-gpu-note {
+  margin-top: var(--space-2);
+  font-size: 0.75rem;
+  color: var(--accent-blue, #60a5fa);
+}
