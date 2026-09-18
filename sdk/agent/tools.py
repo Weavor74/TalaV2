@@ -1177,7 +1177,14 @@ async def search_workspace_files(query: str = "", file_pattern: str = "*") -> di
     for path in workspace_root.rglob(file_pattern or "*"):
         if count >= 50:
             break
-        if any(part in ignore_dirs for part in path.parts):
+        # Only ignore dirs *inside* the workspace. Absolute path parts outside
+        # the root (e.g. pytest --basetemp=data/pytest_temp) must not hide
+        # every file when the workspace itself lives under a name like "data".
+        try:
+            rel_parts = path.relative_to(workspace_root).parts
+        except ValueError:
+            continue
+        if any(part in ignore_dirs for part in rel_parts[:-1]):
             continue
         if path.is_file() and path.suffix in (".html", ".js", ".py", ".json", ".css", ".md"):
             try:
