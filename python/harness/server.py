@@ -9620,10 +9620,8 @@ async def _probe_halt() -> tuple[str, str]:
     Whether the emergency halt is engaged.
 
     A global lockdown that does not appear on the health panel is how you end
-    up debugging "why is nothing happening" for an hour. Until this release the
-    question could not even be asked: the halt flag had exactly one reader,
-    AuthorizationGate.request_authorization, and that method had no callers, so
-    abort set a variable nothing looked at and tool execution carried on.
+    up debugging "why is nothing happening" for an hour. Halt state is read by
+    halt_gate (RPC), ToolRegistry (tools + AuthorizationGate), and shell paths.
     """
     try:
         from sdk.agent.gates import RevocationHalt
@@ -12016,14 +12014,17 @@ async def handle_guardrails_get_network(params: dict[str, Any], req_id: Any) -> 
     """``guardrails.get_network`` — the harness-level network rules."""
     try:
         from python.harness.network_guard import DEFAULT_RULES, load_rules
+        from sdk.agent import lease_policy as _lease_policy
         rules = await load_rules()
         return _ok(req_id, {
             "network": rules,
             "defaults": DEFAULT_RULES,
+            "lease_mode": _lease_policy.current_mode(),
             "note": (
-                "Opt-in. With rules disabled, every outbound connection is "
-                "permitted exactly as before. The USB environment preset "
-                "blocks outbound traffic regardless of these rules."
+                "Default on with default-deny (Highs H7). Loopback stays "
+                "reachable. Disable via Settings or set default to allow for "
+                "first-run/lab. USB environment blocks outbound regardless. "
+                "Lease mode defaults to enforce; set TALA_LEASE_MODE=open to relax."
             ),
         })
     except Exception as exc:
@@ -12049,7 +12050,7 @@ async def handle_guardrails_set_network(params: dict[str, Any], req_id: Any) -> 
         return _err(req_id, JsonRpcError.INVALID_PARAMS,
                     "'network' must be an object")
 
-    default = str(network.get("default", "allow")).lower()
+    default = str(network.get("default", "deny")).lower()
     if default not in ("allow", "deny"):
         return _err(req_id, JsonRpcError.INVALID_PARAMS,
                     "'default' must be 'allow' or 'deny'")
@@ -12083,7 +12084,7 @@ async def handle_guardrails_set_network(params: dict[str, Any], req_id: Any) -> 
             stored = _json.loads(stored)
         stored = stored if isinstance(stored, dict) else {}
         stored["network"] = {
-            "enabled": bool(network.get("enabled", False)),
+            "enabled": bool(network.get("enabled", True)),
             "default": default,
             "allow": network.get("allow") or [],
             "deny": network.get("deny") or [],

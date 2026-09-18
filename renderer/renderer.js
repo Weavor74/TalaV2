@@ -10619,8 +10619,43 @@ const GuardrailsManager = {
           if (this._formEl) this._formEl.classList.remove('custom-disabled');
         }
       }
+      await this.refreshUnsafeDefaultsWarning();
     } catch (err) {
       console.warn('[GuardrailsManager] Failed to load guardrails settings:', err);
+    }
+  },
+
+  /**
+   * Highs H7: show the banner only when posture is relaxed from fail-closed
+   * defaults (network off, or lease mode not enforce).
+   */
+  async refreshUnsafeDefaultsWarning() {
+    const el = qs('#guardrails-unsafe-defaults-warning');
+    if (!el) return;
+    let networkEnabled = true;
+    let leaseMode = 'enforce';
+    try {
+      const net = await invoke('python:rpc', {
+        method: 'guardrails.get_network',
+        params: {}
+      });
+      if (net && net.network) {
+        networkEnabled = !!net.network.enabled;
+      }
+      if (net && net.lease_mode) {
+        leaseMode = String(net.lease_mode);
+      }
+    } catch (err) {
+      console.warn('[GuardrailsManager] Could not refresh network/lease posture:', err);
+    }
+    const relaxed = (!networkEnabled) || (leaseMode !== 'enforce');
+    el.style.display = relaxed ? '' : 'none';
+    if (relaxed) {
+      el.innerHTML = '<strong>Relaxed posture:</strong> network guard is '
+        + (networkEnabled ? 'on' : '<em>off</em>')
+        + ', lease mode is <code>' + leaseMode + '</code>. '
+        + 'Code defaults are network on + default-deny and lease <code>enforce</code>. '
+        + 'Set <code>TALA_LEASE_MODE=open</code> only for first-run/dev.';
     }
   },
 

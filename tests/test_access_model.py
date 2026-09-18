@@ -15,7 +15,7 @@ the model Steven specified (UI-101, UI-118):
 * *"that agent can only access a certain search API, on a certain port, at a
   single allocated time"* -- a grant carries constraints, not just a yes.
 
-`AuthorizationGate` had no callers at all (UI-103), which is why the
+`AuthorizationGate` now has a ToolRegistry caller (UI-103 / H1); historically it had none, which is why the
 `priority = 1` bug it carried was latent rather than active: nothing was being
 wrongly authorised because nothing asked.
 """

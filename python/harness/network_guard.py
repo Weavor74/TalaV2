@@ -16,13 +16,18 @@ the port and the allocated time -- is already expressible as grant constraints
 in :mod:`python.harness.access`. What was missing is the place that asks before
 a connection is made.
 
-**Opt-in by design (unsafe default — Highs H7).** With no network rules
-configured, everything is permitted exactly as it is today. That follows the
-same rule as storage and databases: *"You can have 0 databases or 1000
-databases. How you use them is up to the user not to the develouper."* A
-firewall that switches itself on and starts denying traffic the user never
-asked it to deny is not a feature. Settings → Guardrails must warn when the
-network guard is off so the fail-open posture is visible.
+**Default on + default-deny (Highs H7).** Fresh installs enable the network
+guard with ``default: deny``. Loopback remains reachable so local inference
+and the harness socket stay bootable on a CPU-only box. Settings → Guardrails
+(or ``guardrails.set_network``) can disable the guard or switch to
+default-allow for first-run / lab use. An unreadable rules row still leaves
+the guard *off* so a broken DB cannot silently cut the machine off the
+network — that is a bootability exception, not a security default.
+
+**Migration:** installs that previously relied on implicit opt-in (enabled
+false / default allow) keep whatever they saved under ``guardrails_config``.
+Only the code defaults applied when no ``network`` key is present changed.
+Disable explicitly if you need the old fail-open posture.
 
 Three things can deny, in order:
 
@@ -49,8 +54,8 @@ from urllib.parse import urlparse
 log = logging.getLogger(__name__)
 
 DEFAULT_RULES: dict[str, Any] = {
-    "enabled": False,
-    "default": "allow",
+    "enabled": True,
+    "default": "deny",
     "allow": [],
     "deny": [],
 }
@@ -121,10 +126,12 @@ async def load_rules() -> dict[str, Any]:
         if isinstance(network, dict):
             rules.update(network)
     except Exception as exc:
-        # Defaulting to "off" rather than "deny": an unreadable rule row must
-        # not silently cut the machine off the network. The user is told.
+        # Bootability exception: an unreadable rule row must not silently cut
+        # the machine off the network. Disable the guard for this check only;
+        # this is not the security default (DEFAULT_RULES stay on + deny).
         log.warning("network_guard: could not read the rules (%s); leaving the "
                     "network guard off.", exc)
+        rules["enabled"] = False
     return rules
 
 

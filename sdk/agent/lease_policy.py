@@ -26,30 +26,30 @@ never the broken part.
 
 MODES
 -----
-``open`` (default)
-    Every guarded operation is auto-approved and recorded. Behaviour is
-    identical to before this module existed; what changes is that the
-    operations become visible, and the machinery runs rather than rotting.
-    A gate that has never executed is not a safety feature, it is untested
-    code that will fail the first time it matters.
-
-``enforce``
+``enforce`` (default — Highs H7)
     Guarded operations block until a human approves them, surfaced the way
     self-edits already are. Unattended goals touching the ledger, the wallet
-    or files outside the workspace will stall rather than proceed.
+    or files outside the workspace stall rather than proceed. This is the
+    fail-closed advanced-tool posture.
+
+``open``
+    Every guarded operation is auto-approved and recorded. Behaviour matches
+    the historical ungated path, except leases are visible and the machinery
+    runs. Use for first-run / local CPU-only bootstrapping.
 
 ``off``
     No leases requested at all. Present so the mechanism can be taken out of
     the path entirely when diagnosing something else, and so that "off" is an
     explicit state rather than something achieved by deleting a call.
 
-Set with ``TALA_LEASE_MODE``. The default is deliberately ``open``: switching
-a dormant gate straight to blocking is how you discover, in production, which
-of your own routine operations you had forgotten were guarded.
+Set with ``TALA_LEASE_MODE``. Default is ``enforce``. For first-run / dev on
+a CPU-only box, set ``TALA_LEASE_MODE=open`` in ``.env`` (documented in
+``.env.example`` and Settings → Guardrails). An unknown mode value fails
+closed to ``enforce``, not open.
 
-**Unsafe default (Highs H7):** ``open`` is fail-open. Production / unattended
-installs should set ``TALA_LEASE_MODE=enforce``. The Settings → Guardrails
-panel surfaces this warning when the mode is not enforce.
+**Migration (Highs H7):** installs that previously relied on the implicit
+``open`` default must set ``TALA_LEASE_MODE=open`` (or ``off``) explicitly.
+New installs and production should leave the default (or set ``enforce``).
 """
 from __future__ import annotations
 
@@ -132,16 +132,17 @@ def classify_tool(tool_name: str) -> str | None:
 
 
 def current_mode() -> str:
-    """The active lease mode, defaulting to ``open``."""
+    """The active lease mode, defaulting to ``enforce`` (fail-closed)."""
     raw = (os.environ.get("TALA_LEASE_MODE") or "").strip().lower()
     if raw in _VALID_MODES:
         return raw
     if raw:
         log.warning(
             "lease_policy: TALA_LEASE_MODE=%r is not one of %s; using %r",
-            raw, list(_VALID_MODES), MODE_OPEN,
+            raw, list(_VALID_MODES), MODE_ENFORCE,
         )
-    return MODE_OPEN
+        return MODE_ENFORCE
+    return MODE_ENFORCE
 
 
 # ---------------------------------------------------------------------------

@@ -1454,12 +1454,13 @@
                           <textarea id="gr-custom-list" rows="2" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; font-family: inherit; resize: vertical;" placeholder="e.g. ignore previous instructions, roleplay as..."></textarea>
                         </div>
 
-                        <!-- Highs H7: surface fail-open defaults -->
+                        <!-- Highs H7: warn when posture is relaxed from fail-closed defaults -->
                         <div id="guardrails-unsafe-defaults-warning" style="margin: var(--space-3) 0; padding: 10px 12px; border-radius: 6px; background: rgba(255, 193, 7, 0.12); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.35); font-size: 0.78rem; line-height: 1.4;">
-                          <strong>Unsafe defaults:</strong> the harness network guard is <em>off</em> until you enable it
-                          (Settings network rules), and lease mode defaults to <code>open</code>
-                          (<code>TALA_LEASE_MODE=enforce</code> for fail-closed). Text prompt rules alone do not
-                          firewall outbound connections or gate ledger/file tools.
+                          <strong>Relaxed posture:</strong> code defaults are network guard <em>on</em> +
+                          default-deny (loopback always allowed) and lease mode <code>enforce</code>.
+                          This warning shows when network rules are disabled or lease mode is not
+                          <code>enforce</code> (e.g. <code>TALA_LEASE_MODE=open</code> for first-run/dev).
+                          Text prompt rules alone do not firewall outbound connections or gate ledger/file tools.
                         </div>
 
                         <!-- Form Actions -->

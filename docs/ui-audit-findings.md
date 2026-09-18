@@ -3745,50 +3745,46 @@ Two notes for whoever builds it:
   present. Under lockdown they are unreachable by design yet would still render green.
 
 ### UI-103 — `AuthorizationGate` is never invoked, and the emergency halt is never checked
-**Severity: high · Status: PARTIAL (2026-09-17 Highs) · Found while answering Q-61**
+**Severity: high · Status: FIXED (2026-09-18 Highs H1) · Found while answering Q-61**
 
 
-> **Honest status (Highs H1, 2026-09-17).** Earlier "FIXED" prose overstated wiring.
-> `AuthorizationGate.request_authorization` still has **no production callers** — gates
-> live in `sdk/agent/gates.py` but ToolRegistry / RPC paths do not invoke the gate.
-> Prefer docs truth over wiring `AuthorizationGate` unless a cheap caller appears.
+> **Status (Highs H1, 2026-09-18).** `AuthorizationGate.request_authorization` is now
+> invoked from `ToolRegistry.run_tool` (after halt, before lease). Local authenticated
+> harness sessions default to the **owner** principal (bootable). Peer/agent callers
+> pass an explicit `Principal` and are grant-scoped fail-closed. Halt remains enforced
+> via `halt_gate`, ToolRegistry, shell/desktop, and inside the gate itself.
 >
-> **What *is* wired:** emergency halt. `RevocationHalt.is_halted()` is consulted by
-> `python/harness/halt_gate.py` at RPC dispatch, by `sdk/agent/tools.py` before tool
-> runs, and by shell/desktop paths. Abort trips the halt; `system.release_halt`
-> clears it (owner secret). The `priority = 1` credential lookup is gone from the
-> gate implementation itself.
->
-> Remaining OPEN: give `AuthorizationGate` a real caller (or delete it) so the grant
-> model is enforced rather than only documented.
+> The historical `priority = 1` credential lookup stays gone. Earlier 2026-09-17
+> "PARTIAL / no production callers" prose is superseded by this wiring.
 
-Two adjacent safety primitives in `sdk/agent/gates.py` — one still inert as a caller,
-one now enforced via `halt_gate`.
+Two adjacent safety primitives in `sdk/agent/gates.py` — both now on a production path.
 
-**`AuthorizationGate.request_authorization()` has no production callers.** A search across
-`python/` and `sdk/` returns only its own definition (plus comments). So the historical
-`priority = 1` authorization bug (UI-081) remains **latent, not active** — nothing asks.
-
-Its existing shape is a good fit for the model Steven specified, which is worth noting before
-anyone redesigns it:
+**`AuthorizationGate.request_authorization()`** is called from
+[`sdk/agent/tools.py`](../sdk/agent/tools.py) `ToolRegistry.run_tool`. Shape:
 
 ```python
-async def request_authorization(self, action_type: str, resource: str, risk_class: str) -> bool
+async def request_authorization(self, action_type: str, resource: str, risk_class: str,
+                                principal: Principal | None = None, context: dict | None = None) -> bool
 ```
 
-- already **resource-scoped**, matching the *(grantee, resource)* subject from Q-22
-- risk tiers already branch: `low` auto-allows, `high`/`critical` demand proof, `medium` defaults
-  open
-- a `register_pre_approval()` path already exists for granting a specific `action:resource`
+- **resource-scoped**, matching the *(grantee, resource)* subject from Q-22
+- resolves against `python.harness.access` (default deny; owner unrestricted except halt)
+- `register_pre_approval()` remains for a specific `action:resource`
+- fail-closed if the gate raises
 
-**`RevocationHalt` is now consulted (Highs H1).** `trigger_emergency_halt()` is still raised from
-`task.control` abort; `is_halted()` is read by `halt_gate` (RPC), ToolRegistry, and shell/desktop
-paths. Owner `system.release_halt` clears it. The stale "never consulted" claim above is
-historical.
+**`RevocationHalt`** continues to be consulted by `halt_gate` (RPC), ToolRegistry, and
+shell/desktop. Owner `system.release_halt` clears it.
 
-**Relevance to lockdown (Q-59).** Halt and `networkIsolated` (UI-102 / Highs H5) are separate
-layers: halt blocks tools/RPCs; isolation gates `vault:read` when lockdown / halt / network guard
-is active. `AuthorizationGate` remains the unwired piece.
+**Relevance to lockdown (Q-59).** Halt and `networkIsolated` (UI-102 / Highs H5) remain
+separate layers from the grant check inside AuthorizationGate.
+
+### Highs H7 — Lease + network-guard defaults
+**Severity: high · Status: FIXED (2026-09-18)**
+
+Lease default is now `enforce`; network guard code defaults are `enabled: true` /
+`default: deny` (loopback allowed). Relax with `TALA_LEASE_MODE=open` and Settings
+network rules. UI warning reflects relaxed posture, not a permanent "unsafe defaults"
+claim that contradicts the code.
 
 
 
