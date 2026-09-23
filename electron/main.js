@@ -671,6 +671,14 @@ function registerPythonRpcHandler() {
         const crypto = require('crypto');
         const appRoot = path.resolve(__dirname, '..');
 
+        // Staged apply, both platforms: the archive is fully extracted to a
+        // staging dir first (a bad archive leaves the install untouched),
+        // every file the update will overwrite is backed up, and a failed
+        // apply restores the backup. Extracting straight over the install
+        // root meant an interrupted update left a half-overwritten app.
+        const stagingPath = path.join(os.tmpdir(), 'tala-update-staged');
+        const backupPath = path.join(os.tmpdir(), 'tala-update-backup');
+
         if (process.platform === 'win32') {
           const scriptPath = path.join(os.tmpdir(), 'tala-update.ps1');
           const zipPath = path.join(os.tmpdir(), 'tala-update.zip');
@@ -711,15 +719,39 @@ if (-not (Test-Path "${zipPath}") -or (Get-Item "${zipPath}").Length -lt 1000) {
     exit
 }
 ${hashCheckBlock}
-Write-Host "Extracting update to ${appRoot}..." -ForegroundColor Yellow
+$staging = "${stagingPath}"
+$backup = "${backupPath}"
+if (Test-Path $staging) { Remove-Item -Recurse -Force $staging }
+if (Test-Path $backup) { Remove-Item -Recurse -Force $backup }
+Write-Host "Extracting update to staging..." -ForegroundColor Yellow
 try {
-    Expand-Archive -Path "${zipPath}" -DestinationPath "${appRoot}" -Force
-    Write-Host "Update successful!" -ForegroundColor Green
+    Expand-Archive -Path "${zipPath}" -DestinationPath $staging -Force
 } catch {
-    Write-Host "Extraction failed: $_" -ForegroundColor Red
+    Write-Host "Extraction failed; the install was not touched: $_" -ForegroundColor Red
     Start-Sleep -Seconds 5
-    exit
+    exit 1
 }
+Write-Host "Backing up the files this update overwrites..."
+Get-ChildItem -Path $staging -Recurse -File | ForEach-Object {
+    $rel = $_.FullName.Substring($staging.Length + 1)
+    $existing = Join-Path "${appRoot}" $rel
+    if (Test-Path $existing) {
+        $dest = Join-Path $backup $rel
+        New-Item -ItemType Directory -Force -Path (Split-Path -Parent $dest) | Out-Null
+        Copy-Item $existing $dest -Force
+    }
+}
+Write-Host "Applying update to ${appRoot}..." -ForegroundColor Yellow
+robocopy $staging "${appRoot}" /E /NFL /NDL /NJH /NJS | Out-Null
+if ($LASTEXITCODE -ge 8) {
+    Write-Host "Apply failed (robocopy exit $LASTEXITCODE); restoring backup..." -ForegroundColor Red
+    robocopy $backup "${appRoot}" /E /NFL /NDL /NJH /NJS | Out-Null
+    Write-Host "Backup restored from $backup" -ForegroundColor Yellow
+    Start-Sleep -Seconds 5
+    exit 1
+}
+Remove-Item -Recurse -Force $staging
+Write-Host "Update successful! (backup kept at $backup)" -ForegroundColor Green
 
 Write-Host "Restarting Tala Engine..." -ForegroundColor Cyan
 Start-Sleep -Seconds 2
@@ -772,15 +804,36 @@ exit
                 const scriptContent = `#!/bin/sh
 exec > "${logPath}" 2>&1
 sleep 3
+STAGING="${stagingPath}"
+BACKUP="${backupPath}"
+FILELIST="${stagingPath}.files"
+rm -rf "$STAGING" "$BACKUP" "$FILELIST"
+mkdir -p "$STAGING" "$BACKUP"
+# Extracting update to staging first: a bad archive leaves the install untouched.
 if command -v unzip >/dev/null 2>&1; then
-  unzip -o "${zipPath}" -d "${appRoot}" || exit 1
+  unzip -o "${zipPath}" -d "$STAGING" || { echo "Extraction failed; the install was not touched."; exit 1; }
 elif command -v ${updaterPython || 'python3'} >/dev/null 2>&1; then
-  ${updaterPython || 'python3'} -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "${zipPath}" "${appRoot}" || exit 1
+  ${updaterPython || 'python3'} -c 'import sys, zipfile; zipfile.ZipFile(sys.argv[1]).extractall(sys.argv[2])' "${zipPath}" "$STAGING" || { echo "Extraction failed; the install was not touched."; exit 1; }
 else
   echo "No extractor available (unzip or python3); update NOT applied."
   exit 1
 fi
+# Back up every file this update overwrites, then apply; restore on failure.
+(cd "$STAGING" && find . -type f | sed 's|^\\./||') > "$FILELIST"
+while IFS= read -r f; do
+  if [ -f "${appRoot}/$f" ]; then
+    mkdir -p "$BACKUP/$(dirname "$f")"
+    cp -p "${appRoot}/$f" "$BACKUP/$f"
+  fi
+done < "$FILELIST"
+if ! cp -Rp "$STAGING/." "${appRoot}/"; then
+  echo "Apply failed; restoring backup from $BACKUP..."
+  cp -Rp "$BACKUP/." "${appRoot}/"
+  exit 1
+fi
+rm -rf "$STAGING" "$FILELIST"
 rm -f "${zipPath}"
+echo "Update applied; backup kept at $BACKUP"
 chmod +x "${startScript}"
 cd "${appRoot}"
 ${shellCmd} "${startScript}" &

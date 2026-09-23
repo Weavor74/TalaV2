@@ -147,6 +147,29 @@ describe('app.update — the only update path', () => {
     expect(block).toMatch(/sha256|actualHash/i);
   });
 
+  test('the archive never extracts directly over the install root', async () => {
+    const harness = updateHarness('a'.repeat(64));
+    await harness.update('https://talacore.app/tala-windows.zip');
+    const script = harness.writeFileSync.mock.calls[0][1];
+    // Extraction goes to staging; the install root is only ever the robocopy
+    // destination of an already-validated staging tree.
+    expect(script).toMatch(/Expand-Archive -Path "[^"]*tala-update\.zip" -DestinationPath \$staging/);
+    expect(script).not.toMatch(/Expand-Archive[^\n]*DestinationPath "C:\\\\Tala"/);
+    expect(script).toContain('tala-update-staged');
+  });
+
+  test('a failed apply restores the backup, on both platforms', () => {
+    const block = appUpdateBlock();
+    // Windows: robocopy failure path restores from the backup dir.
+    expect(block).toMatch(/if \(\$LASTEXITCODE -ge 8\) \{[\s\S]*?robocopy \$backup/);
+    // Unix: cp failure path restores from the backup dir.
+    expect(block).toMatch(/if ! cp -Rp "\$STAGING\/\."[\s\S]*?cp -Rp "\$BACKUP\/\."/);
+    // Both extract to staging before touching the install.
+    expect(block).toContain('the install was not touched');
+    // And every overwritten file is backed up first.
+    expect(block).toContain('Backing up the files this update overwrites');
+  });
+
   test('the renderer cannot supply update bytes over IPC', () => {
     // The allowlist in preload.js is the renderer's entire IPC surface.
     const preload = fs.readFileSync(
