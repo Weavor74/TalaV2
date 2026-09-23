@@ -93,6 +93,21 @@ BASE_EXCLUDES = [
         "nodes/flow-*",
         "nodes/corpus-*",
         "nodes/_staging/*",
+        # Live per-install state, same class as the above but outside nodes'
+        # naming scheme. The data root IS the install dir, and the updater
+        # extracts a bundle over the install dir — so anything here that the
+        # running app also writes is silently reset to the build machine's
+        # copy on every OTA update. settings-* is regenerated from the
+        # database at read time (settings_nn.update_all_settings_nodes), so a
+        # fresh install recreates it; before this exclude, every update reset
+        # the user's settings.
+        "nodes/settings-*",
+        "emotion_state.json",
+        # Machine-synthesized on this install: skills the agent distilled,
+        # and uuid-named workflows created at runtime. Named product
+        # workflows (no uuid shape) still ship.
+        "skills/skill_*.yaml",
+        "workflows/*-*-*-*-*.json",
 ]
 
 

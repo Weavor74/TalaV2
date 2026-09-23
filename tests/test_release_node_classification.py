@@ -35,6 +35,16 @@ PRIVATE_NODE_CLASSES = [
     "nodes/benchmark-run-*",
     "nodes/flow-*",
     "nodes/corpus-*",
+    "nodes/settings-*",
+]
+
+# Live per-install state outside nodes/ naming: the running app writes these,
+# the updater extracts a bundle over the install dir, so shipping them means
+# every OTA update resets them to the build machine's copies.
+LIVE_STATE_FILES = [
+    "emotion_state.json",
+    "skills/skill_*.yaml",
+    "workflows/*-*-*-*-*.json",
 ]
 
 
@@ -56,6 +66,24 @@ def test_vps_bundles_exclude_private_node_classes():
             "the public download zips would carry this install's private nodes"
         )
     assert "nodes/_staging/*" in excludes
+
+
+def test_both_packagers_exclude_live_state_files():
+    """An OTA update must never overwrite what the running app writes.
+
+    settings-* looks like a product node but is the user's live settings
+    (settings_nn.py rewrites it on every change, and regenerates it from the
+    database when missing, so a fresh install loses nothing)."""
+    files = json.loads((REPO / "package.json").read_text(encoding="utf-8"))["build"]["files"]
+    for pattern in LIVE_STATE_FILES:
+        assert f"!{pattern}" in files, (
+            f"package.json build.files no longer excludes {pattern}; "
+            "an installed build would ship this install's live state"
+        )
+        assert pattern in BASE_EXCLUDES, (
+            f"scripts/build_bundles.py no longer excludes {pattern}; "
+            "an OTA update would overwrite the user's live copy of it"
+        )
 
 
 def test_the_lora_weights_are_covered_by_the_corpus_pattern():
