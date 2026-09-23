@@ -23,7 +23,8 @@
   data-doc-target="sdk.agent.editor"
   data-source-files="sdk/agent/editor.py"
   data-source-fingerprint="sha256:D86C086AC4F5297DD2595EF0633249B7AC1F7A2DBD5AF452D1DD7C088AD9F9A0"
-  data-source-digest="sha256:A976194C4136F131E42C38775EC06275160606853D53D6BAA22C99E1E0C594CF"
+  data-source-digest="sha256:74FD296FC7D084929DCAA99066E46C7171873D4745759F352C53D7A4B81C787F"
+  data-description-baseline-digest="sha256:A976194C4136F131E42C38775EC06275160606853D53D6BAA22C99E1E0C594CF"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,7 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>sdk/agent/editor.py =================== Codebase Discovery &amp; Surgical Editor — Tala Cognitive Engine Room Milestone 6 | Task 6.2.1 Provides: • CodeIndex    — fast recursive scanner that builds a CodebaseSnapshot • SurgicalEditor — pinpoint line-level patch applicator • ErrorRepairProtocol — traceback parser + minimal-patch applier Design mandate: All code changes MUST route through SurgicalEditor.apply_patch().</p>
     <p>It lives at sdk/agent/editor.py within the agent SDK.</p>
     <p>Classes it defines: FileIndex — Parsed index for a single source file.; CodebaseSnapshot — Full indexed view of a codebase directory. (methods: get(), search_function(), search_class()); PatchResult — Result of a SurgicalEditor.apply_patch() call.; ErrorLocation — Parsed location of the root cause from a Python traceback.; CodeIndex — Recursively scans a directory tree and produces a CodebaseSnapshot. (methods: scan()); SurgicalEditor — Applies pinpoint, line-level edits to source files. (methods: apply_patch(), insert_after(), delete_line()); ErrorRepairProtocol — Parses Python tracebacks to identify the root error location, then applies the smallest possible patch to fix it. (methods: find_root_error(), apply_minimal_fix()).</p>
@@ -110,7 +112,7 @@
     "source_files": [
       "sdk/agent/editor.py"
     ],
-    "source_digest": "sha256:A976194C4136F131E42C38775EC06275160606853D53D6BAA22C99E1E0C594CF",
+    "source_digest": "sha256:74FD296FC7D084929DCAA99066E46C7171873D4745759F352C53D7A4B81C787F",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

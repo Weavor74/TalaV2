@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Harness: Agent Bridge Handlers</title>
+</head>
+<body>
+<article
+  data-node-id="python_harness_agent_bridge_handlers"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="python.harness.agent_bridge_handlers"
+  data-source-files="python/harness/agent_bridge_handlers.py"
+  data-source-fingerprint="sha256:53805111B5F90F0C9025ED313EBCE0BAAC08F72B963581EECFCBCFA9A5EB91D9"
+  data-source-digest="sha256:5F3D9FDA6BA0DF8832104EC46A10B6ADF09DCAF400529B1D29A1511EB7819164"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-17T13:55:31Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Harness: Agent Bridge Handlers</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>Agent-bridge RPC handlers, extracted verbatim from server.py (P2 review item 18).</p>
+    <p>It lives at python/harness/agent_bridge_handlers.py within the Python harness, the backend that runs the system.</p>
+    <p>Functions it exposes: handle_repo_scan() — ``repo.scan`` — Scan repository code structure.; handle_repo_lint() — ``repo.lint`` — Lint repository for architectural violations.; handle_repo_checkpoint() — ``repo.checkpoint`` — Create repository state checkpoint.; handle_repo_restore() — ``repo.restore`` — Revert to the last checkpoint.; handle_task_report() — ``task.report`` — Replay event logs and generate progress report.; handle_build_diagnose() — ``build.diagnose`` — Diagnose compiler or terminal failure logs.; handle_build_repair() — ``build.repair`` — Triggers IterativeDebugger loop to fix a target file.; handle_shell_run() — ``shell.run`` — Governed async shell execution.; handle_code_generate() — ``code.generate`` — Generate file from a template.; handle_code_repair() — ``code.repair`` — Apply a surgical line patch to file content.; handle_test_generate() — ``test.generate`` — Generate a test suite.; handle_code_propose_patch() — ``code.propose_patch`` — Propose bounded exact-replacement file edits.; handle_code_apply_patch() — ``code.apply_patch`` — Apply bounded exact-replacement file edits.; handle_code_propose_file_write() — ``code.propose_file_write`` — Propose bounded workspace file creation.; handle_code_write_files() — ``code.write_files`` — Create bounded text files inside the workspace.; handle_code_registry_get() — ``code.registry_get`` — Retrieve a key from CodeRegistry.; handle_code_registry_set() — ``code.registry_set`` — Set a key in CodeRegistry.; handle_code_registry_list() — ``code.registry_list`` — List keys matching prefix in CodeRegistry.; handle_test_run_validation() — ``test.run_validation`` — Run allowlisted validation commands..</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>python/harness/agent_bridge_handlers.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-python_harness_agent_bridge_handlers"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "python.harness.agent_bridge_handlers"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Harness: Agent Bridge Handlers",
+  "description": "Program documentation for python.harness.agent_bridge_handlers.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "harness",
+    "backend",
+    "agent_bridge_handlers"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-17T13:55:31Z",
+    "schema": "neural-node/v2",
+    "doc_target": "python.harness.agent_bridge_handlers",
+    "source_fingerprint": "sha256:53805111B5F90F0C9025ED313EBCE0BAAC08F72B963581EECFCBCFA9A5EB91D9",
+    "source_files": [
+      "python/harness/agent_bridge_handlers.py"
+    ],
+    "source_digest": "sha256:5F3D9FDA6BA0DF8832104EC46A10B6ADF09DCAF400529B1D29A1511EB7819164",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

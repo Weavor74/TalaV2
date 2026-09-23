@@ -23,7 +23,8 @@
   data-doc-target="python.harness.architecture_facts"
   data-source-files="python/harness/architecture_facts.py"
   data-source-fingerprint="sha256:FF8B4E7CAA701BAA084BB04B923E07BBE2D4DBE6E6E111BE9589B64FF0FB9A73"
-  data-source-digest="sha256:87B772A986F408B773F0790B587C32D0188F767536586CEA8C637CE5ECAC374C"
+  data-source-digest="sha256:118BD71601D5DB0C83F95598E77A49E2F697A96860F6793CBE0ABAA92EB0E396"
+  data-description-baseline-digest="sha256:87B772A986F408B773F0790B587C32D0188F767536586CEA8C637CE5ECAC374C"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,7 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>architecture_facts.py — the parts of the contract that must not be able to lie.</p>
     <p>It lives at python/harness/architecture_facts.py within the Python harness, the backend that runs the system.</p>
     <p>Functions it exposes: execution_gates() — What may run, and what it takes to run it.; data_ownership() — Which store owns what, and what losing it costs.; security_model() — Three separate layers, described separately because conflating them is how a system gets credited with protection it does not have.; execution_paths() — The routes from an intention to a tool call, and what verifies the result.; capability_maturity() — Where each capability actually stands, with the evidence named.; verification_metadata() — What was reviewed, when, and at which commit.; all_facts() — Everything in this module, for the contract generator..</p>
@@ -110,7 +112,7 @@
     "source_files": [
       "python/harness/architecture_facts.py"
     ],
-    "source_digest": "sha256:87B772A986F408B773F0790B587C32D0188F767536586CEA8C637CE5ECAC374C",
+    "source_digest": "sha256:118BD71601D5DB0C83F95598E77A49E2F697A96860F6793CBE0ABAA92EB0E396",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

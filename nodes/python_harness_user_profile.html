@@ -23,7 +23,8 @@
   data-doc-target="python.harness.user_profile"
   data-source-files="python/harness/user_profile.py"
   data-source-fingerprint="sha256:EC95797F64FF440FE218967853AD216166D90ED7114A6E1003C8B7D7D318FFFF"
-  data-source-digest="sha256:94917487B5DCC94F9DD18965139579CA8C152738C46AF4B3C7067E86FB13156F"
+  data-source-digest="sha256:ADD4CD4334A7D466995E8F2774180F51C21C8734A209324E5261D33CD5F67FED"
+  data-description-baseline-digest="sha256:94917487B5DCC94F9DD18965139579CA8C152738C46AF4B3C7067E86FB13156F"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,7 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>user_profile.py — one gated way to read who the user is.</p>
     <p>It lives at python/harness/user_profile.py within the Python harness, the backend that runs the system.</p>
     <p>Functions it exposes: load_config_from_node() — Read the profile out of its HTML-NN, which is the authored source of truth.; load_config_from_db() — Read the master user&#x27;s profile config from Postgres.; load_config() — The user&#x27;s profile, node first.; name_from() — The user&#x27;s preferred display name.; pronouns_from(); visibility_of() — The configured visibility for *section*.; system_prompt_line() — The single line injected into the system prompt, or ``&quot;&quot;``.; lookup() — Read one section of the user&#x27;s profile, subject to its visibility.; available_sections() — ``{section: &#x27;readable&#x27; | visibility}`` — what a lookup would allow..</p>
@@ -110,7 +112,7 @@
     "source_files": [
       "python/harness/user_profile.py"
     ],
-    "source_digest": "sha256:94917487B5DCC94F9DD18965139579CA8C152738C46AF4B3C7067E86FB13156F",
+    "source_digest": "sha256:ADD4CD4334A7D466995E8F2774180F51C21C8734A209324E5261D33CD5F67FED",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

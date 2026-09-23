@@ -23,8 +23,8 @@
   data-doc-target="sdk.agent.wiki"
   data-source-files="sdk/agent/wiki.py"
   data-source-fingerprint="sha256:BD719F5469D39F8D1F59055E4A8DFB799F52845A030A9418709DB5888DD06214"
-  data-source-digest="sha256:10F47131BBF6F97CDAA565F6477F7B7868C0CE8B92D3ED4FAD57FEF53E991F7A"
-  data-description-verified="false"
+  data-source-digest="sha256:ECEA36BF6828572014A96D333C7C695F5FAC71D15CB8CC0259F42C59DEABDB55"
+  data-description-baseline-digest="sha256:10F47131BBF6F97CDAA565F6477F7B7868C0CE8B92D3ED4FAD57FEF53E991F7A"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -39,7 +39,6 @@
 
   <section id="semantic-memory">
   <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
-
     <p>sdk/agent/wiki.py ================= Knowledge Graph &amp; Self-Healing Docs — Tala Cognitive Engine Room Milestone 6 | Task 6.4.1 Provides: • WikiUpdater      — rewrites specific sections of HTML Neural Nodes • SelfHealingDocs  — compares actual resource structure to docs, finds gaps • Correction       — dataclass describing a documentation discrepancy • apply_corrections() — writes corrections to the node before code changes Design principle: Documentation is updated BEFORE executing a technical change, never after.</p>
     <p>It lives at sdk/agent/wiki.py within the agent SDK.</p>
     <p>Classes it defines: CorrectionSeverity — How badly out-of-date a documented field is.; Correction — Describes a single discrepancy between documentation and reality.; NodeUpdateResult — Result of a WikiUpdater.update_node() call.; WikiUpdater — Rewrites specific named sections inside an HTML Neural Node file. (methods: update_node(), get_section(), list_sections()); SelfHealingDocs — Compares actual resource structure to its documented Neural Node and produces a list of Corrections. (methods: run_comparative_check()); HTMLNNParser — Parses and serializes HTML Neural Nodes, extracting metadata and relations. (methods: parse_node_metadata()); WikiGenerator — Compiles maps, capabilities, and system schemas into self-documenting wiki nodes. (methods: compile_codebase_map_node()).</p>
@@ -114,7 +113,7 @@
     "source_files": [
       "sdk/agent/wiki.py"
     ],
-    "source_digest": "sha256:10F47131BBF6F97CDAA565F6477F7B7868C0CE8B92D3ED4FAD57FEF53E991F7A",
+    "source_digest": "sha256:ECEA36BF6828572014A96D333C7C695F5FAC71D15CB8CC0259F42C59DEABDB55",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

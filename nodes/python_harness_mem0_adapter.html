@@ -23,7 +23,8 @@
   data-doc-target="python.harness.mem0_adapter"
   data-source-files="python/harness/mem0_adapter.py"
   data-source-fingerprint="sha256:D077676356DBF32720EB80CC743857F786F8353CF8E4A0ACDA90853623F5B49E"
-  data-source-digest="sha256:4B16B60360618A8A20DE0AA3D1E1C1B6388C33EB3DF18E77F82DC9DB3600CF14"
+  data-source-digest="sha256:66C3D8ADED22A545542B33A2F96DE8118A3F2304D66E57E69E0F73FE874D1D5B"
+  data-description-baseline-digest="sha256:4B16B60360618A8A20DE0AA3D1E1C1B6388C33EB3DF18E77F82DC9DB3600CF14"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,7 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>mem0_adapter.py — Tala Cognitive Engine Room: mem0 Read-Only Restriction Adapter ================================================================================= Architectural Invariant ----------------------- mem0 is NEVER a durable authority for state in the Tala system.</p>
     <p>It lives at python/harness/mem0_adapter.py within the Python harness, the backend that runs the system.</p>
     <p>Classes it defines: Mem0WriteBlockedError — Raised when code attempts to call a mutating method on the mem0 client.; Mem0ReadOnlyAdapter — Proxy wrapper around a mem0 client that enforces read-only access..</p>
@@ -111,7 +113,7 @@
     "source_files": [
       "python/harness/mem0_adapter.py"
     ],
-    "source_digest": "sha256:4B16B60360618A8A20DE0AA3D1E1C1B6388C33EB3DF18E77F82DC9DB3600CF14",
+    "source_digest": "sha256:66C3D8ADED22A545542B33A2F96DE8118A3F2304D66E57E69E0F73FE874D1D5B",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

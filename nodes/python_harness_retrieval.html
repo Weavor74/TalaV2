@@ -23,7 +23,8 @@
   data-doc-target="python.harness.retrieval"
   data-source-files="python/harness/retrieval.py"
   data-source-fingerprint="sha256:80EF62DD26A08DDA12E37B02EADD67C315FCC88ADAFDBC4C887884D3378B53E3"
-  data-source-digest="sha256:7269000EC01BB7E33E60C2C7B6BDE1F569AB1BEC5EB0711BBD329AE2169CEB89"
+  data-source-digest="sha256:D9438E58CBA2CE36DF9A8752CB65BFDAFB3F049EBA507E7AF789FF5B2C11FBD6"
+  data-description-baseline-digest="sha256:7269000EC01BB7E33E60C2C7B6BDE1F569AB1BEC5EB0711BBD329AE2169CEB89"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,7 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>retrieval.py — Tala Cognitive Engine Room: Semantic Node Retrieval Engine ======================================================================= Crawls the nodes directory, parses HTML Neural Nodes, and performs a local, offline-first Semantic RAG similarity search using ChromaDB.</p>
     <p>It lives at python/harness/retrieval.py within the Python harness, the backend that runs the system.</p>
     <p>Functions it exposes: index_nodes() — Parse new or modified HTML Neural Nodes and embed them into ChromaDB incrementally.; retrieve_relevant_nodes() — Search for relevant nodes using ChromaDB vector similarity, and multiply the raw cosine similarity score by the node&#x27;s confidence and relevance weights..</p>
@@ -110,7 +112,7 @@
     "source_files": [
       "python/harness/retrieval.py"
     ],
-    "source_digest": "sha256:7269000EC01BB7E33E60C2C7B6BDE1F569AB1BEC5EB0711BBD329AE2169CEB89",
+    "source_digest": "sha256:D9438E58CBA2CE36DF9A8752CB65BFDAFB3F049EBA507E7AF789FF5B2C11FBD6",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

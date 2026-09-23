@@ -23,7 +23,8 @@
   data-doc-target="python.harness.chain_keys"
   data-source-files="python/harness/chain_keys.py"
   data-source-fingerprint="sha256:968A7212C7F393F598C4F0AC9A57DB6E3700E78E73065F6010B579BA76829CC6"
-  data-source-digest="sha256:A5D840E3CBD87AADC47B074F4994F83711B84651DED9B7E0E66EED522BC54F72"
+  data-source-digest="sha256:DCDC336D812AF57CEE0782039D34187E6086327A72F6F6DEDD4E242DE8EAC43B"
+  data-description-baseline-digest="sha256:A5D840E3CBD87AADC47B074F4994F83711B84651DED9B7E0E66EED522BC54F72"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,7 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>chain_keys.py — obtaining a peer&#x27;s signing key, and deciding whether to trust it.</p>
     <p>It lives at python/harness/chain_keys.py within the Python harness, the backend that runs the system.</p>
     <p>Functions it exposes: identity() — This node&#x27;s own signing key, for handing to a peer.; fetch() — Obtain a peer&#x27;s signing key and prove they hold it.; offer() — Record a key handed over directly rather than fetched.; offers() — Keys that have been obtained, and what was decided about each.; trust() — Admit an offered key as a permitted signer.; reject() — Refuse an offered key, and withdraw it if it was previously trusted.; retire_own_key() — Retire this node&#x27;s own signing key and publish that fact.; retired_keys() — Keys known to have retired themselves, from the offers record..</p>
@@ -110,7 +112,7 @@
     "source_files": [
       "python/harness/chain_keys.py"
     ],
-    "source_digest": "sha256:A5D840E3CBD87AADC47B074F4994F83711B84651DED9B7E0E66EED522BC54F72",
+    "source_digest": "sha256:DCDC336D812AF57CEE0782039D34187E6086327A72F6F6DEDD4E242DE8EAC43B",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

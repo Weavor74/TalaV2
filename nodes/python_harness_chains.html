@@ -23,7 +23,8 @@
   data-doc-target="python.harness.chains"
   data-source-files="python/harness/chains.py"
   data-source-fingerprint="sha256:B6D0A71655826712E39A561B5E76B76D1E587FFB6E45F053511A1F7D53118922"
-  data-source-digest="sha256:46C26D35D0571F8E4535546FA9C555A0F58457541BEB917DCB41BD93CB8D7D39"
+  data-source-digest="sha256:BEC55806CFF459236A29335D54490188F480619E5AD53AE09BE61AA3E619ABF7"
+  data-description-baseline-digest="sha256:46C26D35D0571F8E4535546FA9C555A0F58457541BEB917DCB41BD93CB8D7D39"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -37,6 +38,7 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>chains.py — Ghost and Real are two chains, split by audience.</p>
     <p>It lives at python/harness/chains.py within the Python harness, the backend that runs the system.</p>
     <p>Functions it exposes: is_external() — Whether this belongs on the Real chain as well as the Ghost chain.; classify() — Which chains this transaction is written to.; record() — Record one transaction on the chains it belongs to.; index() — Record which chain a transaction belongs to.; index_sync() — Index a transaction from synchronous code.; ghost_endpoint() — The local chain node.; real_endpoint() — The configured shared-chain endpoint, or empty if there is none.; authorities() — Every signer whose blocks this install recognises.; cutoffs() — Signers that may no longer sign, and the block they stopped at.; set_authorities() — Set which signers may sign from now on.; active_authorities() — Signers that may sign right now.; flush() — Write every queued Real transaction, oldest first.; summary() — Counts for both chains, so the difference between them is visible.; reconcile() — Pull the shared chain and index what is on it that is not indexed here..</p>
@@ -110,7 +112,7 @@
     "source_files": [
       "python/harness/chains.py"
     ],
-    "source_digest": "sha256:46C26D35D0571F8E4535546FA9C555A0F58457541BEB917DCB41BD93CB8D7D39",
+    "source_digest": "sha256:BEC55806CFF459236A29335D54490188F480619E5AD53AE09BE61AA3E619ABF7",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
