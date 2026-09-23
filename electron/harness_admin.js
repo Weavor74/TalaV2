@@ -41,10 +41,10 @@ function getHarnessAdminSecret() {
 }
 
 /**
- * Fetches the published sha256 for a platform zip from talacore.app/version.json.
- * Returns null if unavailable — callers must treat null as "cannot verify."
+ * Fetches and parses the published release manifest. Returns null if
+ * unavailable or unparseable — callers must treat null as "cannot verify."
  */
-function fetchExpectedUpdateHash(platformKey) {
+function fetchVersionJson() {
   return new Promise((resolve) => {
     const https = require('https');
     const req = https.get('https://talacore.app/version.json', { timeout: 5000 }, (response) => {
@@ -56,9 +56,7 @@ function fetchExpectedUpdateHash(platformKey) {
       response.on('data', (chunk) => { body += chunk; });
       response.on('end', () => {
         try {
-          const data = JSON.parse(body);
-          const hash = data && data.sha256 && data.sha256[platformKey];
-          resolve(typeof hash === 'string' && hash ? hash : null);
+          resolve(JSON.parse(body));
         } catch {
           resolve(null);
         }
@@ -67,6 +65,48 @@ function fetchExpectedUpdateHash(platformKey) {
     req.on('error', () => resolve(null));
     req.on('timeout', () => { req.destroy(); resolve(null); });
   });
+}
+
+/**
+ * Fetches the published sha256 for a platform zip from talacore.app/version.json.
+ * Returns null if unavailable — callers must treat null as "cannot verify."
+ */
+async function fetchExpectedUpdateHash(platformKey) {
+  const data = await fetchVersionJson();
+  const hash = data && data.sha256 && data.sha256[platformKey];
+  return typeof hash === 'string' && hash ? hash : null;
+}
+
+/** Published version string from the release manifest, or null. */
+async function fetchPublishedVersion() {
+  const data = await fetchVersionJson();
+  return data && typeof data.version === 'string' && data.version ? data.version : null;
+}
+
+/** The version this install is running, from the package.json it shipped with. */
+function getInstalledVersion() {
+  try {
+    return require('../package.json').version || null;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * True only when `remote` is a strictly newer x.y.z than `local`.
+ * A non-numeric segment (rc tags, garbage) is false on purpose: the updater
+ * treats "cannot parse" as "cannot verify", never as "newer".
+ */
+function isNewerVersion(remote, local) {
+  if (typeof remote !== 'string' || typeof local !== 'string') return false;
+  const r = remote.split('.').map(Number);
+  const l = local.split('.').map(Number);
+  if (r.length !== 3 || l.length !== 3 || [...r, ...l].some(Number.isNaN)) return false;
+  for (let i = 0; i < 3; i++) {
+    if (r[i] > l[i]) return true;
+    if (r[i] < l[i]) return false;
+  }
+  return false;
 }
 
 /**
@@ -85,5 +125,8 @@ module.exports = {
   OWNER_SECRET_METHODS,
   getHarnessAdminSecret,
   fetchExpectedUpdateHash,
+  fetchPublishedVersion,
+  getInstalledVersion,
+  isNewerVersion,
   injectOwnerSecret,
 };

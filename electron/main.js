@@ -50,6 +50,9 @@ const { initBlockchain, spawnBlockchain, stopBlockchain } = require('./blockchai
 const { ensureWsToken: ensureWsTokenFile, ensureWebUiToken: ensureWebUiTokenFile } = require('./token_files');
 const {
   fetchExpectedUpdateHash,
+  fetchPublishedVersion,
+  getInstalledVersion,
+  isNewerVersion,
   injectOwnerSecret,
 } = require('./harness_admin');
 
@@ -646,6 +649,20 @@ function registerPythonRpcHandler() {
         return { __rpcError: true, error: 'Refusing update: no valid published SHA-256 hash is available.' };
       }
 
+      // Downgrade gate. The renderer compares versions before offering the
+      // banner, but app.update is callable on its own, and the hash check
+      // only proves "this is the currently published zip" — not "this is an
+      // upgrade". Whoever can influence what talacore.app serves must not be
+      // able to roll an install back to an older, vulnerable release.
+      const installedVersion = getInstalledVersion();
+      const publishedVersion = await fetchPublishedVersion();
+      if (!installedVersion || !publishedVersion || !isNewerVersion(publishedVersion, installedVersion)) {
+        return {
+          __rpcError: true,
+          error: `Refusing update: published version ${publishedVersion || 'unknown'} is not newer than installed ${installedVersion || 'unknown'}.`,
+        };
+      }
+
       return new Promise((resolve, reject) => {
         const fs = require('fs');
         const os = require('os');
@@ -670,6 +687,9 @@ Write-Host "Integrity check passed." -ForegroundColor Green
           const scriptContent = `
 $updateUrl = $env:TALA_UPDATE_URL
 [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+# Unix logs to /tmp/tala-update.log; without this, a failed Windows update
+# closes the app and leaves no trace of why.
+try { Start-Transcript -Path "$env:TEMP\\tala-update.log" -Force | Out-Null } catch {}
 Write-Host "========================================" -ForegroundColor Cyan
 Write-Host " Tala Cognitive Engine Room Updater" -ForegroundColor Cyan
 Write-Host "========================================" -ForegroundColor Cyan

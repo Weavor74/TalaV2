@@ -27,14 +27,19 @@ function appUpdateBlock() {
   return MAIN.slice(start, end);
 }
 
+const { isNewerVersion } = require('../../electron/harness_admin');
+
 describe('app.update — the only update path', () => {
-  function updateHarness(hash) {
+  function updateHarness(hash, { published = '99.0.0', installed = '0.1.83' } = {}) {
     let handler;
     const writeFileSync = jest.fn();
     const spawn = jest.fn(() => ({ unref() {} }));
     const context = {
       ipcMain: { handle: (_channel, fn) => { handler = fn; } },
       fetchExpectedUpdateHash: async () => hash,
+      fetchPublishedVersion: async () => published,
+      getInstalledVersion: () => installed,
+      isNewerVersion,
       URL, __dirname: 'C:\\Tala\\electron',
       process: { platform: 'win32', env: {} },
       setTimeout: jest.fn(),
@@ -57,6 +62,40 @@ describe('app.update — the only update path', () => {
     expect(await harness.update('https://talacore.app/tala-windows.zip')).toMatchObject({ __rpcError: true });
     expect(harness.writeFileSync).not.toHaveBeenCalled();
     expect(harness.spawn).not.toHaveBeenCalled();
+  });
+
+  test('a published version that is not strictly newer is refused', async () => {
+    for (const published of ['0.1.83', '0.1.82', '0.0.99']) {
+      const harness = updateHarness('a'.repeat(64), { published, installed: '0.1.83' });
+      expect(await harness.update('https://talacore.app/tala-windows.zip')).toMatchObject({ __rpcError: true });
+      expect(harness.writeFileSync).not.toHaveBeenCalled();
+      expect(harness.spawn).not.toHaveBeenCalled();
+    }
+  });
+
+  test('an unparseable published version is "cannot verify", never "newer"', async () => {
+    for (const published of ['0.1.84-rc1', 'latest', null, '0.1']) {
+      const harness = updateHarness('a'.repeat(64), { published, installed: '0.1.83' });
+      expect(await harness.update('https://talacore.app/tala-windows.zip')).toMatchObject({ __rpcError: true });
+      expect(harness.spawn).not.toHaveBeenCalled();
+    }
+  });
+
+  test('isNewerVersion is strict and NaN-safe', () => {
+    expect(isNewerVersion('0.1.84', '0.1.83')).toBe(true);
+    expect(isNewerVersion('0.2.0', '0.1.99')).toBe(true);
+    expect(isNewerVersion('1.0.0', '0.99.99')).toBe(true);
+    expect(isNewerVersion('0.1.83', '0.1.83')).toBe(false);
+    expect(isNewerVersion('0.1.82', '0.1.83')).toBe(false);
+    expect(isNewerVersion('0.1.84-rc1', '0.1.83')).toBe(false);
+    expect(isNewerVersion('0.1.84.1', '0.1.83')).toBe(false);
+    expect(isNewerVersion(undefined, '0.1.83')).toBe(false);
+  });
+
+  test('the Windows updater writes a post-mortem log', () => {
+    const block = appUpdateBlock();
+    expect(block).toContain('Start-Transcript');
+    expect(block).toContain('tala-update.log');
   });
 
   test('PowerShell receives URL metacharacters as environment data', async () => {
