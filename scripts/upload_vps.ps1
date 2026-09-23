@@ -1,8 +1,56 @@
-gcloud compute scp D:\src\TalaV2\blockchain\public\tala-windows.zip tala-vps:tala-windows.zip --zone=us-central1-a
-gcloud compute scp D:\src\TalaV2\blockchain\public\tala-macos.zip tala-vps:tala-macos.zip --zone=us-central1-a
-gcloud compute scp D:\src\TalaV2\blockchain\public\tala-linux.zip tala-vps:tala-linux.zip --zone=us-central1-a
-gcloud compute scp D:\src\TalaV2\blockchain\public\download.html tala-vps:download.html --zone=us-central1-a
-gcloud compute scp D:\src\TalaV2\blockchain\public\version.json tala-vps:version.json --zone=us-central1-a
-gcloud compute scp D:\src\TalaV2\blockchain\src\app.js tala-vps:app.js --zone=us-central1-a
+# Publish the release built by scripts/build_bundles.py to talacore.app.
+#
+# Order is the whole point: bundles and site first, verified from the public
+# URL, and version.json LAST — so a new version is only ever advertised once
+# its downloads actually resolve. (The old script moved everything in one
+# unguarded sweep; a partial upload or a dead app.js still went live, which is
+# how the site spent weeks advertising 0.1.83 with all three zips 404ing.)
+#
+# TWO webroots, on purpose. The live Caddyfile on the VM is NOT the repo's:
+# it proxies only /chain/* to the node app and serves everything else
+# statically from /var/www/talacore. So the public site — version.json, the
+# zips, download.html — is /var/www/talacore, and /opt/tala/blockchain/public
+# is what the node app itself reads. Publishing to only one of them is how
+# the release path silently broke: uploads landed in /opt/tala where no
+# public request ever looked.
+$ErrorActionPreference = 'Stop'
 
-gcloud compute ssh tala-vps --zone=us-central1-a --command="sudo mv ~/tala-windows.zip /opt/tala/blockchain/public/; sudo mv ~/tala-macos.zip /opt/tala/blockchain/public/; sudo mv ~/tala-linux.zip /opt/tala/blockchain/public/; sudo mv ~/download.html /opt/tala/blockchain/public/; sudo mv ~/version.json /opt/tala/blockchain/public/; sudo mv ~/app.js /opt/tala/blockchain/src/app.js; sudo pm2 restart all || sudo systemctl restart tala-vps.service || echo 'Restart your node'"
+$repo = Split-Path -Parent $PSScriptRoot
+$pub = Join-Path $repo 'blockchain\public'
+$zone = 'us-central1-a'
+$vm = 'tala-vps'
+
+$bundles = 'tala-windows.zip', 'tala-macos.zip', 'tala-linux.zip'
+
+# --- Stage everything to the VM's home dir. Any failure aborts before
+# --- anything is moved into the webroot.
+foreach ($f in ($bundles + @('download.html', 'version.json'))) {
+    gcloud compute scp (Join-Path $pub $f) "${vm}:$f" --zone=$zone
+    if ($LASTEXITCODE -ne 0) { throw "scp of $f failed; nothing has gone live." }
+}
+gcloud compute scp (Join-Path $repo 'blockchain\src\app.js') "${vm}:app.js" --zone=$zone
+if ($LASTEXITCODE -ne 0) { throw "scp of app.js failed; nothing has gone live." }
+
+# --- Go live: bundles, site page, server code. NOT version.json yet.
+gcloud compute ssh $vm --zone=$zone --command="sudo cp ~/tala-windows.zip ~/tala-macos.zip ~/tala-linux.zip ~/download.html /var/www/talacore/ && sudo mv ~/tala-windows.zip ~/tala-macos.zip ~/tala-linux.zip ~/download.html /opt/tala/blockchain/public/ && sudo mv ~/app.js /opt/tala/blockchain/src/app.js && sudo systemctl restart tala-vps.service"
+if ($LASTEXITCODE -ne 0) { throw 'remote install of bundles/app.js failed; version.json was NOT updated.' }
+
+# --- Verify each bundle from the public URL, byte-for-byte, before
+# --- advertising it. A mismatch here means a client would download something
+# --- other than what bump_version.py hashed into version.json.
+foreach ($f in $bundles) {
+    $tmp = Join-Path $env:TEMP "verify-$f"
+    Invoke-WebRequest -Uri "https://talacore.app/$f" -OutFile $tmp -UseBasicParsing
+    $remote = (Get-FileHash $tmp -Algorithm SHA256).Hash
+    $local = (Get-FileHash (Join-Path $pub $f) -Algorithm SHA256).Hash
+    Remove-Item $tmp -Force
+    if ($remote -ne $local) { throw "$f served from talacore.app does not match the local build; version.json was NOT updated." }
+    Write-Host "verified $f ($remote)" -ForegroundColor Green
+}
+
+# --- Only now advertise the release, in both webroots.
+gcloud compute ssh $vm --zone=$zone --command="sudo cp ~/version.json /var/www/talacore/version.json && sudo mv ~/version.json /opt/tala/blockchain/public/"
+if ($LASTEXITCODE -ne 0) { throw 'version.json publish failed — bundles are live but the release is not yet advertised. Re-run this step.' }
+
+$live = (Invoke-WebRequest -Uri 'https://talacore.app/version.json' -UseBasicParsing).Content | ConvertFrom-Json
+Write-Host "talacore.app now advertises $($live.version)" -ForegroundColor Cyan

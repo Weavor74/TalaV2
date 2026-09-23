@@ -90,3 +90,6 @@ data/training_corpus/
 # Runtime halt state. Machine-local: a halt engaged on one machine
 # must not travel to another via the repository.
 data/emergency_halt.json
+
+# Claude Code session data (worktrees, local settings)
+.claude/

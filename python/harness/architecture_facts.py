@@ -471,10 +471,17 @@ def capability_maturity() -> list[dict[str, Any]]:
         {
             "capability": "OTA update and packaging",
             "maturity": "experimental",
-            "evidence": ["tests/test_ota_update_push.py", "tests/test_updater_script.py"],
-            "limits": "The 2026-09-07 production review found release engineering "
-                      "and the updater unresolved. Tests cover the mechanism, not "
-                      "a completed real upgrade.",
+            "evidence": ["tests/test_ota_update_push.py",
+                         "tests/electron/updater_contract.test.js",
+                         "scripts/verify_release_upgrade.ps1"],
+            "limits": "A complete real upgrade (0.1.83 -> 0.1.84 from the "
+                      "production server: download, sha256 verify, apply, user "
+                      "state preserved, downgrade refused) ran 2026-09-23 via "
+                      "scripts/verify_release_upgrade.ps1 — on the build "
+                      "machine, without booting the updated app. Until an "
+                      "upgraded install is observed running on another machine, "
+                      "and signing/npm-audit release blockers close, this stays "
+                      "experimental.",
         },
         {
             "capability": "Unattended autonomy",
