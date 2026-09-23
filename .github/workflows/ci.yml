@@ -30,6 +30,16 @@ jobs:
         run: |
           pip install ruff
           ruff check python sdk scripts tests conftest.py
+      - name: Dependency audit
+        # The actual gate the 09-07 review asked for. A comment in the
+        # self-test job used to claim `npm install` without --no-audit gated
+        # this; it never did — install prints advisories and exits 0. Runtime
+        # exposure is what a user's install gets (bundles ship no
+        # node_modules; install-*.ps1/sh run npm install on the target), so
+        # prod deps gate at moderate; dev/build tooling gates at high.
+        run: |
+          npm audit --omit=dev --audit-level=moderate
+          npm audit --audit-level=high
 
   install-smoke:
     # Cross-platform install + syntax + JS-test smoke (P2 item 17). Most
@@ -200,10 +210,11 @@ jobs:
           exit 1
 
       - name: Run self-test suite
-        # No --no-audit: the js-yaml/tar (and 7 more) transitive vulnerabilities
-        # were fixed via `npm audit fix` on 2026-09-12, so vulnerability
-        # scanning now gates CI. If audit fails here, fix the dependency —
-        # do not put the flag back.
+        # The dependency-security gate is the explicit `npm audit` step in the
+        # lint job — an earlier comment here claimed npm install without
+        # --no-audit gated advisories, but install only prints them and exits
+        # 0. The js-yaml/tar (and 7 more) transitive vulnerabilities were
+        # fixed via `npm audit fix` on 2026-09-12.
         run: python scripts/tala_self_test.py
 
       - name: Upload blockchain node log on failure
