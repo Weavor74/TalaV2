@@ -31,6 +31,7 @@
 
 const path = require('node:path');
 const fs   = require('node:fs/promises');
+const fssync = require('node:fs');
 const { app, ipcMain } = require('electron');
 
 /* ──────────────────────────────────────────────────────────────────
@@ -131,14 +132,26 @@ function foldCase(p) {
     : p;
 }
 
+async function resolveRealBase(baseDir) {
+  // OS-correct containment: compare realpaths. On macOS /var → /private/var;
+  // on Windows TEMP may be an 8.3 short path. Comparing a logical baseDir to a
+  // realpath'd child falsely denies in-sandbox paths (and can false-pass C4
+  // vault refusal tests that only match /Access denied/).
+  try {
+    return await fs.realpath(baseDir);
+  } catch {
+    return path.resolve(baseDir);
+  }
+}
+
 async function safePath(baseDir, userPath) {
   if (!userPath || typeof userPath !== 'string') {
     throw new Error('Path must be a non-empty string.');
   }
 
-  // Normalize separators and resolve relative to base
-  const joined   = path.resolve(baseDir, userPath);
-  const baseCmp  = foldCase(baseDir);
+  const realBase = await resolveRealBase(baseDir);
+  const joined   = path.resolve(realBase, userPath);
+  const baseCmp  = foldCase(realBase);
 
   // Attempt to resolve real path (follows symlinks) so traversal via
   // symlinks pointing outside the sandbox is caught.
@@ -153,10 +166,10 @@ async function safePath(baseDir, userPath) {
     if (!parentCmp.startsWith(baseCmp + path.sep) && parentCmp !== baseCmp) {
       throw new Error(`Access denied: parent of "${userPath}" is outside the sandbox.`);
     }
-    realResolved = joined;
+    // Parent is inside; keep unresolved leaf under the real base.
+    realResolved = path.join(parentReal, path.basename(joined));
   }
 
-  // Ensure the real resolved path begins with baseDir
   const resolvedCmp = foldCase(realResolved);
   const safe = resolvedCmp === baseCmp ||
                resolvedCmp.startsWith(baseCmp + path.sep);
@@ -166,6 +179,78 @@ async function safePath(baseDir, userPath) {
   }
 
   return realResolved;
+}
+
+/**
+ * UI-audit C4: file:* must not reach vault secrets while vault:read is gated.
+ * Path confinement alone puts vault/ inside the sandbox root; this separates
+ * the two the same way python/harness/webui.py._refuse_secret_path does.
+ */
+function refuseSecretPath(baseDir, resolved) {
+  // Relative-to-sandbox via inode walk when possible. String prefix compares
+  // break on Windows when TEMP is an 8.3 short path (RUNNER~1) but async
+  // realpath returns the long form (runneradmin) — the paths name the same
+  // directory, but startsWith fails and this gate would silently no-op (C4).
+  let relative = null;
+  try {
+    const baseStat = fssync.statSync(baseDir);
+    let cur = path.resolve(resolved);
+    const parts = [];
+    // file:write targets often do not exist yet — climb until a real parent
+    // so the inode walk can still see vault/ as the top segment.
+    while (!fssync.existsSync(cur)) {
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      parts.push(path.basename(cur));
+      cur = parent;
+    }
+    for (;;) {
+      const st = fssync.statSync(cur);
+      if (st.dev === baseStat.dev && st.ino === baseStat.ino) {
+        relative = parts.reverse();
+        break;
+      }
+      const parent = path.dirname(cur);
+      if (parent === cur) break;
+      parts.push(path.basename(cur));
+      cur = parent;
+    }
+  } catch {
+    relative = null;
+  }
+
+  if (relative === null) {
+    let realBase;
+    try {
+      realBase = fssync.realpathSync(baseDir);
+    } catch {
+      realBase = path.resolve(baseDir);
+    }
+    let realResolved;
+    try {
+      realResolved = fssync.realpathSync(resolved);
+    } catch {
+      realResolved = path.resolve(resolved);
+    }
+    const baseCmp = foldCase(realBase);
+    const resolvedCmp = foldCase(realResolved);
+    if (resolvedCmp === baseCmp) return;
+    if (!resolvedCmp.startsWith(baseCmp + path.sep)) return;
+    relative = resolvedCmp.slice(baseCmp.length + 1).split(path.sep);
+  }
+
+  if (!relative.length) return;
+  const top = relative[0];
+  if (top === 'vault' || top === '.env') {
+    throw new Error(`Access denied: "${relative.join('/')}" holds secrets and is not served by file:*.`);
+  }
+  if (top === 'blockchain' && relative[1] === 'data') {
+    throw new Error(`Access denied: "${relative.join('/')}" holds the chain's keys and is not served by file:*.`);
+  }
+  const name = relative[relative.length - 1];
+  if (name.endsWith('.pem') || name === 'wallet_seed_phrase.txt' || name === 'poa_keys.json' || name === 'admin_secret.txt') {
+    throw new Error(`Access denied: "${relative.join('/')}" is key material and is not served by file:*.`);
+  }
 }
 
 /**
@@ -202,9 +287,15 @@ function registerHandlers({ isNetworkIsolated } = {}) {
   // calls its confinement root; it just isn't Electron's userData API
   // anymore. Must match main.js's resolveDataRoot() exactly, or the app,
   // the harness, and this sandbox end up looking at different directories.
-  const userData  = process.env.TALA_USER_DATA
+  const userDataRaw = process.env.TALA_USER_DATA
     ? path.resolve(process.env.TALA_USER_DATA)
     : appPath;
+  let userData;
+  try {
+    userData = fssync.realpathSync(userDataRaw);
+  } catch {
+    userData = userDataRaw;
+  }
   const vaultDir  = path.join(userData, 'vault');
   const pythonRuntimeBase = userData;
 
@@ -213,6 +304,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     const { filePath, encoding = 'utf8' } = payload ?? {};
 
     const resolved = await safePath(userData, filePath);
+    refuseSecretPath(userData, resolved);
 
     // Stat first to avoid reading huge files accidentally
     const stat = await fs.stat(resolved);
@@ -268,6 +360,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     }
 
     const resolved = await safePath(userData, filePath);
+    refuseSecretPath(userData, resolved);
 
     // Ensure parent directory exists
     await fs.mkdir(path.dirname(resolved), { recursive: true });
@@ -336,6 +429,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     }
 
     const resolved = await safePath(userData, filePath);
+    refuseSecretPath(userData, resolved);
 
     // Verify it exists and is a regular file
     const stat = await fs.stat(resolved);
@@ -387,6 +481,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     const { dir = '.', recursive = false, withSizes = false } = payload ?? {};
 
     const resolved = await safePath(userData, dir);
+    refuseSecretPath(userData, resolved);
 
     // Ensure it exists and is a directory
     let stat;
@@ -407,8 +502,9 @@ function registerHandlers({ isNetworkIsolated } = {}) {
 
   /* ── vault:read ─────────────────────────────────────────────────── */
   ipcMain.handle('vault:read', async (_event, payload) => {
-    // Extra guard: the vault must only be read when network isolation is active.
-    // isNetworkIsolated is a runtime flag set by main.js based on current WS state.
+    // Extra guard: vault:read requires real network isolation (lockdown / emergency
+    // halt / enabled network guard). main.js sets isNetworkIsolated from those
+    // sources — not from whether the local harness WebSocket is connected.
     if (typeof isNetworkIsolated === 'function' && !isNetworkIsolated()) {
       throw new Error(
         'vault:read blocked: network connections are active. ' +
@@ -524,4 +620,4 @@ async function listDir(dir, base, recursive, depth, limit, withSizes = false) {
 // The pure helpers are exported for the jest suite (tests/electron/): the
 // containment guard is exactly where sandbox-escape bugs live, so it gets
 // direct unit coverage in addition to the handler-level tests.
-module.exports = { registerHandlers, safePath, foldCase, isNodesHtmlPath, listDir };
+module.exports = { registerHandlers, safePath, refuseSecretPath, foldCase, isNodesHtmlPath, listDir };

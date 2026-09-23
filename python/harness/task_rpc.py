@@ -299,6 +299,13 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
             # in flight, and persists so a restart does not clear it.
             await trigger_emergency_halt(f"task {task_id} aborted from Mission Control")
             await db.execute("UPDATE tasks SET status = 'failed' WHERE id = $1 OR parent_id = $1", task_id)
+            # Highs H5: Electron haltActive learns Abort via system.halt_changed
+            # (release already broadcasts; trigger path previously did not).
+            try:
+                from python.harness.server import broadcast_notification
+                await broadcast_notification("system.halt_changed", {"halted": True})
+            except Exception:
+                logger.debug("system.halt_changed broadcast failed", exc_info=True)
         elif action == "pause":
             # 'paused', NOT 'blocked'. resume_suspended_goals selects
             # "status = 'blocked' AND parent_id IS NULL" at startup and
@@ -309,17 +316,10 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
             # start -- a task could not be made to stay stopped.
             await db.execute("UPDATE tasks SET status = 'paused' WHERE id = $1 OR parent_id = $1", task_id)
         elif action == "resume":
+            # Model A: Resume requeues the task only. It must NOT release the
+            # global emergency halt -- that is system.release_halt (owner-gated).
+            # Abort and Halt On/Off are separate controls.
             await db.execute("UPDATE tasks SET status = 'pending' WHERE id = $1 OR parent_id = $1", task_id)
-            # Releasing the halt is the other half of abort being real. The
-            # halt is global and now actually blocks tool execution, so without
-            # a release path the first abort would lock the agent out of every
-            # tool permanently, with nothing in the UI able to undo it -- a
-            # working kill switch and no key.
-            if RevocationHalt.is_halted():
-                RevocationHalt.release_emergency_halt()
-                logger.warning(
-                    "Emergency halt released by resume of task %s", task_id,
-                )
 
         return _ok(req_id, {
             "success": True,
@@ -337,7 +337,47 @@ async def handle_task_control(params: dict[str, Any], req_id: Any) -> str:
 async def handle_task_clear(params: dict[str, Any], req_id: Any) -> str:
     """
     ``task.clear`` — Wipe all tasks and their associated telemetry.
+
+    UI-audit C5: confirm-only UX was insufficient. Require an explicit
+    ``confirm="CLEAR_QUEUE"`` token, refuse while the emergency halt is
+    engaged (dispatch also gates this), and require a valid harness_secret.
     """
+    confirm = str(params.get("confirm") or "").strip()
+    if confirm != "CLEAR_QUEUE":
+        return _err(
+            req_id,
+            JsonRpcError.INVALID_PARAMS,
+            "task.clear requires confirm='CLEAR_QUEUE' (not UI confirm alone).",
+        )
+
+    try:
+        from python.harness.halt_gate import is_halted_fail_closed
+        if is_halted_fail_closed():
+            return _err(
+                req_id,
+                JsonRpcError.INVALID_REQUEST,
+                "Emergency halt is engaged; task.clear refused. "
+                "Release it with system.release_halt first.",
+                {"halted": True},
+            )
+    except Exception as exc:
+        return _err(
+            req_id,
+            JsonRpcError.INVALID_REQUEST,
+            f"Halt state unreadable; task.clear refused ({type(exc).__name__}).",
+            {"halted": True},
+        )
+
+    # Owner gate required (UI-audit C5): confirm alone is insufficient for
+    # truncate. Electron injects harness_secret the same way as trigger_update.
+    from python.harness.admin_auth import require_harness_admin_secret
+    if not require_harness_admin_secret(params):
+        return _err(
+            req_id,
+            JsonRpcError.INVALID_REQUEST,
+            "Unauthorized: task.clear requires a valid harness admin secret.",
+        )
+
     try:
         await db.execute("TRUNCATE TABLE tasks CASCADE;")
         return _ok(req_id, {"success": True, "message": "All tasks and telemetry have been cleared."})

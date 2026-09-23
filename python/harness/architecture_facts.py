@@ -249,7 +249,11 @@ def security_model() -> dict[str, Any]:
             src, re.DOTALL,
         )
         if guard:
-            unlisted_forwarded = "python:rpc" in guard.group(1)
+            body = guard.group(1)
+            unlisted_forwarded = (
+                "ipcRenderer.invoke('python:rpc'" in body
+                or 'ipcRenderer.invoke("python:rpc"' in body
+            )
 
     return {
         "renderer_isolation": {
@@ -268,7 +272,9 @@ def security_model() -> dict[str, Any]:
                 "whole method table -- roughly 190 methods, shell.run among "
                 "them -- and not this list."
                 if unlisted_forwarded else
-                "An unlisted channel is refused."
+                "An unlisted channel is refused at preload. Dotted RPC method "
+                "names must go through helpers.invoke, which remaps them to "
+                "python:rpc without reopening a preload fallthrough."
             ),
             "docstring_is_wrong": bool(unlisted_forwarded),
             "note": (
@@ -276,7 +282,9 @@ def security_model() -> dict[str, Any]:
                 "whitelisted'. It does not throw. Anything rendered into the "
                 "renderer that can execute script can therefore call the "
                 "harness."
-                if unlisted_forwarded else ""
+                if unlisted_forwarded else
+                "renderer/helpers.js remaps dotted method names to python:rpc; "
+                "bare window.tala.request/invoke of those names is rejected."
             ),
         },
         "peer_permission_checks": {

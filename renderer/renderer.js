@@ -1381,15 +1381,16 @@ const ChannelsManager = {
    ═══════════════════════════════════════════════════════════════════ */
 const SwarmDashboardManager = {
   _initialized: false,
+  _wsConnected: false,
   init() {
     if (this._initialized) return;
     this._initialized = true;
-    
+
     const refreshBtn = document.getElementById('btn-refresh-swarm');
     if (refreshBtn) {
       refreshBtn.addEventListener('click', () => this.refresh());
     }
-    
+
     // Auto-refresh every 5 seconds when visible
     setInterval(() => {
       const panel = document.getElementById('settings-panel-architecture');
@@ -1397,16 +1398,31 @@ const SwarmDashboardManager = {
         this.refresh();
       }
     }, 5000);
-    
+
+    if (typeof swarmSyncWsControls === 'function') swarmSyncWsControls();
     this.refresh();
   },
-  
+
   async refresh() {
+    // Status probes still attempt when WS is up; when down, skip RPC noise.
+    if (typeof mcWsConnected === 'function' && !mcWsConnected()) {
+      this._wsConnected = false;
+      const tbody = document.getElementById('swarm-tbody');
+      if (tbody) {
+        tbody.innerHTML = `
+          <tr>
+            <td colspan="6" style="padding: var(--space-3); text-align: center; color: var(--text-muted);">WebSocket disconnected — reconnect to probe fleet swarm worktrees.</td>
+          </tr>
+        `;
+      }
+      return;
+    }
     try {
-      const res = await window.tala.invoke('swarm.fleet.status', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.fleet.status', params: {} });
       const tbody = document.getElementById('swarm-tbody');
       if (!tbody) return;
-      
+      const wsAttr = (typeof mcWsDisabledAttr === 'function') ? mcWsDisabledAttr() : '';
+
       if (!res.success || !res.tasks || res.tasks.length === 0) {
         tbody.innerHTML = `
           <tr>
@@ -1415,7 +1431,7 @@ const SwarmDashboardManager = {
         `;
         return;
       }
-      
+
       tbody.innerHTML = res.tasks.map(t => `
         <tr style="border-bottom: 1px solid rgba(255,255,255,0.05);">
           <td style="padding: var(--space-2); color: var(--accent-light); font-family: monospace;">${escapeHtml(t.id)}</td>
@@ -1431,9 +1447,9 @@ const SwarmDashboardManager = {
           </td>
           <td style="padding: var(--space-2); text-align: right;">
             <div style="display: flex; gap: 4px; justify-content: flex-end;">
-              <button onclick="SwarmDashboardManager.pauseTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #eab308; border-color: #eab308; color: #1e1e24;">Pause</button>
-              <button onclick="SwarmDashboardManager.resumeTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #22c55e; border-color: #22c55e; color: #1e1e24;">Resume</button>
-              <button onclick="SwarmDashboardManager.terminateTask('${t.id}')" class="btn-primary" style="font-size: 0.7rem; padding: 2px 6px; background: #ef4444; border-color: #ef4444; color: white;">Kill</button>
+              <button onclick="SwarmDashboardManager.pauseTask('${t.id}')" class="btn-primary"${wsAttr} style="font-size: 0.7rem; padding: 2px 6px; background: #eab308; border-color: #eab308; color: #1e1e24;">Pause</button>
+              <button onclick="SwarmDashboardManager.resumeTask('${t.id}')" class="btn-primary"${wsAttr} style="font-size: 0.7rem; padding: 2px 6px; background: #22c55e; border-color: #22c55e; color: #1e1e24;" title="Resume — continue this paused task only. Does NOT release the emergency halt.">Resume</button>
+              <button onclick="SwarmDashboardManager.terminateTask('${t.id}')" class="btn-primary"${wsAttr} style="font-size: 0.7rem; padding: 2px 6px; background: #ef4444; border-color: #ef4444; color: white;">Kill</button>
             </div>
           </td>
         </tr>
@@ -1442,29 +1458,32 @@ const SwarmDashboardManager = {
       console.error("Swarm Dashboard Refresh error:", err);
     }
   },
-  
+
   async pauseTask(taskId) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('pause this swarm task')) return;
     try {
-      await window.tala.invoke('swarm.fleet.pause', { task_id: taskId });
+      await window.tala.invoke('python:rpc', { method: 'swarm.fleet.pause', params: { task_id: taskId } });
       this.refresh();
     } catch (err) {
       alert("Pause failed: " + err);
     }
   },
-  
+
   async resumeTask(taskId) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('resume this swarm task')) return;
     try {
-      await window.tala.invoke('swarm.fleet.resume', { task_id: taskId });
+      await window.tala.invoke('python:rpc', { method: 'swarm.fleet.resume', params: { task_id: taskId } });
       this.refresh();
     } catch (err) {
       alert("Resume failed: " + err);
     }
   },
-  
+
   async terminateTask(taskId) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('terminate this swarm task')) return;
     if (!confirm("Are you sure you want to terminate task " + taskId + " and prune its resources?")) return;
     try {
-      await window.tala.invoke('swarm.fleet.terminate', { task_id: taskId });
+      await window.tala.invoke('python:rpc', { method: 'swarm.fleet.terminate', params: { task_id: taskId } });
       this.refresh();
     } catch (err) {
       alert("Termination failed: " + err);
@@ -1647,10 +1666,14 @@ const InferenceManager = {
       });
       if (response && response.providers && response.providers.length > 0) {
         this._providers = response.providers;
+        if (window.inferenceProbeGpuAndApply) await window.inferenceProbeGpuAndApply(this);
         this.render();
+      } else if (window.inferenceProbeGpuAndApply) {
+        await window.inferenceProbeGpuAndApply(this);
       }
     } catch (err) {
       console.warn('[InferenceManager] Failed to load providers:', err);
+      if (window.inferenceProbeGpuAndApply) await window.inferenceProbeGpuAndApply(this);
     }
   },
 
@@ -1951,12 +1974,8 @@ const InferenceManager = {
 
     let meta = '';
     if (p.type === 'embedded') {
-      if (p.status === 'downloading') {
-        const pct = p.progress !== undefined ? `${p.progress}%` : '0%';
-        meta = `Qwen/Qwen2.5-0.5B-Instruct · CPU inference · Downloading: ${pct}`;
-      } else {
-        meta = `Qwen/Qwen2.5-0.5B-Instruct · CPU inference · ~1B parameters · Always available`;
-      }
+      meta = window.inferenceEmbeddedMeta ? window.inferenceEmbeddedMeta(this, p)
+        : 'Qwen/Qwen2.5-0.5B-Instruct · CPU inference · Always available';
     }
     else if (p.type === 'local')  meta = [p.model, p.endpoint, p.engine].filter(Boolean).join(' · ') || 'Local endpoint';
     else if (p.type === 'remote') meta = [p.model, p.service, p.endpoint].filter(Boolean).join(' · ') || 'Remote API';
@@ -3722,6 +3741,7 @@ const LoggingManager = {
         if (item) item.title = detail ? `${service}: ${status} — ${detail}` : `${service}: ${status}`;
       }
     }
+    if (window.healthRenderActions) window.healthRenderActions(health);
   },
 
   renderEvents() {
@@ -6927,6 +6947,8 @@ const ConversationTabs = {
 
 const StatusBar = {
   _els: {},
+  _wsStatus: 'unknown',
+  _wsPushBound: false,
 
   init() {
     this._els = {
@@ -6935,37 +6957,72 @@ const StatusBar = {
       tokenValue:   qs('#status-token-value'),
       agentName:    qs('#status-agent-name'),
     };
+    // Classic scripts (mission_control_ops.js) cannot see ES-module bindings.
+    window.StatusBar = this;
+    this._bindWsPush();
+    this._pullWsStatus();
+  },
+
+  /** Mission Control and other panels gate destructive actions on this. */
+  isWsConnected() {
+    return this._wsStatus === 'ok';
+  },
+
+  /**
+   * Apply main.js wsConnected truth. Prefer harness:ws-status push / harness.ws_status
+   * pull over inferring from harness.health RPC success.
+   */
+  applyMainWsConnected(connected) {
+    this.setWsStatus(connected ? 'ok' : 'connecting');
+  },
+
+  _bindWsPush() {
+    if (this._wsPushBound) return;
+    if (!window.tala || typeof window.tala.on !== 'function') return;
+    this._wsPushBound = true;
+    window.tala.on('harness:ws-status', (payload) => {
+      const connected = Boolean(payload && payload.connected);
+      this.applyMainWsConnected(connected);
+    });
+  },
+
+  async _pullWsStatus() {
+    try {
+      const res = await invoke('python:rpc', { method: 'harness.ws_status', params: {} });
+      if (res && typeof res.connected === 'boolean') {
+        this.applyMainWsConnected(res.connected);
+      }
+    } catch (err) {
+      console.warn('[StatusBar] harness.ws_status pull failed:', err);
+    }
   },
 
   setWsStatus(status) {
+    const prev = this._wsStatus;
     const dot  = this._els.wsDot;
     const text = this._els.wsText;
-    if (!dot || !text) return;
-
-    // Remove all status classes
-    dot.className = 'status-dot';
-    const wsPulse = qs('#ws-pulse');
-    if (wsPulse) wsPulse.className = 'pulse-dot';
-
-    switch (status) {
-      case 'ok':
-        dot.classList.add('status-ok');
-        text.textContent = 'WS: connected';
-        if (wsPulse) wsPulse.classList.add('ok');
-        break;
-      case 'error':
-        dot.classList.add('status-error');
-        text.textContent = 'WS: error';
-        if (wsPulse) wsPulse.classList.add('error');
-        break;
-      case 'connecting':
-        dot.classList.add('status-connecting');
-        text.textContent = 'WS: connecting…';
-        if (wsPulse) wsPulse.classList.add('connecting');
-        break;
-      default:
-        dot.classList.add('status-unknown');
-        text.textContent = 'WS: unknown';
+    this._wsStatus = status || 'unknown';
+    if (dot && text) {
+      dot.className = 'status-dot';
+      const wsPulse = qs('#ws-pulse');
+      if (wsPulse) wsPulse.className = 'pulse-dot';
+      const map = { ok: ['status-ok', 'WS: connected', 'ok'], error: ['status-error', 'WS: error', 'error'], connecting: ['status-connecting', 'WS: connecting…', 'connecting'] };
+      const [cls, label, pulse] = map[status] || ['status-unknown', 'WS: unknown', null];
+      dot.classList.add(cls);
+      text.textContent = label;
+      if (wsPulse && pulse) wsPulse.classList.add(pulse);
+    }
+    if (typeof MissionControl !== 'undefined' && typeof mcSyncDestructiveControls === 'function') {
+      mcSyncDestructiveControls(MissionControl);
+    }
+    if (typeof swarmSyncWsControls === 'function') {
+      swarmSyncWsControls();
+    }
+    // Settings may have failed environment.get at boot while WS was down.
+    if (this._wsStatus === 'ok' && prev !== 'ok'
+        && typeof SettingsDashboard !== 'undefined'
+        && typeof SettingsDashboard.loadEnvironment === 'function') {
+      SettingsDashboard.loadEnvironment();
     }
   },
 
@@ -7343,13 +7400,22 @@ const TelemetryPoller = {
     const { status, active_agent, tokens_used, token_balance, token_mode,
             last_latency_ms } = health;
 
-    // WS / harness status
-    StatusBar.setWsStatus(status === 'ok' ? 'ok' : 'error');
+    // Harness service label only — WS badge is driven by main.js wsConnected
+    // via harness:ws-status / harness.ws_status (not RPC success guessing).
+    let harnessLabel = 'Degraded';
+    let harnessDotCls = 'error';
+    if (status === 'ok') {
+      harnessLabel = 'Running';
+      harnessDotCls = 'ok';
+    } else if (status === 'connecting') {
+      harnessLabel = 'Connecting…';
+      harnessDotCls = 'connecting';
+    }
     const harnessText = qs('#harness-status-text');
     const harnessDot  = qs('#harness-status .status-dot');
-    if (harnessText) harnessText.textContent = status === 'ok' ? 'Running' : 'Degraded';
+    if (harnessText) harnessText.textContent = harnessLabel;
     if (harnessDot) {
-      harnessDot.className = `status-dot status-${status === 'ok' ? 'ok' : 'error'}`;
+      harnessDot.className = `status-dot status-${harnessDotCls}`;
     }
 
     // Active agent
@@ -7370,7 +7436,8 @@ const TelemetryPoller = {
 
   _handleDegraded() {
     this._retries++;
-    StatusBar.setWsStatus(this._retries < this.MAX_RETRIES ? 'connecting' : 'error');
+    // Do not flip the WS badge here — a health RPC miss is not the same as
+    // main.js wsConnected=false. harness:ws-status owns that indicator.
     const harnessText = qs('#harness-status-text');
     if (harnessText) harnessText.textContent = 'Connecting…';
     if (this._retries >= this.MAX_RETRIES) {
@@ -10574,8 +10641,43 @@ const GuardrailsManager = {
           if (this._formEl) this._formEl.classList.remove('custom-disabled');
         }
       }
+      await this.refreshUnsafeDefaultsWarning();
     } catch (err) {
       console.warn('[GuardrailsManager] Failed to load guardrails settings:', err);
+    }
+  },
+
+  /**
+   * Highs H7: show the banner only when posture is relaxed from fail-closed
+   * defaults (network off, or lease mode not enforce).
+   */
+  async refreshUnsafeDefaultsWarning() {
+    const el = qs('#guardrails-unsafe-defaults-warning');
+    if (!el) return;
+    let networkEnabled = true;
+    let leaseMode = 'enforce';
+    try {
+      const net = await invoke('python:rpc', {
+        method: 'guardrails.get_network',
+        params: {}
+      });
+      if (net && net.network) {
+        networkEnabled = !!net.network.enabled;
+      }
+      if (net && net.lease_mode) {
+        leaseMode = String(net.lease_mode);
+      }
+    } catch (err) {
+      console.warn('[GuardrailsManager] Could not refresh network/lease posture:', err);
+    }
+    const relaxed = (!networkEnabled) || (leaseMode !== 'enforce');
+    el.style.display = relaxed ? '' : 'none';
+    if (relaxed) {
+      el.innerHTML = '<strong>Relaxed posture:</strong> network guard is '
+        + (networkEnabled ? 'on' : '<em>off</em>')
+        + ', lease mode is <code>' + leaseMode + '</code>. '
+        + 'Code defaults are network on + default-deny and lease <code>enforce</code>. '
+        + 'Set <code>TALA_LEASE_MODE=open</code> only for first-run/dev.';
     }
   },
 
@@ -12042,14 +12144,12 @@ const WorkflowManager = {
   }
 };
 
-
 /* ═══════════════════════════════════════════════════════════════════
    21. MissionControl — Developer dashboard panel
    ═══════════════════════════════════════════════════════════════════ */
 const MissionControl = {
   init() {
     this._btnRefresh = qs('#btn-mc-refresh');
-    this._btnHalt = qs('#btn-mc-halt');
     this._btnScan = qs('#btn-mc-scan');
     this._btnLint = qs('#btn-mc-lint');
     this._btnRevert = qs('#btn-mc-revert');
@@ -12091,7 +12191,9 @@ const MissionControl = {
     }
 
     if (this._btnRefresh) this._btnRefresh.addEventListener('click', () => this.refreshAll());
-    if (this._btnHalt) this._btnHalt.addEventListener('click', () => this.haltCurrentLoop());
+    mcBindOwnerControls(this);
+    if (this._btnTaskClear) this._btnTaskClear.setAttribute('data-title-connected', this._btnTaskClear.title || 'Clear Queue');
+    if (typeof mcSyncDestructiveControls === 'function') mcSyncDestructiveControls(this);
     if (this._btnScan) this._btnScan.addEventListener('click', () => this.runScan());
     if (this._btnLint) this._btnLint.addEventListener('click', () => this.runLint());
     if (this._btnRevert) this._btnRevert.addEventListener('click', () => this.runRevert());
@@ -12220,6 +12322,8 @@ const MissionControl = {
   },
 
   async controlTask(id, action) {
+    // Abort / Resume / Pause need a live harness WS (H4).
+    if (typeof mcRequireWs === 'function' && !mcRequireWs(`${action} task`)) return;
     // Aborting is not reversible and cascades to children, so it confirms;
     // pause and resume do not, because their whole value is being quick.
     if (action === 'abort') {
@@ -12231,11 +12335,14 @@ const MissionControl = {
       await invoke('python:rpc', { method: 'task.control', params: { task_id: id, action } });
       await this.loadTasks();
     } catch (err) {
-      IPCLog.append('error', `Could not ${action} task: ${err.message || err}`);
+      const msg = `Could not ${action} task: ${err.message || err}`;
+      IPCLog.append('error', msg);
+      alert(msg);
     }
   },
 
   async deleteTask(id) {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('delete task')) return;
     const task = (this._taskCache || []).find(t => t.id === id);
     const label = task ? `"${task.description}"` : id;
     if (!confirm(`Delete task ${label} and any sub-tasks? This cannot be undone.`)) return;
@@ -12243,21 +12350,13 @@ const MissionControl = {
       await invoke('python:rpc', { method: 'task.delete', params: { task_id: id } });
       await this.loadTasks();
     } catch (err) {
-      IPCLog.append('error', `Could not delete task: ${err.message || err}`);
+      const msg = `Could not delete task: ${err.message || err}`;
+      IPCLog.append('error', msg);
+      alert(msg);
     }
   },
 
-  async clearTaskQueue() {
-    const count = (this._taskCache || []).length;
-    if (!confirm(`Clear the entire task queue? This deletes all ${count} task(s) and their telemetry, and cannot be undone.`)) return;
-    try {
-      await invoke('python:rpc', { method: 'task.clear', params: {} });
-      IPCLog.append('info', 'Task queue cleared.');
-      await this.loadTasks();
-    } catch (err) {
-      IPCLog.append('error', `Could not clear the queue: ${err.message || err}`);
-    }
-  },
+  async clearTaskQueue() { return mcClearTaskQueue(this, this._taskCache); },
 
   /* ── Scheduled goals ──────────────────────────────────────────────
      The cron scheduler has run from server startup since it was built, but
@@ -12693,17 +12792,23 @@ const MissionControl = {
                   <span style="font-size: 0.7rem; padding: 2px 6px; border-radius: 4px; background: ${statusColor}22; color: ${statusColor}; border: 1px solid ${statusColor}44; text-transform: uppercase;">
                     ${t.status}
                   </span>
-                  ${t.status === 'review'
-                    ? `<button class="btn btn-primary" data-task-action="approve" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 9px;">Approve</button>
-                       <button class="btn btn-ghost" data-task-action="reject" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;">Reject</button>`
-                    : MissionControl.TASK_LIVE_STATUSES.includes(t.status)
-                    ? `<button class="btn btn-ghost" data-task-action="pause" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Pause</button>
-                       <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Abort</button>`
-                    : t.status === 'paused'
-                    ? `<button class="btn btn-ghost" data-task-action="resume" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Resume</button>
-                       <button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`
-                    : `<button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`}
-                  <button class="btn btn-ghost" data-task-action="delete" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;">Delete</button>
+                  ${(() => {
+                    const dis = (typeof mcWsDisabledAttr === 'function') ? mcWsDisabledAttr() : '';
+                    if (t.status === 'review') {
+                      return `<button class="btn btn-primary" data-task-action="approve" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 9px;"${dis}>Approve</button>
+                       <button class="btn btn-ghost" data-task-action="reject" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;"${dis}>Reject</button>`;
+                    }
+                    if (MissionControl.TASK_LIVE_STATUSES.includes(t.status)) {
+                      return `<button class="btn btn-ghost" data-task-action="pause" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis}>Pause</button>
+                       <button class="btn btn-ghost" data-task-action="abort" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis} title="ABORT — stop this task (may engage emergency halt). Does not unlock; use RELEASE HALT.">Abort</button>`;
+                    }
+                    if (t.status === 'paused') {
+                      return `<button class="btn btn-ghost" data-task-action="resume" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;"${dis} title="Resume — continue this paused task only. Does NOT release the emergency halt.">Resume</button>
+                       <button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`;
+                    }
+                    return `<button class="btn btn-ghost" data-task-action="edit" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px;">Edit</button>`;
+                  })()}
+                  <button class="btn btn-ghost" data-task-action="delete" data-task-id="${escapeHtml(t.id)}" style="font-size: 0.65rem; padding: 2px 7px; color: #ff6b6b;"${(typeof mcWsDisabledAttr === 'function') ? mcWsDisabledAttr() : ''}>Delete</button>
                 </div>
               </div>
               ${bodyContent}
@@ -12862,25 +12967,8 @@ const MissionControl = {
     }
   },
 
-  async haltCurrentLoop() {
-    try {
-      const result = await invoke('python:rpc', { method: 'task.list', params: {} });
-      if (result && result.tasks && result.tasks.length > 0) {
-        const active = result.tasks[0];
-        const haltRes = await invoke('python:rpc', { method: 'task.control', params: { task_id: active.id, action: 'abort' } });
-        if (haltRes && haltRes.success) {
-          alert('Task queue loop halted and emergency lockdown enabled.');
-          await this.refreshAll();
-        } else {
-          alert('Failed to halt task.');
-        }
-      } else {
-        alert('No active task queue running.');
-      }
-    } catch (err) {
-      alert(`Halt loop error: ${err.message}`);
-    }
-  }
+  async haltCurrentLoop() { return mcHaltCurrentLoop(this); },
+  async releaseEmergencyHalt() { return mcReleaseEmergencyHalt(this); },
 };
 
 /* ═══════════════════════════════════════════════════════════════════
@@ -15058,7 +15146,7 @@ const AgentBuilder = {
 
   async refreshWorkers() {
     try {
-      const res = await window.tala.invoke('swarm.workers.active', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.workers.active', params: {} });
       this.activeWorkers = res.workers || [];
       const listEl = qs('#builder-workers-list');
       if (!listEl) return;
@@ -15084,7 +15172,7 @@ const AgentBuilder = {
     try {
       // reload:true so the list reflects what is actually on disk — a swarm
       // saved or deleted in this session must not linger from a stale registry.
-      const res = await window.tala.invoke('swarm.topology.list', { reload: true });
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.list', params: { reload: true } });
       const topologies = res.topologies || [];
       this.topologies = topologies;
       this.knownGateConditions = res.known_gate_conditions || ['success'];
@@ -15312,14 +15400,15 @@ const AgentBuilder = {
   },
 
   async saveTopology() {
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('save this swarm')) return;
     const topology = this.collectTopologyForm();
     this.showTopologyEditorError('');
     try {
-      const res = await window.tala.invoke('swarm.topology.create', {
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.create', params: {
         topology,
         semantic_memory: qs('#topo-edit-prose').value.trim() || undefined,
         created_by: 'user',
-      });
+      } });
       if (res && res.success) {
         IPCLog.append('info', `Saved swarm "${topology.name}" as ${res.node_id}.html`);
         this.closeTopologyEditor();
@@ -15338,9 +15427,10 @@ const AgentBuilder = {
   async deleteTopology() {
     const topology = this.selectedTopology;
     if (!topology) return;
+    if (typeof mcRequireWs === 'function' && !mcRequireWs('delete this swarm')) return;
     if (!confirm(`Delete the swarm "${topology.name}"?\n\nThis removes its neural node (${topology.source_node_id}.html).`)) return;
     try {
-      const res = await window.tala.invoke('swarm.topology.delete', { topology_id: topology.topology_id });
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.delete', params: { topology_id: topology.topology_id } });
       if (res && res.success) {
         IPCLog.append('info', `Deleted swarm "${topology.name}"`);
         if (res.reverted_to_builtin) {
@@ -15381,13 +15471,15 @@ const AgentBuilder = {
     if (editBtn) editBtn.style.display = topology.editable ? 'block' : 'none';
     if (deleteBtn) deleteBtn.style.display = topology.editable ? 'block' : 'none';
     this.bindTopologyEditor();
+    if (typeof swarmSyncWsControls === 'function') swarmSyncWsControls();
 
 
     startBtn.onclick = async () => {
+      if (typeof mcRequireWs === 'function' && !mcRequireWs('start this swarm')) return;
       const goal = prompt("Enter the Swarm Goal:");
       if (!goal) return;
       try {
-        const res = await window.tala.invoke('swarm.start', { topology_id: topology.topology_id, goal });
+        const res = await window.tala.invoke('python:rpc', { method: 'swarm.start', params: { topology_id: topology.topology_id, goal } });
         if (res.success) {
           alert('Swarm launched! Parent Task ID: ' + res.task_id);
           this.switchTab('taskboard');
@@ -15548,7 +15640,7 @@ const AgentBuilder = {
 
   async refreshTaskBoard() {
     try {
-      const res = await window.tala.invoke('task.list', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'task.list', params: {} });
       const tasks = res.tasks || [];
       
       const cols = ['pending', 'planned', 'ready', 'running', 'review', 'blocked', 'done'];
@@ -15595,7 +15687,7 @@ const AgentBuilder = {
             e.stopPropagation();
             const workerId = prompt('Enter Worker ID to assign (e.g. from Workers tab):', t.assigned_agent_id || '');
             if (workerId) {
-              window.tala.invoke('task.assign_worker', { task_id: t.id, agent_id: workerId })
+              window.tala.invoke('python:rpc', { method: 'task.assign_worker', params: { task_id: t.id, agent_id: workerId } })
                 .then(() => this.refreshTaskBoard());
             }
           });
@@ -15605,7 +15697,7 @@ const AgentBuilder = {
         if (btnWorktree) {
           btnWorktree.addEventListener('click', (e) => {
             e.stopPropagation();
-            window.tala.invoke('task.create_worktree', { task_id: t.id }).then(res => {
+            window.tala.invoke('python:rpc', { method: 'task.create_worktree', params: { task_id: t.id } }).then(res => {
               if (res.error) alert(res.error.message);
               else this.refreshTaskBoard();
             });
@@ -15639,7 +15731,7 @@ const AgentBuilder = {
     
     // Fetch topology schema
     try {
-      const res = await window.tala.invoke('swarm.topology.list', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'swarm.topology.list', params: {} });
       const topologies = res.topologies || [];
       const topology = topologies.find(t => t.topology_id === topologyId);
       
@@ -15743,7 +15835,7 @@ const AgentBuilder = {
     
     try {
       // Fetch Tasks to see active child tasks
-      const res = await window.tala.invoke('task.list', {});
+      const res = await window.tala.invoke('python:rpc', { method: 'task.list', params: {} });
       const tasks = res.tasks || [];
       
       // Find children of monitored task
@@ -15777,7 +15869,7 @@ const AgentBuilder = {
       
       // Fetch Telemetry (simulated for now since get_telemetry RPC might not be implemented exactly this way,
       // but let's try calling task.get_telemetry)
-      const telRes = await window.tala.invoke('task.get_telemetry', { task_id: this.monitoredTask, include_children: true });
+      const telRes = await window.tala.invoke('python:rpc', { method: 'task.get_telemetry', params: { task_id: this.monitoredTask, include_children: true } });
       const events = telRes.events || [];
       
       const consoleEl = qs('#runs-telemetry-console');
@@ -15828,8 +15920,7 @@ const GatewayStatusManager = {
 
   async checkStatus() {
     try {
-      if(!window.tala || !window.tala.request) return;
-      const res = await window.tala.request('gateway.status', {});
+      const res = await invoke('gateway.status', {});
       this.renderAuthPosture(res);
       if (res && res.status === 'online') {
         this.hidePanel();
@@ -15915,8 +16006,7 @@ const PluginRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Loading plugin manifests...</div>';
     try {
-      if(!window.tala || !window.tala.request) return;
-      const res = await window.tala.request('plugins.list', {});
+      const res = await invoke('plugins.list', {});
       if (res && res.plugins) {
         this.renderPlugins(res.plugins);
         this._loaded = true;
@@ -15932,7 +16022,7 @@ const PluginRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Reloading plugin manifests...</div>';
     try {
-      const res = await window.tala.request('plugins.reload', {});
+      const res = await invoke('plugins.reload', {});
       if (res && res.plugins) {
         this.renderPlugins(res.plugins);
         this._loaded = true;
@@ -15946,7 +16036,7 @@ const PluginRegistryManager = {
 
   async validatePlugin(pluginPath) {
     try {
-      const res = await window.tala.request('plugins.validate', { path: pluginPath });
+      const res = await invoke('plugins.validate', { path: pluginPath });
       if (res.valid) {
         alert("Plugin manifest is valid!");
       } else {
@@ -15968,41 +16058,11 @@ const PluginRegistryManager = {
 
     plugins.forEach(p => {
       const card = document.createElement('div');
-      const permissions = (p.permissions || []);
-      const tools = (p.tools || []);
-      const mcpServers = (p.mcp_servers || []);
-      const runtimeLabel = p.runtime_status === 'loaded' ? 'manifest loaded' : (p.runtime_status || 'unknown');
-      const permissionHtml = permissions.length
-        ? permissions.map(perm => `<span class="admin-tag${String(perm).includes('shell') ? ' admin-tag-risk' : ''}">${escapeHtml(perm)}</span>`).join('')
-        : '<span class="admin-tag admin-tag-muted">no permissions</span>';
-      const manifestStats = [
-        `${tools.length} tools`,
-        `${mcpServers.length} MCP`,
-        `v${p.version || 'unknown'}`
-      ];
-
-      card.className = `admin-plugin-card${p.valid ? '' : ' admin-plugin-card-error'}`;
-      card.innerHTML = `
-        <div class="admin-card-header">
-          <div class="admin-card-title-wrap">
-            <h4 class="admin-card-title">${escapeHtml(p.name || p.id || 'Unnamed Plugin')}</h4>
-            <div class="admin-card-meta">${escapeHtml(p.id || 'no-id')}</div>
-          </div>
-          <div class="admin-status-stack">
-            <span class="admin-status-chip ${p.valid ? 'status-ok' : 'status-error'}">${p.valid ? 'valid' : 'invalid'}</span>
-            <span class="admin-status-chip ${p.runtime_status === 'crashed' ? 'status-error' : 'status-info'}" title="Manifest parse state, not process liveness">${escapeHtml(runtimeLabel)}</span>
-          </div>
-        </div>
-        <div class="admin-card-meta-row">${manifestStats.map(escapeHtml).join(' / ')}</div>
-        <div class="admin-tag-row">${permissionHtml}</div>
-        ${p.error ? `<div class="admin-card-error-text">${escapeHtml(p.error)}</div>` : ''}
-        <div class="admin-card-actions">
-          <button class="btn btn-secondary btn-sm admin-plugin-validate">Validate</button>
-        </div>
-      `;
-
-      const btnValidate = card.querySelector('.admin-plugin-validate');
-      if (btnValidate) btnValidate.addEventListener('click', () => this.validatePlugin(p.path));
+      if (!window.pluginsBuildCardHtml) return;
+      const built = window.pluginsBuildCardHtml(p, escapeHtml);
+      card.className = built.className;
+      card.innerHTML = built.html;
+      if (window.pluginsWireCard) window.pluginsWireCard(card, p, (path) => this.validatePlugin(path));
       this._list.appendChild(card);
     });
   }
@@ -16099,7 +16159,7 @@ const MCPServerRegistryManager = {
   async discoverServers() {
     if (!this._discoveredList) return;
     try {
-      const res = await window.tala.request('mcp.discover', {});
+      const res = await invoke('mcp.discover', {});
       const found = (res && res.discovered) || [];
       this._discoveredCache = found;
       this._discovered.hidden = false;
@@ -16165,7 +16225,7 @@ const MCPServerRegistryManager = {
       ? { transport: 'sse', url: d.url }
       : { transport: 'stdio', command: d.command, args: d.args || [] };
     try {
-      const res = await window.tala.request('mcp.connect_server', { name: d.name, config, persist: true });
+      const res = await invoke('mcp.connect_server', { name: d.name, config, persist: true });
       IPCLog.append('ok', `Adopted MCP server "${d.name}" (${(res && res.tools_registered) || 0} tools registered).`);
       await this.discoverServers();
       await this.loadServers();
@@ -16183,7 +16243,7 @@ const MCPServerRegistryManager = {
 
     try {
       const config = this.buildConfig();
-      await window.tala.request('mcp.connect_server', { name, config, persist: true });
+      await invoke('mcp.connect_server', { name, config, persist: true });
       IPCLog.append('ok', `MCP server registered: ${name}`);
       if (this._form) this._form.reset();
       this.updateTransportFields();
@@ -16197,7 +16257,7 @@ const MCPServerRegistryManager = {
     if (!this._list) return;
     this._list.innerHTML = '<div class="admin-empty-state">Loading MCP servers...</div>';
     try {
-      const res = await window.tala.request('mcp.list_servers', {});
+      const res = await invoke('mcp.list_servers', {});
       this.renderServers(res?.servers || []);
       this._loaded = true;
     } catch (err) {
@@ -16207,7 +16267,7 @@ const MCPServerRegistryManager = {
 
   async removeServer(name) {
     try {
-      await window.tala.request('mcp.remove_server', { name });
+      await invoke('mcp.remove_server', { name });
       IPCLog.append('info', `MCP server removed: ${name}`);
       await this.loadServers();
     } catch (err) {
@@ -16220,7 +16280,7 @@ const MCPServerRegistryManager = {
     if (!target) return;
     target.innerHTML = '<span class="admin-tag admin-tag-muted">loading tools...</span>';
     try {
-      const res = await window.tala.request('mcp.list_tools', { server_name: name });
+      const res = await invoke('mcp.list_tools', { server_name: name });
       const tools = res?.tools || [];
       target.innerHTML = tools.length
         ? tools.slice(0, 12).map(tool => `<span class="admin-tag">${escapeHtml(tool.name || tool.qualified_name || 'tool')}</span>`).join('')

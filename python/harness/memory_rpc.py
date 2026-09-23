@@ -96,3 +96,12 @@ async def handle_memory_reindex_profiles(params: dict[str, Any], req_id: Any) ->
     except Exception as exc:
         logger.exception("memory.reindex_profiles error")
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+
+async def handle_memory_rebuild_from_disk(params: dict[str, Any], req_id: Any) -> str:
+    from python.harness.memory import handle_memory_rebuild_from_disk as impl
+    try:
+        return _ok(req_id, await impl(params))
+    except Exception as exc:
+        logger.exception("memory.rebuild_from_disk error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+

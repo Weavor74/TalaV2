@@ -581,7 +581,8 @@
                     <div>
                       <div class="inference-router-eyebrow">ACTIVE SESSION ROUTING</div>
                       <h3 class="inference-router-title">Model Picker</h3>
-                      <p class="inference-router-copy">Choose the model Tala should use for this chat session. Auto mode follows provider priority and fallback; session routing passes the selected inference provider ID with chat requests.</p>
+                      <p class="inference-router-copy" id="inference-router-copy">Choose the model Tala should use for this chat session. Auto mode follows provider priority and fallback; session routing passes the selected inference provider ID with chat requests.</p>
+                      <p class="inference-router-copy inference-gpu-note" id="inference-gpu-note" hidden></p>
                     </div>
                     <div class="inference-router-status" id="inference-route-status">Auto priority</div>
                   </div>
@@ -1453,6 +1454,15 @@
                           <textarea id="gr-custom-list" rows="2" style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; font-family: inherit; resize: vertical;" placeholder="e.g. ignore previous instructions, roleplay as..."></textarea>
                         </div>
 
+                        <!-- Highs H7: warn when posture is relaxed from fail-closed defaults -->
+                        <div id="guardrails-unsafe-defaults-warning" style="margin: var(--space-3) 0; padding: 10px 12px; border-radius: 6px; background: rgba(255, 193, 7, 0.12); color: #ffc107; border: 1px solid rgba(255, 193, 7, 0.35); font-size: 0.78rem; line-height: 1.4;">
+                          <strong>Relaxed posture:</strong> code defaults are network guard <em>on</em> +
+                          default-deny (loopback always allowed) and lease mode <code>enforce</code>.
+                          This warning shows when network rules are disabled or lease mode is not
+                          <code>enforce</code> (e.g. <code>TALA_LEASE_MODE=open</code> for first-run/dev).
+                          Text prompt rules alone do not firewall outbound connections or gate ledger/file tools.
+                        </div>
+
                         <!-- Form Actions -->
                         <div class="form-actions-compact" style="display: flex; gap: var(--space-2); justify-content: flex-end; margin-top: var(--space-4);">
                           <button type="button" class="btn btn-secondary" id="btn-guardrails-reset" style="padding: var(--space-2) var(--space-3); font-size: 0.75rem;">Reset Config</button>
@@ -2050,6 +2060,7 @@
                       <span style="margin-left: var(--space-4);">MODE: <span id="health-overall-mode" style="font-family: var(--font-mono); color: var(--accent-blue); font-weight: 600;">DEGRADED_AUTONOMY</span></span>
                     </div>
                   </div>
+                  <div id="health-actions-strip" class="health-actions-strip" hidden></div>
                   <div class="system-health-grid">
                     <div class="health-item">
                       <span class="status-dot status-ok" id="health-dot-DB_HEALTH_SERVICE"></span>
@@ -2363,6 +2374,9 @@
                     </h2>
                     
                     <div id="swarm-dashboard-content" style="margin-top: var(--space-2); display: flex; flex-direction: column; gap: var(--space-2);">
+                    <div id="swarm-ws-disconnected" hidden style="margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(220,53,69,0.15); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.35); font-size: 0.8rem;">
+                      WebSocket disconnected — Pause / Resume / Kill and Refresh are disabled until the harness reconnects.
+                    </div>
                       <!-- Dynamically populated Swarm Worktrees, Docker Sandboxes, and Ports status table -->
                       <div class="table-container" style="background: rgba(255,255,255,0.02); border: 1px solid rgba(255,255,255,0.05); border-radius: 6px; padding: var(--space-3); overflow-x: auto;">
                         <table style="width: 100%; border-collapse: collapse; text-align: left; font-size: 0.8rem;">
@@ -2864,6 +2878,9 @@
                   </div>
                 </div>
                 <div class="topology-main" style="flex: 1; display: flex; flex-direction: column; position: relative;">
+                  <div id="agent-builder-swarm-ws-disconnected" hidden style="margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(220,53,69,0.15); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.35); font-size: 0.8rem;">
+                    WebSocket disconnected — Run Swarm / Save / Delete are disabled until the harness reconnects.
+                  </div>
                   <div class="topology-header" style="display: flex; justify-content: space-between; align-items: center; margin-bottom: var(--space-3);">
                     <h3 id="topology-title" style="margin: 0; font-size: 1rem;">Select a Topology</h3>
                     <div style="display: flex; gap: var(--space-2);">
@@ -3002,7 +3019,16 @@
             <h1 class="view-title">Mission Control</h1>
             <div class="view-actions">
               <button class="btn btn-ghost" id="btn-mc-refresh" title="Refresh state">Refresh</button>
-              <button class="btn btn-secondary" id="btn-mc-halt" style="background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4);" title="Halt current loop">HALT LOOP</button>
+              <div id="mc-ws-disconnected" hidden style="width:100%; margin-bottom: 8px; padding: 8px 10px; border-radius: 6px; background: rgba(220,53,69,0.15); color: #ff6b6b; border: 1px solid rgba(220,53,69,0.35); font-size: 0.8rem;">
+                WebSocket disconnected — Clear Queue, Abort, Resume, RELEASE HALT, and task delete are disabled until the harness reconnects.
+              </div>
+              <button class="btn btn-secondary" id="btn-mc-halt" style="background: rgba(220, 53, 69, 0.2); color: #ff6b6b; border: 1px solid rgba(220, 53, 69, 0.4);" title="ABORT / HALT — engage the kill switch (abort active task + emergency halt). Does not unlock; use RELEASE HALT for that." data-help="Engages the emergency kill switch. Resume will not unlock.">ABORT / HALT</button>
+              <button class="btn btn-secondary" id="btn-mc-release-halt" style="background: rgba(34, 197, 94, 0.15); color: #4ade80; border: 1px solid rgba(34, 197, 94, 0.35);" title="RELEASE HALT — owner unlock of the kill switch (system.release_halt + secret). Not the same as Resume." data-help="Owner unlock only. Resume a paused task does NOT release the halt.">RELEASE HALT</button>
+              <div id="mc-halt-legend" class="mc-halt-legend" title="Three distinct controls">
+                <span><strong>ABORT/HALT</strong> = kill switch on</span>
+                <span><strong>Resume</strong> (per task) = continue work only — does not unlock</span>
+                <span><strong>RELEASE HALT</strong> = owner unlock</span>
+              </div>
             </div>
           </div>
           <div class="mission-control-grid" style="display: grid; grid-template-columns: 1fr 1fr; gap: var(--space-4); padding: var(--space-4); height: calc(100% - 70px); overflow-y: auto;">
@@ -3462,7 +3488,7 @@
                 <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" width="28" height="28"><circle cx="12" cy="12" r="3"/><path d="M12 2v3M12 19v3M4.22 4.22l2.12 2.12M17.66 17.66l2.12 2.12M2 12h3M19 12h3M4.22 19.78l2.12-2.12M17.66 6.34l2.12-2.12"/></svg>
               </div>
               <div class="ptc-name">Embedded</div>
-              <div class="ptc-desc">Built-in 1B model · Always available · No internet required · CPU inference</div>
+              <div class="ptc-desc" id="ptc-desc-embedded">Built-in 1B model · Always available · No internet required · CPU inference</div>
               <div class="ptc-badge ptc-badge-embedded">ALWAYS ON</div>
             </button>
 
@@ -3551,6 +3577,10 @@
   <script src="helpers.js"></script>
   <script src="desktop_commands.js"></script>
   <script src="thinking_blocks.js"></script>
+  <script src="mission_control_ops.js"></script>
+  <script src="health_ops.js"></script>
+  <script src="inference_gpu_ops.js"></script>
+  <script src="plugins_ops.js"></script>
   <script type="module" src="renderer.js"></script>
 
   <!-- ⎇ Add Git Provider Modal ⎇ -->

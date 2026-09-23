@@ -168,6 +168,84 @@ def mcp_server_permissions() -> Dict[str, List[str]]:
     return out
 
 
+def _mcp_bridge_runtime() -> Dict[str, Any]:
+    """
+    Honest runtime status for the synthetic MCP Bridge plugin card.
+
+    The bridge has no plugin.json on disk, so a scan that only stamped
+    ``id``/``permissions`` left the UI with falsy ``valid`` and missing
+    ``runtime_status`` → INVALID / UNKNOWN even when the bridge itself was
+    fine (smoke 2026-09-17: Test MCP Provider VALID, MCP Bridge INVALID).
+    """
+    try:
+        from python.harness.mcp_manager import mcp_manager
+
+        servers = mcp_manager.list_servers() or []
+    except Exception as exc:
+        return {
+            "valid": False,
+            "runtime_status": "error",
+            "error": f"MCP manager unavailable: {type(exc).__name__}: {exc}",
+            "next_action": "Restart the harness, then reopen Settings → Plugins.",
+            "mcp_servers": [],
+            "server_count": 0,
+        }
+
+    names: List[str] = []
+    missing_transport: List[str] = []
+    for server in servers:
+        if not isinstance(server, dict):
+            continue
+        name = str(server.get("name") or server.get("id") or "").strip()
+        if not name:
+            continue
+        names.append(name)
+        cfg = server.get("config") if isinstance(server.get("config"), dict) else server
+        has_transport = bool(
+            (cfg or {}).get("command")
+            or (cfg or {}).get("url")
+            or (cfg or {}).get("transport")
+        )
+        if not has_transport:
+            missing_transport.append(name)
+
+    if missing_transport:
+        listed = ", ".join(missing_transport)
+        return {
+            "valid": False,
+            "runtime_status": "error",
+            "error": f"MCP server(s) missing transport (command/url): {listed}",
+            "next_action": (
+                "Open Settings → Plugins → MCP servers; edit each listed server "
+                "and set a stdio command or SSE URL, then re-test."
+            ),
+            "mcp_servers": sorted(names),
+            "server_count": len(names),
+        }
+
+    if not names:
+        return {
+            "valid": True,
+            "runtime_status": "idle",
+            "error": None,
+            "next_action": (
+                "Bridge is registered. Add an MCP server under Settings → Plugins "
+                "(Discover or Add Server) to expose tools."
+            ),
+            "mcp_servers": [],
+            "server_count": 0,
+        }
+
+    return {
+        "valid": True,
+        "runtime_status": "ready",
+        "error": None,
+        "next_action": None,
+        "mcp_servers": sorted(names),
+        "server_count": len(names),
+    }
+
+
 def mcp_bridge_manifest() -> Dict[str, Any]:
     """
     A manifest for the bridge, so its tools are gated rather than refused.
@@ -177,8 +255,14 @@ def mcp_bridge_manifest() -> Dict[str, Any]:
     matters is the per-call one in the bridge, which tests the *individual*
     server rather than the union — otherwise one server declaring
     ``shell:execute`` would lend it to every other.
+
+    Also stamps ``valid`` / ``runtime_status`` / ``next_action`` so Settings →
+    Plugins never renders the synthetic entry as INVALID/UNKNOWN by omission.
     """
     per_server = mcp_server_permissions()
+    runtime = _mcp_bridge_runtime()
+    # Prefer permission-map server names when present; fall back to runtime list.
+    mcp_servers = sorted(per_server) or list(runtime.get("mcp_servers") or [])
     return {
         "id": MCP_BRIDGE_ID,
         "name": "MCP Bridge",
@@ -187,5 +271,13 @@ def mcp_bridge_manifest() -> Dict[str, Any]:
         "trust_level": "standard",
         "permissions": sorted({p for perms in per_server.values() for p in perms}),
         "tools": [],
-        "mcp_servers": sorted(per_server),
+        "mcp_servers": mcp_servers,
+        # Synthetic: no on-disk plugin.json. Validate must not require a path.
+        "path": None,
+        "synthetic": True,
+        "valid": bool(runtime["valid"]),
+        "runtime_status": runtime["runtime_status"],
+        "error": runtime.get("error"),
+        "next_action": runtime.get("next_action"),
+        "server_count": runtime.get("server_count", len(mcp_servers)),
     }

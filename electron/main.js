@@ -47,6 +47,11 @@ const { spawn, spawnSync }  = require('node:child_process');
 const { registerHandlers } = require('./ipc-handlers');
 const { rpcTimeoutMs } = require('./rpc_policy');
 const { initBlockchain, spawnBlockchain, stopBlockchain } = require('./blockchain-process');
+const { ensureWsToken: ensureWsTokenFile, ensureWebUiToken: ensureWebUiTokenFile } = require('./token_files');
+const {
+  fetchExpectedUpdateHash,
+  injectOwnerSecret,
+} = require('./harness_admin');
 
 // Lazily require 'ws' (installed via npm). We import it here so the entire
 // module doesn't fail if ws isn't yet installed (first run before npm install).
@@ -98,41 +103,49 @@ function resolveDataRoot(appPath) {
 }
 
 /**
- * Read -- or create -- the shared secret for the harness WebSocket.
+ * Read -- or create -- the long-lived secret for harness WebSocket port 8765.
  *
  * Mirrors python/harness/ws_auth.py::load_or_create_token(). Electron does it
  * *before* spawning Python and passes the value in the environment, so the two
  * cannot disagree and there is no window in which the renderer is connecting
  * while the harness is still writing the file.
  *
+ * Only TALA_WS_TOKEN may pin this value (UI-audit C3). TALA_WEB_TOKEN is a
+ * distinct HTTP UI credential and must never be copied here.
+ *
  * @param {string} appPath
  * @returns {string}
  */
 function ensureWsToken(appPath) {
-  const pinned = (process.env.TALA_WEB_TOKEN || process.env.TALA_WS_TOKEN || '').trim();
-  if (pinned) return pinned;
+  return ensureWsTokenFile(resolveDataRoot(appPath));
+}
 
-  const tokenPath = path.join(resolveDataRoot(appPath), 'vault', '.keys', 'ws_token.txt');
-  try {
-    if (fs.existsSync(tokenPath)) {
-      const existing = fs.readFileSync(tokenPath, 'utf8').trim();
-      if (existing) return existing;
-    }
-    fs.mkdirSync(path.dirname(tokenPath), { recursive: true });
-    const token = require('node:crypto').randomBytes(32).toString('base64url');
-    fs.writeFileSync(tokenPath, token, { mode: 0o600 });
-    console.log(`[main] created a new harness WebSocket token at ${tokenPath}`);
-    return token;
-  } catch (err) {
-    console.error(`[main] could not establish a WebSocket token: ${err.message}`);
-    return '';
-  }
+/**
+ * Read -- or create -- the HTTP UI token for port 8767.
+ *
+ * Mirrors python/harness/webui.py::_load_or_create_web_token(). Deliberately a
+ * DIFFERENT secret from the WS token: the UI token may appear in a browser URL
+ * / history, while the WS token unlocks every RPC on 8765. Never copy
+ * ws_token.txt / TALA_WS_TOKEN into TALA_WEB_TOKEN (UI-audit C3).
+ *
+ * Browser clients on 8767 stay ticket-only for 8765; Electron's main-process
+ * WS client uses the WS credential via Authorization header instead.
+ *
+ * @param {string} appPath
+ * @returns {string}
+ */
+function ensureWebUiToken(appPath) {
+  return ensureWebUiTokenFile(resolveDataRoot(appPath));
 }
 
 function firstRunEnv(appPath) {
   const dataRoot = resolveDataRoot(appPath);
   const venvDir = path.join(dataRoot, '.venv');
   const envPath = path.join(dataRoot, '.env');
+  // Mint BOTH secrets before spawn so Python and Electron agree, and so the
+  // HTTP UI token is never the same string as the long-lived WS secret.
+  const wsToken = ensureWsToken(appPath);
+  const webUiToken = ensureWebUiToken(appPath);
   return {
     ...process.env,
     TALA_INSTALL_ROOT: appPath,
@@ -141,9 +154,10 @@ function firstRunEnv(appPath) {
     TALA_VENV_DIR: venvDir,
     TALA_ENV_PATH: envPath,
     TALA_WS_PORT: String(HARNESS_PORT),
-    // The harness refuses unauthenticated connections (SEC-W0-03). Established
-    // here, before the spawn, so both ends start from the same value.
-    TALA_WEB_TOKEN: ensureWsToken(appPath),
+    // 8765 long-lived credential (SEC-W0-03 / UI-audit C3).
+    TALA_WS_TOKEN: wsToken,
+    // 8767 HTTP UI credential — distinct from TALA_WS_TOKEN.
+    TALA_WEB_TOKEN: webUiToken,
     PYTHONUNBUFFERED: '1',
     // Serve the same renderer to a browser alongside the desktop window.
     //
@@ -228,8 +242,28 @@ let pythonRestartCount = 0;
 /** Whether the Python WS connection is currently established. */
 let wsConnected = false;
 
-/** Tracks whether we are in "network isolated" mode (used by vault:read guard). */
-let networkIsolated = false;
+/**
+ * Push main-process WS truth to the renderer. StatusBar / Mission Control /
+ * Settings must not infer connectedness from RPC success alone.
+ */
+function notifyWsStatus() {
+  const open = WebSocket?.OPEN ?? 1;
+  const connected = Boolean(
+    wsConnected && wsClient && wsClient.readyState === open
+  );
+  sendLogToRenderer('harness:ws-status', { connected });
+}
+
+
+const {
+  isNetworkIsolated,
+  setNotify: setIsolationNotify,
+  setRefreshHook: setIsolationRefreshHook,
+  applyIsolationHints,
+  applyIsolationNotification,
+  onHarnessConnected,
+} = require('./network_isolation');
+
 
 /* ──────────────────────────────────────────────────────────────────
    electron-store config
@@ -450,6 +484,7 @@ function spawnPython(attempt = 0) {
       pythonProcess = null;
       wsClient = null;
       wsConnected = false;
+      notifyWsStatus();
 
       // Resolve all pending RPC calls with error payload
       for (const [id, pending] of pendingRpcCalls) {
@@ -507,8 +542,10 @@ function connectWithRetry(attempt) {
     // Hand off to the normal persistent connection machinery
     wsClient = candidate;
     wsConnected = true;
-    networkIsolated = false;
+    // Isolation is lockdown/halt/network-guard — not "WS connected".
     console.log('[main] WebSocket connected to Python harness.');
+    notifyWsStatus();
+    onHarnessConnected();
 
     candidate.on('message', raw => {
       let msg;
@@ -523,6 +560,7 @@ function connectWithRetry(attempt) {
           resolve(msg.result ?? null);
         }
       } else if (msg.id === undefined && msg.method) {
+        applyIsolationNotification(msg);
         sendLogToRenderer('python:notification', msg);
       }
     });
@@ -530,12 +568,14 @@ function connectWithRetry(attempt) {
     candidate.on('error', err => {
       console.error(`[main] WebSocket error: ${err.message}`);
       wsConnected = false;
+      notifyWsStatus();
     });
 
     candidate.on('close', (code, reason) => {
       console.warn(`[main] WebSocket closed (code=${code}, reason=${reason}).`);
       wsConnected = false;
       wsClient = null;
+      notifyWsStatus();
       if (pythonProcess && !app.isQuiting) {
         setTimeout(() => connectWithRetry(0), 3_000);
       }
@@ -571,70 +611,11 @@ let rpcIdCounter = 1;
    Bridges renderer RPC calls through the WebSocket to Python.
    ────────────────────────────────────────────────────────────────── */
 
-/**
- * Reads (or generates, on first run) the local admin secret shared with the
- * Python harness via a file on disk. Both processes run on the same machine
- * and resolve the same path, so no network transport of the secret is ever
- * needed. Mirrors the vault/.keys/ convention used elsewhere in the codebase
- * (e.g. sdk/agent/anchor.py's blockchain document key).
- */
-function getHarnessAdminSecret() {
-  const envSecret = process.env.TALA_HARNESS_ADMIN_SECRET;
-  if (envSecret) return envSecret;
-
-  const configuredPath = process.env.TALA_HARNESS_ADMIN_SECRET_FILE;
-  const userData = process.env.TALA_USER_DATA;
-  const secretPath = configuredPath
-    ? path.resolve(configuredPath)
-    : userData
-      ? path.join(path.resolve(userData), 'vault', '.keys', 'harness_admin_secret.txt')
-      : path.join(path.resolve(__dirname, '..'), 'vault', '.keys', 'harness_admin_secret.txt');
-
-  if (fs.existsSync(secretPath)) {
-    return fs.readFileSync(secretPath, 'utf8').trim();
-  }
-
-  const secret = require('node:crypto').randomBytes(32).toString('hex');
-  fs.mkdirSync(path.dirname(secretPath), { recursive: true });
-  fs.writeFileSync(secretPath, secret, 'utf8');
-  return secret;
-}
-
-/**
- * Fetches the published sha256 hash for a given platform's release zip from
- * the pinned update host's version.json (independently of whatever the
- * renderer may have already fetched — never trust renderer-supplied hashes
- * for an integrity check). Returns null if unavailable or not yet published;
- * callers must treat null as "cannot verify," not "verified."
- */
-function fetchExpectedUpdateHash(platformKey) {
-  return new Promise((resolve) => {
-    const https = require('https');
-    const req = https.get('https://talacore.app/version.json', { timeout: 5000 }, (response) => {
-      if (response.statusCode !== 200) {
-        response.resume();
-        return resolve(null);
-      }
-      let body = '';
-      response.on('data', (chunk) => { body += chunk; });
-      response.on('end', () => {
-        try {
-          const data = JSON.parse(body);
-          const hash = data && data.sha256 && data.sha256[platformKey];
-          resolve(typeof hash === 'string' && /^[a-f0-9]{64}$/i.test(hash) ? hash : null);
-        } catch {
-          resolve(null);
-        }
-      });
-    });
-    req.on('error', () => resolve(null));
-    req.on('timeout', () => { req.destroy(); resolve(null); });
-  });
-}
 
 function registerPythonRpcHandler() {
   ipcMain.handle('python:rpc', async (_event, payload) => {
-    const { method, params = {} } = payload ?? {};
+    const { method } = payload ?? {};
+    let params = (payload && payload.params) || {};
 
     if (!method || typeof method !== 'string') {
       throw new Error('python:rpc requires a "method" string field.');
@@ -801,23 +782,31 @@ ${shellCmd} "${startScript}" &
       return { version: require('../package.json').version };
     }
 
-    // system.trigger_update git-pulls the VPS's own checkout and broadcasts a
-    // wake-up push — gated on the harness admin secret so only this local
-    // Electron process (which reads the same on-disk file the Python harness
-    // does) can invoke it, not an arbitrary remote WS peer. Client updates
-    // themselves are delivered only by the signed app.update path above.
-    if (method === 'system.trigger_update') {
-      params.harness_secret = getHarnessAdminSecret();
+    // Main-local WS probe — does not require the socket to be up.
+    if (method === 'harness.ws_status') {
+      const open = WebSocket?.OPEN ?? 1;
+      const connected = Boolean(
+        wsConnected && wsClient && wsClient.readyState === open
+      );
+      return { connected, wsConnected };
     }
+
+    // Owner-gated RPCs (trigger_update, release_halt, task.clear) get the
+    // on-disk harness admin secret injected here — never from the renderer.
+    // Resume / task.control must not receive it; Resume ≠ release_halt.
+    params = injectOwnerSecret(method, params);
 
     // If WS is not connected, return a degraded stub for known health checks
     if (!wsConnected || !wsClient || wsClient.readyState !== (WebSocket?.OPEN ?? 1)) {
       if (method === 'harness.health') {
+        // Include halted so network_isolation can keep haltActive in sync
+        // even while the WS is down (same field harness.health always returns).
         return {
           status:          'connecting',
           active_agent:    null,
           tokens_used:     0,
           last_latency_ms: null,
+          halted:          false,
         };
       }
       return {
@@ -845,6 +834,7 @@ ${shellCmd} "${startScript}" &
           if (result && method === 'harness.health') {
             result.last_latency_ms = Date.now() - startTime;
           }
+          applyIsolationHints(method, result);
           resolve(result);
         },
         timer,
@@ -1046,9 +1036,24 @@ app.whenReady().then(() => {
     callback(false);
   });
 
-  // Register sandboxed file + vault IPC handlers
+
+  setIsolationNotify(sendLogToRenderer);
+  setIsolationRefreshHook(() => {
+    if (!wsConnected || !wsClient || wsClient.readyState !== (WebSocket?.OPEN ?? 1)) return;
+    for (const method of ['environment.get', 'guardrails.get_network', 'harness.health']) {
+      const id = rpcIdCounter++;
+      const request = JSON.stringify({ jsonrpc: '2.0', id, method, params: {} });
+      const timer = setTimeout(() => { pendingRpcCalls.delete(id); }, 8_000);
+      pendingRpcCalls.set(id, {
+        resolve: (result) => applyIsolationHints(method, result),
+        timer,
+      });
+      try { wsClient.send(request); } catch { clearTimeout(timer); pendingRpcCalls.delete(id); }
+    }
+  });
+
   registerHandlers({
-    isNetworkIsolated: () => networkIsolated,
+    isNetworkIsolated,
   });
 
   // Register Python RPC relay

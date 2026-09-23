@@ -123,9 +123,9 @@ def test_a_broken_gate_fails_closed_when_enforcing(monkeypatch):
     assert LP.guard("write_workspace_file")["allowed"] is True
 
 
-def test_an_unknown_mode_falls_back_to_open_not_to_nothing(monkeypatch):
+def test_an_unknown_mode_fails_closed_to_enforce(monkeypatch):
     monkeypatch.setenv("TALA_LEASE_MODE", "banana")
-    assert LP.current_mode() == LP.MODE_OPEN
+    assert LP.current_mode() == LP.MODE_ENFORCE
 
 
 def test_startup_registers_the_broadcast():

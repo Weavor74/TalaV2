@@ -180,9 +180,9 @@ def test_the_symbol_check_can_actually_fail():
 def test_the_security_description_reflects_the_real_preload():
     """
     Whether an unlisted IPC channel is refused or forwarded to the harness is
-    the difference between a permission boundary and a transport choice. The
-    docstring in preload.js says it throws. It does not -- and if that is ever
-    fixed, this contract must stop describing a hole that has been closed.
+    the difference between a permission boundary and a transport choice.
+    preload.js must fail closed (reject unknown channels); the architecture
+    contract must describe the same behaviour as the live guard.
     """
     preload = (ROOT / "electron" / "preload.js").read_text(encoding="utf-8", errors="replace")
     guard = re.search(
@@ -191,7 +191,11 @@ def test_the_security_description_reflects_the_real_preload():
     )
     assert guard, "the preload allowlist guard has moved; the contract's reading of it is stale"
 
-    forwards = "python:rpc" in guard.group(1)
+    body = guard.group(1)
+    forwards = (
+        "ipcRenderer.invoke('python:rpc'" in body
+        or 'ipcRenderer.invoke("python:rpc"' in body
+    )
     described = facts.security_model()["ipc_surface"]["unlisted_channels_forwarded_to_rpc"]
     assert described == forwards, (
         "the contract describes the IPC surface as "

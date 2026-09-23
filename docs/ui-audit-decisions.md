@@ -867,3 +867,27 @@ need to become configurable before it can reach it.
 
 **P0 and P1 together are 10 questions, mostly one-liners.** That is the smallest set that makes the
 system safe to keep building on.
+
+
+---
+
+## Highs pass notes (2026-09-17)
+
+### H2 — :8765 authentication
+`python/harness/ws_auth.py` is the Wave 0+ admission gate (Origin + Bearer token).
+Docs that still describe an unauthenticated local JSON-RPC socket are stale; prefer
+this module over historical audit prose.
+
+### H6 — Resume ≠ RELEASE HALT
+Verified: Mission Control Resume uses `task.control` resume only;
+`mcReleaseEmergencyHalt` alone calls `system.release_halt`. No further code change.
+
+### H7 — Safer defaults (2026-09-18)
+Lease mode defaults to `enforce` (`TALA_LEASE_MODE`); unknown values fail closed
+to `enforce`. Network guard code defaults to `enabled: true` / `default: deny`
+(loopback always allowed). First-run / CPU-only bootstrap: set
+`TALA_LEASE_MODE=open` in `.env` (see `.env.example`) and/or disable network
+rules via Settings → Guardrails. Pytest `conftest` forces lease `open` so the
+suite does not stall on approvals. Settings banner warns when posture is
+*relaxed* from these defaults. Existing saved `guardrails_config.network` rows
+are unchanged (migration: only the no-key code default flipped).

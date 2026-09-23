@@ -7,8 +7,8 @@
     "linux": "https://talacore.app/tala-linux.zip"
   },
   "sha256": {
-    "windows": "207e0facc8b540b74e6223f726c0f3715e468dc684dbb35a65ea214b57a4fe6f",
-    "macos": "cc26cae3aaf3928a012674d135aaf5b454244db6b5e79456f1b91d1fb0c5d91b",
-    "linux": "303d2142fc95f83933f3c2aecb9b504147b86bd3668258d38d7e80aba4b22869"
+    "windows": "a455c4f239db8e5b7a67e1f086261c261979f643e74c897c691351f6516e6aac",
+    "macos": "0171abb99a8f17fb0a49351dc05c8e9a2cf7d9f1d88b38cff5fa187d213b20ed",
+    "linux": "ac6e7f04bc08625ef2b5cc3ea65eb936957f242e6361516caa63a2aed683113d"
   }
 }

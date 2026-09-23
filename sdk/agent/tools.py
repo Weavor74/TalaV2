@@ -218,15 +218,31 @@ class ToolRegistry:
                 log.error("ToolRegistry: failed to load skill from %s: %s", html_file.name, e)
 
     @classmethod
+    def _authorization_gate(cls):
+        """Shared AuthorizationGate — one instance so pre-approvals stick."""
+        gate = getattr(cls, "_auth_gate_singleton", None)
+        if gate is None:
+            from sdk.agent.gates import AuthorizationGate
+            gate = AuthorizationGate()
+            cls._auth_gate_singleton = gate
+        return gate
+
+    @classmethod
     async def run_tool(
         cls,
         name: str,
         arguments: dict[str, Any],
         authority_level: str = "auto",
+        *,
+        principal: Any | None = None,
     ) -> dict[str, Any]:
         """
         Execute a registered tool by name with specified arguments.
-        Enforces governance gating using RiskClassifier.
+        Enforces AuthorizationGate (grant model + halt), leases, and RiskClassifier.
+
+        *principal* defaults to the owner for the authenticated local harness
+        session. Peer or plugin callers that must be grant-scoped should pass
+        an explicit ``Principal``; without a grant the gate fails closed.
         """
         cls.auto_discover_skills()
         tool_entry = cls._tools.get(name.lower())
@@ -292,15 +308,9 @@ class ToolRegistry:
         # ---------------------------------------
 
         # --- EMERGENCY HALT ------------------------------------------------
-        # Mission Control's abort calls trigger_emergency_halt(), which sets
-        # _EMERGENCY_HALT_ACTIVE. Until now exactly one place read that flag --
-        # AuthorizationGate.request_authorization -- and that method had no
-        # callers, so the kill switch set a variable nobody looked at. Abort
-        # marked rows failed in the database and left tool execution running.
-        #
-        # This is the control you reach for when something is going wrong, so
-        # it is checked first, before permissions, leases and risk: a halted
+        # Checked first, before AuthorizationGate / leases / risk: a halted
         # system should not be evaluating whether it is allowed to act.
+        # AuthorizationGate also refuses while halted (defense in depth).
         try:
             from sdk.agent.gates import RevocationHalt
 
@@ -313,11 +323,76 @@ class ToolRegistry:
                     "halted": True,
                     "error": (
                         f"Emergency halt is engaged; tool {name!r} was not run. "
-                        "Resume a task in Mission Control to release it."
+                        "Release it with system.release_halt (owner secret)."
                     ),
                 }
         except Exception as exc:
-            log.error("ToolRegistry: could not read halt state for %r: %s", name, exc)
+            # Fail-closed: a kill switch that cannot be read must refuse, not
+            # continue. UI-audit C1.
+            log.error(
+                "ToolRegistry: could not read halt state for %r: %s -- refusing",
+                name, exc,
+            )
+            return {
+                "success": False,
+                "halted": True,
+                "error": (
+                    f"Emergency halt state unreadable; tool {name!r} was not run. "
+                    "Release it with system.release_halt when the gate is healthy."
+                ),
+            }
+        # -------------------------------------------------------------------
+
+        # --- AUTHORIZATION GATE (UI-103 / Highs H1) ------------------------
+        # Production caller for AuthorizationGate.request_authorization.
+        # Fail-closed: a gate that cannot decide must refuse, not proceed.
+        try:
+            from python.harness.access import OWNER, Principal
+            from sdk.agent.governance import RiskClassifier
+
+            acting = principal
+            if acting is None:
+                # Authenticated local Electron/WS session = owner. Grant-scoped
+                # peers/agents must pass Principal explicitly.
+                acting = Principal(OWNER)
+            risk_for_gate = RiskClassifier.classify_action("execute_tool", name)
+            gate = cls._authorization_gate()
+            allowed = await gate.request_authorization(
+                "execute_tool",
+                name,
+                risk_for_gate,
+                principal=acting,
+                context={
+                    "plugin_id": plugin_id,
+                    "authority_level": authority_level,
+                },
+            )
+            if not allowed:
+                log.warning(
+                    "ToolRegistry: AuthorizationGate refused %r for %s: %s",
+                    name, acting, gate.last_reason or "denied",
+                )
+                return {
+                    "success": False,
+                    "authorization_denied": True,
+                    "error": (
+                        f"AuthorizationGate refused tool {name!r}: "
+                        f"{gate.last_reason or 'not authorized'}."
+                    ),
+                }
+        except Exception as exc:
+            log.error(
+                "ToolRegistry: authorization check raised for %r: %s -- refusing",
+                name, exc,
+            )
+            return {
+                "success": False,
+                "authorization_denied": True,
+                "error": (
+                    f"Authorization check failed for tool {name!r}; "
+                    f"execution refused. ({type(exc).__name__}: {exc})"
+                ),
+            }
         # -------------------------------------------------------------------
 
         # --- LEASE GATE ----------------------------------------------------
@@ -328,9 +403,8 @@ class ToolRegistry:
         # no code enforced. run_tool is the single chokepoint every one of the
         # 97 tools passes through, so it is where the rule can actually hold.
         #
-        # Default mode is `open`: guarded operations are auto-approved and
-        # recorded, so behaviour is unchanged and the machinery runs. Set
-        # TALA_LEASE_MODE=enforce to make them block for sign-off.
+        # Default mode is `enforce` (Highs H7): guarded operations block for
+        # sign-off. Set TALA_LEASE_MODE=open for first-run / local bootstrapping.
         try:
             from sdk.agent import lease_policy
 
@@ -352,8 +426,20 @@ class ToolRegistry:
                     ),
                 }
         except Exception as exc:
-            # The gate must not be the thing that breaks tool execution.
-            log.error("ToolRegistry: lease check raised for %r: %s", name, exc)
+            # Fail-closed: a lease check that crashes is not permission to act.
+            # UI-audit C1.
+            log.error(
+                "ToolRegistry: lease check raised for %r: %s -- refusing",
+                name, exc,
+            )
+            return {
+                "success": False,
+                "lease_denied": True,
+                "error": (
+                    f"Lease check failed for tool {name!r}; execution refused. "
+                    f"({type(exc).__name__}: {exc})"
+                ),
+            }
         # -------------------------------------------------------------------
 
         # Governance gating using RiskClassifier
@@ -1152,7 +1238,14 @@ async def search_workspace_files(query: str = "", file_pattern: str = "*") -> di
     for path in workspace_root.rglob(file_pattern or "*"):
         if count >= 50:
             break
-        if any(part in ignore_dirs for part in path.parts):
+        # Only ignore dirs *inside* the workspace. Absolute path parts outside
+        # the root (e.g. pytest --basetemp=data/pytest_temp) must not hide
+        # every file when the workspace itself lives under a name like "data".
+        try:
+            rel_parts = path.relative_to(workspace_root).parts
+        except ValueError:
+            continue
+        if any(part in ignore_dirs for part in rel_parts[:-1]):
             continue
         if path.is_file() and path.suffix in (".html", ".js", ".py", ".json", ".css", ".md"):
             try:

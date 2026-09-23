@@ -271,6 +271,66 @@ async def handle_memory_session_search(params: dict[str, Any]) -> dict[str, Any]
     return out
 
 
+
+async def _browse_node_from_disk(ref_id: str) -> str | None:
+    """
+    Read an HTML Neural Node from REPO_ROOT/nodes when the DB row is missing.
+
+    ``ref_id`` may be a bare node id (``concept-foo``), an id with ``.html``,
+    or a basename. Returns None when no readable file matches.
+    """
+    from pathlib import Path
+
+    from python.harness.config import settings
+
+    raw = str(ref_id or "").strip()
+    if not raw:
+        return None
+    nodes_dir = (settings.REPO_ROOT / "nodes").resolve()
+    if not nodes_dir.is_dir():
+        return None
+
+    candidates: list[Path] = []
+    name = Path(raw).name
+    if name.endswith(".html"):
+        candidates.append(nodes_dir / name)
+    else:
+        candidates.append(nodes_dir / f"{name}.html")
+        candidates.append(nodes_dir / name)
+
+    for path in candidates:
+        try:
+            resolved = path.resolve()
+            # Path boundary (not startswith): nodes vs nodes_evil prefix hole.
+            if not resolved.is_relative_to(nodes_dir):
+                continue
+            if resolved.is_file():
+                text = resolved.read_text(encoding="utf-8", errors="replace")
+                try:
+                    from sdk.agent.parser import parse_html
+                    node = parse_html(text)
+                    payload = {
+                        "id": getattr(node, "id", name),
+                        "title": getattr(node, "title", None),
+                        "type": getattr(node, "type", None),
+                        "source": "disk",
+                        "path": str(resolved),
+                        "content": getattr(node, "content", None) or text,
+                    }
+                    for attr in ("state_data", "summary", "tags", "execution_authority"):
+                        if hasattr(node, attr):
+                            payload[attr] = getattr(node, attr)
+                    return json.dumps(payload, indent=2, default=str)
+                except Exception:
+                    return json.dumps(
+                        {"id": name, "source": "disk", "path": str(resolved), "html": text},
+                        indent=2,
+                    )
+        except OSError:
+            continue
+    return None
+
+
 async def handle_memory_browse(params: dict[str, Any]) -> dict[str, Any]:
     """
     Return surrounding context for a given reference (e.g., surrounding turns).
@@ -305,7 +365,15 @@ async def handle_memory_browse(params: dict[str, Any]) -> dict[str, Any]:
         if row:
             context = json.dumps(row["content_json"], indent=2)
         else:
-            context = f"No detailed context available for {source_type} {ref_id}."
+            # C6 world: many HTML-NNs live only on disk under REPO_ROOT/nodes.
+            # DB miss must fall back to that store rather than empty nonsense.
+            context = await _browse_node_from_disk(ref_id)
+            if context is None:
+                context = (
+                    f"No detailed context available for {source_type} {ref_id}: "
+                    f"not in the nodes table and no matching HTML under "
+                    f"REPO_ROOT/nodes/."
+                )
     elif source_type == "profile":
         allow_private = params.get("allow_private", False)
         sql = "SELECT config FROM profiles WHERE id = $1"
@@ -887,3 +955,113 @@ async def handle_memory_get_user_model(params: dict[str, Any]) -> dict[str, Any]
     """
     state = sync_manager.reconstruct_memory()
     return {"status": "success", "user_model": state}
+
+
+async def handle_memory_rebuild_from_disk(params: dict[str, Any] | None = None) -> dict[str, Any]:
+    """
+    Rebuild Chroma + FTS memory indexes from nodes/*.html on disk (UI-audit C6).
+
+    Disk HTML under the pinned repo ``nodes/`` directory is the source of
+    truth. Success is honest: Chroma must be readable after index, FTS
+    reindex failures fail the call, and an empty disk is reported as an
+    explicit empty recovery — not a silent success that looks healthy.
+    """
+    params = params or {}
+    from python.harness.config import settings
+    from python.harness import retrieval
+
+    # Pin nodes_dir: never trust a caller-supplied path (attacker-controlled
+    # params must not reindex arbitrary trees into memory).
+    nodes_dir = (settings.REPO_ROOT / "nodes").resolve()
+    allow_empty = bool(params.get("allow_empty", False))
+    if not nodes_dir.is_dir():
+        return {"status": "failed", "error": f"nodes_dir not found: {nodes_dir}"}
+
+    disk_html = sorted(p for p in nodes_dir.glob("*.html") if "_archive_legacy" not in str(p))
+    retrieval._INDEXED_MTIMES.clear()
+    try:
+        retrieval.index_nodes(nodes_dir)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "error": f"chroma index failed: {type(exc).__name__}: {exc}",
+            "disk_html": len(disk_html),
+            "nodes_dir": str(nodes_dir),
+        }
+
+    chroma_count = 0
+    try:
+        if retrieval.node_collection is None:
+            return {
+                "status": "failed",
+                "error": "chroma node collection is not initialised",
+                "disk_html": len(disk_html),
+                "nodes_dir": str(nodes_dir),
+            }
+        chroma_count = int(retrieval.node_collection.count() or 0)
+    except Exception as exc:
+        return {
+            "status": "failed",
+            "error": f"chroma unreadable after index: {type(exc).__name__}: {exc}",
+            "disk_html": len(disk_html),
+            "nodes_dir": str(nodes_dir),
+        }
+
+    fts_ok = 0
+    fts_fail = 0
+    force_all = bool(params.get("force_all", True))
+    limit = None if force_all else int(params.get("limit") or 50)
+    targets = disk_html if limit is None else disk_html[:limit]
+    for path in targets:
+        try:
+            res = await handle_memory_reindex_node({"node_path": str(path)})
+            if res.get("status") == "success":
+                fts_ok += 1
+            else:
+                fts_fail += 1
+        except Exception:
+            fts_fail += 1
+
+    if fts_fail > 0:
+        return {
+            "status": "failed",
+            "error": f"FTS reindex failed for {fts_fail} node(s)",
+            "disk_html": len(disk_html),
+            "chroma_indexed": chroma_count,
+            "fts_reindexed": fts_ok,
+            "fts_failed": fts_fail,
+            "nodes_dir": str(nodes_dir),
+        }
+
+    if not disk_html:
+        # Deliberate empty recovery only when the operator opts in.
+        status = "empty" if allow_empty else "failed"
+        return {
+            "status": status,
+            "error": None if allow_empty else "nodes/ has no HTML to rebuild; pass allow_empty=true for empty recovery",
+            "disk_html": 0,
+            "chroma_indexed": chroma_count,
+            "fts_reindexed": 0,
+            "fts_failed": 0,
+            "nodes_dir": str(nodes_dir),
+        }
+
+    if chroma_count <= 0:
+        return {
+            "status": "failed",
+            "error": "chroma still empty after indexing disk HTML",
+            "disk_html": len(disk_html),
+            "chroma_indexed": chroma_count,
+            "fts_reindexed": fts_ok,
+            "fts_failed": fts_fail,
+            "nodes_dir": str(nodes_dir),
+        }
+
+    return {
+        "status": "success",
+        "disk_html": len(disk_html),
+        "chroma_indexed": chroma_count,
+        "fts_reindexed": fts_ok,
+        "fts_failed": fts_fail,
+        "nodes_dir": str(nodes_dir),
+    }

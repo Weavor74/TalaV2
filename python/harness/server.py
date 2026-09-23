@@ -92,6 +92,7 @@ from python.harness.heartbeat_rpc import (
     handle_heartbeat_create, handle_heartbeat_delete, handle_heartbeat_fire_now,
     handle_heartbeat_list, handle_heartbeat_reload, handle_heartbeat_update,
 )
+from python.harness.health_rpc import handle_harness_health
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
     handle_task_control, handle_task_create_worktree, handle_task_delete,
@@ -102,7 +103,8 @@ from python.harness.task_rpc import (
 from python.harness.memory_rpc import (
     handle_memory_browse, handle_memory_delete_node, handle_memory_get_user_model,
     handle_memory_record_completed_turn, handle_memory_reindex_node,
-    handle_memory_reindex_profiles, handle_memory_save_node,
+    handle_memory_reindex_profiles,
+    handle_memory_rebuild_from_disk, handle_memory_save_node,
     handle_memory_scan_context, handle_memory_search, handle_memory_session_search,
 )
 from sdk.agent.exceptions import (
@@ -4120,58 +4122,6 @@ async def handle_vault_status(params: dict[str, Any], req_id: Any) -> str:
         "size_bytes": size_bytes,
     })
 
-
-async def handle_harness_health(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``harness.health`` — Return server health and status info.
-    """
-    # Two different numbers that were previously one (UI-001). The status bar
-    # is labelled "Tokens" and reads a *balance*: its display has a branch for
-    # the ghost sentinel returned by the wallet, which is a wallet function. It
-    # was being fed the lifetime sum of LLM tokens consumed instead — a
-    # monotonically growing number that can never equal the sentinel, which is
-    # why the ghost branch had never once fired.
-    #
-    # Both are reported now. Consumption is still worth knowing; it is just not
-    # a balance.
-    try:
-        row = await db.fetchrow(
-            "SELECT COALESCE(SUM(prompt_tokens + completion_tokens), 0) as total FROM token_ledger"
-        )
-        tokens_used = int(row["total"]) if row else 0
-    except Exception:
-        tokens_used = 0
-
-    try:
-        from python.harness.token_counter import wallet_state
-
-        wallet = await wallet_state()
-    except Exception as exc:
-        logger.debug("harness.health: could not read the wallet (%s)", exc)
-        wallet = {"balance": None, "mode": "unreachable", "unlimited": False,
-                  "reason": str(exc)}
-
-    active_agent = "Tala Engine"
-    try:
-        agent_row = await db.fetchrow("SELECT name FROM agents WHERE is_active = TRUE")
-        if agent_row:
-            chat_mode = get_current_chat_mode()
-            if chat_mode == "hybrid":
-                active_agent = f"{agent_row['name']} (Hybrid)"
-            else:
-                active_agent = agent_row["name"]
-    except Exception:
-        pass
-
-    return _ok(req_id, {
-        "status": "ok",
-        "active_agent": active_agent,
-        "tokens_used": tokens_used,          # lifetime LLM consumption
-        "token_balance": wallet["balance"],  # what the wallet holds
-        "token_mode": wallet["mode"],        # ghost | real | unreachable
-        "token_unlimited": wallet["unlimited"],
-        "last_latency_ms": 1,
-    })
 
 
 async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
@@ -9449,10 +9399,8 @@ async def _probe_halt() -> tuple[str, str]:
     Whether the emergency halt is engaged.
 
     A global lockdown that does not appear on the health panel is how you end
-    up debugging "why is nothing happening" for an hour. Until this release the
-    question could not even be asked: the halt flag had exactly one reader,
-    AuthorizationGate.request_authorization, and that method had no callers, so
-    abort set a variable nothing looked at and tool execution carried on.
+    up debugging "why is nothing happening" for an hour. Halt state is read by
+    halt_gate (RPC), ToolRegistry (tools + AuthorizationGate), and shell paths.
     """
     try:
         from sdk.agent.gates import RevocationHalt
@@ -9461,8 +9409,8 @@ async def _probe_halt() -> tuple[str, str]:
 
     if RevocationHalt.is_halted():
         return "CRITICAL", (
-            "emergency halt engaged -- every tool call is being refused. "
-            "Resume a task in Mission Control to release it."
+            "emergency halt engaged -- tool execution and destructive RPCs "
+            "are refused. Release with system.release_halt (owner secret)."
         )
     return "HEALTHY", "emergency halt not engaged; tool execution permitted"
 
@@ -9585,16 +9533,10 @@ async def handle_logging_get_health(params: dict[str, Any], req_id: Any) -> str:
     else:
         overall, mode = "HEALTHY", "FULL_AUTONOMY"
 
-    return _ok(req_id, {
-        "services": services,
-        # What each status is based on, so the panel can explain itself and
-        # Tala can read her own health rather than a bare colour (UI-086).
-        "details": details,
-        "overall": overall,
-        "mode": mode,
-        "measured": len(services) - len(unknowns),
-        "unmeasured": unknowns,
-    })
+    from python.harness.health_actions import build_health_payload  # noqa: PLC0415
+    # actions[] tells the operator what to click when overall is MAINTENANCE
+    # while individual rows (e.g. MEMORY_AUTHORITY) still read HEALTHY.
+    return _ok(req_id, build_health_payload(services, details, overall, mode, unknowns))
 
 
 async def handle_logging_clear_events(params: dict[str, Any], req_id: Any) -> str:
@@ -10475,6 +10417,41 @@ async def handle_system_capabilities(params: dict[str, Any], req_id: Any) -> str
 from python.harness.admin_auth import (
     require_harness_admin_secret as _require_harness_admin_secret,
 )
+
+
+async def handle_system_release_halt(params: dict[str, Any], req_id: Any) -> str:
+    """
+    ``system.release_halt`` — owner-gated unlock for the emergency halt.
+
+    Model A (UI-audit C2): Abort engages the halt; Resume must never release
+    it. This is the only deliberate unlock path, gated by the harness admin
+    secret so a Mission Control "Resume" click cannot globally re-arm tools.
+    """
+    if not _require_harness_admin_secret(params):
+        return _err(
+            req_id,
+            JsonRpcError.INVALID_REQUEST,
+            "Unauthorized: system.release_halt requires a valid harness admin secret.",
+        )
+    try:
+        from sdk.agent.gates import RevocationHalt
+        RevocationHalt.release_emergency_halt()
+        still = RevocationHalt.is_halted()
+        if still:
+            return _err(
+                req_id,
+                JsonRpcError.INTERNAL_ERROR,
+                "Halt release did not clear; remove emergency_halt.json by hand if present.",
+                {"halted": True},
+            )
+        try:
+            await broadcast_notification("system.halt_changed", {"halted": False})
+        except Exception:
+            logger.debug("system.halt_changed broadcast failed", exc_info=True)
+        return _ok(req_id, {"success": True, "halted": False})
+    except Exception as exc:
+        logger.exception("system.release_halt error")
+        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
 async def handle_system_trigger_update(params: dict[str, Any], req_id: Any) -> str:
@@ -11816,14 +11793,17 @@ async def handle_guardrails_get_network(params: dict[str, Any], req_id: Any) -> 
     """``guardrails.get_network`` — the harness-level network rules."""
     try:
         from python.harness.network_guard import DEFAULT_RULES, load_rules
+        from sdk.agent import lease_policy as _lease_policy
         rules = await load_rules()
         return _ok(req_id, {
             "network": rules,
             "defaults": DEFAULT_RULES,
+            "lease_mode": _lease_policy.current_mode(),
             "note": (
-                "Opt-in. With rules disabled, every outbound connection is "
-                "permitted exactly as before. The USB environment preset "
-                "blocks outbound traffic regardless of these rules."
+                "Default on with default-deny (Highs H7). Loopback stays "
+                "reachable. Disable via Settings or set default to allow for "
+                "first-run/lab. USB environment blocks outbound regardless. "
+                "Lease mode defaults to enforce; set TALA_LEASE_MODE=open to relax."
             ),
         })
     except Exception as exc:
@@ -11849,7 +11829,7 @@ async def handle_guardrails_set_network(params: dict[str, Any], req_id: Any) -> 
         return _err(req_id, JsonRpcError.INVALID_PARAMS,
                     "'network' must be an object")
 
-    default = str(network.get("default", "allow")).lower()
+    default = str(network.get("default", "deny")).lower()
     if default not in ("allow", "deny"):
         return _err(req_id, JsonRpcError.INVALID_PARAMS,
                     "'default' must be 'allow' or 'deny'")
@@ -11883,7 +11863,7 @@ async def handle_guardrails_set_network(params: dict[str, Any], req_id: Any) -> 
             stored = _json.loads(stored)
         stored = stored if isinstance(stored, dict) else {}
         stored["network"] = {
-            "enabled": bool(network.get("enabled", False)),
+            "enabled": bool(network.get("enabled", True)),
             "default": default,
             "allow": network.get("allow") or [],
             "deny": network.get("deny") or [],
@@ -12451,6 +12431,11 @@ async def handle_environment_set(params: dict[str, Any], req_id: Any) -> str:
             + (" with lockdown engaged" if state["lockdown"] else ""),
             {"state": state},
         )
+        # Highs H5: Electron derives networkIsolated from lockdown — notify clients.
+        try:
+            await broadcast_notification("environment.changed", state)
+        except Exception:
+            logger.debug("environment.changed broadcast failed", exc_info=True)
         return _ok(req_id, state)
     except Exception as exc:
         logger.exception("environment.set error")
@@ -14311,6 +14296,7 @@ _HANDLERS: dict[str, Any] = {
     "system.info":        handle_system_info,
     "system.self_test":   handle_system_self_test,
     "system.capabilities": handle_system_capabilities,
+    "system.release_halt": handle_system_release_halt,
     "system.trigger_update": handle_system_trigger_update,
     "git.get_providers":  handle_git_get_providers,
     "git.save_providers": handle_git_save_providers,
@@ -14510,6 +14496,7 @@ _HANDLERS: dict[str, Any] = {
     "memory.save_node": handle_memory_save_node,
     "memory.delete_node": handle_memory_delete_node,
     "memory.reindex_profiles": handle_memory_reindex_profiles,
+    "memory.rebuild_from_disk": handle_memory_rebuild_from_disk,
     "research.unified_search": handle_research_unified_search,
     "research.distill_to_node": handle_research_distill_to_node,
     # Heartbeat / cron scheduler
@@ -14583,16 +14570,23 @@ async def _handle_webrtc_message(peer_username: str, raw_message: Any) -> None:
             f"'{method}' is not reachable over a peer connection",
         )
     else:
-        try:
-            # No streaming-method check here any more: the RELAYABLE_METHODS
-            # gate above already refuses everything but the peer surface, so
-            # inference.generate, workflow.execute, telemetry.stream_subscribe
-            # and crew.run never reach this line -- they are rejected earlier,
-            # with a message that says why.
-            response = await handler(params, req_id)
-        except Exception as exc:
-            logger.exception("Unhandled error in WebRTC handler '%s'", method)
-            response = _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
+        from python.harness.halt_gate import check_rpc as _halt_check_rpc
+        halted_refusal = _halt_check_rpc(
+            method, params if isinstance(params, dict) else {}, req_id,
+        )
+        if halted_refusal is not None:
+            response = halted_refusal
+        else:
+            try:
+                # No streaming-method check here any more: the RELAYABLE_METHODS
+                # gate above already refuses everything but the peer surface, so
+                # inference.generate, workflow.execute, telemetry.stream_subscribe
+                # and crew.run never reach this line -- they are rejected earlier,
+                # with a message that says why.
+                response = await handler(params, req_id)
+            except Exception as exc:
+                logger.exception("Unhandled error in WebRTC handler '%s'", method)
+                response = _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
     logger.debug("WebRTC <- %s id=%s", method, req_id)
     try:
@@ -14745,6 +14739,20 @@ async def _handle_connection(ws: ServerConnection, path: str = "") -> None:
             )
             try:
                 await ws.send(response)
+            except Exception:
+                pass
+            return
+
+        # Model A (UI-audit C2): one halt check before any handler runs.
+        # Fail-closed on read error. Allowlist: status reads, task.control
+        # abort/pause, system.release_halt. Resume does not unlock.
+        from python.harness.halt_gate import check_rpc as _halt_check_rpc
+        halted_refusal = _halt_check_rpc(
+            method, params if isinstance(params, dict) else {}, req_id,
+        )
+        if halted_refusal is not None:
+            try:
+                await ws.send(halted_refusal)
             except Exception:
                 pass
             return

@@ -43,16 +43,31 @@
 
   const CONFIG = window.__TALA_WEB_CONFIG__ || {};
   const BRIDGE = CONFIG.bridgeUrl || '/api/bridge';
-  const TOKEN = CONFIG.token || '';
-
-  // The harness refuses unauthenticated connections (SEC-W0-03). new WebSocket()
-  // cannot set headers, so the token rides in the query string -- the one place
-  // a browser can put it. It is loopback and never leaves this machine.
-  const WS_TOKEN = CONFIG.wsToken || '';
+  const WS_TICKET_URL = CONFIG.wsTicketUrl || '/api/ws-ticket';
   const WS_BASE = CONFIG.wsUrl || `ws://${location.hostname}:8765`;
-  const WS_URL = WS_TOKEN
-    ? `${WS_BASE}${WS_BASE.includes('?') ? '&' : '?'}token=${encodeURIComponent(WS_TOKEN)}`
-    : WS_BASE;
+
+  // UI-audit C3: HTTP UI token comes from the URL once (or sessionStorage),
+  // never from /tala-web-config.js. Prefer X-Tala-Token header thereafter;
+  // strip long-lived ?token= from history as soon as we have it in memory.
+  function readHttpToken() {
+    try {
+      const stored = sessionStorage.getItem('talaHttpToken');
+      if (stored) return stored;
+    } catch (_) { /* private mode */ }
+    const fromQuery = new URLSearchParams(location.search).get('token') || '';
+    if (fromQuery) {
+      try { sessionStorage.setItem('talaHttpToken', fromQuery); } catch (_) {}
+      try {
+        const url = new URL(location.href);
+        url.searchParams.delete('token');
+        history.replaceState(null, '', url.pathname + url.search + url.hash);
+      } catch (_) {}
+    }
+    return fromQuery;
+  }
+  const TOKEN = readHttpToken();
+
+  let lastWsUrl = WS_BASE;
 
   /** Channels that are filesystem/process work, not JSON-RPC. */
   const BRIDGE_CHANNELS = new Set([
@@ -92,9 +107,37 @@
     emit('harness:output', `[web] backend ${state}${detail ? ': ' + detail : ''}`);
   }
 
-  function connect() {
+  async function fetchWsTicket() {
+    if (!TOKEN) throw new Error('HTTP UI token missing; open with ?token= once or set X-Tala-Token.');
+    const res = await fetch(WS_TICKET_URL, {
+      method: 'POST',
+      headers: { 'X-Tala-Token': TOKEN, 'Content-Type': 'application/json' },
+      body: '{}',
+      cache: 'no-store',
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.ticket) {
+      throw new Error(body.error || `ws-ticket failed (HTTP ${res.status})`);
+    }
+    return body.ticket;
+  }
+
+  async function connect() {
+    let wsUrl = WS_BASE;
     try {
-      socket = new WebSocket(WS_URL);
+      const ticket = await fetchWsTicket();
+      // new WebSocket() cannot set headers; the single-use ticket rides in the
+      // query string and is burned by 8765 on first use (UI-audit C3).
+      wsUrl = `${WS_BASE}${WS_BASE.includes('?') ? '&' : '?'}token=${encodeURIComponent(ticket)}`;
+      lastWsUrl = wsUrl;
+    } catch (err) {
+      setStatus('error', err.message || String(err));
+      scheduleReconnect();
+      return;
+    }
+
+    try {
+      socket = new WebSocket(wsUrl);
     } catch (err) {
       setStatus('error', err.message);
       scheduleReconnect();
@@ -228,7 +271,7 @@
 
     /** Present only in the web build, for diagnostics. */
     __web: {
-      wsUrl: WS_URL,
+      wsUrl: lastWsUrl,
       get connected() { return connected; },
       get pending() { return pending.size; },
     },

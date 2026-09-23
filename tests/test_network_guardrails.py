@@ -12,10 +12,10 @@ enforced a port or a time window (UI-063). The port and the allocated time were
 already expressible as grant constraints; what was missing was the place that
 asks before a connection is made.
 
-**Opt-in.** With no rules configured everything is permitted exactly as before,
-following the same rule as storage and databases: the option must exist without
-being imposed. A firewall that switches itself on and starts denying traffic the
-user never asked it to deny is not a feature.
+**Default on + default-deny (Highs H7).** Fresh installs enable the guard with
+default deny (loopback always allowed). Tests that need the historical opt-out
+set ``enabled=False`` explicitly. An unreadable rules row still leaves the
+guard off so a broken DB cannot brick the box.
 """
 from __future__ import annotations
 
@@ -66,11 +66,21 @@ def test_targets_are_parsed(target, host, port):
 # -- opt-in -------------------------------------------------------------------
 
 @pytest.mark.asyncio
-async def test_nothing_is_blocked_until_rules_are_enabled(rules):
-    """A firewall that switches itself on is not a feature."""
+async def test_nothing_is_blocked_when_rules_are_explicitly_disabled(rules):
+    """Settings can still disable the guard for first-run / lab use."""
+    _set(rules, enabled=False, default="allow")
     decision = await ng.check("https://anything.example", AGENT_P)
     assert decision.allowed
     assert "not enabled" in decision.reason
+
+
+@pytest.mark.asyncio
+async def test_defaults_deny_outbound_non_loopback(rules):
+    """Highs H7: code defaults are enabled + default-deny."""
+    # fixture already starts from DEFAULT_RULES
+    decision = await ng.check("https://anything.example", AGENT_P)
+    assert not decision.allowed
+    assert "deny" in decision.reason.lower() or decision.matched == "default:deny"
 
 
 @pytest.mark.asyncio
