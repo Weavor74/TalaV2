@@ -6,6 +6,7 @@ from __future__ import annotations
 
 import logging
 import json
+import os
 import shlex
 from contextlib import asynccontextmanager
 from pathlib import Path
@@ -303,7 +304,7 @@ class MCPManager:
             command = str(config["command"])
             args = config.get("args", [])
             if isinstance(args, str):
-                args = shlex.split(args)
+                args = shlex.split(args, posix=(os.name != "nt"))
 
             cwd = config.get("cwd")
             if cwd is not None:
