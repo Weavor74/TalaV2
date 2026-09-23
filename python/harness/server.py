@@ -58,6 +58,16 @@ from python.harness.config import settings
 from python.harness import db
 from python.harness import vps_mode as vps_mode_module
 from python.harness.provider_selection import skip_provider_attempt
+from python.harness.provider_rpc import (
+    handle_inference_detect_local_providers,
+    handle_inference_get_embedded_status,
+    handle_inference_get_engines,
+    handle_inference_get_engine_install_progress,
+    handle_inference_get_providers,
+    handle_inference_install_engine,
+    handle_inference_save_providers,
+    handle_inference_trigger_download,
+)
 from python.harness.desktop_rpc import DESKTOP_RUN_PROMPT, handle_desktop_run, handle_desktop_stop
 from python.harness.workflow_rpc import (
     handle_flow_node_types, handle_flow_validate, handle_workflow_delete,
@@ -108,7 +118,6 @@ from python.harness.token_counter import (
 )
 from python.harness.settings_nn import (
     sync_settings_to_nodes,
-    update_settings_inference_node,
     update_settings_agent_node,
     update_settings_guardrails_node,
     update_settings_search_node,
@@ -4811,238 +4820,8 @@ async def handle_graph_query_activations(params: dict[str, Any], req_id: Any) ->
     })
 
 
-async def handle_inference_get_providers(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``inference.get_providers`` — Retrieve all configured inference providers sorted by priority.
-    """
-    try:
-        from python.harness.credential_crypto import config_has_secret, redact_config
+# Inference provider handlers extracted to python.harness.provider_rpc (Phase 4).
 
-        rows = await load_inference_providers()
-        providers = []
-        for r in rows:
-            import json as json_mod
-            cfg_dict = r["config"]
-            if isinstance(cfg_dict, str):
-                cfg_dict = json_mod.loads(cfg_dict)
-            # load_inference_providers() decrypts, so cfg_dict holds the key in
-            # clear. Encrypting at rest bought nothing while this handler then
-            # shipped it to any client that could open a socket -- and 8765 has
-            # no authentication, so "any client" includes any web page the user
-            # visits (SEC-W0-02). The client is told a key exists, never what it
-            # is; inference itself reads the config server-side, not from here.
-            providers.append({
-                "id": r["id"],
-                "type": r["type"],
-                "name": r["name"],
-                "priority": r["priority"],
-                "status": r["status"],
-                "config": redact_config(cfg_dict),
-                "hasApiKey": config_has_secret(cfg_dict),
-                "locked": r["locked"],
-            })
-        return _ok(req_id, {"providers": providers})
-    except Exception as exc:
-        logger.exception("inference.get_providers error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``inference.save_providers`` — Persist the list of providers and their ordering/priorities.
-    """
-    providers = params.get("providers")
-    if providers is None or not isinstance(providers, list):
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "'providers' (list) is required")
-
-    import json as json_mod
-    try:
-        from python.harness.credential_crypto import (
-            decrypt_config,
-            merge_preserved_secrets,
-        )
-
-        pool = db.get_pool()
-        async with pool.acquire() as conn:
-            async with conn.transaction():
-                # This handler replaces the whole table, so every secret the
-                # client did not send back is a secret about to be destroyed.
-                # Since get_providers now withholds them, that is *all* of them
-                # unless they are re-merged here (SEC-W0-02).
-                existing_cfgs: dict[str, Any] = {}
-                for _row in await conn.fetch("SELECT id, config FROM inference_providers"):
-                    existing_cfgs[_row["id"]] = decrypt_config(_row["config"]) or {}
-
-                # Delete existing providers
-                await conn.execute("DELETE FROM inference_providers")
-                # Insert the updated list
-                for idx, p in enumerate(providers):
-                    cfg = p.get("config", {})
-                    # Always merge flat config fields into the config dict
-                    flat_cfg = {
-                        "model": p.get("model"),
-                        "engine": p.get("engine"),
-                        "endpoint": p.get("endpoint"),
-                        "apiKey": p.get("apiKey"),
-                        "service": p.get("service"),
-                    }
-                    for k, v in flat_cfg.items():
-                        if v is not None:
-                            cfg[k] = v
-
-                    cfg = merge_preserved_secrets(cfg, existing_cfgs.get(p["id"], {}))
-                    
-                    # apiKey was written in clear (UI-047). Selective, so model,
-                    # engine and endpoint stay readable and queryable without a
-                    # key -- only the secret itself is wrapped.
-                    from python.harness.credential_crypto import encrypt_config
-                    stored_cfg = encrypt_config(cfg)
-
-                    await conn.execute(
-                        """
-                        INSERT INTO inference_providers (id, type, name, priority, status, config, locked)
-                        VALUES ($1, $2, $3, $4, $5, $6, $7)
-                        """,
-                        p["id"],
-                        p["type"],
-                        p["name"],
-                        idx + 1,
-                        p.get("status", "unknown"),
-                        json_mod.dumps(stored_cfg),
-                        bool(p.get("locked", False)),
-                    )
-        try:
-            await update_settings_inference_node()
-        except Exception as exc:
-            logger.warning("Failed to update inference settings node: %s", exc)
-        return _ok(req_id, {"success": True})
-    except Exception as exc:
-        logger.exception("inference.save_providers error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_inference_get_embedded_status(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``inference.get_embedded_status`` — Return progress and status of the default embedded model download.
-
-    This handler is deliberately non-blocking.  The module may not be loaded yet
-    (the pre-warm runs in a background task); in that case we immediately return
-    ``not_downloaded`` rather than blocking the event loop for 5-15 s on a cold
-    huggingface_hub import — which would exceed the 15 s RPC timeout.
-    """
-    import sys
-    try:
-        mod = sys.modules.get("python.inference.embedded_engine")
-        if mod is None:
-            # Module not pre-warmed yet — return a safe default immediately so
-            # the renderer knows the harness is alive but still initialising.
-            return _ok(req_id, {
-                "status": "not_downloaded",
-                "progress": 0.0,
-                "error": ""
-            })
-        # Module is cached — get_status() is an instant lock+read.
-        status, progress, error = mod.get_status()
-        return _ok(req_id, {
-            "status": status,
-            "progress": progress,
-            "error": error
-        })
-    except Exception as exc:
-        logger.exception("inference.get_embedded_status error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_inference_trigger_download(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``inference.trigger_download`` — Manually start downloading the default embedded model.
-    """
-    try:
-        from python.inference.embedded_engine import start_download_async
-        start_download_async()
-        return _ok(req_id, {"success": True})
-    except Exception as exc:
-        logger.exception("inference.trigger_download error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_inference_get_engines(params: dict[str, Any], req_id: Any) -> str:
-    """``inference.get_engines`` — Returns all supported embedded engines and their install status."""
-    try:
-        from python.inference.engine_manager import get_all_engines
-        return _ok(req_id, {"engines": get_all_engines()})
-    except Exception as exc:
-        logger.exception("inference.get_engines error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_inference_install_engine(params: dict[str, Any], req_id: Any) -> str:
-    """``inference.install_engine`` — Triggers the background pip installation of an engine."""
-    engine_id = params.get("engine_id")
-    if not engine_id:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "engine_id required")
-        
-    try:
-        from python.inference.engine_manager import start_install
-        start_install(engine_id)
-        return _ok(req_id, {"success": True})
-    except Exception as exc:
-        logger.exception("inference.install_engine error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_inference_get_engine_install_progress(params: dict[str, Any], req_id: Any) -> str:
-    """``inference.get_engine_install_progress`` — Returns the status and logs of an engine installation."""
-    engine_id = params.get("engine_id")
-    if not engine_id:
-        return _err(req_id, JsonRpcError.INVALID_PARAMS, "engine_id required")
-        
-    try:
-        from python.inference.engine_manager import get_status
-        return _ok(req_id, get_status(engine_id))
-    except Exception as exc:
-        logger.exception("inference.get_engine_install_progress error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
-
-async def handle_inference_detect_local_providers(params: dict[str, Any], req_id: Any) -> str:
-    """
-    ``inference.detect_local_providers`` — On-demand re-scan of local inference engines.
-
-    Probes the standard local-engine endpoints (Ollama :11434, LM Studio :1234,
-    vLLM :8000, generic OpenAI-compat :8080) and updates the inference_providers
-    table, then returns the full updated provider list so the renderer can
-    refresh immediately without a separate get_providers call.
-    """
-    try:
-        from python.harness.credential_crypto import config_has_secret, redact_config
-
-        await _auto_detect_and_verify_providers()
-        rows = await load_inference_providers()
-        import json as json_mod
-        providers = []
-        for r in rows:
-            cfg = r["config"]
-            if isinstance(cfg, str):
-                cfg = json_mod.loads(cfg)
-            # This handler returns the full provider list precisely so the
-            # renderer can skip get_providers -- which means it is the same
-            # leak, and fixing only get_providers would leave the door open
-            # behind it (SEC-W0-02).
-            providers.append({
-                "id":       r["id"],
-                "type":     r["type"],
-                "name":     r["name"],
-                "priority": r["priority"],
-                "status":   r["status"],
-                "config":   redact_config(cfg),
-                "hasApiKey": config_has_secret(cfg),
-                "locked":   r["locked"],
-            })
-        return _ok(req_id, {"providers": providers})
-    except Exception as exc:
-        logger.exception("inference.detect_local_providers error")
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
 async def handle_agent_get_agents(params: dict[str, Any], req_id: Any) -> str:
