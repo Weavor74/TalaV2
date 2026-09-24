@@ -17,6 +17,15 @@ const vm = require('node:vm');
 const MAIN = fs.readFileSync(path.join(__dirname, '..', '..', 'electron', 'main.js'), 'utf8');
 const HARNESS_ADMIN = fs.readFileSync(
   path.join(__dirname, '..', '..', 'electron', 'harness_admin.js'), 'utf8');
+// The generated updater scripts themselves (extracted from main.js under the
+// size ratchet); the vm harness below wires the REAL builders into the
+// handler, so generated-script assertions exercise actual output.
+const SCRIPTS = fs.readFileSync(
+  path.join(__dirname, '..', '..', 'electron', 'update_scripts.js'), 'utf8');
+const {
+  buildWindowsUpdateScript,
+  buildUnixUpdateScript,
+} = require('../../electron/update_scripts');
 
 function appUpdateBlock() {
   // The app.update handler, from its method check to the next method check.
@@ -40,6 +49,8 @@ describe('app.update — the only update path', () => {
       fetchPublishedVersion: async () => published,
       getInstalledVersion: () => installed,
       isNewerVersion,
+      buildWindowsUpdateScript,
+      buildUnixUpdateScript,
       URL, __dirname: 'C:\\Tala\\electron',
       process: { platform: 'win32', env: {} },
       setTimeout: jest.fn(),
@@ -93,9 +104,8 @@ describe('app.update — the only update path', () => {
   });
 
   test('the Windows updater writes a post-mortem log', () => {
-    const block = appUpdateBlock();
-    expect(block).toContain('Start-Transcript');
-    expect(block).toContain('tala-update.log');
+    expect(SCRIPTS).toContain('Start-Transcript');
+    expect(SCRIPTS).toContain('tala-update.log');
   });
 
   test('PowerShell receives URL metacharacters as environment data', async () => {
@@ -138,13 +148,12 @@ describe('app.update — the only update path', () => {
   });
 
   test('both platform scripts verify the hash before extracting', () => {
-    const block = appUpdateBlock();
     // Windows: PowerShell Get-FileHash guard ahead of extraction
-    const winCheck = block.indexOf('Get-FileHash');
+    const winCheck = SCRIPTS.indexOf('Get-FileHash');
     expect(winCheck).toBeGreaterThan(-1);
-    expect(block.indexOf('Extracting update', winCheck)).toBeGreaterThan(winCheck);
-    // Unix: sha256 comparison wired into the shell script
-    expect(block).toMatch(/sha256|actualHash/i);
+    expect(SCRIPTS.indexOf('Extracting update', winCheck)).toBeGreaterThan(winCheck);
+    // Unix: the hash is verified in the main process before the script runs
+    expect(appUpdateBlock()).toMatch(/sha256|actualHash/i);
   });
 
   test('the archive never extracts directly over the install root', async () => {
@@ -159,15 +168,14 @@ describe('app.update — the only update path', () => {
   });
 
   test('a failed apply restores the backup, on both platforms', () => {
-    const block = appUpdateBlock();
     // Windows: robocopy failure path restores from the backup dir.
-    expect(block).toMatch(/if \(\$LASTEXITCODE -ge 8\) \{[\s\S]*?robocopy \$backup/);
+    expect(SCRIPTS).toMatch(/if \(\$LASTEXITCODE -ge 8\) \{[\s\S]*?robocopy \$backup/);
     // Unix: cp failure path restores from the backup dir.
-    expect(block).toMatch(/if ! cp -Rp "\$STAGING\/\."[\s\S]*?cp -Rp "\$BACKUP\/\."/);
+    expect(SCRIPTS).toMatch(/if ! cp -Rp "\$STAGING\/\."[\s\S]*?cp -Rp "\$BACKUP\/\."/);
     // Both extract to staging before touching the install.
-    expect(block).toContain('the install was not touched');
+    expect(SCRIPTS).toContain('the install was not touched');
     // And every overwritten file is backed up first.
-    expect(block).toContain('Backing up the files this update overwrites');
+    expect(SCRIPTS).toContain('Backing up the files this update overwrites');
   });
 
   test('the renderer cannot supply update bytes over IPC', () => {
