@@ -29,7 +29,10 @@ PINNED = {
     "sdk/agent/documentation_nodes.py": 1956,
     "sdk/agent/goal_engine.py": 1694,
     "sdk/agent/graph_engine.py": 1785,
-    "sdk/agent/tools.py": 4870,
+    # 4870 -> 4695: the run_tool pre-execution gate chain (plugin permissions,
+    # halt, AuthorizationGate, leases, authority levels) moved wholesale to
+    # sdk/agent/tool_gates.py, paying off the 2026-09-23 campaign overage.
+    "sdk/agent/tools.py": 4695,
 }
 
 SCANNED_TREES = ("python", "sdk", "scripts")

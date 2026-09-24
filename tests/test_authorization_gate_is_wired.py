@@ -11,6 +11,7 @@ import inspect
 import pytest
 
 from python.harness.access import AGENT, OWNER, Principal
+from sdk.agent import tool_gates
 from sdk.agent.gates import AuthorizationGate, RevocationHalt
 from sdk.agent.tools import ToolRegistry
 
@@ -22,12 +23,16 @@ def _always_release_halt():
 
 
 def test_authorization_gate_is_in_the_tool_chokepoint():
+    # The gate chain lives in tool_gates.enforce (size-ratchet cut-down);
+    # run_tool stays the chokepoint by delegating to it.
     src = inspect.getsource(ToolRegistry.run_tool)
-    assert "AuthorizationGate" in src or "_authorization_gate" in src
-    assert "request_authorization" in src
-    halt_at = src.find("RevocationHalt")
-    auth_at = src.find("request_authorization")
-    lease_at = src.find("lease_policy")
+    assert "tool_gates" in src, "run_tool no longer calls the gate chain"
+    gates_src = inspect.getsource(tool_gates.enforce)
+    assert "AuthorizationGate" in gates_src or "_gate" in gates_src
+    assert "request_authorization" in gates_src
+    halt_at = gates_src.find("RevocationHalt")
+    auth_at = gates_src.find("request_authorization")
+    lease_at = gates_src.find("lease_policy")
     assert halt_at != -1 and auth_at != -1 and lease_at != -1
     assert halt_at < auth_at < lease_at
 
@@ -77,7 +82,7 @@ async def test_gate_fail_closed_when_check_raises(monkeypatch):
     async def boom(*a, **k):
         raise RuntimeError("gate exploded")
 
-    gate = ToolRegistry._authorization_gate()
+    gate = tool_gates._gate()
     monkeypatch.setattr(gate, "request_authorization", boom)
 
     result = await ToolRegistry.run_tool("get_system_info", {})

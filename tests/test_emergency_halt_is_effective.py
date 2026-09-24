@@ -66,11 +66,18 @@ async def test_the_halt_is_checked_before_anything_else():
     """
     import inspect
 
-    src = inspect.getsource(ToolRegistry.run_tool)
+    from sdk.agent import tool_gates
+
+    # The gate chain lives in tool_gates.enforce (size-ratchet cut-down);
+    # run_tool must still be the one calling it.
+    assert "tool_gates" in inspect.getsource(ToolRegistry.run_tool), (
+        "run_tool does not call the gate chain"
+    )
+    src = inspect.getsource(tool_gates.enforce)
     halt_at = src.find("RevocationHalt")
     lease_at = src.find("lease_policy")
-    assert halt_at != -1, "run_tool does not check the emergency halt"
-    assert lease_at != -1, "run_tool does not take a lease"
+    assert halt_at != -1, "the gate chain does not check the emergency halt"
+    assert lease_at != -1, "the gate chain does not take a lease"
     assert halt_at < lease_at, "the halt is checked after the lease gate"
 
 

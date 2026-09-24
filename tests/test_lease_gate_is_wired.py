@@ -28,9 +28,15 @@ def _open_mode(monkeypatch):
 
 def test_the_gate_is_in_the_tool_chokepoint():
     """run_tool is the one path all 97 tools take; the gate must sit in it."""
+    from sdk.agent import tool_gates
     from sdk.agent.tools import ToolRegistry
 
-    src = inspect.getsource(ToolRegistry.run_tool)
+    # The gate chain moved to tool_gates.enforce (size-ratchet cut-down);
+    # the lease must be in that chain, and run_tool must call the chain.
+    assert "tool_gates" in inspect.getsource(ToolRegistry.run_tool), (
+        "run_tool does not call the gate chain"
+    )
+    src = inspect.getsource(tool_gates.enforce)
     assert "lease_policy" in src, "no lease is taken when a tool runs"
 
 
