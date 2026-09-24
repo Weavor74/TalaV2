@@ -15,16 +15,6 @@ from typing import Any
 from python.harness import db
 
 
-def _run_cmd(cmd: list[str]) -> str:
-    """Run a subprocess; return stdout stripped, or "" on failure."""
-    import subprocess
-    try:
-        result = subprocess.run(cmd, capture_output=True, text=True, timeout=5)
-        return result.stdout.strip()
-    except Exception:
-        return ""
-
-
 _ROOT_DIR = str(Path(__file__).resolve().parent.parent.parent)
 
 
@@ -255,18 +245,6 @@ async def collect_system_info() -> dict[str, Any]:
     }
 
 
-def has_gpu() -> bool:
-    """True when CUDA/torch or nvidia-smi reports at least one GPU device."""
-    try:
-        import torch as _torch
-        if _torch.cuda.is_available() and _torch.cuda.device_count() > 0:
-            return True
-    except Exception:
-        pass
-    try:
-        smi = _run_cmd(["nvidia-smi", "-L"])
-        if smi and any(line.strip().startswith("GPU ") for line in smi.splitlines()):
-            return True
-    except Exception:
-        pass
-    return False
+# has_gpu() was deleted 2026-09-23 (reachability audit): the GPU chat gate it
+# was written for probes system.info and reads gpu.available from
+# collect_system_info instead, so the standalone boolean never had a caller.

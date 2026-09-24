@@ -148,8 +148,14 @@ def _encrypt_value(key: bytes, plaintext: str) -> dict[str, str]:
     }
 
 
-def clear_decrypt_failure_cache() -> None:
-    """Forget which envelopes have already been reported (tests / key restore)."""
+def _clear_decrypt_failure_cache() -> None:
+    """Forget which envelopes have already been reported.
+
+    Private on purpose: today the only callers are the diagnostics tests, and
+    the reachability audit flags a public function whose only caller is its own
+    test. If a runtime key-restore path ever exists, it should call this and
+    the underscore can come off.
+    """
     with _failed_decrypt_lock:
         _failed_decrypt_fps.clear()
 

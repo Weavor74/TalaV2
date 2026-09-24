@@ -4,6 +4,12 @@ Concrete next actions for logging.get_health rows.
 When overall is MAINTENANCE_REQUIRED while MEMORY_AUTHORITY is HEALTHY, the
 operator still needs to know what to click. Each non-HEALTHY service gets a
 structured action (label + navigation/rpc hint) derived from the probe detail.
+
+The single entry point is :func:`build_health_payload` (called by the
+``logging.get_health`` handler in server.py; renderer/health_ops.js renders
+the resulting ``actions[]``). The per-service helpers are private — the
+reachability audit rightly flagged them when they were public with no caller
+outside this module.
 """
 from __future__ import annotations
 
@@ -86,7 +92,7 @@ _ACTION_BY_SERVICE: dict[str, dict[str, str]] = {
 }
 
 
-def action_for(service: str, status: str, detail: str = "") -> dict[str, str] | None:
+def _action_for(service: str, status: str, detail: str = "") -> dict[str, str] | None:
     """Return a next-action dict for a non-healthy service, or None if healthy."""
     if status == "HEALTHY":
         return None
@@ -108,7 +114,7 @@ def action_for(service: str, status: str, detail: str = "") -> dict[str, str] | 
     }
 
 
-def build_actions(services: dict[str, str], details: dict[str, str] | None = None) -> list[dict[str, str]]:
+def _build_actions(services: dict[str, str], details: dict[str, str] | None = None) -> list[dict[str, str]]:
     """Ordered list of next actions for every non-HEALTHY measured service."""
     details = details or {}
     actions: list[dict[str, str]] = []
@@ -119,7 +125,7 @@ def build_actions(services: dict[str, str], details: dict[str, str] | None = Non
         key=lambda pair: (order.get(pair[1], 9), pair[0]),
     )
     for service, status in ranked:
-        action = action_for(service, status, details.get(service, ""))
+        action = _action_for(service, status, details.get(service, ""))
         if action:
             actions.append(action)
     return actions
@@ -140,5 +146,5 @@ def build_health_payload(
         "mode": mode,
         "measured": len(services) - len(unknowns),
         "unmeasured": unknowns,
-        "actions": build_actions(services, details),
+        "actions": _build_actions(services, details),
     }
