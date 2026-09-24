@@ -3,7 +3,9 @@
 const fs = require('node:fs');
 const path = require('node:path');
 const vm = require('node:vm');
-const { test } = require('node:test');
+// Jest supplies the global `test`; node:assert works under jest. These files
+// were written for node:test, which registers nothing inside jest and made
+// the whole suite fail with 'must contain at least one test'.
 const assert = require('node:assert/strict');
 
 function load(gpuAvailable) {
