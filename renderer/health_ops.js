@@ -90,6 +90,71 @@ async function healthRunAction(action) {
   alert(`${action.service || 'service'}: ${action.status || ''}\n${action.detail || action.label || ''}`);
 }
 
+/** Overall status line + per-service dots for the System Health panel.
+ *  Moved out of LoggingManager in renderer.js (size ratchet); `qs` is the
+ *  helpers.js global. */
+function healthUpdateSystemHealth(health) {
+  const overallText = qs('#health-overall-text');
+  const overallDot = qs('#health-overall-dot');
+  const overallMode = qs('#health-overall-mode');
+
+  // Update overall statuses
+  if (overallText) {
+    overallText.textContent = health.overall;
+    overallText.className = ''; // clear
+    overallText.style.color = health.overall === 'HEALTHY' ? 'var(--status-ok)' :
+                              (health.overall === 'CRITICAL' ? 'var(--status-error)' : 'var(--status-warn)');
+  }
+
+  if (overallDot) {
+    overallDot.style.backgroundColor = health.overall === 'HEALTHY' ? 'var(--status-ok)' :
+                                       (health.overall === 'CRITICAL' ? 'var(--status-error)' : 'var(--status-warn)');
+  }
+
+  if (overallMode) {
+    overallMode.textContent = health.mode;
+  }
+
+  // Update the health service dots.
+  //
+  // Every service the backend reports gets a row, including one this markup
+  // has never heard of. The previous version looked up a hardcoded id and
+  // silently skipped on miss, so adding a probe server-side produced a
+  // measurement that reached the renderer and was dropped on the floor --
+  // indistinguishable, on screen, from a probe that was never written. A
+  // panel that quietly omits what it was told is worse than one that is
+  // merely incomplete, because it looks complete.
+  if (health.services) {
+    const grid = qs('#health-dot-DASHBOARD_TELEMETRY')?.closest('.health-item')?.parentElement;
+    for (const [service, status] of Object.entries(health.services)) {
+      let dot = qs(`#health-dot-${service}`);
+      if (!dot && grid) {
+        const item = document.createElement('div');
+        item.className = 'health-item';
+        dot = document.createElement('span');
+        dot.className = 'status-dot';
+        dot.id = `health-dot-${service}`;
+        const label = document.createElement('span');
+        label.className = 'health-label';
+        label.textContent = service;
+        item.append(dot, label);
+        grid.appendChild(item);
+      }
+      if (!dot) continue;
+      dot.className = 'status-dot'; // reset
+      if (status === 'HEALTHY') dot.classList.add('status-ok');
+      else if (status === 'CRITICAL') dot.classList.add('status-error');
+      else dot.classList.add('status-warn');
+      // The backend says on what basis it decided; surface it rather than
+      // making the operator read the log to find out what a colour means.
+      const detail = health.details && health.details[service];
+      const item = dot.closest('.health-item');
+      if (item) item.title = detail ? `${service}: ${status} — ${detail}` : `${service}: ${status}`;
+    }
+  }
+  healthRenderActions(health);
+}
+
 function healthRenderActions(health) {
   const panel = document.querySelector('.system-health-panel');
   if (!panel) return;
@@ -154,5 +219,6 @@ function escapeHtml(value) {
     .replace(/"/g, '&quot;');
 }
 
+window.healthUpdateSystemHealth = healthUpdateSystemHealth;
 window.healthRenderActions = healthRenderActions;
 window.healthRunAction = healthRunAction;
