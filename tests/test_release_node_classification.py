@@ -13,14 +13,17 @@ install's data:
   learning-*       distilled from what THIS machine's sessions learned.
   benchmark-run-*  local benchmark output.
   flow-*           user-created flows, uuid-named.
+  settings-*       the user's live settings — settings_nn.py rewrites these on
+                   every change and regenerates them from the database when
+                   missing, so a fresh install loses nothing.
   _staging/        nodes that have not passed promotion yet.
 
-Two packagers must agree: electron-builder (package.json build.files) and
-scripts/build_bundles.py (the VPS download zips). This test pins both, so a
-new private node class gets excluded in one place per packager, knowingly.
+There is ONE packager: scripts/build_bundles.py, which builds the zips that
+upload_vps.ps1 publishes and the OTA updater applies. The electron-builder
+format was dropped 2026-09-23 — its build.files allowlist had drifted from
+BASE_EXCLUDES for months and its output was never published anywhere.
 """
 
-import json
 import sys
 from pathlib import Path
 
@@ -48,17 +51,7 @@ LIVE_STATE_FILES = [
 ]
 
 
-def test_electron_builder_excludes_private_node_classes():
-    files = json.loads((REPO / "package.json").read_text(encoding="utf-8"))["build"]["files"]
-    for pattern in PRIVATE_NODE_CLASSES:
-        assert f"!{pattern}" in files, (
-            f"package.json build.files no longer excludes {pattern}; "
-            "a packaged build would ship this install's private nodes"
-        )
-    assert "!nodes/_staging/**" in files
-
-
-def test_vps_bundles_exclude_private_node_classes():
+def test_bundles_exclude_private_node_classes():
     excludes = BASE_EXCLUDES
     for pattern in PRIVATE_NODE_CLASSES:
         assert pattern in excludes, (
@@ -68,26 +61,24 @@ def test_vps_bundles_exclude_private_node_classes():
     assert "nodes/_staging/*" in excludes
 
 
-def test_both_packagers_exclude_live_state_files():
-    """An OTA update must never overwrite what the running app writes.
-
-    settings-* looks like a product node but is the user's live settings
-    (settings_nn.py rewrites it on every change, and regenerates it from the
-    database when missing, so a fresh install loses nothing)."""
-    files = json.loads((REPO / "package.json").read_text(encoding="utf-8"))["build"]["files"]
+def test_bundles_exclude_live_state_files():
+    """An OTA update must never overwrite what the running app writes."""
     for pattern in LIVE_STATE_FILES:
-        assert f"!{pattern}" in files, (
-            f"package.json build.files no longer excludes {pattern}; "
-            "an installed build would ship this install's live state"
-        )
         assert pattern in BASE_EXCLUDES, (
             f"scripts/build_bundles.py no longer excludes {pattern}; "
             "an OTA update would overwrite the user's live copy of it"
         )
 
 
-def test_the_lora_weights_are_covered_by_the_corpus_pattern():
-    """The trained adapter lives in a DIRECTORY (corpus-*_lora/), which glob
-    semantics can silently miss. package.json needs the explicit /** variant."""
-    files = json.loads((REPO / "package.json").read_text(encoding="utf-8"))["build"]["files"]
-    assert "!nodes/corpus-*/**" in files
+def test_electron_builder_stays_gone():
+    """The second distribution format was dropped, not forgotten (2026-09-23).
+
+    Its files allowlist had to be maintained in lockstep with BASE_EXCLUDES,
+    drifted anyway, and nothing it produced was ever published. If packaging
+    with electron-builder comes back, it needs its own exclusion pinning
+    equivalent to the tests above."""
+    raw = (REPO / "package.json").read_text(encoding="utf-8")
+    assert '"build"' not in raw and "electron-builder" not in raw, (
+        "package.json carries electron-builder config again; either remove it "
+        "or restore per-packager exclusion pinning in this test file"
+    )

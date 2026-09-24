@@ -46,17 +46,15 @@ For rigorous testing, spin up clean virtual machines with **no pre-existing deve
 - [ ] **Hashes Published**: After `scripts/build_bundles.py`, does `blockchain/public/version.json` carry a `sha256` entry for all three platform zips? (The updater's integrity check is skipped for any platform missing here.)
 - [ ] **Lint Gate**: Do `npm run lint:js` and `npm run lint:py` pass, and `uv run pytest tests/test_size_ratchet.py`?
 - [ ] **No Private Nodes in Bundles**: Does `uv run pytest tests/test_release_node_classification.py` pass? (persona-*, learning-*, benchmark-run-*, flow-*, corpus-* and _staging nodes are this install's data, not the product's.)
-- [ ] **Unpacked Smoke Test**: Does `npm run pack` create a launchable app in `dist/`?
-- [ ] **Current OS Package**: Does `npm run package` create the expected installer/archive for the host OS?
-- [ ] **Packaged First-Run**: On first packaged launch, are `.env`, `.venv`, `vault/`, `data/`, and `scratch/` created under Electron `userData` rather than source-controlled folders?
-- [ ] **Package Self-Test**: After installing the package on a clean machine, does `npm run self-test` or `/self-test` pass?
+- [ ] **Published Upgrade Verified**: After `scripts/upload_vps.ps1`, does `scripts/verify_release_upgrade.ps1 -BaselineZip <previous release zip>` pass? (Real download from talacore.app, sha256 verified, applied over a scratch install of the previous release, user state intact, downgrade gate refuses a replay.)
+- [ ] **Clean-Machine Install**: After extracting the zip and running the platform install script on a clean machine, does `npm run self-test` or `/self-test` pass? (The zips are source-only; electron-builder installers were dropped 2026-09-23.)
 - [ ] **No Secrets in Bundles**: Does `uv run pytest tests/test_release_bundles_carry_no_secrets.py` pass against the freshly built bundle? (An earlier bundle shipped `.env`; a later one shipped `blockchain/data/poa_keys.json` with the live PoA private key.)
 
 ## 8. Security Rotations (one-time, before first public release)
 These close out the exposures found in the 2026-09-09 production-readiness review. The code fixes landed 2026-09-12; these are the operator halves that cannot be done from the repo.
 - [ ] **Rotate the PoA signing key**: The key pair in `blockchain/data/poa_keys.json` shipped inside `tala-windows.zip` (one known holder of the link, but the URL was unauthenticated). Delete the key file on the VPS, let `app.js` mint a fresh pair on restart, update the authority set, and remove the old zip from the webroot.
 - [ ] **Rotate the Postgres password** in `.env` (it shipped in an earlier bundle).
-- [ ] **Redeploy the VPS** with the current `Caddyfile` (adds the `wss://talacore.app/ws` route) and `scripts/start-tala-vps.sh` (binds 8765 and 8332 to loopback behind Caddy). Until then, updated desktops cannot reach the node.
+- [x] **Redeploy the VPS** with the current `Caddyfile` (adds the `wss://talacore.app/ws` route) and loopback binds for 8765 and 8332 behind Caddy. *Done 2026-09-23: Caddyfile deployed and verified with a live 101 handshake on `/ws`; loopback set via the VPS `.env` (`WS_HOST=127.0.0.1`) plus a `tala-vps.service.d/loopback.conf` drop-in; direct `ws://<ip>:8765` and `http://<ip>:8332` confirmed dead. The GCP firewall rules `allow-tala-ws` and `allow-tala-blockchain` are now moot and can be deleted.*
 
 ---
 *Once all boxes are checked, the Native Transparent Deployment path is certified for release.*

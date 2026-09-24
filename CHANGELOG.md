@@ -10,6 +10,25 @@ download site inherits them.
 
 ## [Unreleased]
 
+### Removed
+- The electron-builder distribution format (`npm run pack`/`package:*`, the
+  `build` section in package.json, the CI packaging smoke on its output).
+  Its `files` allowlist had to be maintained in lockstep with the zip
+  bundler's `BASE_EXCLUDES`, drifted anyway, and nothing it produced was
+  ever published; the source zips from `scripts/build_bundles.py` are the
+  one distribution format. CI's package-smoke now builds the real bundle
+  and inspects it for entrypoints and leaked live state.
+
+### Changed
+- The OTA updater applies via staged extraction with backup and rollback:
+  a corrupt archive leaves the install untouched, and a failed apply
+  restores the pre-update files.
+- CI runs a dependency audit that actually gates: runtime dependencies at
+  moderate, dev tooling at high (the previous "gate" was an `npm install`
+  comment — install prints advisories and exits 0).
+- The deployed Caddyfile is the repo's again: static site plus `/chain/*`,
+  and the `/ws` peer route restored, with 8765/8332 bound to loopback.
+
 ## [0.1.84] - 2026-09-23
 
 ### Security

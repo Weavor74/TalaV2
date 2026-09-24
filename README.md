@@ -63,11 +63,17 @@ After installation, launch Tala with:
 - Windows: `.\scripts\start-tala.ps1`
 - macOS/Linux: `./scripts/start-tala.sh`
 
-For diagnostics, run the platform doctor script in `scripts/`. For packaged desktop builds, use:
+For diagnostics, run the platform doctor script in `scripts/`.
 
-- Directory pack: `npm run pack`
-- Current OS installer: `npm run package`
-- Platform targets: `npm run package:win`, `npm run package:mac`, or `npm run package:linux`
+Distribution is the source zips (there is no separate installer format —
+electron-builder was dropped 2026-09-23; installs run `npm install`/`uv sync`
+on the target via the bundled install scripts):
+
+- Build a release: `python scripts/build_bundles.py` (bumps the version from
+  `CHANGELOG.md`'s `[Unreleased]` notes, builds the three platform zips,
+  stamps their sha256 into `blockchain/public/version.json`)
+- Publish it: `scripts/upload_vps.ps1`
+- Prove it: `scripts/verify_release_upgrade.ps1 -BaselineZip <previous zip>`
 
 ## Web UI
 

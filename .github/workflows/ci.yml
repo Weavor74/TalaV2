@@ -80,28 +80,34 @@ jobs:
         run: python -m pytest tests/test_size_ratchet.py -q
 
   package-smoke:
-    # electron-builder --dir: catches packaging-config rot (bad globs, missing
-    # files entries) without paying for installers or code signing.
+    # The distribution format is the source zips from scripts/build_bundles.py
+    # (electron-builder was dropped 2026-09-23: its allowlist drifted from
+    # BASE_EXCLUDES and its output was never published). Build the real
+    # artifact and verify it carries the app entrypoints and none of this
+    # install's live state.
     runs-on: ubuntu-latest
     timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-python@v5
         with:
-          node-version: "20"
-      - name: Install Node dependencies
-        run: npm ci
-      - name: Packaged-build smoke test
-        run: npx electron-builder --dir
-      - name: Verify the packaged tree carries the app entrypoints
-        # linux-unpacked on x64, linux-arm64-unpacked on arm — glob covers both.
+          python-version: "3.11"
+      - name: Build release bundles
+        run: python scripts/build_bundles.py --no-version-bump
+      - name: Verify the bundle carries the app entrypoints and no live state
         run: |
-          APP=$(echo dist/linux*unpacked/resources/app)
-          test -d "$APP" || { echo "no unpacked build under dist/" >&2; exit 1; }
-          for f in electron/main.js renderer/renderer.js python/harness/server.py package.json; do
-            test -f "$APP/$f" || { echo "missing $f in packaged tree" >&2; exit 1; }
-          done
-          echo "packaged tree ok"
+          python - <<'EOF'
+          import zipfile
+          names = set(zipfile.ZipFile('blockchain/public/tala-linux.zip').namelist())
+          for f in ('electron/main.js', 'renderer/renderer.js',
+                    'python/harness/server.py', 'package.json',
+                    'scripts/start-tala.sh'):
+              assert f in names, f'missing {f} in bundle'
+          leaked = [n for n in names if n.startswith('nodes/settings-')
+                    or n == 'emotion_state.json' or n.startswith('nodes/persona-')]
+          assert not leaked, f'live state in bundle: {leaked}'
+          print('bundle tree ok')
+          EOF
 
   self-test:
     runs-on: ubuntu-latest
