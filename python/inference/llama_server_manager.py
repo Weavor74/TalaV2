@@ -85,8 +85,16 @@ BINARIES_MANIFEST_URL = "https://talacore.app/llama_binaries.json"
 
 #: Default model: a single GGUF file, not a full HF snapshot -- llama.cpp
 #: needs one file, not the safetensors/tokenizer set transformers used.
-DEFAULT_MODEL_REPO = "Qwen/Qwen2.5-0.5B-Instruct-GGUF"
-DEFAULT_MODEL_FILENAME = "qwen2.5-0.5b-instruct-q4_k_m.gguf"
+#:
+#: 1.5B, not 0.5B: measured directly against Jev-mode structured decisions
+#: (chat_mode.determine_effective_mode()'s two-boolean classification), 0.5B
+#: was chance-level regardless of schema framing (3-way enum, combined
+#: booleans, isolated single boolean, with and without few-shot instructions
+#: -- none beat 50% on a plain yes/no question). 1.5B scored 10/12 fields
+#: correct on the same test set, at ~260ms per decision -- still negligible
+#: latency. This also improves ordinary chat quality, not just Jev mode.
+DEFAULT_MODEL_REPO = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
+DEFAULT_MODEL_FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
 
 #: Sequence slots reserved for /v1/decision. Below 3 the endpoint refuses
 #: outright ("decisions are disabled"); 8 comfortably covers a handful of

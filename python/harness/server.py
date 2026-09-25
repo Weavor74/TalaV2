@@ -137,6 +137,7 @@ logger = logging.getLogger(__name__)
 # python/harness/chat_mode.py so memory.py can share them without importing
 # server.py back -- see that module for why there were two disagreeing sources.
 from python.harness.chat_mode import (  # noqa: E402
+    determine_effective_mode,
     get_current_chat_mode,
     is_emotional_mode,
     save_current_chat_mode,
@@ -1225,7 +1226,7 @@ def _parse_chat_template_tool_calls(text: str) -> list[dict[str, Any]]:
     Extract ``<tool_call>{...}</tool_call>`` blocks into OpenAI-shaped tool calls.
 
     This is the reply format Qwen2.5-Instruct's bundled chat template asks for
-    when it is given `tools`, and the embedded 0.5B is the only provider that
+    when it is given `tools`, and the embedded engine is the only provider that
     speaks it. Normalising here means the same _tool_calls_to_call_tags used for
     Ollama and the /v1 providers renders it, so the embedded path joins the same
     protocol-agnostic dispatch as everything else rather than growing its own.
@@ -1827,8 +1828,9 @@ async def handle_inference_generate(
         except Exception as astro_exc:
             logger.warning("Could not apply astrology style modulation: %s", astro_exc)
 
-        # Apply Hybrid Mode instructions if active
-        chat_mode = get_current_chat_mode()
+        # Apply Hybrid Mode instructions if active. Mode is per-turn here --
+        # never written back to chat_mode.json -- see determine_effective_mode().
+        chat_mode = await determine_effective_mode(raw_user_prompt)
         if chat_mode == "hybrid":
             hybrid_directive = (
                 "\n\n[Mode: Hybrid]\n"
@@ -1919,11 +1921,15 @@ async def handle_inference_generate(
                     # that prepends context from recent history turns.
                     retrieval_query = prompt
                     
-                    # chat_mode comes from chat_mode.json, NOT from
+                    # chat_mode was already resolved for this turn above
+                    # (determine_effective_mode()) -- reused here rather than
+                    # re-read, so a per-turn override applies consistently
+                    # through the rest of the request instead of only to the
+                    # hybrid directive. It still ultimately comes from
+                    # chat_mode.json (or this turn's override), NOT from
                     # agents.config['chat_mode'] -- nothing writes that key, so
-                    # this guard was permanently false and the persona never
+                    # that guard was permanently false and the persona never
                     # received an emotional state at inference time.
-                    chat_mode = get_current_chat_mode()
                     agent_id_for_emotion = str(active_row["id"]) if "id" in active_row else None
                     current_emotion = None
 
@@ -2751,7 +2757,7 @@ async def handle_inference_generate(
             "name": "Tala Embedded Engine",
             "priority": 1,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
+            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
             "locked": True
         }]
 
@@ -2815,7 +2821,7 @@ async def handle_inference_generate(
             "name": "Tala Embedded Engine",
             "priority": 999,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
+            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
             "locked": True,
         }]
 
@@ -2871,7 +2877,7 @@ async def handle_inference_generate(
                 "name": "Tala Embedded Engine",
                 "priority": 999,
                 "status": "online",
-                "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
+                "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
                 "locked": True
             }]
         providers = _tier_sort_providers(providers)
@@ -2921,7 +2927,7 @@ async def handle_inference_generate(
                     if not check_model_cached():
                         raise RuntimeError("Embedded model not fully downloaded / cached yet.")
 
-                    # The embedded 0.5B gets tools through the chat template, which
+                    # The embedded engine gets tools through the chat template, which
                     # renders the schemas itself and asks for a <tool_call> JSON
                     # reply. That is a structured protocol a model this small can
                     # actually follow; the XML documentation is not, so it comes out
@@ -9855,7 +9861,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "name": "Tala Embedded Engine",
             "priority": 1,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
+            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
             "locked": True
         }]
 
@@ -9887,7 +9893,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "name": "Tala Embedded Engine",
             "priority": 999,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
+            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
             "locked": True,
         }]
 
@@ -9929,7 +9935,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
                     "name": "Tala Embedded Engine",
                     "priority": 999,
                     "status": "online",
-                    "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
+                    "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
                     "locked": True
                 })
 

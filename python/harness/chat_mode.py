@@ -29,6 +29,7 @@ place to check.
 
 from __future__ import annotations
 
+import asyncio
 import json
 import logging
 import os
@@ -129,3 +130,85 @@ def is_emotional_mode(mode: str | None = None) -> bool:
     """
     resolved = _normalize_chat_mode(mode) if mode is not None else get_current_chat_mode()
     return resolved in EMOTIONAL_CHAT_MODES
+
+
+async def determine_effective_mode(raw_user_prompt: str) -> str:
+    """
+    The mode this turn should use: the persisted setting, or a per-turn
+    override from the embedded engine's Jev-mode structured decision.
+
+    Ephemeral by design: this never calls save_current_chat_mode() and never
+    touches which persona/agent is active -- the manual mode buttons remain
+    the only way to actually change identity or clear history. A single
+    ambiguous message should not flip who Tala is for the rest of the
+    conversation.
+
+    The llama_server_manager import stays inside this function (the module
+    docstring's "dependency-free" is about top-level imports memory.py
+    relies on to avoid a circular import; this is a lazy, call-time-only
+    import, same pattern as _resolve_user_data_dir() above). Deliberately
+    does not attempt a decision at all -- not even under a timeout -- unless
+    the engine is already running: decide() calls an internal ensure_running()
+    that can take up to a minute on a cold start (model load), and cancelling
+    that mid-spawn via a short timeout risks an orphaned subprocess that is
+    registered with the process lifecycle but never adopted as the active
+    server. Skipping cleanly here means this optional enhancement engages
+    automatically once the engine is warm for any other reason, and never
+    costs a chat turn a cold start.
+    """
+    persisted = get_current_chat_mode()
+
+    from python.inference import llama_server_manager as _lsm
+
+    if _lsm.active_variant() is None:
+        return persisted
+
+    # Two booleans, not a single three-way enum. Measured directly: a 3-way
+    # enum locked onto one label regardless of message content (chance-level,
+    # confirmed on both 0.5B and 1.5B models) -- the model wasn't
+    # discriminating on the input at all. Decomposing into two independent
+    # yes/no questions and deriving the mode ourselves scored 10/12 fields
+    # correct on the same test set. Neither signal firing means "not
+    # confident either way" -- defer to the persisted mode rather than guess.
+    try:
+        result = await asyncio.wait_for(
+            _lsm.decide(
+                schema={
+                    "in_character": {
+                        "type": "boolean",
+                        "description": (
+                            "true if the message uses roleplay action text like "
+                            "*smiles* or *leans in*, or talks to Tala as a "
+                            "companion/crewmate rather than a software tool; "
+                            "false for plain direct speech"
+                        ),
+                    },
+                    "wants_technical_help": {
+                        "type": "boolean",
+                        "description": (
+                            "true if the message asks for code, a bug fix, a "
+                            "debugging session, or any concrete computer/software "
+                            "task; false otherwise"
+                        ),
+                    },
+                },
+                contexts=[raw_user_prompt],
+            ),
+            timeout=5.0,
+        )
+        decision = result["results"][0]["decision"]
+        in_character = bool(decision["in_character"])
+        wants_technical_help = bool(decision["wants_technical_help"])
+        if in_character and wants_technical_help:
+            return "hybrid"
+        if in_character:
+            return "rp"
+        if wants_technical_help:
+            return "assistant"
+        return persisted
+    except Exception as exc:
+        log.debug(
+            "chat_mode: per-turn determination failed, using persisted mode %r: %s",
+            persisted, exc,
+        )
+        return persisted

@@ -22,13 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="manage_inference_engine"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:9110581213E67325B9EF0DA20339CB62ABC9A32A6F37140AEC024C7EDC9297B6"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:24DBBEBC7C87F003753E5180E472C142A603A0B5C456AFF06B6F7FC31D05B1BA"
+  data-source-digest="sha256:509B92E515DB7783556AAB4CCCCA48C8AB25DA21063A347B8BF4926DA0DA3034"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:08Z"
+  data-generated-at="2026-09-25T14:42:00Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;manage_inference_engine&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Check status, install, or update the embedded inference engine.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;manage_inference_engine(action*, engine_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;action&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;engine_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Manages local embedded inference engines (e.g. transformers, llamacpp). Supported actions: - &quot;status&quot;: Returns the installation status of the engine. - &quot;install&quot;: Starts downloading and installing the engine in the background. - &quot;list&quot;: Returns a list of all available engines and their status. - action: The action to perform (&quot;status&quot;, &quot;install&quot;, &quot;list&quot;). - engine_id: The ID of the engine (e.g. &quot;transformers&quot;, &quot;llamacpp&quot;).&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;manage_inference_engine&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Check status, install, or update the embedded inference engine.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;manage_inference_engine(action*, engine_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;action&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;engine_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Manages Tala&#x27;s embedded inference engine: a llama.cpp server binary. Supported actions: - &quot;status&quot;: Returns the installation status of the engine. - &quot;install&quot;: Starts downloading and installing the engine in the background. - &quot;list&quot;: Returns a list of all available engines and their status. - action: The action to perform (&quot;status&quot;, &quot;install&quot;, &quot;list&quot;). - engine_id: The engine id. Only &quot;llamacpp&quot; exists.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:08Z",
+    "created_or_updated": "2026-09-25T14:42:00Z",
     "schema": "neural-node/v2",
     "doc_target": "manage_inference_engine",
-    "source_fingerprint": "sha256:9110581213E67325B9EF0DA20339CB62ABC9A32A6F37140AEC024C7EDC9297B6",
+    "source_fingerprint": "sha256:24DBBEBC7C87F003753E5180E472C142A603A0B5C456AFF06B6F7FC31D05B1BA",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:509B92E515DB7783556AAB4CCCCA48C8AB25DA21063A347B8BF4926DA0DA3034",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

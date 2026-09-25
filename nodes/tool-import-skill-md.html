@@ -22,13 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="import_skill_md"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:1089FE3B10850BA456EF7B337105924986EFCF4833131F4E5899288C4363A8D8"
-  data-source-digest="sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861"
+  data-source-fingerprint="sha256:E289D8FBF7ED113F207D26DF7BD24BA645C708D19CF81E0A7E41458EF6E6DC50"
+  data-source-digest="sha256:509B92E515DB7783556AAB4CCCCA48C8AB25DA21063A347B8BF4926DA0DA3034"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:02Z"
+  data-generated-at="2026-09-25T14:41:53Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -37,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;import_skill_md&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Import an agentskills.io-format SKILL.md (from a file path or URL) as an HTML-NN skill knowledge node so its instructions become recallable context.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;import_skill_md(source*)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;source&lt;/code&gt; (string, required)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Accepts a local file path or an http(s) URL to a SKILL.md document (agentskills.io open standard: YAML frontmatter with name/description plus a markdown instruction body). The skill is persisted as a schema-valid HTML-NN learning node tagged &#x27;skill&#x27; so graph activation surfaces it when relevant.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;import_skill_md&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Import an agentskills.io-format SKILL.md (from a file path or URL) as an HTML-NN skill knowledge node so its instructions become recallable context.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;import_skill_md(source*, max_body_chars)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;source&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;max_body_chars&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Accepts a local file path or an http(s) URL to a SKILL.md document (agentskills.io open standard: YAML frontmatter with name/description plus a markdown instruction body). The skill is persisted as a schema-valid HTML-NN learning node tagged &#x27;skill&#x27; so graph activation surfaces it when relevant. Bodies longer than ``max_body_chars`` are clipped, and the clip is reported in the result rather than applied in silence.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -100,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:02Z",
+    "created_or_updated": "2026-09-25T14:41:53Z",
     "schema": "neural-node/v2",
     "doc_target": "import_skill_md",
-    "source_fingerprint": "sha256:1089FE3B10850BA456EF7B337105924986EFCF4833131F4E5899288C4363A8D8",
+    "source_fingerprint": "sha256:E289D8FBF7ED113F207D26DF7BD24BA645C708D19CF81E0A7E41458EF6E6DC50",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:08AC24327431C7267FC195E392E0A2A9CF1D469724F634CBD725FF37E8867861",
+    "source_digest": "sha256:509B92E515DB7783556AAB4CCCCA48C8AB25DA21063A347B8BF4926DA0DA3034",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,12 +118,15 @@
   "tool": {
     "name": "import_skill_md",
     "description": "Import an agentskills.io-format SKILL.md (from a file path or URL) as an HTML-NN skill knowledge node so its instructions become recallable context.",
-    "signature": "import_skill_md(source*)",
+    "signature": "import_skill_md(source*, max_body_chars)",
     "schema": {
       "type": "object",
       "properties": {
         "source": {
           "type": "string"
+        },
+        "max_body_chars": {
+          "type": "integer"
         }
       },
       "required": [

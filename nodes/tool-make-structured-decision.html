@@ -1,0 +1,151 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: make_structured_decision</title>
+</head>
+<body>
+<article
+  data-node-id="tool-make-structured-decision"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="make_structured_decision"
+  data-source-files="sdk/agent/decision_tools.py"
+  data-source-fingerprint="sha256:C744F8D27B3BDA0A09526F1CE959FB008E86A54C94EEBD2C5B9296102DB36682"
+  data-source-digest="sha256:54A71849CF6258E5D4643D5C726DE8CE2D2AF84E71AB827A4514D00D229D38F2"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-09-25T14:41:59Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: make_structured_decision</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;make_structured_decision&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Get a fast, schema-constrained decision in a single forward pass -- faster and more reliable than reasoning in free text and parsing the answer. Use for classification, picking from a fixed set of choices, yes/no questions, or scoring -- including scoring several inputs at once in one call. Not for open-ended generation, explanation, or anything without a fixed small set of possible answers.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;make_structured_decision(schema*, contexts*, instructions)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;schema&lt;/code&gt; (object, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;contexts&lt;/code&gt; (array, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;instructions&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Each key in `schema` is a field to decide, with a &quot;type&quot; (enum, boolean, integer, or number) and a required &quot;description&quot; -- the server refuses a field with no description. `contexts` is 1-256 input strings, each decided independently against the same schema in one batched call. `instructions` is shared guidance applied to every context. Refuses cleanly, with success: false, if the embedded engine is not currently running -- reason through the question directly instead of treating that as a hard failure.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.decision_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/decision_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-make-structured-decision"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "make_structured_decision"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: make_structured_decision",
+  "description": "Program documentation for make_structured_decision.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "make_structured_decision"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-09-25T14:41:59Z",
+    "schema": "neural-node/v2",
+    "doc_target": "make_structured_decision",
+    "source_fingerprint": "sha256:C744F8D27B3BDA0A09526F1CE959FB008E86A54C94EEBD2C5B9296102DB36682",
+    "source_files": [
+      "sdk/agent/decision_tools.py"
+    ],
+    "source_digest": "sha256:54A71849CF6258E5D4643D5C726DE8CE2D2AF84E71AB827A4514D00D229D38F2",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "make_structured_decision",
+    "description": "Get a fast, schema-constrained decision in a single forward pass -- faster and more reliable than reasoning in free text and parsing the answer. Use for classification, picking from a fixed set of choices, yes/no questions, or scoring -- including scoring several inputs at once in one call. Not for open-ended generation, explanation, or anything without a fixed small set of possible answers.",
+    "signature": "make_structured_decision(schema*, contexts*, instructions)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "schema": {
+          "type": "object"
+        },
+        "contexts": {
+          "type": "array",
+          "items": {}
+        },
+        "instructions": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "schema",
+        "contexts"
+      ]
+    },
+    "module": "sdk.agent.decision_tools",
+    "required": [
+      "schema",
+      "contexts"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

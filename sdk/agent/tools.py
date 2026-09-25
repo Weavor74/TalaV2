@@ -4848,9 +4848,9 @@ from sdk.agent import self_diagnosis  # noqa: E402,F401
 from sdk.agent import reflection  # noqa: E402,F401  (registers reflect_now)
 
 # Registers vault_list / vault_read / vault_search -- "things the local LLM
-# could reference" (UI-038). Read-only, and every read refuses when the active
-# inference provider is remote.
+# could reference" (UI-038). Every read refuses when the active provider is remote.
 from sdk.agent import vault_tools  # noqa: E402,F401
+from sdk.agent import decision_tools  # noqa: E402,F401  (registers make_structured_decision)
 
 # Registers the agent/swarm authoring tools. Imported last and from its own
 # module because it imports register_tool from here -- doing it at the bottom

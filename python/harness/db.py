@@ -178,7 +178,7 @@ _DDL_STATEMENTS: list[str] = [
             'Tala Embedded Engine',
             1,
             'unknown',
-            '{"model": "Qwen/Qwen2.5-0.5B-Instruct"}'::jsonb,
+            '{"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"}'::jsonb,
             TRUE
         )
         ON CONFLICT (id) DO NOTHING;
