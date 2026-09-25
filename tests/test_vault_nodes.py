@@ -128,13 +128,13 @@ def test_an_id_cannot_climb_out_of_the_nodes_directory(vault):
 # -- grants: default deny ----------------------------------------------------
 
 def test_a_new_document_grants_nothing(vault, doc):
-    grants = vault.get_grants(doc)
+    grants = vault._get_grants(doc)
     assert grants["remote_inference"] is False
     assert grants["contacts"] == []
 
 
 def test_a_missing_document_grants_nothing(vault):
-    assert vault.get_grants("vault-does-not-exist")["remote_inference"] is False
+    assert vault._get_grants("vault-does-not-exist")["remote_inference"] is False
 
 
 # -- the remote-model edge ---------------------------------------------------
@@ -220,12 +220,12 @@ def test_the_vault_and_its_index_never_leave():
     """Steven: "No -- vault never leaves the install." The Chroma directory is
     covered too: it holds unsealed vault bodies, so syncing it would export the
     vault by the back door."""
-    from python.harness.server import is_local_only_artifact
+    from python.harness.server import _is_local_only_artifact
 
-    assert is_local_only_artifact("vault-personal-papers.html")
-    assert is_local_only_artifact("nodes/vault-anything.html")
-    assert is_local_only_artifact("data/chroma/index")
-    assert not is_local_only_artifact("tool-web-search.html")
+    assert _is_local_only_artifact("vault-personal-papers.html")
+    assert _is_local_only_artifact("nodes/vault-anything.html")
+    assert _is_local_only_artifact("data/chroma/index")
+    assert not _is_local_only_artifact("tool-web-search.html")
 
 
 # -- the local-index edge ----------------------------------------------------

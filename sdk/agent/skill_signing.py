@@ -40,7 +40,7 @@ log = logging.getLogger(__name__)
 SKILL_PREFIX = "tala-skill:v1:"
 
 
-def payload_digest(payload: Any) -> str:
+def _payload_digest(payload: Any) -> str:
     """
     A stable digest of what is being signed.
 
@@ -78,7 +78,7 @@ def sign(payload: Any) -> dict[str, str]:
     from python.harness.chain_verify import fingerprint
 
     keys = _keys()
-    digest = payload_digest(payload)
+    digest = _payload_digest(payload)
     private = load_pem_private_key(keys["privateKey"].encode("utf-8"), password=None)
     return {
         "algorithm": "ed25519",
@@ -116,7 +116,7 @@ def verify(payload: Any, item: dict[str, Any]) -> tuple[bool, str]:
         return False, ("the item's public key is not a key — it looks like a "
                        "placeholder, which is what this check exists to catch")
 
-    digest = payload_digest(payload)
+    digest = _payload_digest(payload)
     claimed = str(item.get("digest") or "")
     if claimed and claimed != digest:
         return False, "the payload does not match the digest that was signed"

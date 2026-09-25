@@ -79,7 +79,7 @@ class NetDecision:
         return self.allowed
 
 
-def split_target(target: str, default_port: int | None = None) -> tuple[str, int | None]:
+def _split_target(target: str, default_port: int | None = None) -> tuple[str, int | None]:
     """A URL or ``host:port`` into a host and a port."""
     text = str(target or "").strip()
     if not text:
@@ -149,7 +149,7 @@ async def check(
     permits the connection under default-deny, carrying any port and hours
     constraints with it.
     """
-    host, port = split_target(target, default_port)
+    host, port = _split_target(target, default_port)
     if not host:
         return NetDecision(True, "no host to check", host, port)
 

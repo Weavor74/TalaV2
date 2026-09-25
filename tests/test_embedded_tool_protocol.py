@@ -22,9 +22,9 @@ from python.inference.embedded_engine import _apply_template
 from python.inference.engine_manager import (
     ENGINES,
     get_all_engines,
-    is_engine_supported,
+    _is_engine_supported,
     start_install,
-    unsupported_reason,
+    _unsupported_reason,
 )
 
 TOOLS = [{
@@ -124,12 +124,12 @@ def test_vllm_is_not_offered_on_windows():
     """vLLM publishes no Windows wheels. Offering it sends the user into a source
     build that fails on a missing CUDA toolchain."""
     assert ENGINES["vllm"]["platforms"] == ["linux"]
-    assert is_engine_supported("vllm") is (sys.platform == "linux")
+    assert _is_engine_supported("vllm") is (sys.platform == "linux")
 
 
 def test_pure_python_engines_are_available_everywhere():
     for engine in ("transformers", "llamacpp"):
-        assert is_engine_supported(engine), f"{engine} should install on any platform"
+        assert _is_engine_supported(engine), f"{engine} should install on any platform"
 
 
 def test_unsupported_engine_reports_status_and_reason_not_just_absence():
@@ -153,4 +153,4 @@ def test_installing_an_unsupported_engine_is_refused_up_front():
 
 
 def test_unsupported_reason_is_none_when_supported():
-    assert unsupported_reason("transformers") is None
+    assert _unsupported_reason("transformers") is None

@@ -293,7 +293,7 @@ async def _get_providers() -> list[dict[str, Any]]:
     return providers
 
 
-def clean_roleplay_memory(text: str) -> str:
+def _clean_roleplay_memory(text: str) -> str:
     """
     Cleans up structural metadata, story blueprint markers, and analytical behavioral
     headers from the semantic memory text of Neural Nodes. Returns clean narrative paragraphs
@@ -552,7 +552,7 @@ _CASUAL_CHAT_TERMS_RE = re.compile(
 )
 
 
-def is_casual_chat_prompt(prompt: str) -> bool:
+def _is_casual_chat_prompt(prompt: str) -> bool:
     """Classify whether `prompt` reads as casual/roleplay chat rather than a
     task request. See _CASUAL_CHAT_TERMS_RE above for what changed and why."""
     if not prompt or not isinstance(prompt, str):
@@ -563,7 +563,7 @@ def is_casual_chat_prompt(prompt: str) -> bool:
 _HTML_FENCE_RE = re.compile(r"```(?:html)?\s*\n?(.*?)\n?\s*```", re.DOTALL | re.IGNORECASE)
 
 
-def extract_html_nn_document(generated_raw: str) -> str | None:
+def _extract_html_nn_document(generated_raw: str) -> str | None:
     """
     Pull a real HTML-NN document out of an LLM response, stripping the
     markdown code fence the model was instructed to wrap it in.
@@ -586,7 +586,7 @@ def extract_html_nn_document(generated_raw: str) -> str | None:
     return candidate
 
 
-def resolve_nodes_dir() -> Path:
+def _resolve_nodes_dir() -> Path:
     """
     Resolve the active nodes/ directory, creating it if needed. Thin
     wrapper around sdk.agent.documentation_nodes.resolve_active_nodes_dir()
@@ -1517,7 +1517,7 @@ async def handle_inference_generate(
     # Computed once here and reused everywhere this classification matters.
     # See is_casual_chat_prompt (module level, near _CLOSED_THINKING_RE) for
     # what this checks and the regression it fixes.
-    is_casual_chat = is_casual_chat_prompt(prompt)
+    is_casual_chat = _is_casual_chat_prompt(prompt)
 
     # Guardrails prompt validation (pre-inference)
     #
@@ -2347,7 +2347,7 @@ async def handle_inference_generate(
                             )
                             for node, score in nodes_to_inject:
                                 injected_node_ids.append(node.node_id)
-                                cleaned_mem = clean_roleplay_memory(node.semantic_memory)
+                                cleaned_mem = _clean_roleplay_memory(node.semantic_memory)
                                 node_title = (node.state_data.get("title") if node.state_data else None) or node.node_id
                                 context_parts.append(f"[Recollection: {node_title}]\n{cleaned_mem}")
                             context_parts.append("=====================================================")
@@ -4132,14 +4132,14 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
         from python.astrology.ephemeris import EphemerisEngine, Birthdate
         from datetime import datetime, timezone
 
-        def parse_birthdate(raw: str) -> Birthdate | None:
+        def _parse_birthdate(raw: str) -> Birthdate | None:
             raw = str(raw or "").strip()
             if not raw:
                 return None
             dt = datetime.strptime(raw, "%Y-%m-%d")
             return Birthdate(year=dt.year, month=dt.month, day=dt.day, hour=12.0)
 
-        def parse_target_time(raw: str) -> datetime:
+        def _parse_target_time(raw: str) -> datetime:
             raw = str(raw or "").strip()
             if not raw:
                 return datetime.now(timezone.utc)
@@ -4163,7 +4163,7 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
         birth_source = "tala-origin"
 
         if subject == "custom":
-            custom_birth = parse_birthdate(str(params.get("birthdate", "")))
+            custom_birth = _parse_birthdate(str(params.get("birthdate", "")))
             if not custom_birth:
                 return _err(req_id, JsonRpcError.INVALID_PARAMS, "'birthdate' is required for subject='custom' in YYYY-MM-DD format")
             birth = custom_birth
@@ -4171,14 +4171,14 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
         elif subject == "user":
             try:
                 row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
-                cfg = decrypt_profile_config(row["config"] if row else {}) or {}
+                cfg = _decrypt_profile_config(row["config"] if row else {}) or {}
                 birth_str = (
                     cfg.get("identity", {}).get("birthdate")
                     or cfg.get("pii_vault", {}).get("dob")
                     or cfg.get("birthdate")
                     or ""
                 )
-                user_birth = parse_birthdate(birth_str)
+                user_birth = _parse_birthdate(birth_str)
                 if user_birth:
                     birth = user_birth
                     birth_source = "user-profile"
@@ -4192,14 +4192,14 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
                     if isinstance(cfg, str):
                         import json
                         cfg = json.loads(cfg)
-                    agent_birth = parse_birthdate(cfg.get("birthdate", ""))
+                    agent_birth = _parse_birthdate(cfg.get("birthdate", ""))
                     if agent_birth:
                         birth = agent_birth
                         birth_source = "active-agent"
             except Exception as db_exc:
                 logger.warning("Could not read active agent birthdate for astro transits: %s", db_exc)
 
-        target_time = parse_target_time(str(params.get("target_time") or params.get("date") or ""))
+        target_time = _parse_target_time(str(params.get("target_time") or params.get("date") or ""))
 
         engine = EphemerisEngine()
         transits = engine.compute_transits(birth, target_time)
@@ -4236,7 +4236,7 @@ async def handle_astro_synastry(params: dict[str, Any], req_id: Any) -> str:
         from python.astrology.ephemeris import Birthdate
         from python.astrology.synastry import SynastryEngine
 
-        def parse_birthdate(raw: str) -> Birthdate | None:
+        def _parse_birthdate(raw: str) -> Birthdate | None:
             raw = str(raw or "").strip()
             if not raw:
                 return None
@@ -4247,14 +4247,14 @@ async def handle_astro_synastry(params: dict[str, Any], req_id: Any) -> str:
         user_source = "missing"
         user_row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
         if user_row:
-            user_cfg = decrypt_profile_config(user_row["config"]) or {}
+            user_cfg = _decrypt_profile_config(user_row["config"]) or {}
             user_birth_str = (
                 user_cfg.get("identity", {}).get("birthdate")
                 or user_cfg.get("pii_vault", {}).get("dob")
                 or user_cfg.get("birthdate")
                 or ""
             )
-            user_birth = parse_birthdate(user_birth_str)
+            user_birth = _parse_birthdate(user_birth_str)
             if user_birth:
                 user_source = "user-profile"
 
@@ -4270,7 +4270,7 @@ async def handle_astro_synastry(params: dict[str, Any], req_id: Any) -> str:
             if isinstance(agent_cfg, str):
                 import json
                 agent_cfg = json.loads(agent_cfg)
-            agent_birth = parse_birthdate(agent_cfg.get("birthdate", ""))
+            agent_birth = _parse_birthdate(agent_cfg.get("birthdate", ""))
             if agent_birth:
                 agent_source = "active-agent"
 
@@ -4380,7 +4380,7 @@ async def handle_identity_get_user_profile(params: dict[str, Any], req_id: Any) 
                             "SELECT config FROM profiles WHERE id = 'master-user'"
                         )
                         if _row and _row["config"]:
-                            _cfg = decrypt_profile_config(_row["config"])
+                            _cfg = _decrypt_profile_config(_row["config"])
                             if isinstance(_cfg, dict) and _cfg:
                                 logger.info(
                                     "identity.get_user_profile: node is legacy-flat; "
@@ -4631,7 +4631,7 @@ __PROV_PLACEHOLDER__
         try:
             existing_row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
             if existing_row:
-                existing_cfg = decrypt_profile_config(existing_row["config"]) or {}
+                existing_cfg = _decrypt_profile_config(existing_row["config"]) or {}
             else:
                 existing_cfg = {}
 
@@ -6051,7 +6051,7 @@ async def _local_identity() -> dict[str, str]:
         if row:
             username = str(row["username"] or "")
             if not username:
-                cfg = decrypt_profile_config(row["config"]) or {}
+                cfg = _decrypt_profile_config(row["config"]) or {}
                 username = str(((cfg or {}).get("identity") or {}).get("username") or "")
     except Exception as exc:
         logger.debug("_local_identity: no profile username available: %s", exc)
@@ -6099,7 +6099,7 @@ async def _get_master_profile_config() -> dict[str, Any]:
     row = await db.fetchrow("SELECT config FROM profiles WHERE id = 'master-user'")
     if row is None:
         return {}
-    return decrypt_profile_config(row["config"]) or {}
+    return _decrypt_profile_config(row["config"]) or {}
 
 
 def _profile_for_permissions(profile_config: dict[str, Any], permissions: dict[str, Any]) -> dict[str, Any]:
@@ -7272,7 +7272,7 @@ async def handle_profiles_list(params: dict[str, Any], req_id: Any) -> str:
             rows = await db.fetch("SELECT id, type, name, username, config FROM profiles ORDER BY name ASC")
         profiles = []
         for r in rows:
-            cfg = decrypt_profile_config(r["config"])
+            cfg = _decrypt_profile_config(r["config"])
             profiles.append({
                 "id": r["id"],
                 "type": r["type"],
@@ -7297,7 +7297,7 @@ async def handle_profiles_get(params: dict[str, Any], req_id: Any) -> str:
         row = await db.fetchrow("SELECT id, type, name, username, config FROM profiles WHERE id = $1", profile_id)
         if not row:
             return _err(req_id, JsonRpcError.INVALID_PARAMS, f"Profile with id '{profile_id}' not found")
-        cfg = decrypt_profile_config(row["config"])
+        cfg = _decrypt_profile_config(row["config"])
         profile = {
             "id": row["id"],
             "type": row["type"],
@@ -7315,7 +7315,7 @@ async def handle_profiles_get(params: dict[str, Any], req_id: Any) -> str:
 PII_SECTIONS = ("pii_vault",)
 
 
-def encrypt_profile_config(config: Any) -> Any:
+def _encrypt_profile_config(config: Any) -> Any:
     """
     Encrypt the PII sections of a profile config before it is stored.
 
@@ -7335,7 +7335,7 @@ def encrypt_profile_config(config: Any) -> Any:
     return out
 
 
-def decrypt_profile_config(config: Any) -> Any:
+def _decrypt_profile_config(config: Any) -> Any:
     """Reverse :func:`encrypt_profile_config`. Plaintext passes through."""
     from python.harness.credential_crypto import decrypt_section
 
@@ -7378,7 +7378,7 @@ async def handle_profiles_save(params: dict[str, Any], req_id: Any) -> str:
     import json as json_mod
     # Encrypt PII before it is written, but index and return the plaintext:
     # the caller handed us a live config and expects it back usable.
-    config_json = json_mod.dumps(encrypt_profile_config(config))
+    config_json = json_mod.dumps(_encrypt_profile_config(config))
 
     try:
         await db.execute(
@@ -8676,7 +8676,7 @@ async def handle_storage_save_providers(params: dict[str, Any], req_id: Any) -> 
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
-def parse_db_url(url: str) -> dict[str, Any]:
+def _parse_db_url(url: str) -> dict[str, Any]:
     from urllib.parse import urlparse
     try:
         parsed = urlparse(url)
@@ -8730,7 +8730,7 @@ async def handle_database_get_providers(params: dict[str, Any], req_id: Any) -> 
 
         # Auto-detect local database details from settings
         from python.harness.config import settings
-        db_info = parse_db_url(settings.DB_URL)
+        db_info = _parse_db_url(settings.DB_URL)
         has_local = any(
             p["id"] == "local-db" or
             (p["endpoint"] == db_info["endpoint"] and p["database"] == db_info["database"])
@@ -8995,7 +8995,7 @@ async def handle_firewall_save_contacts(params: dict[str, Any], req_id: Any) -> 
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
-def infer_subsystem(message: str, trace_dict: dict) -> str:
+def _infer_subsystem(message: str, trace_dict: dict) -> str:
     """Helper to dynamically infer subsystem classification from message or trace."""
     if trace_dict and "subsystem" in trace_dict:
         return str(trace_dict["subsystem"]).upper()
@@ -9026,7 +9026,7 @@ def infer_subsystem(message: str, trace_dict: dict) -> str:
     return "SYSTEM"
 
 
-def infer_event_type(message: str, trace_dict: dict) -> str:
+def _infer_event_type(message: str, trace_dict: dict) -> str:
     """Helper to dynamically infer event_type classification from message or trace."""
     if trace_dict and "event_type" in trace_dict:
         return str(trace_dict["event_type"])
@@ -9168,7 +9168,7 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
             elif not isinstance(trace_dict, dict):
                 trace_dict = {}
                 
-            sub = infer_subsystem(r["message"], trace_dict)
+            sub = _infer_subsystem(r["message"], trace_dict)
             
             if subsystem != "All Subsystems" and sub.upper() != subsystem.upper():
                 continue
@@ -9178,7 +9178,7 @@ async def handle_logging_get_events(params: dict[str, Any], req_id: Any) -> str:
                 "level": r["level"],
                 "timestamp": r["created_at"].isoformat(),
                 "subsystem": sub,
-                "event_type": infer_event_type(r["message"], trace_dict),
+                "event_type": _infer_event_type(r["message"], trace_dict),
                 "message": r["message"],
                 "trace": trace_dict,
                 "tx_id": r["tx_id"]
@@ -9564,7 +9564,7 @@ async def handle_logging_clear_events(params: dict[str, Any], req_id: Any) -> st
                             trace_dict = json_mod.loads(trace_dict)
                         except Exception:
                             trace_dict = {}
-                    sub = infer_subsystem(r["message"], trace_dict)
+                    sub = _infer_subsystem(r["message"], trace_dict)
                     if sub.upper() == subsystem.upper():
                         ids_to_delete.append(r["id"])
                         
@@ -9651,7 +9651,7 @@ async def handle_logging_archive_events(params: dict[str, Any], req_id: Any) -> 
                     trace_dict = json_mod.loads(trace_dict)
                 except Exception:
                     trace_dict = {}
-            sub = infer_subsystem(r["message"], trace_dict)
+            sub = _infer_subsystem(r["message"], trace_dict)
             if subsystem != "All Subsystems" and sub.upper() != subsystem.upper():
                 continue
                 
@@ -9661,7 +9661,7 @@ async def handle_logging_archive_events(params: dict[str, Any], req_id: Any) -> 
                 "level": r["level"],
                 "timestamp": r["created_at"].isoformat(),
                 "subsystem": sub,
-                "event_type": infer_event_type(r["message"], trace_dict),
+                "event_type": _infer_event_type(r["message"], trace_dict),
                 "message": r["message"],
                 "trace": trace_dict
             })
@@ -9699,7 +9699,7 @@ async def handle_logging_archive_events(params: dict[str, Any], req_id: Any) -> 
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
 
-async def fetch_webpage_text(url: str) -> str:
+async def _fetch_webpage_text(url: str) -> str:
     """Fetch clean text content from a URL.
     
     Extracts headings/paragraphs first; falls back to <meta> description / OG tags
@@ -10069,7 +10069,7 @@ async def handle_research_crawl_and_summarize(params: dict[str, Any], req_id: An
                 except Exception as e:
                     logger.warning("Failed to broadcast browser crawl navigation notification: %s", e)
 
-                text = await asyncio.wait_for(fetch_webpage_text(url), timeout=15.0)
+                text = await asyncio.wait_for(_fetch_webpage_text(url), timeout=15.0)
                 if text:
                     return url, text
             except Exception as exc:
@@ -10091,7 +10091,7 @@ async def handle_research_crawl_and_summarize(params: dict[str, Any], req_id: An
                     except Exception:
                         pass
                         
-                    text = await asyncio.wait_for(fetch_webpage_text(fallback_url), timeout=15.0)
+                    text = await asyncio.wait_for(_fetch_webpage_text(fallback_url), timeout=15.0)
                     if text:
                         return fallback_url, text
             except Exception as fallback_exc:
@@ -10231,13 +10231,13 @@ async def handle_research_crawl_and_summarize(params: dict[str, Any], req_id: An
         node_path: str | None = None
         node_id: str | None = None
         persist_error: str | None = None
-        html_document = extract_html_nn_document(generated_raw)
+        html_document = _extract_html_nn_document(generated_raw)
         if html_document:
             try:
                 m_id = re.search(r'data-node-id="([^"]+)"', html_document)
                 node_id = m_id.group(1) if m_id else f"concept-{subject_slug}"
                 timestamp_suffix = datetime.now(timezone.utc).strftime("%Y%m%d%H%M%S")
-                nodes_dir = resolve_nodes_dir()
+                nodes_dir = _resolve_nodes_dir()
                 node_file = nodes_dir / f"{node_id}-{timestamp_suffix}.html"
                 node_file.write_text(html_document, encoding="utf-8")
                 node_path = str(node_file)
@@ -12072,7 +12072,7 @@ NEVER_LEAVES_PREFIXES = ("vault-",)
 NEVER_LEAVES_DIRS = ("chroma", ".chroma", "vault")
 
 
-def is_local_only_artifact(name: str) -> bool:
+def _is_local_only_artifact(name: str) -> bool:
     """Whether a node or path must never be transmitted anywhere."""
     base = str(name or "").replace("\\", "/").split("/")[-1]
     if any(base.startswith(p) for p in NEVER_LEAVES_PREFIXES):
@@ -12340,7 +12340,7 @@ async def handle_storage_backup_nodes(params: dict[str, Any], req_id: Any) -> st
         candidates = sorted(nodes_dir.glob("*.html"))
         sendable, withheld = [], []
         for path in candidates:
-            (withheld if is_local_only_artifact(path.name) else sendable).append(path)
+            (withheld if _is_local_only_artifact(path.name) else sendable).append(path)
 
         if dry_run:
             return _ok(req_id, {
@@ -15563,13 +15563,13 @@ async def _monitor_stdin() -> None:
         return
 
     try:
-        def read_stdin():
+        def _read_stdin():
             try:
                 return sys.stdin.read(1)
             except Exception:
                 return ""
         loop = asyncio.get_running_loop()
-        await loop.run_in_executor(None, read_stdin)
+        await loop.run_in_executor(None, _read_stdin)
     except Exception:
         pass
     logger.warning("Stdin EOF detected. Triggering shutdown.")

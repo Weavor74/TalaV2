@@ -68,12 +68,12 @@ async def test_it_has_the_columns_the_gate_and_the_seed_use(pool):
     )
     columns = {r["column_name"] for r in rows}
 
-    # seed_approved_vps_context inserts exactly these.
+    # _seed_approved_vps_context inserts exactly these.
     for needed in (
         "id", "owner_kind", "owner_id", "chunk_index", "embedding_model",
         "content", "content_hash", "embedding", "metadata",
     ):
-        assert needed in columns, f"seed_approved_vps_context writes {needed}, which does not exist"
+        assert needed in columns, f"_seed_approved_vps_context writes {needed}, which does not exist"
 
 
 async def test_the_harness_reports_a_missing_extension_rather_than_hiding_it(pool, caplog):

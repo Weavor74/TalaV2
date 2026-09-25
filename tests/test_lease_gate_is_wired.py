@@ -45,7 +45,7 @@ def test_the_gate_is_in_the_tool_chokepoint():
     ("list_agents", None),
 ])
 def test_classification(tool, expected):
-    assert LP.classify_tool(tool) == expected
+    assert LP._classify_tool(tool) == expected
 
 
 def test_read_only_tools_take_no_lease():

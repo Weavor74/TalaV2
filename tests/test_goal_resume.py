@@ -2,7 +2,7 @@
 tests/test_goal_resume.py
 ==========================
 Regression coverage for auto-resuming BatchPolicy budget-suspended goals
-(sdk/agent/goal_engine.py::find_resumable_suspended_goals /
+(sdk/agent/goal_engine.py::_find_resumable_suspended_goals /
 resume_suspended_goals).
 
 Before this, a goal that ran out of its execution budget (BatchPolicy
@@ -27,7 +27,7 @@ from python.harness import db
 from python.harness.db import close_pool, init_pool
 from sdk.agent.batch_policy import BatchPolicy
 from sdk.agent.goal_engine import (
-    find_resumable_suspended_goals,
+    _find_resumable_suspended_goals,
     register_active_task,
     resume_suspended_goals,
     unregister_active_task,
@@ -127,7 +127,7 @@ async def test_human_paused_goals_are_never_auto_resumed():
     Pausing must mean stopped, not "relaunch me next boot".
 
     task.control's pause action wrote status='blocked', which is exactly what
-    find_resumable_suspended_goals selects. So every human pause queued the task
+    _find_resumable_suspended_goals selects. So every human pause queued the task
     for automatic relaunch at the next app start, and a task could not be made
     to stay stopped -- confirmed live: aborting the queue and restarting simply
     brought it all back. Pause now writes 'paused', which this query ignores.
@@ -145,7 +145,7 @@ async def test_human_paused_goals_are_never_auto_resumed():
             "UPDATE tasks SET status = 'paused' WHERE id = $1", "test-resume-paused-goal"
         )
 
-        ids = {c["task_id"] for c in await find_resumable_suspended_goals(max_resume_attempts=5)}
+        ids = {c["task_id"] for c in await _find_resumable_suspended_goals(max_resume_attempts=5)}
 
         assert "test-resume-plain-goal" in ids, (
             "a budget-suspended goal must still auto-resume"
@@ -171,7 +171,7 @@ async def test_find_resumable_excludes_swarm_exhausted_and_active_goals():
 
         register_active_task("test-resume-active-goal")
         try:
-            candidates = await find_resumable_suspended_goals(max_resume_attempts=5)
+            candidates = await _find_resumable_suspended_goals(max_resume_attempts=5)
         finally:
             unregister_active_task("test-resume-active-goal")
 

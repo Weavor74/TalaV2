@@ -137,10 +137,10 @@ def test_put_leaves_no_partial_file(tmp_path):
 # -- the vault never leaves ---------------------------------------------------
 
 def test_the_backup_withholds_vault_documents():
-    from python.harness.server import is_local_only_artifact
+    from python.harness.server import _is_local_only_artifact
 
-    assert is_local_only_artifact("vault-passport.html")
-    assert not is_local_only_artifact("tool-web-search.html")
+    assert _is_local_only_artifact("vault-passport.html")
+    assert not _is_local_only_artifact("tool-web-search.html")
 
 
 def test_the_backup_path_uses_that_guard():
@@ -149,7 +149,7 @@ def test_the_backup_path_uses_that_guard():
     from python.harness import server
 
     src = inspect.getsource(server.handle_storage_backup_nodes)
-    assert "is_local_only_artifact" in src
+    assert "_is_local_only_artifact" in src
     assert "withheld" in src
 
 

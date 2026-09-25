@@ -201,7 +201,7 @@ def _halted() -> bool:
         return False  # a halt that cannot be read must not wedge the loop shut
 
 
-async def reflect_once(
+async def _reflect_once(
     *,
     minutes: int = 60,
     dry_run_first: bool = True,
@@ -300,10 +300,10 @@ async def reflect_if_due(interval_minutes: int = DEFAULT_INTERVAL_MINUTES) -> di
         if now - _last_cycle_monotonic < interval_minutes * 60:
             return None
     _last_cycle_monotonic = now
-    return await reflect_once()
+    return await _reflect_once()
 
 
-def health_probe(recent_errors: int | None = None) -> tuple[str, str]:
+def _health_probe(recent_errors: int | None = None) -> tuple[str, str]:
     """
     This subsystem's own verdict, for the health panel.
 
@@ -351,7 +351,7 @@ async def probe() -> tuple[str, str]:
         ) or 0
     except Exception:  # noqa: BLE001
         errors = None
-    return health_probe(recent_errors=errors)
+    return _health_probe(recent_errors=errors)
 
 
 # ---------------------------------------------------------------------------
@@ -388,4 +388,4 @@ async def reflect_now(minutes: int = 60, dry_run_first: bool = True) -> dict[str
            Does not reset the scheduled interval, so an on-demand cycle cannot
            be used to starve the automatic one.
     """
-    return await reflect_once(minutes=minutes, dry_run_first=dry_run_first)
+    return await _reflect_once(minutes=minutes, dry_run_first=dry_run_first)

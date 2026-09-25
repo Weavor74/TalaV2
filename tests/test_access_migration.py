@@ -243,4 +243,4 @@ def test_the_vault_accepts_an_access_grant():
     assert "vault:" in src
     # the document-local grant still works, so vaults written before the model
     # existed are not broken
-    assert "get_grants(doc_id)" in src
+    assert "_get_grants(doc_id)" in src

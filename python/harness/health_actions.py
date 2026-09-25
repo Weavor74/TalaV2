@@ -86,7 +86,7 @@ _ACTION_BY_SERVICE: dict[str, dict[str, str]] = {
 }
 
 
-def action_for(service: str, status: str, detail: str = "") -> dict[str, str] | None:
+def _action_for(service: str, status: str, detail: str = "") -> dict[str, str] | None:
     """Return a next-action dict for a non-healthy service, or None if healthy."""
     if status == "HEALTHY":
         return None
@@ -108,7 +108,7 @@ def action_for(service: str, status: str, detail: str = "") -> dict[str, str] | 
     }
 
 
-def build_actions(services: dict[str, str], details: dict[str, str] | None = None) -> list[dict[str, str]]:
+def _build_actions(services: dict[str, str], details: dict[str, str] | None = None) -> list[dict[str, str]]:
     """Ordered list of next actions for every non-HEALTHY measured service."""
     details = details or {}
     actions: list[dict[str, str]] = []
@@ -119,7 +119,7 @@ def build_actions(services: dict[str, str], details: dict[str, str] | None = Non
         key=lambda pair: (order.get(pair[1], 9), pair[0]),
     )
     for service, status in ranked:
-        action = action_for(service, status, details.get(service, ""))
+        action = _action_for(service, status, details.get(service, ""))
         if action:
             actions.append(action)
     return actions
@@ -140,5 +140,5 @@ def build_health_payload(
         "mode": mode,
         "measured": len(services) - len(unknowns),
         "unmeasured": unknowns,
-        "actions": build_actions(services, details),
+        "actions": _build_actions(services, details),
     }

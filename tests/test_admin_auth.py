@@ -43,15 +43,15 @@ def _isolated_secret_file(tmp_path, monkeypatch):
 
 
 def test_harness_admin_secret_path_honors_env_override(_isolated_secret_file):
-    assert admin_auth.harness_admin_secret_path() == _isolated_secret_file.resolve()
+    assert admin_auth._harness_admin_secret_path() == _isolated_secret_file.resolve()
 
 
 def test_load_or_create_generates_and_persists_secret(_isolated_secret_file):
-    first = admin_auth.load_or_create_harness_admin_secret()
+    first = admin_auth._load_or_create_harness_admin_secret()
     assert first  # non-empty
     assert _isolated_secret_file.exists()
 
-    second = admin_auth.load_or_create_harness_admin_secret()
+    second = admin_auth._load_or_create_harness_admin_secret()
     assert second == first, "secret must persist across calls, not regenerate"
 
 
@@ -62,7 +62,7 @@ def test_secret_file_created_owner_only(_isolated_secret_file):
     lands at the umask-derived default mode (644 under the common 022
     umask found on the real VPS) — world-readable. Must be 600.
     """
-    admin_auth.load_or_create_harness_admin_secret()
+    admin_auth._load_or_create_harness_admin_secret()
     mode = os.stat(_isolated_secret_file).st_mode & 0o777
     assert mode == 0o600, f"expected owner-only 0600, got {oct(mode)}"
 
@@ -80,20 +80,20 @@ def test_loosely_permissioned_existing_file_gets_self_healed(_isolated_secret_fi
     os.chmod(_isolated_secret_file, 0o644)
     assert os.stat(_isolated_secret_file).st_mode & 0o777 == 0o644
 
-    secret = admin_auth.load_or_create_harness_admin_secret()
+    secret = admin_auth._load_or_create_harness_admin_secret()
     assert secret == "pre-existing-secret-value", "must not silently regenerate an existing secret"
     assert os.stat(_isolated_secret_file).st_mode & 0o777 == 0o600
 
 
 def test_env_var_secret_takes_precedence_and_skips_file(_isolated_secret_file, monkeypatch):
     monkeypatch.setenv("TALA_HARNESS_ADMIN_SECRET", "env-provided-secret")
-    secret = admin_auth.load_or_create_harness_admin_secret()
+    secret = admin_auth._load_or_create_harness_admin_secret()
     assert secret == "env-provided-secret"
     assert not _isolated_secret_file.exists(), "env var path must not touch the filesystem"
 
 
 def test_require_harness_admin_secret_accepts_correct_value(_isolated_secret_file):
-    real_secret = admin_auth.load_or_create_harness_admin_secret()
+    real_secret = admin_auth._load_or_create_harness_admin_secret()
     assert admin_auth.require_harness_admin_secret({"harness_secret": real_secret}) is True
 
 
@@ -104,7 +104,7 @@ def test_require_harness_admin_secret_accepts_correct_value(_isolated_secret_fil
     {"harness_secret": None},
 ])
 def test_require_harness_admin_secret_rejects_bad_values(_isolated_secret_file, bad_params):
-    admin_auth.load_or_create_harness_admin_secret()
+    admin_auth._load_or_create_harness_admin_secret()
     assert admin_auth.require_harness_admin_secret(bad_params) is False
 
 
@@ -112,6 +112,6 @@ def test_require_harness_admin_secret_rejects_prefix_match(_isolated_secret_file
     """A caller supplying a truncated/prefix guess of the real secret must
     still be rejected outright — sanity check that comparison is exact,
     not e.g. accidentally using startswith() semantics anywhere upstream."""
-    real_secret = admin_auth.load_or_create_harness_admin_secret()
+    real_secret = admin_auth._load_or_create_harness_admin_secret()
     assert admin_auth.require_harness_admin_secret({"harness_secret": real_secret[:-1]}) is False
     assert admin_auth.require_harness_admin_secret({"harness_secret": real_secret + "x"}) is False

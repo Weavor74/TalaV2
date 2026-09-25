@@ -87,7 +87,7 @@ def mint_ws_ticket(ttl_seconds: float | None = None) -> dict[str, Any]:
     return {"ticket": ticket, "expires_in": int(max(5.0, ttl))}
 
 
-def consume_ws_ticket(supplied: str) -> bool:
+def _consume_ws_ticket(supplied: str) -> bool:
     """
     True if *supplied* is a live ticket; burns it (single-use). False otherwise.
     """
@@ -205,7 +205,7 @@ def _token_refusal(path: str, headers: Any, token: str) -> tuple[int, str] | Non
     # Short-lived single-use tickets from the 8767 exchange (UI-audit C3).
     # Checked before the long-lived compare so a ticket can never be mistaken
     # for a truncated long-lived secret.
-    if consume_ws_ticket(supplied):
+    if _consume_ws_ticket(supplied):
         return None
     if not secrets.compare_digest(supplied, token):
         return 401, "invalid token"

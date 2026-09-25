@@ -3,21 +3,21 @@ import tempfile
 from pathlib import Path
 from unittest.mock import patch
 
-from sdk.agent.goal_engine import GoalEngine, AdapterSelector, infer_emotional_state
+from sdk.agent.goal_engine import GoalEngine, AdapterSelector, _infer_emotional_state
 
 def test_infer_emotional_state():
     # Curiosity
-    s1 = infer_emotional_state("How do I sync the blockchain?")
+    s1 = _infer_emotional_state("How do I sync the blockchain?")
     assert s1["curiosity"] == 0.9
     assert s1["caution"] == 0.1
     
     # Caution
-    s2 = infer_emotional_state("Verify the safety and security gating checks.")
+    s2 = _infer_emotional_state("Verify the safety and security gating checks.")
     assert s2["caution"] == 0.9
     assert s2["curiosity"] == 0.1
     
     # Neutral
-    s3 = infer_emotional_state("Perform a simple run task.")
+    s3 = _infer_emotional_state("Perform a simple run task.")
     assert s3["neutral"] == 0.9
     assert s3["joy"] == 0.1
 
@@ -83,13 +83,13 @@ async def test_adapter_selector_ranking():
         selector = AdapterSelector(str(tmp_path))
         
         # 1. Query matching Node 2 (curiosity + sync words)
-        best_sync = selector.select_adapter("How do I sync the blockchain?")
+        best_sync = selector._select_adapter("How do I sync the blockchain?")
         assert best_sync is not None
         assert best_sync["node_id"] == "skill-blockchain_sync"
         assert best_sync["payload"] == "BASE64WEIGHTS_SYNC"
         
         # 2. Query matching Node 1 (caution + safety words)
-        best_safety = selector.select_adapter("Secure the vault and verify safety gating.")
+        best_safety = selector._select_adapter("Secure the vault and verify safety gating.")
         assert best_safety is not None
         assert best_safety["node_id"] == "skill-safety_check"
         assert best_safety["payload"] == "BASE64WEIGHTS_SAFETY"

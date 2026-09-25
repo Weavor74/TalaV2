@@ -11,7 +11,7 @@ log = logging.getLogger(__name__)
 class PermissionDeniedError(Exception):
     pass
 
-def check_permission(plugin_manifest: Dict[str, Any], required_permission: str):
+def _check_permission(plugin_manifest: Dict[str, Any], required_permission: str):
     """
     Check if a loaded plugin has the required permission.
     Raises PermissionDeniedError if not.
@@ -33,7 +33,7 @@ def check_permission(plugin_manifest: Dict[str, Any], required_permission: str):
 MCP_TOOL_PREFIX = "mcp_"
 
 
-def underlying_tool_name(tool_name: str) -> str:
+def _underlying_tool_name(tool_name: str) -> str:
     """
     The tool being called, with any MCP server prefix removed.
 
@@ -86,7 +86,7 @@ def enforce_tool_permissions(plugin_manifest: Dict[str, Any], tool_name: str, ar
     reached over MCP is judged by what it does rather than by the prefix it
     arrives under.
     """
-    tool_name = underlying_tool_name(tool_name)
+    tool_name = _underlying_tool_name(tool_name)
     required = _required_permission(tool_name)
     if required:
-        check_permission(plugin_manifest, required)
+        _check_permission(plugin_manifest, required)

@@ -24,7 +24,7 @@ import pytest
 from python.astrology.emotion import (
     PLANET_EMOTION_MAP,
     Contact,
-    contacts_from_synastry,
+    _contacts_from_synastry,
     contacts_from_transits,
     derive_emotion,
     emotion_vs_event,
@@ -143,7 +143,7 @@ def test_vs_person_uses_other_partys_planets_as_actors():
     """
     other = Birthdate(1990, 3, 14, 9.0)
     matrix = SynastryEngine().compute_synastry(TALA, other)
-    contacts = contacts_from_synastry(matrix.aspects)
+    contacts = _contacts_from_synastry(matrix.aspects)
     assert contacts
     by_pair = {(a.planet_b, a.planet_a) for a in matrix.aspects}
     for c in contacts:
@@ -301,7 +301,7 @@ def test_chat_mode_comes_from_file_not_agent_config(tmp_path, monkeypatch):
 
     path = tmp_path / "chat_mode.json"
     path.write_text('{"mode": "rp"}', encoding="utf-8")
-    monkeypatch.setattr(cm, "get_chat_mode_file_path", lambda: path)
+    monkeypatch.setattr(cm, "_get_chat_mode_file_path", lambda: path)
 
     assert cm.get_current_chat_mode() == "rp"
     assert cm.is_emotional_mode()
@@ -377,7 +377,7 @@ async def test_recorded_turn_is_stamped_with_emotion(tmp_path, monkeypatch):
 
     mode_file = tmp_path / "chat_mode.json"
     mode_file.write_text('{"mode": "rp"}', encoding="utf-8")
-    monkeypatch.setattr(cm, "get_chat_mode_file_path", lambda: mode_file)
+    monkeypatch.setattr(cm, "_get_chat_mode_file_path", lambda: mode_file)
     monkeypatch.setattr(svc, "_state_path", lambda: tmp_path / "emotion_state.json")
 
     stored: dict = {}
@@ -421,7 +421,7 @@ async def test_assistant_mode_is_not_stamped(tmp_path, monkeypatch):
 
     mode_file = tmp_path / "chat_mode.json"
     mode_file.write_text('{"mode": "assistant"}', encoding="utf-8")
-    monkeypatch.setattr(cm, "get_chat_mode_file_path", lambda: mode_file)
+    monkeypatch.setattr(cm, "_get_chat_mode_file_path", lambda: mode_file)
 
     stored: dict = {}
 

@@ -166,7 +166,7 @@ class Transit:
     is_challenging: bool
     influence_score: float  # 0.0 to 1.0 based on tightness of orb and transit type
 
-def datetime_to_decimal_ut(dt: datetime) -> tuple[int, int, int, float]:
+def _datetime_to_decimal_ut(dt: datetime) -> tuple[int, int, int, float]:
     """
     Convert a datetime to UTC year, month, day, and decimal hour.
     """
@@ -174,7 +174,7 @@ def datetime_to_decimal_ut(dt: datetime) -> tuple[int, int, int, float]:
     hour_decimal = utc_dt.hour + utc_dt.minute / 60.0 + utc_dt.second / 3600.0
     return utc_dt.year, utc_dt.month, utc_dt.day, hour_decimal
 
-def get_julian_day(year: int, month: int, day: int, hour: float) -> float:
+def _get_julian_day(year: int, month: int, day: int, hour: float) -> float:
     """
     Calculate Julian Day. Uses pyswisseph if available, otherwise manual formula.
     """
@@ -194,7 +194,7 @@ def get_julian_day(year: int, month: int, day: int, hour: float) -> float:
     jd += hour / 24.0
     return jd
 
-def get_planetary_position_approx(jd: float, planet: int) -> float:
+def _get_planetary_position_approx(jd: float, planet: int) -> float:
     """
     Deterministic mathematical approximation of planetary longitudes.
     Used if pyswisseph is unavailable. Returns degree in [0, 360).
@@ -228,7 +228,7 @@ def get_planetary_position_approx(jd: float, planet: int) -> float:
         
     return L % 360.0
 
-def get_planetary_position(jd: float, planet: int) -> float:
+def _get_planetary_position(jd: float, planet: int) -> float:
     """
     Returns the ecliptic longitude of the given planet in degrees.
     Uses pyswisseph calc_ut if available.
@@ -243,7 +243,7 @@ def get_planetary_position(jd: float, planet: int) -> float:
         except Exception as e:
             logger.warning(f"Failed to calculate planet position via swisseph: {e}. Falling back to approx.")
             
-    return get_planetary_position_approx(jd, planet)
+    return _get_planetary_position_approx(jd, planet)
 
 class EphemerisEngine:
     """
@@ -256,10 +256,10 @@ class EphemerisEngine:
         """
         Computes all planetary positions for a specific Birthdate chart.
         """
-        jd = get_julian_day(birth.year, birth.month, birth.day, birth.hour)
+        jd = _get_julian_day(birth.year, birth.month, birth.day, birth.hour)
         positions = {}
         for p_id, p_name in PLANET_NAMES.items():
-            positions[p_name] = get_planetary_position(jd, p_id)
+            positions[p_name] = _get_planetary_position(jd, p_id)
         return positions
 
     def compute_transits(self, birthdate: Birthdate, current_time: datetime) -> list[Transit]:
@@ -271,11 +271,11 @@ class EphemerisEngine:
         natal_positions = self.get_chart_positions(birthdate)
         
         # 2. Compute transiting positions
-        y, m, d, h = datetime_to_decimal_ut(current_time)
-        transiting_jd = get_julian_day(y, m, d, h)
+        y, m, d, h = _datetime_to_decimal_ut(current_time)
+        transiting_jd = _get_julian_day(y, m, d, h)
         transiting_positions = {}
         for p_id, p_name in PLANET_NAMES.items():
-            transiting_positions[p_name] = get_planetary_position(transiting_jd, p_id)
+            transiting_positions[p_name] = _get_planetary_position(transiting_jd, p_id)
             
         transits: list[Transit] = []
         

@@ -102,7 +102,7 @@ def test_the_peft_missing_branch_writes_nothing():
     path permanently prevents that node from ever queuing training again -- even
     once peft is installed. It also rebuilt the files commit 16e93a5 deleted."""
     source = TRAINER.read_text(encoding="utf-8")
-    branch = source.split("if not is_peft_available():", 1)[1].split("logger.info(", 1)[0]
+    branch = source.split("if not _is_peft_available():", 1)[1].split("logger.info(", 1)[0]
     # Comments in this branch describe the removed behaviour by name, so assert
     # against code only.
     code = "\n".join(

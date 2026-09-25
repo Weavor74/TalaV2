@@ -15,9 +15,9 @@ from unittest.mock import AsyncMock, patch
 import pytest
 
 from python.harness.server import (
-    extract_html_nn_document,
+    _extract_html_nn_document,
     handle_research_crawl_and_summarize,
-    resolve_nodes_dir,
+    _resolve_nodes_dir,
 )
 
 _VALID_NODE_HTML = """```html
@@ -36,26 +36,26 @@ _VALID_NODE_HTML = """```html
 
 
 def test_extract_html_nn_document_strips_fence_and_validates():
-    assert extract_html_nn_document(_VALID_NODE_HTML) is not None
-    assert "<!DOCTYPE html>" in extract_html_nn_document(_VALID_NODE_HTML)
-    assert "```" not in extract_html_nn_document(_VALID_NODE_HTML)
+    assert _extract_html_nn_document(_VALID_NODE_HTML) is not None
+    assert "<!DOCTYPE html>" in _extract_html_nn_document(_VALID_NODE_HTML)
+    assert "```" not in _extract_html_nn_document(_VALID_NODE_HTML)
 
 
 def test_extract_html_nn_document_rejects_prose_response():
     # The model ignored the formatting instructions and just chatted --
     # must not be treated as a real node.
     prose = "Sure! Widgets are small mechanical devices used in many industries."
-    assert extract_html_nn_document(prose) is None
+    assert _extract_html_nn_document(prose) is None
 
 
 def test_extract_html_nn_document_handles_empty_and_none():
-    assert extract_html_nn_document("") is None
-    assert extract_html_nn_document(None) is None
+    assert _extract_html_nn_document("") is None
+    assert _extract_html_nn_document(None) is None
 
 
 def test_resolve_nodes_dir_respects_tala_user_data(tmp_path, monkeypatch):
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
-    nodes_dir = resolve_nodes_dir()
+    nodes_dir = _resolve_nodes_dir()
     assert nodes_dir == tmp_path / "nodes"
     assert nodes_dir.exists()
 
@@ -64,7 +64,7 @@ def test_resolve_nodes_dir_respects_tala_user_data(tmp_path, monkeypatch):
 async def test_crawl_and_summarize_persists_generated_node(tmp_path, monkeypatch):
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
 
-    with patch("python.harness.server.fetch_webpage_text", new_callable=AsyncMock) as mock_fetch, \
+    with patch("python.harness.server._fetch_webpage_text", new_callable=AsyncMock) as mock_fetch, \
          patch("python.harness.server.execute_llm_generation", new_callable=AsyncMock) as mock_llm, \
          patch("python.harness.memory.handle_memory_reindex_node", new_callable=AsyncMock) as mock_reindex:
         mock_fetch.return_value = "Widgets are small mechanical devices."
@@ -98,7 +98,7 @@ async def test_crawl_and_summarize_persists_generated_node(tmp_path, monkeypatch
 async def test_crawl_and_summarize_does_not_persist_non_html_response(tmp_path, monkeypatch):
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
 
-    with patch("python.harness.server.fetch_webpage_text", new_callable=AsyncMock) as mock_fetch, \
+    with patch("python.harness.server._fetch_webpage_text", new_callable=AsyncMock) as mock_fetch, \
          patch("python.harness.server.execute_llm_generation", new_callable=AsyncMock) as mock_llm:
         mock_fetch.return_value = "Widgets are small mechanical devices."
         mock_llm.return_value = "Here is a summary of widgets: they are useful."

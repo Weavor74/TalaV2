@@ -119,7 +119,7 @@ class PreflightResult:
 # Pure calculation helpers (Task 3.1.1 / 3.1.2)
 # ---------------------------------------------------------------------------
 
-def count_characters(text: str) -> int:
+def _count_characters(text: str) -> int:
     """
     Return an exact character tally for *text*.
 
@@ -142,7 +142,7 @@ def count_characters(text: str) -> int:
     return len(text)
 
 
-def estimate_tokens(text: str) -> int:
+def _estimate_tokens(text: str) -> int:
     """
     Estimate the number of AI tokens required to process *text*.
 
@@ -164,7 +164,7 @@ def estimate_tokens(text: str) -> int:
     int
         Conservative upper-bound token estimate ( ≥ 1 ).
     """
-    char_count = count_characters(text)
+    char_count = _count_characters(text)
     # Ceiling division: (n + d - 1) // d
     return max(1, (char_count + 3) // 4)
 
@@ -508,8 +508,8 @@ class PreflightEngine:
         PreflightResult
             Fully populated (may have ``approved=False``).
         """
-        char_count = count_characters(prompt)
-        required_tokens = estimate_tokens(prompt)
+        char_count = _count_characters(prompt)
+        required_tokens = _estimate_tokens(prompt)
         required_crypto = required_tokens / CRYPTO_TO_AI_TOKENS
         approved = wallet_balance_crypto >= required_crypto
         deficit = max(0.0, required_crypto - wallet_balance_crypto)

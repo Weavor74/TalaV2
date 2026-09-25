@@ -84,7 +84,7 @@ def one_provider(monkeypatch):
         return [{"title": "ddg", "url": "d", "snippet": "scraped"}]
 
     monkeypatch.setattr(sm, "get_search_providers", providers)
-    monkeypatch.setattr(sm, "crawl_web", crawl)
+    monkeypatch.setattr(sm, "_crawl_web", crawl)
 
 
 def _respond_with(monkeypatch, response):

@@ -60,7 +60,7 @@ def _set(rules, **kwargs):
     ("ftp://files.example.com", "files.example.com", 21),
 ])
 def test_targets_are_parsed(target, host, port):
-    assert ng.split_target(target) == (host, port)
+    assert ng._split_target(target) == (host, port)
 
 
 # -- opt-in -------------------------------------------------------------------

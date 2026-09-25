@@ -62,7 +62,7 @@ class DeviceInfo:
 
 _device_info: DeviceInfo | None = None
 
-def get_device_info() -> DeviceInfo:
+def _get_device_info() -> DeviceInfo:
     """
     Auto-detect the best available compute device.
 
@@ -136,7 +136,7 @@ def get_device_info() -> DeviceInfo:
 class DeviceInfoProxy:
     @property
     def _info(self) -> DeviceInfo:
-        return get_device_info()
+        return _get_device_info()
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._info, name)
@@ -162,7 +162,7 @@ def is_vllm_available() -> bool:
     if _VLLM_AVAILABLE is not None:
         return _VLLM_AVAILABLE
 
-    device = get_device_info()
+    device = _get_device_info()
     if device.device_type == "cuda":
         try:
             from vllm import AsyncLLMEngine, SamplingParams  # type: ignore[import]
@@ -188,7 +188,7 @@ def is_vllm_available() -> bool:
 _TRANSFORMERS_AVAILABLE: bool | None = None
 _transformers_pipeline: Any = None
 
-def is_transformers_available() -> bool:
+def _is_transformers_available() -> bool:
     global _TRANSFORMERS_AVAILABLE, _transformers_pipeline
     if _TRANSFORMERS_AVAILABLE is not None:
         return _TRANSFORMERS_AVAILABLE
@@ -203,7 +203,7 @@ def is_transformers_available() -> bool:
         logger.info(
             "transformers %s available — will use pipeline for inference on %s",
             transformers.__version__,
-            get_device_info().device_type,
+            _get_device_info().device_type,
         )
         return True
     except ImportError:
@@ -392,7 +392,7 @@ async def generate(
             "device_type": DEVICE_INFO.device_type,
             "device_name": DEVICE_INFO.device_name,
             "vllm_available": is_vllm_available(),
-            "transformers_available": is_transformers_available(),
+            "transformers_available": _is_transformers_available(),
         },
     )
 
@@ -400,7 +400,7 @@ async def generate(
         if is_vllm_available():
             async for chunk in _generate_vllm(prompt, max_tokens, temperature, session_id, top_p, top_k, stop, lora_path):
                 yield chunk
-        elif is_transformers_available():
+        elif _is_transformers_available():
             async for chunk in _generate_transformers(prompt, max_tokens, temperature, session_id):
                 yield chunk
         else:
@@ -602,10 +602,10 @@ async def get_model_info() -> dict[str, Any]:
         "vram_gb": DEVICE_INFO.vram_gb,
         "recommended_max_tokens": DEVICE_INFO.recommended_max_tokens,
         "vllm_available": is_vllm_available(),
-        "transformers_available": is_transformers_available(),
+        "transformers_available": _is_transformers_available(),
         "mode": (
             "vllm" if is_vllm_available() else
-            "transformers" if is_transformers_available() else
+            "transformers" if _is_transformers_available() else
             "stub"
         ),
     }
@@ -641,7 +641,7 @@ async def log_device_info_to_db() -> None:
                 "vram_gb": DEVICE_INFO.vram_gb,
                 "recommended_max_tokens": DEVICE_INFO.recommended_max_tokens,
                 "vllm_available": is_vllm_available(),
-                "transformers_available": is_transformers_available(),
+                "transformers_available": _is_transformers_available(),
             },
         )
     except Exception as exc:  # noqa: BLE001

@@ -74,7 +74,7 @@ def scan_plugins_directory(plugins_dir: str = None) -> List[Dict[str, Any]]:
     results = []
     if not os.path.exists(plugins_dir):
         log.warning(f"Plugins directory not found: {plugins_dir}")
-        return [mcp_bridge_manifest()]
+        return [_mcp_bridge_manifest()]
         
     seen_ids = set()
         
@@ -116,7 +116,7 @@ def scan_plugins_directory(plugins_dir: str = None) -> List[Dict[str, Any]]:
     # servers configured at runtime, so there is no plugin.json to scan.
     # Without it here, run_tool refuses every MCP tool for a missing
     # manifest — which is exactly what it had been doing.
-    results.append(mcp_bridge_manifest())
+    results.append(_mcp_bridge_manifest())
     return results
 
 # ── MCP servers are plugins too ─────────────────────────────────────────────
@@ -246,7 +246,7 @@ def _mcp_bridge_runtime() -> Dict[str, Any]:
     }
 
 
-def mcp_bridge_manifest() -> Dict[str, Any]:
+def _mcp_bridge_manifest() -> Dict[str, Any]:
     """
     A manifest for the bridge, so its tools are gated rather than refused.
 

@@ -109,7 +109,7 @@ _WALLET_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
 )
 
 
-def classify_tool(tool_name: str) -> str | None:
+def _classify_tool(tool_name: str) -> str | None:
     """
     The guarded operation a tool performs, or None if it is not gated.
 
@@ -200,7 +200,7 @@ def guard(tool_name: str, requested_by: str = "agent",
     Never raises. A gate that can take the caller down with it gets removed
     the first time it does, and then there is no gate.
     """
-    operation = classify_tool(tool_name)
+    operation = _classify_tool(tool_name)
     if operation is None:
         return {"allowed": True, "operation": None, "mode": current_mode(),
                 "token_id": None, "reason": "tool performs no guarded operation"}
@@ -220,6 +220,7 @@ def guard(tool_name: str, requested_by: str = "agent",
             metadata=metadata or {},
         )
         gw = gateway()
+        gw.purge_expired()
         token = gw.request_lease(request)
     except Exception as exc:
         # Failing open is the right call in `open` mode and the wrong one in

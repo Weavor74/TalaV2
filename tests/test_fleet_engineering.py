@@ -4,7 +4,7 @@ import json
 
 from sdk.agent.port_router import PortRouter
 from sdk.agent.sandbox import LocalSandbox  # DockerSandbox is an alias for LocalSandbox
-from sdk.agent.orchestrator_cli import show_status, pause_task, resume_task
+from sdk.agent.orchestrator_cli import _show_status, pause_task, resume_task
 from sdk.agent.graph_engine import DAGExecutionEngine
 from sdk.agent.planner import TaskItem
 from sdk.agent.queue import BatchQueue
@@ -59,7 +59,7 @@ async def test_orchestrator_cli_dashboard():
          "worktree_path": "/path/t-1", "branch_name": "t-1-branch"}
     ]), \
          patch("sdk.agent.orchestrator_cli.get_port_allocations", return_value={"t-1": 9000}):
-        await show_status()  # should not raise
+        await _show_status()  # should not raise
 
 @pytest.mark.asyncio
 async def test_orchestrator_cli_pause_resume():

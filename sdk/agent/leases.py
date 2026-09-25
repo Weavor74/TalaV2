@@ -114,7 +114,7 @@ class LeaseToken:
             return False
         return True
 
-    def is_expired(self) -> bool:
+    def _is_expired(self) -> bool:
         """True if the token has passed its expiry time."""
         return bool(self.expires_at and datetime.now(UTC) > self.expires_at)
 
@@ -123,7 +123,7 @@ class LeaseToken:
             return LeaseState.REVOKED
         if self.denied:
             return LeaseState.DENIED
-        if self.is_expired():
+        if self._is_expired():
             return LeaseState.EXPIRED
         if self.approved:
             return LeaseState.APPROVED
@@ -260,7 +260,7 @@ class LeaseGateway:
             if token.denied or token.revoked:
                 log.warning("approve_lease: token %r is already decided", token_id)
                 return False
-            if token.is_expired():
+            if token._is_expired():
                 log.warning("approve_lease: token %r has expired", token_id)
                 return False
 
@@ -393,7 +393,7 @@ class LeaseGateway:
         with self._lock:
             expired_ids = [
                 tid for tid, t in self._leases.items()
-                if t.is_expired() and t.state() == LeaseState.EXPIRED
+                if t._is_expired() and t.state() == LeaseState.EXPIRED
             ]
             for tid in expired_ids:
                 del self._leases[tid]
@@ -447,12 +447,12 @@ class SystemStatusLog:
         with self._lock:
             return self._latest.get(component)
 
-    def all_latest(self) -> dict[str, StatusReport]:
+    def _all_latest(self) -> dict[str, StatusReport]:
         """Return the most recent report for every component."""
         with self._lock:
             return dict(self._latest)
 
-    def degraded_components(self) -> list[StatusReport]:
+    def _degraded_components(self) -> list[StatusReport]:
         """Return components currently in DEGRADED or UNVERIFIED state."""
         with self._lock:
             return [
@@ -467,7 +467,7 @@ class SystemStatusLog:
 
     def summary(self) -> dict[str, Any]:
         """Return a JSON-serialisable summary of current system health."""
-        all_reports = self.all_latest()
+        all_reports = self._all_latest()
         return {
             "generated_at": datetime.now(UTC).isoformat(),
             "component_count": len(all_reports),
@@ -475,7 +475,7 @@ class SystemStatusLog:
                 name: report.to_dict()
                 for name, report in all_reports.items()
             },
-            "degraded_count": len(self.degraded_components()),
+            "degraded_count": len(self._degraded_components()),
         }
 
 

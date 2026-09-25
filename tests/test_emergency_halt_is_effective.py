@@ -157,7 +157,7 @@ async def test_system_release_halt_requires_owner_secret(monkeypatch, tmp_path):
     secret_path = tmp_path / "harness_admin_secret.txt"
     monkeypatch.setenv("TALA_HARNESS_ADMIN_SECRET_FILE", str(secret_path))
     monkeypatch.delenv("TALA_HARNESS_ADMIN_SECRET", raising=False)
-    secret = admin_auth.load_or_create_harness_admin_secret()
+    secret = admin_auth._load_or_create_harness_admin_secret()
 
     RevocationHalt.trigger_emergency_halt()
     refused = json.loads(await server.handle_system_release_halt({}, 1))

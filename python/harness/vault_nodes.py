@@ -383,7 +383,7 @@ def _load_state(doc_id: str) -> tuple[Path, dict[str, Any]]:
     return path, (parse_file(str(path)).state_data or {})
 
 
-def get_grants(doc_id: str) -> dict[str, Any]:
+def _get_grants(doc_id: str) -> dict[str, Any]:
     """The grants recorded on a document. Absent or malformed means none."""
     try:
         _, state = _load_state(doc_id)
@@ -413,7 +413,7 @@ def set_grant(doc_id: str, remote_inference: bool | None = None,
     if not doc.get("success"):
         return doc
 
-    grants = get_grants(doc_id)
+    grants = _get_grants(doc_id)
     if remote_inference is not None:
         grants["remote_inference"] = bool(remote_inference)
     if contacts is not None:
@@ -464,7 +464,7 @@ async def assert_may_read(doc_id: str, reason: str = "") -> None:
     # The document's own grant, or an access_grants entry for it. Both are
     # "the owner said yes to this document"; keeping the document-local one
     # avoids breaking vaults written before the model existed (UI-101).
-    if get_grants(doc_id).get("remote_inference"):
+    if _get_grants(doc_id).get("remote_inference"):
         log.warning(
             "vault: %s read while the remote provider %r is active, under an "
             "explicit grant.", doc_id, row["name"],
@@ -500,4 +500,4 @@ def may_share_with_contact(doc_id: str, contact: str) -> bool:
     disclose a private document.
     """
     who = str(contact or "").strip().lstrip("@").lower()
-    return bool(who) and who in get_grants(doc_id)["contacts"]
+    return bool(who) and who in _get_grants(doc_id)["contacts"]

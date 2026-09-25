@@ -108,7 +108,7 @@ async def handle_task_submit(params: dict[str, Any], req_id: Any) -> str:
             except (ValueError, TypeError):
                 pass
         
-        async def run_goal_engine():
+        async def _run_goal_engine():
             try:
                 await engine.run_goal(
                     goal,
@@ -143,7 +143,7 @@ async def handle_task_submit(params: dict[str, Any], req_id: Any) -> str:
                 except Exception:
                     pass
 
-        asyncio.create_task(run_goal_engine())
+        asyncio.create_task(_run_goal_engine())
         
         return _ok(req_id, {
             "success": True,

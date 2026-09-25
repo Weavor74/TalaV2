@@ -26,7 +26,7 @@ class LoraTrainingUnavailable(RuntimeError):
     """
 
 
-def is_peft_available() -> bool:
+def _is_peft_available() -> bool:
     """Check if the necessary PEFT/TRL training libraries are installed."""
     try:
         import peft  # noqa: F401
@@ -56,7 +56,7 @@ def _perform_training_sync(job: dict[str, Any]) -> None:
     output_path = job["output_path"]
     semantic_memory = job["semantic_memory"]
     
-    if not is_peft_available():
+    if not _is_peft_available():
         # Nothing is written to disk. An earlier version of this branch kept
         # writing DUMMY_LORA_WEIGHTS_FOR_<node_id> to the real .safetensors
         # path on the reasoning that downstream existence checks depend on the

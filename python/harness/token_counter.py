@@ -322,13 +322,13 @@ async def count_and_check(
     cost_tokens = cost_usd
     loop = asyncio.get_running_loop()
 
-    def check_balance_sync() -> float:
+    def _check_balance_sync() -> float:
         req = urllib.request.Request(f"{base_url}/chain/wallet/{wallet_address}/balance")
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode("utf-8"))
             return float(data.get("balance", 0.0))
 
-    def submit_payment_sync() -> dict:
+    def _submit_payment_sync() -> dict:
         tx_id = str(uuid.uuid4())
         amount = cost_tokens
 
@@ -405,7 +405,7 @@ async def count_and_check(
                     session_id=session_id,
                 )
             try:
-                await loop.run_in_executor(None, submit_payment_sync)
+                await loop.run_in_executor(None, _submit_payment_sync)
                 balance_after = balance_before - cost_tokens
             except Exception as exc:
                 logger.warning("Failed to submit blockchain payment: %s", exc)
@@ -495,7 +495,7 @@ async def get_wallet_balance() -> float:
 
     loop = asyncio.get_running_loop()
 
-    def check_balance_sync() -> float:
+    def _check_balance_sync() -> float:
         req = urllib.request.Request(f"{base_url}/chain/wallet/{wallet_address}/balance")
         with urllib.request.urlopen(req) as response:
             data = json.loads(response.read().decode("utf-8"))
@@ -531,7 +531,7 @@ async def wallet_state() -> dict[str, Any]:
     base_url = f"http://{chain_host}:{chain_port}"
     loop = asyncio.get_running_loop()
 
-    def read_balance() -> float:
+    def _read_balance() -> float:
         req = urllib.request.Request(
             f"{base_url}/chain/wallet/{wallet_address}/balance")
         with urllib.request.urlopen(req, timeout=5) as response:
@@ -539,7 +539,7 @@ async def wallet_state() -> dict[str, Any]:
             return float(data.get("balance", 0.0))
 
     try:
-        return {"balance": await loop.run_in_executor(None, read_balance),
+        return {"balance": await loop.run_in_executor(None, _read_balance),
                 "mode": "real", "unlimited": False}
     except Exception as exc:
         logger.warning("Could not read the wallet balance: %s", exc)
@@ -569,7 +569,7 @@ async def top_up_wallet(amount: float, caller: str = "system") -> float:
 
     loop = asyncio.get_running_loop()
 
-    def mint_sync() -> dict:
+    def _mint_sync() -> dict:
         payload = {"address": wallet_address, "amount": amount}
         secret = os.environ.get("TALA_CHAIN_ADMIN_SECRET", "")
         if not secret:
@@ -591,7 +591,7 @@ async def top_up_wallet(amount: float, caller: str = "system") -> float:
             return json.loads(response.read().decode("utf-8"))
 
     try:
-        result = await loop.run_in_executor(None, mint_sync)
+        result = await loop.run_in_executor(None, _mint_sync)
         new_balance = float(result.get("new_balance", 0.0))
         tx_id = result.get("tx_id") or result.get("tx_hash") or result.get("hash")
 

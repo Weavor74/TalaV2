@@ -54,7 +54,7 @@ def is_halted_fail_closed() -> bool:
         return True
 
 
-def allowed_while_halted(method: str, params: dict[str, Any] | None = None) -> bool:
+def _allowed_while_halted(method: str, params: dict[str, Any] | None = None) -> bool:
     """Whether *method* may run while the emergency halt is engaged."""
     if method == HALTED_RELEASE_METHOD:
         return True
@@ -66,7 +66,7 @@ def allowed_while_halted(method: str, params: dict[str, Any] | None = None) -> b
     return False
 
 
-def refusal_response(method: str, req_id: Any) -> str:
+def _refusal_response(method: str, req_id: Any) -> str:
     """JSON-RPC error body for a call blocked by the halt."""
     return _err(
         req_id,
@@ -87,7 +87,7 @@ def check_rpc(method: str, params: dict[str, Any] | None, req_id: Any) -> str | 
     """
     if not is_halted_fail_closed():
         return None
-    if allowed_while_halted(method, params if isinstance(params, dict) else None):
+    if _allowed_while_halted(method, params if isinstance(params, dict) else None):
         return None
     logger.critical("halt_gate: refusing %r -- emergency halt is engaged", method)
-    return refusal_response(method, req_id)
+    return _refusal_response(method, req_id)

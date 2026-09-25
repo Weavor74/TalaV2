@@ -81,7 +81,7 @@ class BaseAdapter:
             parts = str(raw).replace(";", ",").split(",")
         return {p.strip().lstrip("@").lower() for p in parts if str(p).strip()}
 
-    def is_allowed(self, msg: dict[str, Any]) -> bool:
+    def _is_allowed(self, msg: dict[str, Any]) -> bool:
         """
         Fail closed. An empty allowlist permits nobody.
 
@@ -123,7 +123,7 @@ class BaseAdapter:
                     # Enforced here rather than per adapter: every platform's
                     # messages funnel through this loop, so a future Discord
                     # adapter inherits the check instead of having to repeat it.
-                    if not self.is_allowed(msg):
+                    if not self._is_allowed(msg):
                         self.messages_rejected += 1
                         log.warning(
                             "channels: %s/%s rejected a message from sender=%r chat_id=%r "

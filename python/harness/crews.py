@@ -234,7 +234,7 @@ async def members(crew_id: str) -> list[dict[str, Any]]:
     return [dict(r) for r in rows]
 
 
-async def chain_of_command(agent_id: str) -> list[dict[str, Any]]:
+async def _chain_of_command(agent_id: str) -> list[dict[str, Any]]:
     """
     Everyone this agent reports to, nearest manager first.
 
@@ -313,11 +313,11 @@ async def chart() -> dict[str, Any]:
         "agents": agents,
         "unassigned": [a["id"] for a in agents if not a["crew_id"]],
         "managers": sorted(managed),
-        "cycles": await find_cycles(),
+        "cycles": await _find_cycles(),
     }
 
 
-async def find_cycles() -> list[list[str]]:
+async def _find_cycles() -> list[list[str]]:
     """
     Reporting loops, if any exist.
 
@@ -463,7 +463,7 @@ async def owns(manager_id: str, agent_id: str) -> bool:
     """
     manager_id = str(manager_id or "").strip()
     return any(link["id"] == manager_id
-               for link in await chain_of_command(agent_id))
+               for link in await _chain_of_command(agent_id))
 
 
 # ── helpers ──────────────────────────────────────────────────────────────────
@@ -481,7 +481,7 @@ async def _agent_exists(agent_id: str) -> bool:
 async def _would_cycle(agent_id: str, proposed_manager: str) -> bool:
     """Whether the proposed manager already reports to this agent."""
     return any(link["id"] == agent_id
-               for link in await chain_of_command(proposed_manager))
+               for link in await _chain_of_command(proposed_manager))
 
 
 async def _crew_would_cycle(crew_id: str, proposed_parent: str) -> bool:

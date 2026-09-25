@@ -58,7 +58,7 @@ async def get_port_allocations() -> dict[str, int]:
     except Exception:
         return {}
 
-async def show_status() -> None:
+async def _show_status() -> None:
     """Displays a unified terminal dashboard of all active workspaces and ports."""
     tasks = await get_active_tasks()
     ports = await get_port_allocations()
@@ -132,7 +132,7 @@ async def terminate_task(task_id: str) -> None:
 
 async def main():
     if len(sys.argv) < 2:
-        await show_status()
+        await _show_status()
         return
 
     cmd = sys.argv[1].lower()
@@ -144,7 +144,7 @@ async def main():
         pass
 
     if cmd == "status":
-        await show_status()
+        await _show_status()
     elif cmd == "pause" and len(sys.argv) >= 3:
         await pause_task(sys.argv[2])
     elif cmd == "resume" and len(sys.argv) >= 3:

@@ -41,7 +41,7 @@ def revocation(key=HOLDER, pem=HOLDER_PEM, sign_with=None, claim=None,
                revoked_at=REVOKED_AT):
     """A revocation transaction, forgeable in the ways the tests need."""
     print_ = claim or chain_verify.fingerprint(pem)
-    message = chain_verify.revocation_message(print_, revoked_at)
+    message = chain_verify._revocation_message(print_, revoked_at)
     return {
         "id": f"revocation-{print_}",
         "type": "key-revocation",
@@ -87,7 +87,7 @@ def plain(tx_id):
 # -- reading a revocation -----------------------------------------------------
 
 def test_a_self_signed_revocation_is_accepted():
-    assert chain_verify.verify_revocation(revocation()) == HOLDER_PRINT
+    assert chain_verify._verify_revocation(revocation()) == HOLDER_PRINT
 
 
 def test_a_revocation_signed_by_somebody_else_is_ignored():
@@ -95,13 +95,13 @@ def test_a_revocation_signed_by_somebody_else_is_ignored():
     up as a security feature."""
     attacker = Ed25519PrivateKey.generate()
 
-    assert chain_verify.verify_revocation(revocation(sign_with=attacker)) == ""
+    assert chain_verify._verify_revocation(revocation(sign_with=attacker)) == ""
 
 
 def test_a_revocation_naming_one_key_and_carrying_another_is_ignored():
     """The fingerprint is derived, never believed: otherwise a revocation
     retires whichever key the reader happens to look at."""
-    assert chain_verify.verify_revocation(
+    assert chain_verify._verify_revocation(
         revocation(claim="deadbeefdeadbeef")) == ""
 
 
@@ -111,7 +111,7 @@ def test_a_revocation_over_a_different_timestamp_is_ignored():
     forged = revocation()
     forged["metadata"]["revoked_at"] = "2020-01-01T00:00:00.000Z"
 
-    assert chain_verify.verify_revocation(forged) == ""
+    assert chain_verify._verify_revocation(forged) == ""
 
 
 @pytest.mark.parametrize("missing", ["public_key", "fingerprint", "revoked_at"])
@@ -120,7 +120,7 @@ def test_an_incomplete_revocation_is_ignored(missing):
     broken["metadata"][missing] = ""
     broken["public_key"] = "" if missing == "public_key" else broken["public_key"]
 
-    assert chain_verify.verify_revocation(broken) == ""
+    assert chain_verify._verify_revocation(broken) == ""
 
 
 def test_revocations_are_found_with_their_position():
@@ -160,7 +160,7 @@ def test_the_revocation_message_is_domain_separated():
     happens to be exactly 64 characters long, which is a good reminder that
     length was never what made it safe.
     """
-    message = chain_verify.revocation_message("a" * 16, REVOKED_AT)
+    message = chain_verify._revocation_message("a" * 16, REVOKED_AT)
 
     assert message.startswith(chain_verify.REVOCATION_PREFIX)
     assert not all(character in "0123456789abcdef" for character in message)

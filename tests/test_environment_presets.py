@@ -39,22 +39,22 @@ RENDERER = Path("renderer/renderer.js")
     ("remote", ["embedded", "local", "remote"]),
 ])
 def test_each_preset_permits_what_steven_specified(name, expected):
-    assert env.build_state(name, False)["permitted_inference"] == expected
+    assert env._build_state(name, False)["permitted_inference"] == expected
 
 
 def test_usb_is_narrower_than_local():
     """"The embedded engine is all we have access to" -- USB is embedded only,
     not merely local, because it doubles as a troubleshooting mode."""
-    usb = set(env.build_state("usb", False)["permitted_inference"])
-    local = set(env.build_state("local", False)["permitted_inference"])
+    usb = set(env._build_state("usb", False)["permitted_inference"])
+    local = set(env._build_state("local", False)["permitted_inference"])
     assert usb < local
 
 
 def test_each_preset_sets_storage_too():
     """A preset sets data root, inference and storage together."""
-    assert env.build_state("usb", False)["permitted_storage"] == "usb"
-    assert env.build_state("local", False)["permitted_storage"] == "local"
-    assert env.build_state("remote", False)["permitted_storage"] == "any"
+    assert env._build_state("usb", False)["permitted_storage"] == "usb"
+    assert env._build_state("local", False)["permitted_storage"] == "local"
+    assert env._build_state("remote", False)["permitted_storage"] == "any"
 
 
 def test_an_unknown_environment_falls_back_to_local():
@@ -70,8 +70,8 @@ def test_lockdown_restricts_remote_but_is_not_the_local_preset():
     """They land on the same inference restriction by different routes, and
     that is not a reason to merge them: the reason you are restricted is part
     of what the state means."""
-    locked = env.build_state("remote", True)
-    local = env.build_state("local", False)
+    locked = env._build_state("remote", True)
+    local = env._build_state("local", False)
 
     assert locked["permitted_inference"] == local["permitted_inference"]
     assert locked["environment"] == "remote"
@@ -81,14 +81,14 @@ def test_lockdown_restricts_remote_but_is_not_the_local_preset():
 
 def test_lockdown_cannot_widen_a_narrow_preset():
     """USB is already tighter than lockdown; engaging it must not loosen."""
-    assert env.build_state("usb", True)["permitted_inference"] == ["embedded"]
+    assert env._build_state("usb", True)["permitted_inference"] == ["embedded"]
 
 
 def test_lockdown_does_not_move_the_data_root():
     """Moving a user's data is not a safety measure."""
     for name in env.ENVIRONMENTS:
-        plain = env.build_state(name, False)
-        locked = env.build_state(name, True)
+        plain = env._build_state(name, False)
+        locked = env._build_state(name, True)
         assert plain["permitted_storage"] == locked["permitted_storage"]
 
 
@@ -102,7 +102,7 @@ def test_blocked_providers_are_returned_not_dropped():
         {"id": "b", "type": "local", "name": "Ollama"},
         {"id": "c", "type": "embedded", "name": "Embedded"},
     ]
-    allowed, blocked = env.filter_providers(providers, env.build_state("local", False))
+    allowed, blocked = env.filter_providers(providers, env._build_state("local", False))
 
     assert [p["id"] for p in allowed] == ["b", "c"]
     assert [p["id"] for p in blocked] == ["a"]
@@ -114,7 +114,7 @@ def test_usb_permits_only_the_embedded_engine():
         {"id": "b", "type": "local", "name": "Ollama"},
         {"id": "c", "type": "embedded", "name": "Embedded"},
     ]
-    allowed, blocked = env.filter_providers(providers, env.build_state("usb", False))
+    allowed, blocked = env.filter_providers(providers, env._build_state("usb", False))
     assert [p["id"] for p in allowed] == ["c"]
     assert len(blocked) == 2
 

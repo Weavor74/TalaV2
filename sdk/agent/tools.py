@@ -826,7 +826,7 @@ async def sync_blockchain(task_id: str | None = None) -> str:
 class SecurityError(Exception):
     pass
 
-def pi_sanitizer(data: dict) -> dict:
+def _pi_sanitizer(data: dict) -> dict:
     """
     Blocks PII/Secured data from entering the weight compilation buffer.
     """
@@ -834,11 +834,11 @@ def pi_sanitizer(data: dict) -> dict:
         raise SecurityError("Attempted to encode SECURED PII into html-nn weight buffer.")
     for val in data.values():
         if isinstance(val, dict):
-            pi_sanitizer(val)
+            _pi_sanitizer(val)
         elif isinstance(val, list):
             for item in val:
                 if isinstance(item, dict):
-                    pi_sanitizer(item)
+                    _pi_sanitizer(item)
     return data
 
 
@@ -876,7 +876,7 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> st
     if metadata_m:
         try:
             meta = json.loads(metadata_m.group(1).strip())
-            pi_sanitizer(meta)
+            _pi_sanitizer(meta)
         except SecurityError:
             raise
         except Exception:
@@ -886,7 +886,7 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> st
     if state_m:
         try:
             state = json.loads(state_m.group(1).strip())
-            pi_sanitizer(state)
+            _pi_sanitizer(state)
         except SecurityError:
             raise
         except Exception:
@@ -3764,13 +3764,13 @@ async def adjust_behavioral_weights(node_path: str, feedback: str) -> str:
     return f"Successfully adjusted behavioral weights for {node_path}. Shifts: {shift_details}. Ledger ID: {chaincode_id}"
 
 
-def classify_field_heuristically(field_name: str) -> str:
+def _classify_field_heuristically(field_name: str) -> str:
     """
     NAME
            classify_field_heuristically - Heuristic PII classification
            
     SYNOPSIS
-           classification = classify_field_heuristically(field_name)
+           classification = _classify_field_heuristically(field_name)
            
     DESCRIPTION
            Determines field classification using Heuristic Baselines.
@@ -3816,7 +3816,7 @@ async def run_security_classification_audit(schema_fields: list[str]) -> dict[st
     ambiguous_fields = []
     
     for field in schema_fields:
-        classification = classify_field_heuristically(field)
+        classification = _classify_field_heuristically(field)
         mapping[field] = classification
         if classification == "UNCATEGORIZED":
             ambiguous_fields.append(field)

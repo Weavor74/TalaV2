@@ -96,7 +96,7 @@ def _decode(raw: Any) -> dict[str, Any]:
 PROFILE_NODE = "concept-user-profile"
 
 
-def load_config_from_node() -> dict[str, Any]:
+def _load_config_from_node() -> dict[str, Any]:
     """
     Read the profile out of its HTML-NN, which is the authored source of truth.
 
@@ -128,7 +128,7 @@ def load_config_from_node() -> dict[str, Any]:
     return config
 
 
-async def load_config_from_db() -> dict[str, Any]:
+async def _load_config_from_db() -> dict[str, Any]:
     """Read the master user's profile config from Postgres."""
     from python.harness import db
     try:
@@ -159,13 +159,13 @@ async def load_config() -> dict[str, Any]:
     when it did (UI-056) the data looked lost because every reader trusted the
     node alone.
     """
-    config = load_config_from_node()
+    config = _load_config_from_node()
     if config:
         return config
-    return await load_config_from_db()
+    return await _load_config_from_db()
 
 
-def name_from(config: dict[str, Any]) -> str:
+def _name_from(config: dict[str, Any]) -> str:
     """
     The user's preferred display name.
 
@@ -182,13 +182,7 @@ def name_from(config: dict[str, Any]) -> str:
     return value.strip() if isinstance(value, str) and value.strip() else ""
 
 
-def pronouns_from(config: dict[str, Any]) -> str:
-    identity = config.get("identity") if isinstance(config.get("identity"), dict) else {}
-    value = identity.get("pronouns")
-    return value.strip() if isinstance(value, str) and value.strip() else ""
-
-
-def visibility_of(config: dict[str, Any], section: str) -> str:
+def _visibility_of(config: dict[str, Any], section: str) -> str:
     """
     The configured visibility for *section*.
 
@@ -220,14 +214,17 @@ async def system_prompt_line() -> str:
     and will simply assume it knows nothing about the user.
     """
     config = await load_config()
-    name = name_from(config)
+    name = _name_from(config)
     if not name:
         return ""
+    readable = [s for s, vis in (await available_sections()).items() if vis == "readable"]
+    if not readable:
+        return f"[User] You are speaking with {name}."
     return (
         f"[User] You are speaking with {name}. "
         f"Look up anything else you need about them with the "
         f"`user_profile_lookup` tool (sections: "
-        f"{', '.join(LOOKUPABLE)}) rather than guessing or asking them to "
+        f"{', '.join(readable)}) rather than guessing or asking them to "
         f"repeat what they have already told you."
     )
 
@@ -280,7 +277,7 @@ async def lookup(section: str, actor: str = "default") -> dict[str, Any]:
             "reason": "The user profile could not be read.",
         }
 
-    vis = visibility_of(config, requested)
+    vis = _visibility_of(config, requested)
 
     # The visibility setting is the subsystem's own rule; an explicit grant
     # supersedes it, and lockdown overrides both (UI-058, UI-101). Composed
@@ -331,6 +328,6 @@ async def available_sections() -> dict[str, str]:
     config = await load_config()
     out: dict[str, str] = {}
     for section in LOOKUPABLE:
-        vis = visibility_of(config, section)
+        vis = _visibility_of(config, section)
         out[section] = "readable" if vis in AGENT_READABLE else vis
     return out

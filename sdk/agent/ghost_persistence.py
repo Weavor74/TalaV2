@@ -175,13 +175,13 @@ def _restore_from_node_http(task_id: str) -> dict[str, Any] | None:
         log.warning("GhostPersistence: could not decrypt restored document: %s", exc)
         return None
 
-def get_local_status() -> dict[str, Any]:
+def _get_local_status() -> dict[str, Any]:
     """
     NAME
            get_local_status - Query local blockchain status
            
     SYNOPSIS
-           status = get_local_status()
+           status = _get_local_status()
            
     DESCRIPTION
            Hits the local status endpoint.
@@ -260,13 +260,13 @@ def _local_chain_admin_headers() -> dict[str, str]:
                 break
     return {"X-Tala-Chain-Secret": secret} if secret else {}
 
-def get_remote_status() -> dict[str, Any]:
+def _get_remote_status() -> dict[str, Any]:
     """
     NAME
            get_remote_status - status of the configured shared chain
 
     SYNOPSIS
-           status = get_remote_status()
+           status = _get_remote_status()
 
     DESCRIPTION
            Reads TALA_REAL_CHAIN_ENDPOINT, falling back to nothing. This used
@@ -407,7 +407,7 @@ def check_hash() -> str:
            Reachability of the shared chain is not this function's business.
            An install that never goes online is not diverged.
     """
-    local_status = get_local_status()
+    local_status = _get_local_status()
 
     if "error" in local_status:
         return "minor"

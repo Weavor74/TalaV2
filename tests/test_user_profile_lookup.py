@@ -90,11 +90,11 @@ async def test_no_name_means_no_line(monkeypatch):
 
 def test_a_nickname_wins_over_the_formal_name():
     """Someone who sets a nickname is saying what to call them."""
-    assert up.name_from(CONFIG) == "Weavor"
+    assert up._name_from(CONFIG) == "Weavor"
 
 
 def test_the_legal_name_is_never_the_display_name():
-    assert up.name_from({"pii_vault": {"legal_name": "REDACT ME"}}) == ""
+    assert up._name_from({"pii_vault": {"legal_name": "REDACT ME"}}) == ""
 
 
 # -- what a lookup will and will not return -----------------------------------
@@ -192,7 +192,7 @@ def test_the_node_is_the_source(tmp_path, monkeypatch):
     )
     monkeypatch.setattr(dn, "resolve_active_nodes_dir", lambda: tmp_path)
 
-    config = up.load_config_from_node()
+    config = up._load_config_from_node()
     assert config["skills"][0]["name"] == "from-the-node"
 
 
@@ -215,13 +215,13 @@ def test_a_legacy_flat_node_falls_back_rather_than_serving_half_a_profile(
     )
     monkeypatch.setattr(dn, "resolve_active_nodes_dir", lambda: tmp_path)
 
-    assert up.load_config_from_node() == {}, "a flat node must read as unusable"
+    assert up._load_config_from_node() == {}, "a flat node must read as unusable"
 
 
 def test_a_missing_node_is_empty_not_an_error(tmp_path, monkeypatch):
     import sdk.agent.documentation_nodes as dn
     monkeypatch.setattr(dn, "resolve_active_nodes_dir", lambda: tmp_path)
-    assert up.load_config_from_node() == {}
+    assert up._load_config_from_node() == {}
 
 
 def test_double_encoded_config_is_decoded():

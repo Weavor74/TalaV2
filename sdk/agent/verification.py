@@ -107,7 +107,7 @@ class VerificationReport:
 # ---------------------------------------------------------------------------
 
 
-def postgres_is_sole_authority() -> bool:
+def _postgres_is_sole_authority() -> bool:
     """
     Verify that PostgreSQL is configured as the sole persistent data authority.
 
@@ -124,7 +124,7 @@ def postgres_is_sole_authority() -> bool:
 
     if primary_db not in allowed:
         log.warning(
-            "postgres_is_sole_authority FAIL: TALA_PRIMARY_DB=%r (expected 'postgresql')",
+            "_postgres_is_sole_authority FAIL: TALA_PRIMARY_DB=%r (expected 'postgresql')",
             primary_db,
         )
         return False
@@ -142,16 +142,16 @@ def postgres_is_sole_authority() -> bool:
         val = os.environ.get(flag, "").strip().lower()
         if val in ("1", "true", "yes"):
             log.warning(
-                "postgres_is_sole_authority FAIL: disallowed flag %s=%r is set",
+                "_postgres_is_sole_authority FAIL: disallowed flag %s=%r is set",
                 flag, val,
             )
             return False
 
-    log.debug("postgres_is_sole_authority PASS")
+    log.debug("_postgres_is_sole_authority PASS")
     return True
 
 
-def mem0_is_read_only() -> bool:
+def _mem0_is_read_only() -> bool:
     """
     Verify that the mem0 adapter cannot perform write operations.
 
@@ -178,14 +178,14 @@ def mem0_is_read_only() -> bool:
         mem0_available = False
 
     if not mem0_available:
-        log.debug("mem0_is_read_only PASS: mem0 not installed in this environment")
+        log.debug("_mem0_is_read_only PASS: mem0 not installed in this environment")
         return True
 
     try:
         from python.harness import mem0_adapter
     except Exception as exc:
         log.warning(
-            "mem0_is_read_only FAIL: mem0 is importable but the read-only "
+            "_mem0_is_read_only FAIL: mem0 is importable but the read-only "
             "adapter could not be loaded to guard it: %s", exc,
         )
         return False
@@ -199,7 +199,7 @@ def mem0_is_read_only() -> bool:
     decide = getattr(mem0_adapter, "_is_blocked", None)
     if not callable(decide):
         log.warning(
-            "mem0_is_read_only FAIL: the adapter no longer exposes a blocking "
+            "_mem0_is_read_only FAIL: the adapter no longer exposes a blocking "
             "decision function; nothing is classifying writes."
         )
         return False
@@ -212,12 +212,12 @@ def mem0_is_read_only() -> bool:
         try:
             blocked = bool(decide(name))
         except Exception as exc:
-            log.warning("mem0_is_read_only FAIL: classifying %r raised %s",
+            log.warning("_mem0_is_read_only FAIL: classifying %r raised %s",
                         name, type(exc).__name__)
             return False
         if not blocked:
             log.warning(
-                "mem0_is_read_only FAIL: %r is not classified as a write — mem0 "
+                "_mem0_is_read_only FAIL: %r is not classified as a write — mem0 "
                 "could mutate, and PostgreSQL would no longer be the sole "
                 "persistent authority.", name,
             )
@@ -228,7 +228,7 @@ def mem0_is_read_only() -> bool:
     for name in must_allow:
         if decide(name):
             log.warning(
-                "mem0_is_read_only FAIL: read method %r is blocked too — the "
+                "_mem0_is_read_only FAIL: read method %r is blocked too — the "
                 "adapter is not read-only, it is inert.", name,
             )
             return False
@@ -237,12 +237,12 @@ def mem0_is_read_only() -> bool:
     unguarded = _unguarded_mem0_construction_sites()
     if unguarded:
         log.warning(
-            "mem0_is_read_only FAIL: raw mem0 client constructed outside the "
+            "_mem0_is_read_only FAIL: raw mem0 client constructed outside the "
             "read-only adapter in: %s", ", ".join(unguarded),
         )
         return False
 
-    log.debug("mem0_is_read_only PASS: writes classified, reads allowed, no bypass")
+    log.debug("_mem0_is_read_only PASS: writes classified, reads allowed, no bypass")
     return True
 
 
@@ -277,7 +277,7 @@ def _unguarded_mem0_construction_sites() -> list[str]:
     return offenders
 
 
-def vault_is_network_isolated() -> bool:
+def _vault_is_network_isolated() -> bool:
     """
     Verify that the vault directory path has no outbound network socket context.
 
@@ -297,13 +297,13 @@ def vault_is_network_isolated() -> bool:
 
     if not vault_path_str:
         # Vault not configured — treat as isolated (no path → no exposure)
-        log.debug("vault_is_network_isolated PASS: TALA_VAULT_PATH not set (no vault configured)")
+        log.debug("_vault_is_network_isolated PASS: TALA_VAULT_PATH not set (no vault configured)")
         return True
 
     vault_path = Path(vault_path_str)
     if not vault_path.exists():
         log.warning(
-            "vault_is_network_isolated WARN: TALA_VAULT_PATH=%r does not exist",
+            "_vault_is_network_isolated WARN: TALA_VAULT_PATH=%r does not exist",
             vault_path_str,
         )
         # Non-existent path cannot be network-exposed
@@ -313,7 +313,7 @@ def vault_is_network_isolated() -> bool:
     allow_network = os.environ.get("TALA_VAULT_ALLOW_NETWORK", "").strip().lower()
     if allow_network in ("1", "true", "yes"):
         log.warning(
-            "vault_is_network_isolated FAIL: TALA_VAULT_ALLOW_NETWORK=%r is set — "
+            "_vault_is_network_isolated FAIL: TALA_VAULT_ALLOW_NETWORK=%r is set — "
             "vault network exposure is explicitly enabled.",
             allow_network,
         )
@@ -331,18 +331,18 @@ def vault_is_network_isolated() -> bool:
                 result = s.connect_ex(("0.0.0.0", vault_port))
                 if result == 0:
                     log.warning(
-                        "vault_is_network_isolated FAIL: port %d appears bound on 0.0.0.0",
+                        "_vault_is_network_isolated FAIL: port %d appears bound on 0.0.0.0",
                         vault_port,
                     )
                     return False
         except (ValueError, OSError) as exc:
-            log.debug("vault_is_network_isolated port check skipped: %s", exc)
+            log.debug("_vault_is_network_isolated port check skipped: %s", exc)
 
-    log.debug("vault_is_network_isolated PASS")
+    log.debug("_vault_is_network_isolated PASS")
     return True
 
 
-def style_cap_enforced() -> bool:
+def _style_cap_enforced() -> bool:
     """
     Verify that the Astro style influence cap is exactly 0.10.
 
@@ -358,16 +358,16 @@ def style_cap_enforced() -> bool:
         try:
             cap = float(env_val)
             if abs(cap - 0.10) < 1e-9:
-                log.debug("style_cap_enforced PASS: env TALA_MAX_ASTRO_INFLUENCE=0.10")
+                log.debug("_style_cap_enforced PASS: env TALA_MAX_ASTRO_INFLUENCE=0.10")
                 return True
             else:
                 log.warning(
-                    "style_cap_enforced FAIL: TALA_MAX_ASTRO_INFLUENCE=%r (expected 0.10)",
+                    "_style_cap_enforced FAIL: TALA_MAX_ASTRO_INFLUENCE=%r (expected 0.10)",
                     env_val,
                 )
                 return False
         except ValueError:
-            log.warning("style_cap_enforced FAIL: TALA_MAX_ASTRO_INFLUENCE=%r is not numeric", env_val)
+            log.warning("_style_cap_enforced FAIL: TALA_MAX_ASTRO_INFLUENCE=%r is not numeric", env_val)
             return False
 
     # Attempt module attribute check
@@ -376,9 +376,9 @@ def style_cap_enforced() -> bool:
         style_mod = _il.import_module("sdk.renderer.style")
         cap = float(getattr(style_mod, "MAX_ASTRO_INFLUENCE", -1.0))
         if abs(cap - 0.10) < 1e-9:
-            log.debug("style_cap_enforced PASS: sdk.renderer.style.MAX_ASTRO_INFLUENCE=0.10")
+            log.debug("_style_cap_enforced PASS: sdk.renderer.style.MAX_ASTRO_INFLUENCE=0.10")
             return True
-        log.warning("style_cap_enforced FAIL: MAX_ASTRO_INFLUENCE=%r in module", cap)
+        log.warning("_style_cap_enforced FAIL: MAX_ASTRO_INFLUENCE=%r in module", cap)
         return False
     except (ImportError, TypeError, AttributeError):
         pass
@@ -394,13 +394,13 @@ def style_cap_enforced() -> bool:
         if candidate.exists():
             content = candidate.read_text(encoding="utf-8", errors="replace")
             if pattern in content and "0.10" in content:
-                log.debug("style_cap_enforced PASS: found in %s", candidate)
+                log.debug("_style_cap_enforced PASS: found in %s", candidate)
                 return True
 
     # If the module doesn't exist yet, assume the cap will be enforced
     # (the invariant becomes meaningful once the renderer is implemented)
     log.debug(
-        "style_cap_enforced: renderer not yet implemented — "
+        "_style_cap_enforced: renderer not yet implemented — "
         "defaulting to PASS (cap will be enforced on implementation)"
     )
     return True
@@ -418,8 +418,8 @@ class InvariantChecker:
     Usage
     -----
     checker = InvariantChecker()
-    checker.register(postgres_is_sole_authority, "postgres_sole_authority")
-    checker.register(mem0_is_read_only, "mem0_read_only")
+    checker.register(_postgres_is_sole_authority, "postgres_sole_authority")
+    checker.register(_mem0_is_read_only, "mem0_read_only")
     results = checker.run_all()
     """
 
@@ -434,10 +434,10 @@ class InvariantChecker:
 
     def register_defaults(self) -> None:
         """Register all four built-in Tala invariants."""
-        self.register(postgres_is_sole_authority, "postgres_is_sole_authority")
-        self.register(mem0_is_read_only, "mem0_is_read_only")
-        self.register(vault_is_network_isolated, "vault_is_network_isolated")
-        self.register(style_cap_enforced, "style_cap_enforced")
+        self.register(_postgres_is_sole_authority, "postgres_is_sole_authority")
+        self.register(_mem0_is_read_only, "mem0_is_read_only")
+        self.register(_vault_is_network_isolated, "vault_is_network_isolated")
+        self.register(_style_cap_enforced, "style_cap_enforced")
 
     def run_all(self) -> list[InvariantRecord]:
         """
@@ -494,7 +494,7 @@ class SmokeTestRunner:
     module-state contamination from the agent runtime.
     """
 
-    def run_smoke_tests(
+    def _run_smoke_tests(
         self,
         test_paths: list[str],
         *,
@@ -651,7 +651,7 @@ class VerificationMatrix:
         # 2. Optionally run smoke tests
         smoke_passed = True
         if smoke_test_paths:
-            report.smoke_test_result = self._smoke_runner.run_smoke_tests(
+            report.smoke_test_result = self._smoke_runner._run_smoke_tests(
                 smoke_test_paths,
                 extra_args=smoke_extra_args,
             )

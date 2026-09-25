@@ -196,7 +196,7 @@ async def test_a_host_limited_grant(no_lockdown, grants):
 def test_an_unrecognised_constraint_denies():
     """A constraint nobody evaluates is worse than no constraint: it reads as a
     restriction that is not there."""
-    ok, why = access.check_constraints({"moon_phase": "full"})
+    ok, why = access._check_constraints({"moon_phase": "full"})
     assert not ok
     assert "moon_phase" in why
 
@@ -205,10 +205,10 @@ def test_structure_and_satisfaction_are_separate_questions():
     """Conflating them was a real bug: grant() validated by running the
     evaluator against a dummy context, so a legitimate ports constraint refused
     its own grant because port 0 was not in the list."""
-    ok, _ = access.validate_constraints({"ports": [443]})
+    ok, _ = access._validate_constraints({"ports": [443]})
     assert ok
 
-    satisfied, _ = access.check_constraints({"ports": [443]}, {"port": 8080})
+    satisfied, _ = access._check_constraints({"ports": [443]}, {"port": 8080})
     assert not satisfied
 
 
@@ -219,7 +219,7 @@ def test_structure_and_satisfaction_are_separate_questions():
     {"unknown_key": 1},
 ])
 def test_malformed_constraints_are_rejected_at_grant_time(bad):
-    ok, why = access.validate_constraints(bad)
+    ok, why = access._validate_constraints(bad)
     assert not ok
     assert why
 

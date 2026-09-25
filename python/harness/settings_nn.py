@@ -49,7 +49,7 @@ SETTINGS_NODES = {
     "settings-code-registry": "Code Registry Settings",
 }
 
-async def save_settings_node(node_id: str, title: str, content_html: str, state_data: dict):
+async def _save_settings_node(node_id: str, title: str, content_html: str, state_data: dict):
     """
     Save the settings panel data to a compliant HTML Neural Node.
     Marks it with data-privacy="private" and anchors its hash on the blockchain.
@@ -266,7 +266,7 @@ async def update_settings_inference_node():
             "tags": ["private", "settings", "inference"],
             "providers": providers
         }
-        await save_settings_node("settings-inference", "Inference Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-inference", "Inference Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-inference node: %s", exc)
 
@@ -301,7 +301,7 @@ async def update_settings_agent_node():
             "tags": ["private", "settings", "agents"],
             "agents": agents
         }
-        await save_settings_node("settings-agent", "Agent Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-agent", "Agent Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-agent node: %s", exc)
 
@@ -329,7 +329,7 @@ async def update_settings_workflows_node():
             "tags": ["private", "settings", "workflows"],
             "workflows": workflows
         }
-        await save_settings_node("settings-workflows", "Workflows Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-workflows", "Workflows Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-workflows node: %s", exc)
 
@@ -361,7 +361,7 @@ async def update_settings_guardrails_node():
             "category": category,
             "rules": rules
         }
-        await save_settings_node("settings-guardrails", "Guardrails Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-guardrails", "Guardrails Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-guardrails node: %s", exc)
 
@@ -397,7 +397,7 @@ async def update_settings_search_node():
             "tags": ["private", "settings", "search"],
             "providers": providers
         }
-        await save_settings_node("settings-search", "Search Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-search", "Search Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-search node: %s", exc)
 
@@ -462,7 +462,7 @@ async def update_settings_system_node():
             "ram": {"total_gb": ram_total_gb},
             "disk": {"total_gb": disk_total_gb}
         }
-        await save_settings_node("settings-system", "System Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-system", "System Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-system node: %s", exc)
 
@@ -499,7 +499,7 @@ async def update_settings_git_node():
             "tags": ["private", "settings", "git"],
             "providers": providers
         }
-        await save_settings_node("settings-git", "Git Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-git", "Git Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-git node: %s", exc)
 
@@ -535,7 +535,7 @@ async def update_settings_storage_node():
             "tags": ["private", "settings", "storage"],
             "providers": providers
         }
-        await save_settings_node("settings-storage", "Storage Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-storage", "Storage Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-storage node: %s", exc)
 
@@ -573,7 +573,7 @@ async def update_settings_database_node():
             "tags": ["private", "settings", "database"],
             "providers": providers
         }
-        await save_settings_node("settings-database", "Database Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-database", "Database Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-database node: %s", exc)
 
@@ -609,7 +609,7 @@ async def update_settings_auth_node():
             "tags": ["private", "settings", "auth"],
             "credentials": credentials
         }
-        await save_settings_node("settings-auth", "Auth Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-auth", "Auth Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-auth node: %s", exc)
 
@@ -644,12 +644,12 @@ async def update_settings_firewall_node():
             "tags": ["private", "settings", "firewall"],
             "contacts": contacts
         }
-        await save_settings_node("settings-firewall", "Firewall Settings", "\n".join(html_lines), state_data)
+        await _save_settings_node("settings-firewall", "Firewall Settings", "\n".join(html_lines), state_data)
     except Exception as exc:
         logger.exception("Failed to update settings-firewall node: %s", exc)
 
 
-async def update_settings_code_registry_node():
+async def _update_settings_code_registry_node():
     """
     Mirror CodeRegistry (sdk/agent/code_registry.py) into an HTML-NN settings
     node, the same way every other settings category (system, inference,
@@ -689,7 +689,7 @@ async def update_settings_code_registry_node():
             "tags": ["private", "settings", "code-registry"],
             "registry_entries": registry_entries,
         }
-        await save_settings_node(
+        await _save_settings_node(
             "settings-code-registry", "Code Registry Settings", "\n".join(html_lines), state_data
         )
     except Exception as exc:
@@ -713,7 +713,7 @@ async def sync_settings_to_nodes():
     await update_settings_database_node()
     await update_settings_auth_node()
     await update_settings_firewall_node()
-    await update_settings_code_registry_node()
+    await _update_settings_code_registry_node()
     logger.info("Completed synchronization of all 13 settings panel HTML Neural Nodes.")
 
 # Alias for backwards compatibility across harness and tools

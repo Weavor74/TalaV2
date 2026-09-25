@@ -68,7 +68,7 @@ def workspace_root() -> Path:
     return WORKSPACE_ROOT
 
 
-def resolve_workspace_path(file_path: str) -> Path:
+def _resolve_workspace_path(file_path: str) -> Path:
     if not file_path or not isinstance(file_path, str):
         raise ValueError("file_path is required")
     raw = Path(file_path)
@@ -83,7 +83,7 @@ def resolve_workspace_path(file_path: str) -> Path:
 
 
 def _ensure_writable_workspace_path(file_path: str) -> Path:
-    path = resolve_workspace_path(file_path)
+    path = _resolve_workspace_path(file_path)
     relative_parts = path.relative_to(WORKSPACE_ROOT).parts
     lowered_parts = {part.lower() for part in relative_parts}
     blocked = sorted(lowered_parts & BLOCKED_WRITE_PARTS)
@@ -166,7 +166,7 @@ def propose_patch(
     files = []
 
     for patch in patch_set:
-        path = resolve_workspace_path(patch.file_path)
+        path = _resolve_workspace_path(patch.file_path)
         exists = path.exists()
         current = path.read_text(encoding="utf-8") if exists else ""
         occurrences = current.count(patch.old_text) if exists else 0
@@ -412,7 +412,7 @@ def write_and_verify(
                 "verified": False,
                 "detail": "no validation_commands given, so the write was not verified"}
 
-    validation = run_validation_sync(commands, timeout=timeout)
+    validation = _run_validation_sync(commands, timeout=timeout)
     if validation.get("success"):
         return {"success": True, "stage": "verify", "changed": written["changed"],
                 "verified": True, "validation": validation}
@@ -453,7 +453,7 @@ def write_and_verify(
 
 
 def _read_default_noop_replacement(file_path: str) -> dict[str, str]:
-    path = resolve_workspace_path(file_path)
+    path = _resolve_workspace_path(file_path)
     if not path.exists():
         raise ValueError(f"{file_path}: file does not exist")
     for line in path.read_text(encoding="utf-8").splitlines():
@@ -560,7 +560,7 @@ def apply_patch(
             errors.append(f"{patch.file_path}: not listed in expected_files")
             continue
         try:
-            path = resolve_workspace_path(patch.file_path)
+            path = _resolve_workspace_path(patch.file_path)
             if not path.exists():
                 errors.append(f"{patch.file_path}: file does not exist")
                 continue
@@ -862,7 +862,7 @@ def to_json(data: Any) -> str:
     return json.dumps(data, indent=2, ensure_ascii=False)
 
 
-def run_validation_sync(commands: Any, timeout: float = 120.0) -> dict[str, Any]:
+def _run_validation_sync(commands: Any, timeout: float = 120.0) -> dict[str, Any]:
     """Run the async validation helper from sync code."""
     import asyncio as _asyncio
     try:

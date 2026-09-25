@@ -124,7 +124,7 @@ def normalise_kind(value: str) -> str:
     return aliases.get(text, text)
 
 
-def infer_kind(provider: dict[str, Any]) -> str:
+def _infer_kind(provider: dict[str, Any]) -> str:
     """
     Work out the kind from whatever the panel captured.
 
@@ -183,7 +183,7 @@ async def probe(provider: dict[str, Any]) -> str:
     A saved connection is not a working one. This is the whole difference
     between the panel's old hardcoded ONLINE badge and a measurement.
     """
-    kind = infer_kind(provider)
+    kind = _infer_kind(provider)
     if not kind:
         raise DatabaseError(
             f"Could not tell what kind of database "

@@ -13,7 +13,7 @@ if _ROOT_DIR not in sys.path:
 
 from sdk.gateway.resolver import resolve_command, CommandResolutionError
 from sdk.gateway.plugins import load_and_validate_manifest, PluginValidationError
-from sdk.gateway.permissions import check_permission, enforce_tool_permissions, PermissionDeniedError
+from sdk.gateway.permissions import _check_permission, enforce_tool_permissions, PermissionDeniedError
 from sdk.gateway.lifecycle import register_process, shutdown_all, get_process_status
 
 def test_command_resolution():
@@ -53,13 +53,13 @@ def test_permissions():
     manifest = {"id": "test", "permissions": ["fs:read", "network:outbound"]}
     
     # Allowed
-    check_permission(manifest, "fs:read")
+    _check_permission(manifest, "fs:read")
     enforce_tool_permissions(manifest, "read_file", {})
     enforce_tool_permissions(manifest, "http_fetch", {})
     
     # Denied
     with pytest.raises(PermissionDeniedError):
-        check_permission(manifest, "fs:write")
+        _check_permission(manifest, "fs:write")
         
     with pytest.raises(PermissionDeniedError):
         enforce_tool_permissions(manifest, "write_file", {})

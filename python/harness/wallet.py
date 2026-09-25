@@ -33,7 +33,7 @@ def _write_secret_bytes(path: Path, data: bytes) -> None:
     _restrict_permissions(path)
 
 
-def load_or_create_wallet(vault_path: Path) -> tuple[ed25519.Ed25519PrivateKey, str]:
+def _load_or_create_wallet(vault_path: Path) -> tuple[ed25519.Ed25519PrivateKey, str]:
     """
     Loads the private key from the vault or generates a new one.
     Returns the private key object and the public key hex string (wallet address).
@@ -92,7 +92,7 @@ _wallet_address = None
 
 def init_wallet(vault_path: Path):
     global _private_key, _wallet_address
-    _private_key, _wallet_address = load_or_create_wallet(vault_path)
+    _private_key, _wallet_address = _load_or_create_wallet(vault_path)
     os.environ["TALA_WALLET_ADDRESS"] = _wallet_address
     return _wallet_address
 

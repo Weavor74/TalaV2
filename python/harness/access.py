@@ -106,7 +106,7 @@ def _parse_window(text: str) -> tuple[time, time] | None:
         return None
 
 
-def check_constraints(constraints: dict[str, Any],
+def _check_constraints(constraints: dict[str, Any],
                       context: dict[str, Any] | None = None) -> tuple[bool, str]:
     """
     Whether a grant's constraints are satisfied right now.
@@ -120,7 +120,7 @@ def check_constraints(constraints: dict[str, Any],
     context = context or {}
     # An unrecognised constraint denies. A constraint nobody evaluates is worse
     # than no constraint, because it reads as a restriction that is not there.
-    well_formed, problem = validate_constraints(constraints)
+    well_formed, problem = _validate_constraints(constraints)
     if not well_formed:
         return False, f"the grant is not usable: {problem}"
 
@@ -180,7 +180,7 @@ def check_constraints(constraints: dict[str, Any],
     return True, ""
 
 
-def validate_constraints(constraints: dict[str, Any]) -> tuple[bool, str]:
+def _validate_constraints(constraints: dict[str, Any]) -> tuple[bool, str]:
     """
     Whether a set of constraints is *well formed*, without evaluating it.
 
@@ -315,7 +315,7 @@ async def check(
                 constraints = {}
         constraints = constraints if isinstance(constraints, dict) else {}
 
-        ok, why = check_constraints(constraints, context)
+        ok, why = _check_constraints(constraints, context)
         if ok:
             return Decision(True, "granted by invitation", str(principal),
                             resource, permission, row["id"], constraints)
@@ -350,7 +350,7 @@ async def grant(
         raise ValueError("A grant needs a resource.")
 
     constraints = constraints or {}
-    ok, why = validate_constraints(constraints)
+    ok, why = _validate_constraints(constraints)
     if not ok:
         raise ValueError(f"Those constraints are not usable: {why}")
 

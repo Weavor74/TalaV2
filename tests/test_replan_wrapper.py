@@ -1,5 +1,5 @@
 """
-Regression tests for strip_replan_wrapper.
+Regression tests for _strip_replan_wrapper.
 
 This function shipped ineffective once. It was written against wrapper strings
 collected from wiki node titles, all of which began with the marker, so an
@@ -14,7 +14,7 @@ from __future__ import annotations
 
 import pytest
 
-from sdk.agent.goal_engine import strip_replan_wrapper
+from sdk.agent.goal_engine import _strip_replan_wrapper
 
 
 #: Straight from a benchmark run: three layers, each adding a lead-in, a
@@ -33,7 +33,7 @@ REAL_THREE_DEEP = (
 
 
 def test_unwraps_the_real_three_layer_nesting():
-    out = strip_replan_wrapper(REAL_THREE_DEEP)
+    out = _strip_replan_wrapper(REAL_THREE_DEEP)
     assert "You were trying to accomplish" not in out, (
         f"wrapper survived unwrapping: {out[:120]!r}"
     )
@@ -47,7 +47,7 @@ def test_marker_is_found_when_not_at_position_zero():
         "Implement solution: You were trying to accomplish the following task: "
         "'Add a retry to the uploader'"
     )
-    assert strip_replan_wrapper(wrapped) == "Add a retry to the uploader"
+    assert _strip_replan_wrapper(wrapped) == "Add a retry to the uploader"
 
 
 def test_leading_quote_is_not_stranded():
@@ -56,7 +56,7 @@ def test_leading_quote_is_not_stranded():
         "You were trying to accomplish the following task: 'Add a retry'. "
         "However, the execution failed with the following error: 'boom'."
     )
-    assert strip_replan_wrapper(wrapped) == "Add a retry"
+    assert _strip_replan_wrapper(wrapped) == "Add a retry"
 
 
 @pytest.mark.parametrize(
@@ -69,15 +69,15 @@ def test_leading_quote_is_not_stranded():
     ],
 )
 def test_ordinary_descriptions_pass_through_untouched(clean):
-    assert strip_replan_wrapper(clean) == clean
+    assert _strip_replan_wrapper(clean) == clean
 
 
 @pytest.mark.parametrize("empty", ["", "   ", None])
 def test_empty_input_is_safe(empty):
-    assert strip_replan_wrapper(empty) == ""
+    assert _strip_replan_wrapper(empty) == ""
 
 
 def test_unwrapping_is_bounded():
     """A pathological string must not spin -- depth is capped, not recursive."""
     pathological = "You were trying to accomplish the following task: '" * 200
-    strip_replan_wrapper(pathological)  # must simply return
+    _strip_replan_wrapper(pathological)  # must simply return

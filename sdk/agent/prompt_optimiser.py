@@ -328,7 +328,7 @@ _BEGIN = "===BEGIN PROMPT==="
 _END = "===END PROMPT==="
 
 
-def build_mutation_request(champion: str, evidence: list[str], framing: str) -> str:
+def _build_mutation_request(champion: str, evidence: list[str], framing: str) -> str:
     """
     The instruction that asks for one improved prompt.
 
@@ -367,7 +367,7 @@ def build_mutation_request(champion: str, evidence: list[str], framing: str) -> 
     )
 
 
-def extract_prompt(reply: str) -> str:
+def _extract_prompt(reply: str) -> str:
     """
     The prompt out of a reply, or "" if the model did not give one.
 
@@ -401,7 +401,7 @@ async def propose_variant(champion: str, evidence: list[str], framing: str) -> s
     try:
         raw = await handle_inference_generate(
             {
-                "prompt": build_mutation_request(champion, evidence, framing),
+                "prompt": _build_mutation_request(champion, evidence, framing),
                 "stream": False,
                 "raw_prompt": True,
                 "max_tokens": 2048,
@@ -418,7 +418,7 @@ async def propose_variant(champion: str, evidence: list[str], framing: str) -> s
         log.warning("Prompt optimiser: inference returned no result: %s", str(payload)[:200])
         return ""
 
-    return extract_prompt(payload["result"].get("text", ""))
+    return _extract_prompt(payload["result"].get("text", ""))
 
 
 def install_template(template: str) -> dict[str, Any]:

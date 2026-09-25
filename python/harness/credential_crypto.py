@@ -396,7 +396,7 @@ def encrypt_value(plaintext: str) -> str:
     """Encrypt a single string for storage in a TEXT column. Idempotent."""
     if not isinstance(plaintext, str) or not plaintext:
         return plaintext
-    if is_encrypted_text(plaintext):
+    if _is_encrypted_text(plaintext):
         return plaintext
     key = load_or_create_key()
     if key is None:
@@ -404,7 +404,7 @@ def encrypt_value(plaintext: str) -> str:
     return json.dumps(_encrypt_value(key, plaintext))
 
 
-def is_encrypted_text(value: Any) -> bool:
+def _is_encrypted_text(value: Any) -> bool:
     if not isinstance(value, str) or not value.startswith("{"):
         return False
     try:
@@ -415,7 +415,7 @@ def is_encrypted_text(value: Any) -> bool:
 
 def decrypt_value(stored: str) -> str:
     """Decrypt a TEXT column value. Plaintext passes straight through."""
-    if not is_encrypted_text(stored):
+    if not _is_encrypted_text(stored):
         return stored
     key = load_or_create_key()
     if key is None:

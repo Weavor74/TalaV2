@@ -33,7 +33,7 @@ log = logging.getLogger(__name__)
 _REPLAN_PREFIX = "You were trying to accomplish the following task:"
 
 
-def strip_replan_wrapper(description: str, max_depth: int = 6) -> str:
+def _strip_replan_wrapper(description: str, max_depth: int = 6) -> str:
     """
     Return the original task description, with any re-plan scaffolding removed.
 
@@ -110,7 +110,7 @@ _PRIOR_PHASE_SUMMARY_MAX_PHASES = 3
 _PRIOR_PHASE_SUMMARY_MAX_CHARS_PER_PHASE = 400
 
 
-async def find_resumable_suspended_goals(max_resume_attempts: int = 5) -> list[dict[str, Any]]:
+async def _find_resumable_suspended_goals(max_resume_attempts: int = 5) -> list[dict[str, Any]]:
     """
     Find goal-parent tasks BLOCKED specifically by BatchPolicy budget
     exhaustion (the `suspended` path in GoalEngine.run_goal) that are still
@@ -259,7 +259,7 @@ async def resume_suspended_goals(max_resume_attempts: int = 5) -> int:
     """
     import asyncio
 
-    candidates = await find_resumable_suspended_goals(max_resume_attempts)
+    candidates = await _find_resumable_suspended_goals(max_resume_attempts)
     launched = 0
     for candidate in candidates:
         task_id = candidate["task_id"]
@@ -341,7 +341,7 @@ class GoalEngine:
         self.active_adapter_buffer = None
         try:
             selector = AdapterSelector(os.path.join(self.root_dir or "", "nodes"))
-            best_adapter = selector.select_adapter(goal_text)
+            best_adapter = selector._select_adapter(goal_text)
             if best_adapter:
                 self.active_adapter_buffer = best_adapter
                 log.info(
@@ -906,7 +906,7 @@ class GoalEngine:
                     # previous re-plan's echo of this same prompt. See
                     # strip_replan_wrapper: without this the phase description
                     # accumulates a layer of scaffolding per retry.
-                    original_description = strip_replan_wrapper(task.description)
+                    original_description = _strip_replan_wrapper(task.description)
 
                     # Generate explicit repair policy rules via engine
                     repair_context = RepairContext(
@@ -936,7 +936,7 @@ class GoalEngine:
                             # next retry's input, and eventually a wiki node
                             # title. Strip it here, at the one point where a
                             # re-planned description enters the task graph.
-                            fix_task.description = strip_replan_wrapper(fix_task.description)
+                            fix_task.description = _strip_replan_wrapper(fix_task.description)
                             fix_id = generate_deterministic_id(fix_task.description, f"fix-{task.task_id}-{retries}")
                             fix_task.task_id = fix_id
                             
@@ -1569,13 +1569,13 @@ Note: I have implemented a 'Circuit-Breaker' to prevent this risk-increase from 
         return summary_log
 
 
-def infer_emotional_state(query: str) -> dict[str, float]:
+def _infer_emotional_state(query: str) -> dict[str, float]:
     """
     NAME
            infer_emotional_state - Infer emotional valence state from text query
            
     SYNOPSIS
-           state = infer_emotional_state(query)
+           state = _infer_emotional_state(query)
            
     DESCRIPTION
            Analyzes keywords to return emotional scores for joy, caution, curiosity,
@@ -1616,7 +1616,7 @@ class AdapterSelector:
            
     SYNOPSIS
            selector = AdapterSelector(nodes_dir)
-           best_adapter = selector.select_adapter(query)
+           best_adapter = selector._select_adapter(query)
            
     DESCRIPTION
            Parses JSON-LD metadata and ranks nodes based on semantic, emotional,
@@ -1626,7 +1626,7 @@ class AdapterSelector:
         from pathlib import Path
         self.nodes_dir = Path(nodes_dir or os.path.join(os.getcwd(), "nodes"))
 
-    def select_adapter(self, query: str) -> dict[str, Any] | None:
+    def _select_adapter(self, query: str) -> dict[str, Any] | None:
         import re
         import json
         
@@ -1637,7 +1637,7 @@ class AdapterSelector:
         if not html_files:
             return None
             
-        query_state = infer_emotional_state(query)
+        query_state = _infer_emotional_state(query)
         query_words = set(re.findall(r'\w+', query.lower()))
         
         ranked_nodes = []

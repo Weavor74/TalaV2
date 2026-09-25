@@ -191,9 +191,9 @@ def test_written_node_carries_real_prose(nodes_dir):
     in an HTML costume — the wiki's doc-comparison heuristics treat an empty
     or placeholder #semantic-memory as a defect.
     """
-    from sdk.agent.topology_nodes import render_topology_node
+    from sdk.agent.topology_nodes import _render_topology_node
 
-    _, html = render_topology_node(topology_from_spec(_spec()))
+    _, html = _render_topology_node(topology_from_spec(_spec()))
     body = re.search(r'<section id="semantic-memory">(.*?)</section>', html, re.S)
     assert body, "node must have a #semantic-memory section"
     text = re.sub(r"<[^>]+>", " ", body.group(1))

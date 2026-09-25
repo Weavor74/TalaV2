@@ -53,7 +53,7 @@ NODE_ID_PREFIX = "swarm-topology-"
 _TYPE_MARKER = f'data-node-type="{NODE_TYPE}"'
 
 
-def topology_node_id(topology_id: str) -> str:
+def _topology_node_id(topology_id: str) -> str:
     """Node id for a topology. ``swarm-code-repair`` -> ``swarm-topology-code-repair``."""
     slug = re.sub(r"^swarm[-_]?", "", str(topology_id or "").strip().lower())
     return _safe_node_id(f"{NODE_ID_PREFIX}{slug or topology_id}")
@@ -124,7 +124,7 @@ def _default_semantic_memory(topology: SwarmTopology) -> str:
     return "\n\n".join(paragraphs)
 
 
-def render_topology_node(
+def _render_topology_node(
     topology: SwarmTopology,
     *,
     semantic_memory: str | None = None,
@@ -138,7 +138,7 @@ def render_topology_node(
     changed; otherwise every save would rewrite the file (and re-anchor it in
     the ledger) purely because the clock moved.
     """
-    node_id = topology_node_id(topology.topology_id)
+    node_id = _topology_node_id(topology.topology_id)
     title = f"Swarm Topology: {topology.name}"
     generated_at = generated_at or datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
     prose = (semantic_memory or "").strip() or _default_semantic_memory(topology)
@@ -307,7 +307,7 @@ def write_topology_node(
     back -- the failure mode this avoids is a swarm that "saved successfully"
     and then vanishes from the list on the next reload.
     """
-    node_id = topology_node_id(topology.topology_id)
+    node_id = _topology_node_id(topology.topology_id)
     nodes_dir = resolve_active_nodes_dir()
     nodes_dir.mkdir(parents=True, exist_ok=True)
     node_path = nodes_dir / f"{node_id}.html"
@@ -348,7 +348,7 @@ def write_topology_node(
     if previous is not None:
         prior_stamp = re.search(r'data-generated-at="([^"]+)"', previous)
         if prior_stamp:
-            _, unchanged_html = render_topology_node(
+            _, unchanged_html = _render_topology_node(
                 topology,
                 semantic_memory=semantic_memory,
                 created_by=created_by,
@@ -365,7 +365,7 @@ def write_topology_node(
                     "topology_id": topology.topology_id,
                 }
 
-    node_id, html = render_topology_node(
+    node_id, html = _render_topology_node(
         topology, semantic_memory=semantic_memory, created_by=created_by
     )
 
@@ -468,7 +468,7 @@ def delete_topology_node(topology_id: str) -> dict[str, Any]:
     """
     from sdk.agent.topology import TopologyRegistry
 
-    node_id = topology_node_id(topology_id)
+    node_id = _topology_node_id(topology_id)
     node_path = resolve_active_nodes_dir() / f"{node_id}.html"
     existed = node_path.exists()
     if existed:
@@ -487,7 +487,7 @@ def delete_topology_node(topology_id: str) -> dict[str, Any]:
     }
 
 
-def iter_topology_node_paths() -> Iterator[Path]:
+def _iter_topology_node_paths() -> Iterator[Path]:
     """Yield every file in the active nodes dir that claims to be a topology."""
     nodes_dir = resolve_active_nodes_dir()
     if not nodes_dir.is_dir():
@@ -503,7 +503,7 @@ def iter_topology_node_paths() -> Iterator[Path]:
 def load_topology_nodes() -> list[SwarmTopology]:
     """Load and validate every topology HTML-NN. Invalid ones are skipped, not raised."""
     topologies: list[SwarmTopology] = []
-    for path in iter_topology_node_paths():
+    for path in _iter_topology_node_paths():
         topology = _parse_topology_node(path)
         if topology is not None:
             topologies.append(topology)

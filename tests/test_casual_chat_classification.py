@@ -1,7 +1,7 @@
 """
 tests/test_casual_chat_classification.py
 ==========================================
-Regression coverage for python.harness.server.is_casual_chat_prompt.
+Regression coverage for python.harness.server._is_casual_chat_prompt.
 
 Caught live, traced end to end: a plain task request --
 "Now write scratch/test_calculator.py exercising all four operations from
@@ -15,12 +15,12 @@ left the model with no instructions on how to actually write/run a file --
 it described the steps in prose and told the user to do it manually
 instead, and even hallucinated wrong function names in the process.
 """
-from python.harness.server import is_casual_chat_prompt
+from python.harness.server import _is_casual_chat_prompt
 
 
 def test_ordinary_task_request_is_not_casual_chat():
     # The exact reported prompt.
-    assert is_casual_chat_prompt(
+    assert _is_casual_chat_prompt(
         "Now write scratch/test_calculator.py exercising all four operations "
         "from scratch/calculator.py, and run it to confirm everything passes."
     ) is False
@@ -35,7 +35,7 @@ def test_html_nn_authoring_request_is_not_casual_chat():
     # With no tool documentation and no way to know those tools existed,
     # the model fell back to writing plain source to a guessed filename
     # (calculator.md) instead of producing a real HTML-NN skill node.
-    assert is_casual_chat_prompt(
+    assert _is_casual_chat_prompt(
         "This needs to be changed a little. Make it, as an HTML-nn. That way "
         "Tala will have the skill to build software for herself as an "
         "HTML-NN since everything she does is based on that."
@@ -53,7 +53,7 @@ def test_words_containing_hi_as_a_substring_do_not_false_positive():
         "While you're at it, check the child process.",
         "Give me the history of this file.",
     ]:
-        assert is_casual_chat_prompt(prompt) is False, f"false positive on: {prompt!r}"
+        assert _is_casual_chat_prompt(prompt) is False, f"false positive on: {prompt!r}"
 
 
 def test_genuine_casual_greetings_still_classified_as_casual_chat():
@@ -65,9 +65,9 @@ def test_genuine_casual_greetings_still_classified_as_casual_chat():
         "roleplay as a pirate captain",
         "hey honey",
     ]:
-        assert is_casual_chat_prompt(prompt) is True, f"missed genuine casual chat: {prompt!r}"
+        assert _is_casual_chat_prompt(prompt) is True, f"missed genuine casual chat: {prompt!r}"
 
 
 def test_empty_and_non_string_input():
-    assert is_casual_chat_prompt("") is False
-    assert is_casual_chat_prompt(None) is False
+    assert _is_casual_chat_prompt("") is False
+    assert _is_casual_chat_prompt(None) is False

@@ -67,7 +67,7 @@ def _spec_node_path() -> Path:
     return root / "nodes" / _SPEC_NODE
 
 
-def load_projection(force: bool = False) -> dict[str, dict[str, float]]:
+def _load_projection(force: bool = False) -> dict[str, dict[str, float]]:
     """
     Return ``{emotion: {joy, caution, curiosity, neutral}}`` from the spec node.
 
@@ -123,7 +123,7 @@ def project(emotion: str) -> dict[str, float] | None:
     """Valence for one emotion, or None if the vocabulary does not name it."""
     if not emotion:
         return None
-    return load_projection().get(str(emotion).strip().lower())
+    return _load_projection().get(str(emotion).strip().lower())
 
 
 def blend(base: dict[str, float],
@@ -153,7 +153,7 @@ def blend(base: dict[str, float],
     return out, True
 
 
-def current_state_sync() -> tuple[str, float] | None:
+def _current_state_sync() -> tuple[str, float] | None:
     """
     The live astro-emotional state, without an event loop.
 
@@ -195,7 +195,7 @@ def mood_alignment(node_valence: dict[str, float]) -> tuple[float, str] | None:
     Returns None when there is no mood to compare against — "could not look",
     which the caller must keep distinct from an alignment of zero.
     """
-    state = current_state_sync()
+    state = _current_state_sync()
     if state is None:
         return None
     emotion, intensity = state

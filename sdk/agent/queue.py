@@ -1112,7 +1112,7 @@ class PersistentExecutionLoop(ExecutionLoop):
         self._is_aborted = False
         self.root_dir = root_dir or os.getcwd()
 
-    async def execute_async(self, plan: ExecutionPlan) -> ExecutionResult:
+    async def _execute_async(self, plan: ExecutionPlan) -> ExecutionResult:
         """
         EXECUTE phase — carry out the plan steps asynchronously.
         Routes the task/steps to the TalaExecutionDispatcher.
@@ -1236,7 +1236,7 @@ class PersistentExecutionLoop(ExecutionLoop):
             )
 
             # ── Phase 2: EXECUTE ───────────────────────────────────────────
-            result = await self.execute_async(current_plan)
+            result = await self._execute_async(current_plan)
             for step in current_plan.steps:
                 await TaskEventStore.append_event(
                     task.task_id,

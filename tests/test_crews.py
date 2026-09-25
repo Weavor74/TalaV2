@@ -209,7 +209,7 @@ async def test_the_chain_of_command_reads_upward(org):
     org["add_agent"]("arch", "Arch", "Architect", reports_to="boss")
     org["add_agent"]("dev", "Dev", "Developer", reports_to="arch")
 
-    chain = await crews.chain_of_command("dev")
+    chain = await crews._chain_of_command("dev")
 
     assert [link["id"] for link in chain] == ["arch", "boss"]
 
@@ -275,7 +275,7 @@ async def test_a_walk_over_an_existing_loop_terminates(org):
     org["add_agent"]("a", reports_to="b")
     org["add_agent"]("b", reports_to="a")
 
-    chain = await crews.chain_of_command("a")
+    chain = await crews._chain_of_command("a")
 
     assert len(chain) < crews.MAX_DEPTH
 
@@ -287,7 +287,7 @@ async def test_loops_are_reported_not_repaired(org):
     org["add_agent"]("a", reports_to="b")
     org["add_agent"]("b", reports_to="a")
 
-    cycles = await crews.find_cycles()
+    cycles = await crews._find_cycles()
 
     assert len(cycles) == 1
     assert set(cycles[0]) == {"a", "b"}
@@ -300,7 +300,7 @@ async def test_a_healthy_organisation_reports_no_cycles(org):
     org["add_agent"]("boss")
     org["add_agent"]("dev", reports_to="boss")
 
-    assert await crews.find_cycles() == []
+    assert await crews._find_cycles() == []
 
 
 @pytest.mark.asyncio

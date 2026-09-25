@@ -240,9 +240,9 @@ def test_the_request_leads_with_recorded_failures():
     The evidence is what separates this from generic prompt tuning: the
     failures are recorded rather than imagined, and repeats are named as such.
     """
-    from sdk.agent.prompt_optimiser import build_mutation_request
+    from sdk.agent.prompt_optimiser import _build_mutation_request
 
-    request = build_mutation_request(
+    request = _build_mutation_request(
         CHAMPION,
         ["(seen 3x) the import was unresolved", "a one-off hiccup"],
         "Address the single most frequent failure listed.",
@@ -254,22 +254,22 @@ def test_the_request_leads_with_recorded_failures():
 
 def test_the_request_says_so_when_nothing_has_failed_yet():
     """A fresh install has no lessons; the round must still be able to run."""
-    from sdk.agent.prompt_optimiser import build_mutation_request
+    from sdk.agent.prompt_optimiser import _build_mutation_request
 
-    request = build_mutation_request(CHAMPION, [], "Tighten it.")
+    request = _build_mutation_request(CHAMPION, [], "Tighten it.")
     assert "No failures have been recorded yet" in request
 
 
 def test_the_request_states_the_rules_that_make_a_reply_usable():
-    from sdk.agent.prompt_optimiser import build_mutation_request
+    from sdk.agent.prompt_optimiser import _build_mutation_request
 
-    request = build_mutation_request(CHAMPION, [], "Tighten it.")
+    request = _build_mutation_request(CHAMPION, [], "Tighten it.")
     for rule in ("{user_goal}", "{tool_catalogue}", "complete prompt"):
         assert rule in request
 
 
 def test_a_prompt_is_extracted_from_the_markers():
-    from sdk.agent.prompt_optimiser import extract_prompt
+    from sdk.agent.prompt_optimiser import _extract_prompt
 
     reply = (
         "Certainly! Here is my improved prompt:\n"
@@ -278,7 +278,7 @@ def test_a_prompt_is_extracted_from_the_markers():
         "===END PROMPT===\n"
         "Let me know if you would like another."
     )
-    assert extract_prompt(reply) == "Plan {user_goal} using {tool_catalogue}."
+    assert _extract_prompt(reply) == "Plan {user_goal} using {tool_catalogue}."
 
 
 def test_a_reply_without_markers_yields_nothing():
@@ -286,10 +286,10 @@ def test_a_reply_without_markers_yields_nothing():
     A model that ignored the format answered a different question. Guessing
     which part was the prompt would spend sixteen minutes proving that.
     """
-    from sdk.agent.prompt_optimiser import extract_prompt
+    from sdk.agent.prompt_optimiser import _extract_prompt
 
-    assert extract_prompt("Here is some helpful advice about prompts.") == ""
-    assert extract_prompt("") == ""
+    assert _extract_prompt("Here is some helpful advice about prompts.") == ""
+    assert _extract_prompt("") == ""
 
 
 def test_a_truncated_reply_still_yields_what_arrived():
@@ -298,10 +298,10 @@ def test_a_truncated_reply_still_yields_what_arrived():
     arrive is returned and then judged by validate_variant, which is where
     truncation is caught with a reason.
     """
-    from sdk.agent.prompt_optimiser import extract_prompt, validate_variant
+    from sdk.agent.prompt_optimiser import _extract_prompt, validate_variant
 
     reply = "===BEGIN PROMPT===\nPlan {user_goal} with {tool_catalogue}."
-    extracted = extract_prompt(reply)
+    extracted = _extract_prompt(reply)
     assert extracted.startswith("Plan {user_goal}")
     assert "truncated" in validate_variant(extracted, CHAMPION)
 

@@ -41,12 +41,12 @@ def readme(workspace):
 
 def test_resolve_workspace_path_rejects_absolute_path(workspace):
     with pytest.raises(ValueError, match="absolute paths"):
-        bridges.resolve_workspace_path(str(workspace / "x.py"))
+        bridges._resolve_workspace_path(str(workspace / "x.py"))
 
 
 def test_resolve_workspace_path_rejects_traversal_escape(workspace):
     with pytest.raises(ValueError, match="escapes workspace"):
-        bridges.resolve_workspace_path("../outside.py")
+        bridges._resolve_workspace_path("../outside.py")
 
 
 def test_ensure_writable_workspace_path_blocks_dangerous_dirs(workspace):

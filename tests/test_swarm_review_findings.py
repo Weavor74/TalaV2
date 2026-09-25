@@ -11,7 +11,7 @@ stops happening without anything saying so.
                    never fired, and the parent sat at in_progress until the
                    reaper marked it failed half an hour later.
 
-  id collision     topology_node_id strips a leading "swarm-", so distinct
+  id collision     _topology_node_id strips a leading "swarm-", so distinct
                    topology ids share one file. With overwrite defaulting to
                    True and no check on the existing file's contents, saving the
                    second silently destroyed the first and reported success.
@@ -23,7 +23,7 @@ from pathlib import Path
 import pytest
 
 from sdk.agent.swarm_engine import SwarmEngine
-from sdk.agent.topology_nodes import topology_node_id
+from sdk.agent.topology_nodes import _topology_node_id
 
 ENGINE = Path("sdk/agent/swarm_engine.py")
 RENDERER = Path("renderer/renderer.js")
@@ -102,7 +102,7 @@ def test_a_dropped_topology_is_reported_not_swallowed():
 def test_the_collision_is_real_and_still_present(a, b):
     """Documents the shape rather than asserting it away: the ids genuinely do
     share a file. That is why the write path has to check."""
-    assert topology_node_id(a) == topology_node_id(b)
+    assert _topology_node_id(a) == _topology_node_id(b)
 
 
 def test_writing_over_a_different_topology_is_refused():

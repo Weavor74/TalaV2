@@ -144,13 +144,13 @@ async def handle_build_repair(params: dict[str, Any], req_id: Any) -> str:
         target_code = params.get("target_code", "")
         replacement_code = params.get("replacement_code", "")
         
-        def simple_edit(content, diagnostics):
+        def _simple_edit(content, diagnostics):
             if target_code and replacement_code:
                 return CodeRepair.apply_surgical_patch(content, target_code, replacement_code)
             return content
             
         debugger = IterativeDebugger(run_cmd, _ROOT_DIR)
-        success = debugger.debug_loop(target_file, simple_edit, max_attempts=params.get("max_attempts", 3))
+        success = debugger.debug_loop(target_file, _simple_edit, max_attempts=params.get("max_attempts", 3))
         return _ok(req_id, {"success": success})
     except Exception as exc:
         logger.exception("build.repair error")

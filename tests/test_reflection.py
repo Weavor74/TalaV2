@@ -58,7 +58,7 @@ async def test_a_finding_with_no_registered_repair_is_recorded_not_acted_on(obse
     repair()
     observed("health:SOMETHING_UNKNOWN")
 
-    out = await reflection.reflect_once()
+    out = await reflection._reflect_once()
 
     assert len(out["findings"]) == 1
     assert out["actions"] == []
@@ -69,7 +69,7 @@ async def test_a_registered_repair_rehearses_then_applies(observed, repair):
     calls = repair()
     observed("test:fix")
 
-    out = await reflection.reflect_once()
+    out = await reflection._reflect_once()
 
     assert [c["dry_run"] for c in calls] == [True, False], "dry run must come first"
     assert out["actions"][0]["outcome"] == "applied"
@@ -80,7 +80,7 @@ async def test_a_failed_dry_run_cancels_the_real_one(observed, repair):
     calls = repair(dry_ok=False)
     observed("test:fix")
 
-    out = await reflection.reflect_once()
+    out = await reflection._reflect_once()
 
     assert [c["dry_run"] for c in calls] == [True], "the repair ran despite a failed rehearsal"
     assert out["actions"][0]["outcome"].startswith("cancelled")
@@ -91,7 +91,7 @@ async def test_a_dry_run_with_nothing_to_do_does_not_act(observed, repair):
     calls = repair(would_act=False)
     observed("test:fix")
 
-    out = await reflection.reflect_once()
+    out = await reflection._reflect_once()
 
     assert [c["dry_run"] for c in calls] == [True]
     assert out["actions"][0]["outcome"].startswith("skipped")
@@ -103,7 +103,7 @@ async def test_one_action_per_cycle(observed, repair, monkeypatch):
     repair("test:fix2")
     observed("test:fix", "test:fix2")
 
-    out = await reflection.reflect_once()
+    out = await reflection._reflect_once()
 
     assert len(out["findings"]) == 2
     assert len(out["actions"]) == 1, "a bad repair must not cascade through a cycle"
@@ -116,10 +116,10 @@ async def test_a_repair_that_never_clears_its_finding_is_abandoned(observed, rep
     observed("test:fix")
 
     for _ in range(reflection.MAX_REPAIR_ATTEMPTS):
-        await reflection.reflect_once()
+        await reflection._reflect_once()
     attempts_before = len([c for c in calls if not c["dry_run"]])
 
-    out = await reflection.reflect_once()
+    out = await reflection._reflect_once()
 
     assert len([c for c in calls if not c["dry_run"]]) == attempts_before, (
         "the repair ran again after being abandoned"
@@ -133,13 +133,13 @@ async def test_a_cleared_finding_resets_its_attempts(observed, repair):
     abandonment recorded for the last occurrence."""
     calls = repair()
     observed("test:fix")
-    await reflection.reflect_once()
+    await reflection._reflect_once()
 
     observed()  # finding cleared
-    await reflection.reflect_once()
+    await reflection._reflect_once()
 
     observed("test:fix")  # and returns
-    await reflection.reflect_once()
+    await reflection._reflect_once()
 
     assert len([c for c in calls if not c["dry_run"]]) == 2
 
@@ -150,7 +150,7 @@ async def test_the_emergency_halt_stops_the_cycle(observed, repair, monkeypatch)
     observed("test:fix")
     monkeypatch.setattr(reflection, "_halted", lambda: True)
 
-    out = await reflection.reflect_once()
+    out = await reflection._reflect_once()
 
     assert calls == [], "a halted system still ran a repair"
     assert "halt" in out["last_status"]

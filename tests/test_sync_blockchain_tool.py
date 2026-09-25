@@ -26,7 +26,7 @@ from sdk.agent.tools import sync_blockchain
 
 
 @pytest.mark.asyncio
-@patch("sdk.agent.ghost_persistence.get_local_status")
+@patch("sdk.agent.ghost_persistence._get_local_status")
 async def test_a_healthy_local_chain_needs_no_sync(mock_local):
     """The ordinary state, and the one the tool must refuse."""
     mock_local.return_value = {"latestBlockHash": "hash123", "height": 5,
@@ -39,7 +39,7 @@ async def test_a_healthy_local_chain_needs_no_sync(mock_local):
 
 
 @pytest.mark.asyncio
-@patch("sdk.agent.ghost_persistence.get_local_status")
+@patch("sdk.agent.ghost_persistence._get_local_status")
 async def test_a_taller_remote_chain_is_not_a_divergence(mock_local):
     """
     Ghost being a different height from the shared chain is the design. It was
@@ -55,7 +55,7 @@ async def test_a_taller_remote_chain_is_not_a_divergence(mock_local):
 @pytest.mark.asyncio
 @patch("sdk.agent.ghost_persistence.pre_flight_reconciliation",
        new_callable=AsyncMock)
-@patch("sdk.agent.ghost_persistence.get_local_status")
+@patch("sdk.agent.ghost_persistence._get_local_status")
 async def test_a_local_chain_that_does_not_verify_is_reconciled(
         mock_local, mock_reconcile):
     """The one condition genuinely worth acting on."""
@@ -72,7 +72,7 @@ async def test_a_local_chain_that_does_not_verify_is_reconciled(
 @pytest.mark.asyncio
 @patch("sdk.agent.ghost_persistence.pre_flight_reconciliation",
        new_callable=AsyncMock)
-@patch("sdk.agent.ghost_persistence.get_local_status")
+@patch("sdk.agent.ghost_persistence._get_local_status")
 async def test_an_unreachable_local_chain_is_reconciled(
         mock_local, mock_reconcile):
     mock_local.return_value = {"error": "connection refused"}

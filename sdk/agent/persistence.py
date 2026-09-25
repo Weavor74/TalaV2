@@ -171,15 +171,15 @@ class TaskEventStore:
     @staticmethod
     def _sanitize_payload(payload: dict[str, Any]) -> dict[str, Any]:
         """Convert non-serializable objects (like datetimes) to strings."""
-        def serialize_item(val: Any) -> Any:
+        def _serialize_item(val: Any) -> Any:
             if isinstance(val, (datetime, uuid.UUID)):
                 return str(val)
             if isinstance(val, dict):
-                return {k: serialize_item(v) for k, v in val.items()}
+                return {k: _serialize_item(v) for k, v in val.items()}
             if isinstance(val, (list, tuple)):
-                return [serialize_item(item) for item in val]
+                return [_serialize_item(item) for item in val]
             return val
-        return serialize_item(payload)
+        return _serialize_item(payload)
 
 
 def project_task_state(events: list[dict[str, Any]]) -> dict[str, Any]:

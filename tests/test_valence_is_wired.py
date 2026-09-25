@@ -23,7 +23,7 @@ from python.astrology import valence as V
 
 def test_the_projection_loads_from_the_node_not_from_python():
     """The node is the source of truth; python/astrology/valence.py is a reader."""
-    projection = V.load_projection()
+    projection = V._load_projection()
     assert len(projection) >= 50, "the vocabulary projection did not load"
     for emotion, keys in projection.items():
         assert set(keys) == set(V.VALENCE_KEYS), f"{emotion} projects onto the wrong keys"
@@ -38,7 +38,7 @@ def test_every_emotion_the_engine_can_emit_is_projectable():
     """
     from python.astrology.emotion import PLANET_EMOTION_MAP
 
-    projection = V.load_projection()
+    projection = V._load_projection()
     missing = []
     for harmonious, challenging in PLANET_EMOTION_MAP.values():
         for word in tuple(harmonious) + tuple(challenging):
@@ -72,7 +72,7 @@ def test_an_unknown_emotion_does_not_silently_read_as_neutral():
 
 def test_mood_alignment_discriminates_between_nodes(monkeypatch):
     """A mood that ranks everything equally is not wired, it is decorative."""
-    monkeypatch.setattr(V, "current_state_sync", lambda: ("hope", 1.0))
+    monkeypatch.setattr(V, "_current_state_sync", lambda: ("hope", 1.0))
 
     joyful = {"joy": 0.9, "caution": 0.1, "curiosity": 0.5, "neutral": 0.3}
     wary = {"joy": 0.1, "caution": 0.9, "curiosity": 0.4, "neutral": 0.3}
@@ -84,18 +84,18 @@ def test_mood_alignment_discriminates_between_nodes(monkeypatch):
 
 
 def test_no_mood_is_none_not_a_neutral_score(monkeypatch):
-    monkeypatch.setattr(V, "current_state_sync", lambda: None)
+    monkeypatch.setattr(V, "_current_state_sync", lambda: None)
     assert V.mood_alignment({k: 0.5 for k in V.VALENCE_KEYS}) is None
 
 
 def test_retrieval_tilts_its_ranking_by_the_mood(monkeypatch):
     """
     The live consumer. Before this, node valence had no reader that ran:
-    select_adapter and dream_cycle both had no production caller.
+    _select_adapter and dream_cycle both had no production caller.
     """
     from python.harness import retrieval
 
-    monkeypatch.setattr(V, "current_state_sync", lambda: ("hope", 1.0))
+    monkeypatch.setattr(V, "_current_state_sync", lambda: ("hope", 1.0))
 
     joyful = {"joy": 0.9, "caution": 0.1, "curiosity": 0.5, "neutral": 0.3}
     wary = {"joy": 0.1, "caution": 0.9, "curiosity": 0.4, "neutral": 0.3}

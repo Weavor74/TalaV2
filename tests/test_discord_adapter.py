@@ -104,9 +104,9 @@ def test_the_allowlist_is_the_inherited_one():
     and never read.
     """
     adapter = _adapter(allowlist="steven")
-    assert adapter.is_allowed({"sender": "steven"}) is True
-    assert adapter.is_allowed({"sender": "someone-else"}) is False
-    assert _adapter().is_allowed({"sender": "steven"}) is False, "an empty allowlist permits nobody"
+    assert adapter._is_allowed({"sender": "steven"}) is True
+    assert adapter._is_allowed({"sender": "someone-else"}) is False
+    assert _adapter()._is_allowed({"sender": "steven"}) is False, "an empty allowlist permits nobody"
 
 
 @pytest.mark.asyncio
@@ -162,14 +162,14 @@ def test_every_spelling_of_the_allowlist_is_read(key):
     """
     The settings UI writes `allowed_users`; this read `allowlist` and
     `allow_list`. They never met, so the allowlist always parsed as empty --
-    and because is_allowed fails closed, every inbound message on every channel
+    and because _is_allowed fails closed, every inbound message on every channel
     was rejected regardless of what the user typed. A correctly configured
     Telegram bot ignored its own owner, and logged it as an authorisation
     decision rather than a key mismatch.
     """
     adapter = DiscordAdapter("c", "n", {key: "steven, @weavor"})
     assert adapter.allowlist() == {"steven", "weavor"}
-    assert adapter.is_allowed({"sender": "steven"}) is True
+    assert adapter._is_allowed({"sender": "steven"}) is True
 
 
 def test_the_ui_payload_shape_authorises_its_own_user():
@@ -179,5 +179,5 @@ def test_the_ui_payload_shape_authorises_its_own_user():
     ui_config = {"bot_token": "t", "allowed_users": "steven", "respond_to_all": False}
     for cls in (DiscordAdapter, TelegramAdapter):
         adapter = cls("c", "n", dict(ui_config))
-        assert adapter.is_allowed({"sender": "steven"}) is True, f"{cls.__name__} rejects its own user"
-        assert adapter.is_allowed({"sender": "stranger"}) is False
+        assert adapter._is_allowed({"sender": "steven"}) is True, f"{cls.__name__} rejects its own user"
+        assert adapter._is_allowed({"sender": "stranger"}) is False

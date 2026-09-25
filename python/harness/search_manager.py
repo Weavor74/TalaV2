@@ -57,7 +57,7 @@ async def get_search_providers() -> list[dict[str, Any]]:
         return []
 
 
-async def crawl_web(query: str, max_results: int = 5) -> list[dict[str, str]]:
+async def _crawl_web(query: str, max_results: int = 5) -> list[dict[str, str]]:
     """
     Crawl DuckDuckGo HTML search directly as a fallback.
     Extracts title, url (resolving DDG redirect), and snippet.
@@ -296,7 +296,7 @@ class SearchManager:
         if provider_id:
             if provider_id == "crawler":
                 logger.info("SearchManager: Direct crawling fallback selected.")
-                outcome.results = await crawl_web(query)
+                outcome.results = await _crawl_web(query)
                 # Explicitly chosen, so this is not a degradation.
                 outcome.source = "crawler"
                 outcome.provider_name = "DuckDuckGo crawler"
@@ -430,7 +430,7 @@ class SearchManager:
             )
         else:
             logger.info("No search providers configured. Using the direct web crawler.")
-        outcome.results = await crawl_web(query)
+        outcome.results = await _crawl_web(query)
         outcome.source = "crawler"
         outcome.provider_name = "DuckDuckGo crawler"
         return outcome

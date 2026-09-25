@@ -102,11 +102,11 @@ def promotion_passes() -> int:
         return DEFAULT_PROMOTION_PASSES
 
 
-def promotion_min_minutes() -> float:
+def _promotion_min_minutes() -> float:
     return _env_float("TALA_NODE_PROMOTION_MIN_MINUTES", DEFAULT_PROMOTION_MIN_MINUTES)
 
 
-def staging_interval_minutes() -> float:
+def _staging_interval_minutes() -> float:
     return _env_float(
         "TALA_NODE_STAGING_INTERVAL_MINUTES", DEFAULT_STAGING_INTERVAL_MINUTES, minimum=0.25
     )
@@ -137,7 +137,7 @@ def resolve_staging_dir() -> Path:
     return d
 
 
-def resolve_quarantine_dir() -> Path:
+def _resolve_quarantine_dir() -> Path:
     d = _nodes_dir() / QUARANTINE_DIRNAME
     d.mkdir(parents=True, exist_ok=True)
     return d
@@ -175,7 +175,7 @@ def _save_ledger(ledger: dict[str, Any]) -> None:
 # ---------------------------------------------------------------------------
 
 
-def verify_node_file(path: Path) -> tuple[bool, str | None]:
+def _verify_node_file(path: Path) -> tuple[bool, str | None]:
     """
     Check that a staged node is a real, usable neural node.
 
@@ -251,7 +251,7 @@ def stage_node(node_id: str, html: str) -> Path:
     return path
 
 
-def promote_node(node_id: str) -> Path | None:
+def _promote_node(node_id: str) -> Path | None:
     """Move a staged node into production, replacing any existing copy."""
     src = resolve_staging_dir() / f"{node_id}.html"
     if not src.is_file():
@@ -267,18 +267,18 @@ def promote_node(node_id: str) -> Path | None:
     return dst
 
 
-def quarantine_node(node_id: str, reason: str) -> Path | None:
+def _quarantine_node(node_id: str, reason: str) -> Path | None:
     src = resolve_staging_dir() / f"{node_id}.html"
     if not src.is_file():
         return None
-    dst = resolve_quarantine_dir() / f"{node_id}.html"
+    dst = _resolve_quarantine_dir() / f"{node_id}.html"
     shutil.move(str(src), str(dst))
 
     ledger = _load_ledger()
     entry = ledger.pop(node_id, None) or {}
     _save_ledger(ledger)
     try:
-        (resolve_quarantine_dir() / f"{node_id}.reason.txt").write_text(
+        (_resolve_quarantine_dir() / f"{node_id}.reason.txt").write_text(
             f"{datetime.now(UTC).isoformat()}\n{reason}\n\nledger: {json.dumps(entry, indent=2)}\n",
             encoding="utf-8",
         )
@@ -317,7 +317,7 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
     when nothing is staged.
     """
     required = promotion_passes()
-    min_dwell = promotion_min_minutes()
+    min_dwell = _promotion_min_minutes()
     now = datetime.now(UTC)
     ledger = _load_ledger()
     promoted: list[str] = []
@@ -327,7 +327,7 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
     for path in sorted(resolve_staging_dir().glob("*.html")):
         node_id = path.stem
         entry = ledger.get(node_id) or {"first_staged": datetime.now(UTC).isoformat()}
-        ok, reason = verify_node_file(path)
+        ok, reason = _verify_node_file(path)
         entry["updated"] = datetime.now(UTC).isoformat()
 
         if ok:
@@ -340,7 +340,7 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
             earned = entry["passes"] >= required and dwell >= min_dwell
             if promote and earned:
                 _save_ledger(ledger)
-                if promote_node(node_id):
+                if _promote_node(node_id):
                     promoted.append(node_id)
                     ledger = _load_ledger()
                     continue
@@ -361,7 +361,7 @@ def run_verification_cycle(promote: bool = True) -> dict[str, Any]:
 
             if entry["failures"] >= DEFAULT_MAX_FAILURES:
                 _save_ledger(ledger)
-                quarantine_node(node_id, reason or "repeated verification failure")
+                _quarantine_node(node_id, reason or "repeated verification failure")
                 quarantined.append({"node_id": node_id, "reason": reason or "unknown"})
                 ledger = _load_ledger()
                 continue
@@ -402,11 +402,11 @@ async def run_promotion_loop(interval_minutes: float | None = None) -> None:
     """
     import asyncio
 
-    period = (interval_minutes or staging_interval_minutes()) * 60.0
+    period = (interval_minutes or _staging_interval_minutes()) * 60.0
     log.info(
         "node_staging: promotion loop started — every %.0fs, promoting after "
         "%d clean cycle(s) and %.0f minute(s) on probation",
-        period, promotion_passes(), promotion_min_minutes(),
+        period, promotion_passes(), _promotion_min_minutes(),
     )
     while True:
         try:

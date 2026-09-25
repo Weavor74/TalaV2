@@ -191,7 +191,7 @@ def _render_function_node(
 """
 
 
-async def document_function(
+async def _document_function(
     *,
     func: Callable[..., Any],
     doc_target: str = "tool.registry",
@@ -261,7 +261,7 @@ async def document_registered_tools(
     force: bool = False,
 ) -> dict[str, Any]:
     """
-    Run document_function() over some or all tools currently registered in
+    Run _document_function() over some or all tools currently registered in
     ToolRegistry. Returns a summary of changed/unchanged/error counts.
     """
     from sdk.agent.tools import ToolRegistry
@@ -276,7 +276,7 @@ async def document_registered_tools(
         if not entry:
             results.append({"success": False, "changed": False, "error": f"Unknown tool: {name}"})
             continue
-        result = await document_function(func=entry["func"], doc_target="tool.registry", force=force)
+        result = await _document_function(func=entry["func"], doc_target="tool.registry", force=force)
         result["tool_name"] = name
         results.append(result)
 

@@ -113,10 +113,10 @@ async def get_state() -> dict[str, Any]:
         log.warning("environment: could not read the stored state (%s); "
                     "defaulting to %s.", exc, DEFAULT_ENVIRONMENT)
 
-    return build_state(environment, lockdown)
+    return _build_state(environment, lockdown)
 
 
-def build_state(environment: str, lockdown: bool) -> dict[str, Any]:
+def _build_state(environment: str, lockdown: bool) -> dict[str, Any]:
     environment = normalise(environment)
     permitted = PERMITTED_INFERENCE[environment]
     if lockdown:
@@ -159,7 +159,7 @@ async def set_state(environment: str | None = None,
         caller="environment.set",
     )
 
-    state = build_state(new_env, new_lock)
+    state = _build_state(new_env, new_lock)
     log.info("environment: %s, lockdown=%s, inference limited to %s",
              new_env, new_lock, state["permitted_inference"])
     return state

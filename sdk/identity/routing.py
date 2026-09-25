@@ -6,13 +6,13 @@ so the engine room knows exactly how to behave when speaking to a given peer.
 
 Design constraints
 ------------------
-* ``parse_peer_identity()`` performs ALL parsing locally using lxml — it NEVER
+* ``_parse_peer_identity()`` performs ALL parsing locally using lxml — it NEVER
   makes an outbound LLM or network call.  This is a hard architectural rule:
   identity negotiation must be deterministic and offline-capable.
 * The parser is intentionally lenient: missing fields fall back to safe
   defaults rather than raising, because peer nodes may be authored by
   third-party agents that do not fully comply with the Tala schema.
-* ``map_sender_to_config()`` maps a :class:`PeerIdentity` to a
+* ``_map_sender_to_config()`` maps a :class:`PeerIdentity` to a
   :class:`FormattingConfig` using a simple rule table rather than ML
   inference — again, to keep routing deterministic and auditable.
 
@@ -146,7 +146,7 @@ _GROUP_FORMATTING: dict[str, FormattingConfig] = {
 # ---------------------------------------------------------------------------
 
 
-def parse_peer_identity(whoami_html: str) -> PeerIdentity:
+def _parse_peer_identity(whoami_html: str) -> PeerIdentity:
     """
     Parse a peer agent's whoami HTML Neural Node into a :class:`PeerIdentity`.
 
@@ -177,7 +177,7 @@ def parse_peer_identity(whoami_html: str) -> PeerIdentity:
         from lxml import html as lxml_html  # type: ignore[import-untyped]
     except ImportError as exc:  # pragma: no cover
         raise ImportError(
-            "lxml is required for parse_peer_identity().  "
+            "lxml is required for _parse_peer_identity().  "
             "Install it with: pip install lxml"
         ) from exc
 
@@ -272,7 +272,7 @@ def parse_peer_identity(whoami_html: str) -> PeerIdentity:
 # ---------------------------------------------------------------------------
 
 
-def map_sender_to_config(peer: PeerIdentity) -> FormattingConfig:
+def _map_sender_to_config(peer: PeerIdentity) -> FormattingConfig:
     """
     Derive a :class:`FormattingConfig` from a parsed :class:`PeerIdentity`.
 
@@ -343,11 +343,11 @@ class ConnectionRouter:
 
     def identify(self, whoami_html: str) -> PeerIdentity:
         """Parse a peer's whoami HTML and return their :class:`PeerIdentity`."""
-        return parse_peer_identity(whoami_html)
+        return _parse_peer_identity(whoami_html)
 
     def configure(self, peer: PeerIdentity) -> FormattingConfig:
         """Derive :class:`FormattingConfig` from a :class:`PeerIdentity`."""
-        return map_sender_to_config(peer)
+        return _map_sender_to_config(peer)
 
     def identify_and_configure(
         self, whoami_html: str

@@ -136,7 +136,7 @@ def _make_caller(server_name: str, tool_name: str):
     return _call
 
 
-def unregister_mcp_tools() -> int:
+def _unregister_mcp_tools() -> int:
     """Drop every tool this bridge registered. Returns how many were removed."""
     doomed = [
         key for key, entry in ToolRegistry._tools.items()
@@ -161,7 +161,7 @@ async def register_mcp_tools() -> dict[str, Any]:
     """
     from python.harness.mcp_manager import mcp_manager
 
-    removed = unregister_mcp_tools()
+    removed = _unregister_mcp_tools()
     registered: list[str] = []
     failed: dict[str, str] = {}
 

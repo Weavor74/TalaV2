@@ -1488,13 +1488,13 @@ async def _ensure_embeddings_schema() -> None:
         )
 
 
-async def seed_approved_vps_context() -> None:
+async def _seed_approved_vps_context() -> None:
     """
     NAME
            seed_approved_vps_context - Seed approved memory contexts into PG embeddings table
            
     SYNOPSIS
-           await seed_approved_vps_context()
+           await _seed_approved_vps_context()
            
     DESCRIPTION
            Checks if the approved system memory context is already present in the
@@ -1573,7 +1573,7 @@ async def _run_migrations() -> None:
         logger.warning("Failed to run dynamic migrations: %s", exc)
     await _ensure_embeddings_schema()
     try:
-        await seed_approved_vps_context()
+        await _seed_approved_vps_context()
     except Exception as exc:
         logger.warning("Failed to seed approved VPS memory context after migrations: %s", exc)
 

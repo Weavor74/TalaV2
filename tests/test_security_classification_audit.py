@@ -6,24 +6,24 @@ from pathlib import Path
 from unittest.mock import patch
 
 from sdk.agent.tools import (
-    classify_field_heuristically,
+    _classify_field_heuristically,
     run_security_classification_audit,
     approve_security_classification_mapping,
 )
 
 def test_classify_field_heuristically():
     # Public
-    assert classify_field_heuristically("tone") == "PUBLIC"
-    assert classify_field_heuristically("rp_class") == "PUBLIC"
-    assert classify_field_heuristically("name") == "PUBLIC"
+    assert _classify_field_heuristically("tone") == "PUBLIC"
+    assert _classify_field_heuristically("rp_class") == "PUBLIC"
+    assert _classify_field_heuristically("name") == "PUBLIC"
     
     # Secured
-    assert classify_field_heuristically("pii_email") == "SECURED"
-    assert classify_field_heuristically("Passport Number") == "SECURED"
-    assert classify_field_heuristically("birthdate") == "SECURED"
+    assert _classify_field_heuristically("pii_email") == "SECURED"
+    assert _classify_field_heuristically("Passport Number") == "SECURED"
+    assert _classify_field_heuristically("birthdate") == "SECURED"
     
     # Ambiguous -> UNCATEGORIZED
-    assert classify_field_heuristically("Passport Issue Date") == "UNCATEGORIZED"
+    assert _classify_field_heuristically("Passport Issue Date") == "UNCATEGORIZED"
 
 
 @pytest.mark.asyncio

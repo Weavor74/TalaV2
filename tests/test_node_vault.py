@@ -19,9 +19,9 @@ from pathlib import Path
 from python.harness.credential_crypto import is_encrypted
 from python.harness.node_vault import (
     VAULT_FIELDS,
-    is_sealed,
+    _is_sealed,
     seal_for,
-    seal_state,
+    _seal_state,
     summarise_vault,
     unseal_state,
 )
@@ -40,9 +40,9 @@ STATE = {
 
 
 def test_sealing_encrypts_only_the_vault_fields():
-    sealed = seal_state(STATE, PII)
+    sealed = _seal_state(STATE, PII)
 
-    assert is_sealed(sealed)
+    assert _is_sealed(sealed)
     for field in ("pii_legal_name", "pii_dob", "pii_email", "pii_phone"):
         assert is_encrypted(sealed[field]), f"{field} was left in clear"
     # The rest of the node stays readable, or the node stops being useful.
@@ -52,21 +52,21 @@ def test_sealing_encrypts_only_the_vault_fields():
 
 def test_no_secret_survives_in_the_serialised_node():
     """This is the property that matters on a USB stick."""
-    blob = json.dumps(seal_state(STATE, PII))
+    blob = json.dumps(_seal_state(STATE, PII))
     for secret in ("A Real Name", "1974-09-19", "a@b.c", "5551234", "Passport"):
         assert secret not in blob, f"{secret!r} is readable in the node file"
 
 
 def test_unsealing_returns_the_original():
-    sealed = seal_state(STATE, PII)
+    sealed = _seal_state(STATE, PII)
     assert unseal_state(sealed) == STATE
 
 
 def test_sealing_is_idempotent():
     """A profile is re-saved on every edit; a second pass must not double-wrap
     into a value that decrypts to an envelope."""
-    once = seal_state(STATE, PII)
-    twice = seal_state(once, PII)
+    once = _seal_state(STATE, PII)
+    twice = _seal_state(once, PII)
     assert twice == once
     assert unseal_state(twice) == STATE
 
@@ -78,8 +78,8 @@ def test_an_unsealed_state_passes_through():
 def test_an_empty_vault_is_still_marked():
     """So a reader can tell an empty vault from a node written before sealing
     existed."""
-    sealed = seal_state({"name": "x", "pii_dob": ""}, PII)
-    assert is_sealed(sealed)
+    sealed = _seal_state({"name": "x", "pii_dob": ""}, PII)
+    assert _is_sealed(sealed)
     assert unseal_state(sealed)["pii_dob"] == ""
 
 
@@ -87,7 +87,7 @@ def test_node_types_opt_in():
     """Absent from the registry means nothing is sealed -- a new node type must
     not acquire sealing it was never designed for."""
     assert seal_for("some-other-node", dict(STATE)) == STATE
-    assert is_sealed(seal_for("user-profile", dict(STATE)))
+    assert _is_sealed(seal_for("user-profile", dict(STATE)))
 
 
 def test_the_registry_covers_the_profile_fields():
@@ -101,10 +101,10 @@ def test_a_missing_key_leaves_plaintext_and_says_so(monkeypatch, caplog):
     monkeypatch.setattr(cc, "load_or_create_key", lambda: None)
 
     with caplog.at_level("ERROR"):
-        out = seal_state(STATE, PII)
+        out = _seal_state(STATE, PII)
 
     assert out == STATE
-    assert not is_sealed(out)
+    assert not _is_sealed(out)
     assert any("no encryption key" in r.message for r in caplog.records)
 
 

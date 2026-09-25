@@ -19,7 +19,7 @@ from python.harness.tool_selection import (
     budget_for,
     conversation_text,
     select_specs,
-    select_tool_names,
+    _select_tool_names,
 )
 
 TOOLS = [
@@ -50,7 +50,7 @@ def _extras(selected):
 
 
 def test_prompt_selects_the_obviously_matching_tool(index):
-    selected = select_tool_names("Send a telegram message to my group", index, 8, available=NAMES)
+    selected = _select_tool_names("Send a telegram message to my group", index, 8, available=NAMES)
 
     assert "send_telegram_message" in selected
 
@@ -58,7 +58,7 @@ def test_prompt_selects_the_obviously_matching_tool(index):
 def test_domain_word_absent_from_every_description_still_lands(index):
     """No tool mentions docker. 'running' and 'machine' have to carry it — this
     is why an authored keyword map is a supplement and not the whole mechanism."""
-    selected = select_tool_names("Check if docker is running on this machine", index, 8, available=NAMES)
+    selected = _select_tool_names("Check if docker is running on this machine", index, 8, available=NAMES)
 
     assert "run_workspace_command" in selected
 
@@ -66,7 +66,7 @@ def test_domain_word_absent_from_every_description_still_lands(index):
 def test_conversational_turn_selects_nothing_beyond_the_core(index):
     """A turn that needs no tool should carry no tool payload — cheaper, and it
     removes the over-calling seen when every tool is always on offer."""
-    assert _extras(select_tool_names("How are you feeling today?", index, 8, available=NAMES)) == []
+    assert _extras(_select_tool_names("How are you feeling today?", index, 8, available=NAMES)) == []
 
 
 def test_name_matches_outrank_description_matches(index):
@@ -93,7 +93,7 @@ def test_common_terms_are_damped_not_counted_equally():
 def test_core_tools_are_always_offered(index):
     """The floor is what makes a crude ranker survivable: a miss costs quality,
     never the ability to look something up or read a file."""
-    selected = select_tool_names("something entirely unrelated to any tool", index, 8, available=NAMES)
+    selected = _select_tool_names("something entirely unrelated to any tool", index, 8, available=NAMES)
 
     for core in DEFAULT_CORE_TOOLS:
         if core in NAMES:
@@ -103,7 +103,7 @@ def test_core_tools_are_always_offered(index):
 def test_sticky_tools_survive_a_topic_change(index):
     """A task that searched on turn 1 and writes on turn 3 must not lose the
     search tool as the conversation drifts away from the original wording."""
-    selected = select_tool_names(
+    selected = _select_tool_names(
         "now compile it", index, 8, sticky={"starcitizen_lookup"}, available=NAMES,
     )
 
@@ -113,7 +113,7 @@ def test_sticky_tools_survive_a_topic_change(index):
 def test_ranked_fill_never_exceeds_the_budget(index):
     """The budget bounds what ranking contributes, on top of the guarantees."""
     for budget in (5, 8):
-        selected = select_tool_names("search files and send a message", index, budget, available=NAMES)
+        selected = _select_tool_names("search files and send a message", index, budget, available=NAMES)
         assert len(selected) <= budget
 
 
@@ -121,7 +121,7 @@ def test_guarantees_win_over_the_budget_rather_than_being_truncated(index):
     """A budget below the core size returns the core. Trimming the floor to
     honour the ceiling would remove the very property that makes a keyword
     ranker safe to ship — the ceiling yields instead."""
-    selected = select_tool_names(
+    selected = _select_tool_names(
         "unrelated", index, 1, sticky={"compile_lora_adapter"}, available=NAMES,
     )
 
@@ -133,13 +133,13 @@ def test_guarantees_win_over_the_budget_rather_than_being_truncated(index):
 
 def test_zero_budget_means_unlimited(index):
     """Remote providers keep every tool, so their behaviour is untouched."""
-    selected = select_tool_names("anything", index, 0, available=NAMES)
+    selected = _select_tool_names("anything", index, 0, available=NAMES)
 
     assert set(selected) == set(NAMES)
 
 
 def test_selection_never_invents_a_tool_that_was_not_offered(index):
-    selected = select_tool_names("search the web", index, 8, available=["web_search"])
+    selected = _select_tool_names("search the web", index, 8, available=["web_search"])
 
     assert selected == ["web_search"]
 

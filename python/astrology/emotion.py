@@ -146,7 +146,7 @@ def contacts_from_transits(transits: Iterable) -> list[Contact]:
     return contacts
 
 
-def contacts_from_synastry(aspects: Iterable) -> list[Contact]:
+def _contacts_from_synastry(aspects: Iterable) -> list[Contact]:
     """
     CrossAspect -> Contact.
 
@@ -302,5 +302,5 @@ def emotion_vs_person(birthdate, other_birthdate, person: str) -> EmotionalState
 
     matrix = SynastryEngine().compute_synastry(birthdate, other_birthdate)
     return derive_emotion(
-        contacts_from_synastry(matrix.aspects), mode="person", subject=person
+        _contacts_from_synastry(matrix.aspects), mode="person", subject=person
     )

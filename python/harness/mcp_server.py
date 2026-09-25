@@ -109,12 +109,12 @@ async def start_mcp_server() -> None:
 
     sse = SseServerTransport("/messages/")
 
-    async def handle_sse(request):
+    async def _handle_sse(request):
         async with sse.connect_sse(request.scope, request.receive, request._send) as streams:
             await _server.run(streams[0], streams[1], _server.create_initialization_options())
 
     app = Starlette(routes=[
-        Route("/sse", endpoint=handle_sse),
+        Route("/sse", endpoint=_handle_sse),
         Mount("/messages/", app=sse.handle_post_message),
     ])
 

@@ -60,7 +60,7 @@ def get_status() -> tuple[str, float, str]:
         return status, _download_progress, error
 
 
-def set_status(status: str, progress: float = 0.0, error: str = "") -> None:
+def _set_status(status: str, progress: float = 0.0, error: str = "") -> None:
     """Set the current download status in a thread-safe manner."""
     with _lock:
         global _download_status, _download_progress, _download_error
@@ -114,7 +114,7 @@ class DBProgressTracker(tqdm.tqdm):
             if total_bytes > 0:
                 # Clamp to 99% until complete
                 pct = min(99.0, (downloaded_bytes / total_bytes) * 100)
-                set_status("downloading", progress=pct)
+                _set_status("downloading", progress=pct)
 
     def close(self):
         super().close()
@@ -127,7 +127,7 @@ def _download_task(main_loop: asyncio.AbstractEventLoop | None) -> None:
     """Background thread target to execute model file downloads."""
     from python.harness import db
 
-    def run_db(coro) -> None:
+    def _run_db(coro) -> None:
         if main_loop is not None and main_loop.is_running():
             future = asyncio.run_coroutine_threadsafe(coro, main_loop)
             try:
@@ -138,10 +138,10 @@ def _download_task(main_loop: asyncio.AbstractEventLoop | None) -> None:
             logger.warning("Main loop not running; skipping DB update.")
 
     try:
-        set_status("downloading", progress=0.0)
+        _set_status("downloading", progress=0.0)
         
-        run_db(db.log_to_db("INFO", f"Starting background download of embedded model {MODEL_ID}", {}))
-        run_db(db.execute("UPDATE inference_providers SET status = 'downloading' WHERE id = 'embedded-builtin'"))
+        _run_db(db.log_to_db("INFO", f"Starting background download of embedded model {MODEL_ID}", {}))
+        _run_db(db.execute("UPDATE inference_providers SET status = 'downloading' WHERE id = 'embedded-builtin'"))
 
         # Run huggingface download
         snapshot_download(
@@ -151,17 +151,17 @@ def _download_task(main_loop: asyncio.AbstractEventLoop | None) -> None:
             local_files_only=False,
         )
 
-        set_status("ready", progress=100.0)
+        _set_status("ready", progress=100.0)
         
-        run_db(db.log_to_db("INFO", f"Embedded model {MODEL_ID} download complete and ready.", {}))
-        run_db(db.execute("UPDATE inference_providers SET status = 'online' WHERE id = 'embedded-builtin'"))
+        _run_db(db.log_to_db("INFO", f"Embedded model {MODEL_ID} download complete and ready.", {}))
+        _run_db(db.execute("UPDATE inference_providers SET status = 'online' WHERE id = 'embedded-builtin'"))
 
     except Exception as exc:
         logger.exception("Error in background model downloader")
-        set_status("error", progress=0.0, error=str(exc))
+        _set_status("error", progress=0.0, error=str(exc))
         
-        run_db(db.log_to_db("ERROR", f"Failed to download embedded model: {exc}", {"error": str(exc)}))
-        run_db(db.execute("UPDATE inference_providers SET status = 'offline' WHERE id = 'embedded-builtin'"))
+        _run_db(db.log_to_db("ERROR", f"Failed to download embedded model: {exc}", {"error": str(exc)}))
+        _run_db(db.execute("UPDATE inference_providers SET status = 'offline' WHERE id = 'embedded-builtin'"))
 
 
 def start_download_async() -> None:
@@ -191,9 +191,9 @@ def start_download_async() -> None:
 def init_status_from_cache() -> None:
     """Initialize download state and update database based on local cache existence."""
     if check_model_cached():
-        set_status("ready", progress=100.0)
+        _set_status("ready", progress=100.0)
     else:
-        set_status("not_downloaded", progress=0.0)
+        _set_status("not_downloaded", progress=0.0)
 
 
 def _get_model_and_tokenizer() -> tuple[Any, Any]:

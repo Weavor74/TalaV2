@@ -50,11 +50,11 @@ VAULT_FIELDS: dict[str, tuple[str, ...]] = {
 }
 
 
-def is_sealed(state: Any) -> bool:
+def _is_sealed(state: Any) -> bool:
     return isinstance(state, dict) and bool(state.get(VAULT_MARKER))
 
 
-def seal_state(state: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
+def _seal_state(state: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]:
     """
     Encrypt the named fields of a node's state and mark it sealed.
 
@@ -66,7 +66,7 @@ def seal_state(state: dict[str, Any], fields: tuple[str, ...]) -> dict[str, Any]
 
     if not isinstance(state, dict) or not fields:
         return state
-    if is_sealed(state):
+    if _is_sealed(state):
         return state
 
     if load_or_create_key() is None:
@@ -104,7 +104,7 @@ def unseal_state(state: Any) -> dict[str, Any]:
 
     if not isinstance(state, dict):
         return state if isinstance(state, dict) else {}
-    if not is_sealed(state):
+    if not _is_sealed(state):
         return dict(state)
 
     out = decrypt_section(state)
@@ -114,7 +114,7 @@ def unseal_state(state: Any) -> dict[str, Any]:
 
 def seal_for(node_type: str, state: dict[str, Any]) -> dict[str, Any]:
     """Seal a state using the field list registered for *node_type*."""
-    return seal_state(state, VAULT_FIELDS.get(node_type, ()))
+    return _seal_state(state, VAULT_FIELDS.get(node_type, ()))
 
 
 def summarise_vault(state: dict[str, Any], fields: tuple[str, ...]) -> str:

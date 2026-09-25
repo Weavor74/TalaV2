@@ -33,7 +33,7 @@ import pytest
 from sdk.gateway.permissions import (
     PermissionDeniedError,
     enforce_tool_permissions,
-    underlying_tool_name,
+    _underlying_tool_name,
 )
 
 
@@ -44,7 +44,7 @@ from sdk.gateway.permissions import (
     ("write_file", "write_file"),
 ])
 def test_the_mcp_prefix_does_not_hide_the_action(registered, underlying):
-    assert underlying_tool_name(registered) == underlying
+    assert _underlying_tool_name(registered) == underlying
 
 
 @pytest.mark.parametrize("tool", [
@@ -89,7 +89,7 @@ def test_the_bridge_declares_only_what_its_servers_ask_for(monkeypatch):
     monkeypatch.setattr(plugins, "mcp_server_permissions",
                         lambda: {"a": ["fs:read"], "b": ["shell:execute"]})
 
-    manifest = plugins.mcp_bridge_manifest()
+    manifest = plugins._mcp_bridge_manifest()
     assert set(manifest["permissions"]) == {"fs:read", "shell:execute"}
     assert manifest["mcp_servers"] == ["a", "b"]
 
@@ -158,8 +158,8 @@ def test_the_digest_survives_reordering():
     """A signature that breaks when YAML reorders keys cries tamper for
     reasons that are not tampering — and anything that does that stops being
     read."""
-    a = skill_signing.payload_digest({"a": 1, "b": 2})
-    b = skill_signing.payload_digest({"b": 2, "a": 1})
+    a = skill_signing._payload_digest({"a": 1, "b": 2})
+    b = skill_signing._payload_digest({"b": 2, "a": 1})
     assert a == b
 
 

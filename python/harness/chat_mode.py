@@ -72,12 +72,12 @@ def _resolve_user_data_dir() -> Path:
         return Path(__file__).resolve().parent.parent.parent
 
 
-def get_chat_mode_file_path() -> Path:
+def _get_chat_mode_file_path() -> Path:
     """Absolute path of chat_mode.json under the active user-data root."""
     return _resolve_user_data_dir() / _CHAT_MODE_FILENAME
 
 
-def normalize_chat_mode(mode: object) -> str:
+def _normalize_chat_mode(mode: object) -> str:
     """Coerce arbitrary input to a valid mode, falling back to the default."""
     candidate = str(mode or "").strip().lower()
     return candidate if candidate in VALID_CHAT_MODES else DEFAULT_CHAT_MODE
@@ -90,14 +90,14 @@ def get_current_chat_mode() -> str:
     Never raises: a missing, empty, or corrupt chat_mode.json yields the
     default rather than propagating an error into an inference request.
     """
-    path = get_chat_mode_file_path()
+    path = _get_chat_mode_file_path()
     try:
         if not path.is_file():
             return DEFAULT_CHAT_MODE
         data = json.loads(path.read_text(encoding="utf-8"))
         if isinstance(data, dict):
-            return normalize_chat_mode(data.get("mode"))
-        return normalize_chat_mode(data)
+            return _normalize_chat_mode(data.get("mode"))
+        return _normalize_chat_mode(data)
     except Exception as exc:
         log.warning("chat_mode: could not read %s (%s) — using %r", path, exc, DEFAULT_CHAT_MODE)
         return DEFAULT_CHAT_MODE
@@ -115,7 +115,7 @@ def save_current_chat_mode(mode: str) -> str:
     if candidate not in VALID_CHAT_MODES:
         raise ValueError(f"mode must be one of {list(VALID_CHAT_MODES)}, got {mode!r}")
 
-    path = get_chat_mode_file_path()
+    path = _get_chat_mode_file_path()
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_text(json.dumps({"mode": candidate}, indent=2), encoding="utf-8")
     log.info("chat_mode: set to %r (%s)", candidate, path)
@@ -127,5 +127,5 @@ def is_emotional_mode(mode: str | None = None) -> bool:
     Whether the given mode (default: the current one) carries the
     astrology-derived emotional state.
     """
-    resolved = normalize_chat_mode(mode) if mode is not None else get_current_chat_mode()
+    resolved = _normalize_chat_mode(mode) if mode is not None else get_current_chat_mode()
     return resolved in EMOTIONAL_CHAT_MODES

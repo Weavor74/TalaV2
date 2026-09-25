@@ -23,7 +23,7 @@ from sdk.agent.mcp_bridge import (
     _normalise_schema,
     discover_mcp_servers,
     register_mcp_tools,
-    unregister_mcp_tools,
+    _unregister_mcp_tools,
 )
 from sdk.agent.tools import ToolRegistry
 
@@ -60,7 +60,7 @@ async def test_tools_register_and_unregister_cleanly():
 
     result = await register_mcp_tools()
     registered = len(ToolRegistry.get_tools())
-    removed = unregister_mcp_tools()
+    removed = _unregister_mcp_tools()
 
     assert result["success"] is True
     assert registered - baseline == result["count"]
@@ -83,7 +83,7 @@ async def test_registered_tools_carry_the_server_in_their_name():
             assert "__" in tool["name"]
             assert tool["description"].startswith("[MCP:")
     finally:
-        unregister_mcp_tools()
+        _unregister_mcp_tools()
 
 
 @pytest.mark.asyncio
@@ -108,7 +108,7 @@ async def test_a_hand_written_tool_is_never_shadowed(monkeypatch):
     try:
         assert ToolRegistry._tools["web_search"]["func"] is original, "web_search was shadowed"
     finally:
-        unregister_mcp_tools()
+        _unregister_mcp_tools()
 
 
 # --- schema hygiene ---------------------------------------------------------

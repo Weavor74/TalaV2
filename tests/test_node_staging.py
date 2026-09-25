@@ -117,7 +117,7 @@ def test_junk_never_reaches_production(_isolate, body, node_id, why):
         assert summary["promoted"] == [], f"junk promoted despite {why}"
 
     assert not (_nodes(_isolate) / f"{filename_id}.html").exists()
-    quarantined = list(node_staging.resolve_quarantine_dir().glob("*.html"))
+    quarantined = list(node_staging._resolve_quarantine_dir().glob("*.html"))
     assert quarantined, "a repeatedly failing node must end up quarantined, not retried forever"
 
 
@@ -129,7 +129,7 @@ def test_embedded_python_that_does_not_compile_is_rejected(_isolate):
     )
     path = node_staging.stage_node("broken-skill", broken)
 
-    ok, reason = node_staging.verify_node_file(path)
+    ok, reason = node_staging._verify_node_file(path)
     assert ok is False
     assert "compile" in (reason or "")
 
@@ -215,4 +215,4 @@ def test_promotion_loop_is_time_based_not_restart_based(_isolate):
     import inspect
 
     assert inspect.iscoroutinefunction(node_staging.run_promotion_loop)
-    assert node_staging.staging_interval_minutes() > 0
+    assert node_staging._staging_interval_minutes() > 0

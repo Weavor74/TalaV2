@@ -40,7 +40,7 @@ SENSITIVE_STYLE_KEYS = {
     "tokens"
 }
 
-def assert_cap_invariant(influence: float) -> None:
+def _assert_cap_invariant(influence: float) -> None:
     """
     Ensure the calculated astrological influence score does not exceed 0.10.
     Raises StyleCapExceededError if violated.
@@ -55,7 +55,7 @@ def assert_cap_invariant(influence: float) -> None:
             actual=rounded_influence
         )
 
-def validate_style_cannot_touch_sensitive(style_delta: dict[str, Any]) -> None:
+def _validate_style_cannot_touch_sensitive(style_delta: dict[str, Any]) -> None:
     """
     Ensures no style/tone delta includes modification instructions for 
     system keys, wallet balances, or database configuration.
@@ -85,7 +85,7 @@ class StyleModulator:
         by mapping planetary transits. Clamps cumulative absolute delta to MAX_ASTRO_INFLUENCE.
         """
         # Validate that the base style itself doesn't contain forbidden variables
-        validate_style_cannot_touch_sensitive(base_style)
+        _validate_style_cannot_touch_sensitive(base_style)
         
         style_deltas: dict[str, float] = {k: 0.0 for k in base_style}
         
@@ -132,7 +132,7 @@ class StyleModulator:
         
         # Assert the cap holds
         final_absolute_delta = sum(abs(v) for v in final_deltas.values())
-        assert_cap_invariant(final_absolute_delta)
+        _assert_cap_invariant(final_absolute_delta)
         
         # Construct modulated output
         modulated_style: dict[str, float] = {}
@@ -142,6 +142,6 @@ class StyleModulator:
             modulated_style[k] = max(0.0, min(1.0, base_val + delta))
             
         # Verify delta boundary rules before returning
-        validate_style_cannot_touch_sensitive(modulated_style)
+        _validate_style_cannot_touch_sensitive(modulated_style)
         
         return modulated_style

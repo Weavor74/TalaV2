@@ -24,7 +24,7 @@ from typing import Any
 _ROOT_DIR = Path(__file__).resolve().parent.parent.parent
 
 
-def harness_admin_secret_path() -> Path:
+def _harness_admin_secret_path() -> Path:
     configured = os.environ.get("TALA_HARNESS_ADMIN_SECRET_FILE")
     if configured:
         return Path(configured).expanduser().resolve()
@@ -45,12 +45,12 @@ def _restrict_permissions(path: Path, mode: int) -> None:
         pass
 
 
-def load_or_create_harness_admin_secret() -> str:
+def _load_or_create_harness_admin_secret() -> str:
     env_secret = os.environ.get("TALA_HARNESS_ADMIN_SECRET")
     if env_secret:
         return env_secret
 
-    path = harness_admin_secret_path()
+    path = _harness_admin_secret_path()
     if path.exists():
         secret = path.read_text(encoding="utf-8").strip()
         # Self-heal: earlier versions relied on the process umask (commonly
@@ -88,7 +88,7 @@ def require_harness_admin_secret(params: dict[str, Any]) -> bool:
     deployment or an external MCP client, is rejected.
     """
     provided = str(params.get("harness_secret", ""))
-    expected = load_or_create_harness_admin_secret()
+    expected = _load_or_create_harness_admin_secret()
     if not provided or not expected:
         return False
     # Constant-time comparison — a plain `==` short-circuits on the first

@@ -124,22 +124,22 @@ def test_the_mem0_invariant_probes_behaviour_not_configuration():
     import python.harness.mem0_adapter as adapter
     from sdk.agent import verification
 
-    assert verification.mem0_is_read_only() is True
+    assert verification._mem0_is_read_only() is True
 
     original = adapter._is_blocked
     try:
         adapter._is_blocked = lambda name: False
-        assert verification.mem0_is_read_only() is False, (
+        assert verification._mem0_is_read_only() is False, (
             "the invariant passed while nothing was classifying writes"
         )
         adapter._is_blocked = lambda name: True
-        assert verification.mem0_is_read_only() is False, (
+        assert verification._mem0_is_read_only() is False, (
             "a guard that blocks reads too is inert, not read-only"
         )
     finally:
         adapter._is_blocked = original
 
-    assert verification.mem0_is_read_only() is True
+    assert verification._mem0_is_read_only() is True
 
 
 def test_the_mem0_probe_does_not_construct_the_adapter():

@@ -58,7 +58,7 @@ ENGINES = {
 }
 
 
-def is_engine_supported(engine_id: str) -> bool:
+def _is_engine_supported(engine_id: str) -> bool:
     """Whether this engine can be installed on the current platform at all."""
     platforms = ENGINES.get(engine_id, {}).get("platforms")
     if not platforms:
@@ -66,9 +66,9 @@ def is_engine_supported(engine_id: str) -> bool:
     return sys.platform in platforms
 
 
-def unsupported_reason(engine_id: str) -> Optional[str]:
+def _unsupported_reason(engine_id: str) -> Optional[str]:
     """Why the engine is unavailable here, or None if it is available."""
-    if is_engine_supported(engine_id):
+    if _is_engine_supported(engine_id):
         return None
     supported = ", ".join(ENGINES.get(engine_id, {}).get("platforms", []))
     return f"Not available on {sys.platform} - requires {supported or 'another platform'}."
@@ -162,8 +162,8 @@ def start_install(engine_id: str) -> None:
     # Refuse here rather than letting pip deliver the news several minutes into a
     # doomed source build. The UI should already be showing this engine as
     # unsupported; this is the backstop for a direct RPC call.
-    if not is_engine_supported(engine_id):
-        raise RuntimeError(f"Cannot install '{engine_id}': {unsupported_reason(engine_id)}")
+    if not _is_engine_supported(engine_id):
+        raise RuntimeError(f"Cannot install '{engine_id}': {_unsupported_reason(engine_id)}")
 
     status = _install_status.get(engine_id)
     if status == "installing":
@@ -182,7 +182,7 @@ def get_status(engine_id: str) -> Dict[str, Any]:
         raise ValueError(f"Unknown engine: {engine_id}")
         
     installed = is_engine_installed(engine_id)
-    supported = is_engine_supported(engine_id)
+    supported = _is_engine_supported(engine_id)
     # An engine that cannot be installed here reports "unsupported" rather than
     # "not_installed", so the UI can grey it out instead of offering a button
     # whose only outcome is a pip failure.
@@ -197,7 +197,7 @@ def get_status(engine_id: str) -> Dict[str, Any]:
         "description": ENGINES[engine_id]["description"],
         "is_installed": installed,
         "is_supported": supported,
-        "unsupported_reason": unsupported_reason(engine_id),
+        "unsupported_reason": _unsupported_reason(engine_id),
         "status": status,
         "progress": _install_progress.get(engine_id, 100.0 if installed else 0.0),
         "logs": _install_logs.get(engine_id, []),

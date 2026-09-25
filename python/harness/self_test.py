@@ -103,7 +103,7 @@ def _run_step(name: str, command: Sequence[str], timeout: float) -> SelfTestStep
     )
 
 
-def build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[str], float]]:
+def _build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[str], float]]:
     python_exe = sys.executable
     plan: list[tuple[str, list[str], float]] = [
         (
@@ -146,7 +146,7 @@ def build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[str
 def run_self_test(include_audit: bool = True) -> dict[str, object]:
     steps = [
         _run_step(name, command, timeout)
-        for name, command, timeout in build_self_test_plan(include_audit=include_audit)
+        for name, command, timeout in _build_self_test_plan(include_audit=include_audit)
     ]
     passed = all(step.passed for step in steps)
     return {

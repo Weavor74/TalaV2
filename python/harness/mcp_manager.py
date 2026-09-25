@@ -76,7 +76,7 @@ class MCPManager:
         return True
 
     def list_servers(self) -> list[dict[str, Any]]:
-        def sort_key(item):
+        def _sort_key(item):
             name, config = item
             return (config.get("priority", 999), name)
 
@@ -87,7 +87,7 @@ class MCPManager:
                 "priority": config.get("priority", 999),
                 "locked": config.get("locked", False)
             }
-            for name, config in sorted(self.servers.items(), key=sort_key)
+            for name, config in sorted(self.servers.items(), key=_sort_key)
         ]
 
     async def save_servers(self, servers_list: list[dict[str, Any]]) -> bool:

@@ -121,7 +121,7 @@ class ToolIndex:
         return len(self._entries)
 
 
-def select_tool_names(
+def _select_tool_names(
     text: str,
     index: ToolIndex,
     budget: int,
@@ -208,7 +208,7 @@ def select_specs(
         return specs, []
 
     by_name = {s.get("function", {}).get("name"): s for s in specs}
-    keep = select_tool_names(
+    keep = _select_tool_names(
         text, index, budget, core=core, sticky=sticky, available=list(by_name),
     )
     keep_set = set(keep)

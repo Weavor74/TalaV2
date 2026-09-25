@@ -73,7 +73,8 @@ SERVER = "python/harness/server.py"
 DECOR_REGISTERED = frozenset({
     "register_tool", "tool", "register", "property", "staticmethod",
     "classmethod", "setter", "fixture", "abstractmethod", "cached_property",
-    "overload", "route", "on", "app",
+    "overload", "route", "on", "app", "event",
+    "model_validator", "field_validator", "validator", "root_validator",
 })
 
 

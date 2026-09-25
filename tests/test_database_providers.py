@@ -91,13 +91,13 @@ def test_the_extras_are_declared():
     ({"endpoint": "", "name": "My MongoDB"}, "mongodb"),
 ])
 def test_the_kind_is_inferred(provider, expected):
-    assert dc.infer_kind(provider) == expected
+    assert dc._infer_kind(provider) == expected
 
 
 def test_an_unguessable_connection_is_not_assumed_to_be_postgres():
     """Guessing is stated rather than hidden: silently treating an unknown
     connection as Postgres would produce a confident, wrong error."""
-    assert dc.infer_kind({"endpoint": "host:5432", "name": "mystery"}) == ""
+    assert dc._infer_kind({"endpoint": "host:5432", "name": "mystery"}) == ""
 
 
 @pytest.mark.parametrize("raw,expected", [

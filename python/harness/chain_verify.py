@@ -99,7 +99,7 @@ def _signature_ok(block: dict[str, Any]) -> bool:
 REVOCATION_PREFIX = "tala-key-revocation:v1:"
 
 
-def revocation_message(fingerprint: str, revoked_at: str) -> str:
+def _revocation_message(fingerprint: str, revoked_at: str) -> str:
     """The message a key signs to retire itself.
 
     Must be built identically to ``revocationMessage`` in
@@ -109,7 +109,7 @@ def revocation_message(fingerprint: str, revoked_at: str) -> str:
     return f"{REVOCATION_PREFIX}{fingerprint}:{revoked_at}"
 
 
-def verify_revocation(transaction: dict[str, Any]) -> str:
+def _verify_revocation(transaction: dict[str, Any]) -> str:
     """
     Check a revocation transaction. Returns the retired fingerprint, or "".
 
@@ -140,7 +140,7 @@ def verify_revocation(transaction: dict[str, Any]) -> str:
     try:
         load_pem_public_key(public_key.encode("utf-8")).verify(
             bytes.fromhex(signature),
-            revocation_message(print_, revoked_at).encode("utf-8"),
+            _revocation_message(print_, revoked_at).encode("utf-8"),
         )
     except Exception:
         return ""
@@ -165,7 +165,7 @@ def revocations_in(blocks: list[dict[str, Any]]) -> dict[str, int]:
                 continue
             if transaction.get("type") != "key-revocation":
                 continue
-            retired = verify_revocation(transaction)
+            retired = _verify_revocation(transaction)
             # The earliest wins: a key is retired from the first moment it
             # said so.
             if retired and retired not in found:

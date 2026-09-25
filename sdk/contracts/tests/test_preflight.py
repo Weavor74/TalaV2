@@ -8,8 +8,8 @@ import pytest
 from sdk.contracts.preflight import (
     CRYPTO_TO_AI_TOKENS,
     AI_TOKEN_COST_USD,
-    count_characters,
-    estimate_tokens,
+    _count_characters,
+    _estimate_tokens,
     check_escrow,
     PreflightEngine,
     InsufficientEscrowError,
@@ -20,14 +20,14 @@ def test_constants():
     assert AI_TOKEN_COST_USD == 0.0000001
 
 def test_count_characters():
-    assert count_characters("hello") == 5
-    assert count_characters("") == 0
-    assert count_characters("こんにちは") == 5  # Char count, not bytes
+    assert _count_characters("hello") == 5
+    assert _count_characters("") == 0
+    assert _count_characters("こんにちは") == 5  # Char count, not bytes
 
 def test_estimate_tokens():
-    assert estimate_tokens("1234") == 1  # 4 chars -> 1 token
-    assert estimate_tokens("12345") == 2 # 5 chars -> 2 tokens
-    assert estimate_tokens("") == 1      # min 1 token
+    assert _estimate_tokens("1234") == 1  # 4 chars -> 1 token
+    assert _estimate_tokens("12345") == 2 # 5 chars -> 2 tokens
+    assert _estimate_tokens("") == 1      # min 1 token
 
 def test_check_escrow():
     # 10 tokens requires 10 / 10_000_000 = 0.000001 crypto

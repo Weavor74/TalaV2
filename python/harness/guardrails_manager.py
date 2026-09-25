@@ -111,7 +111,7 @@ def _log_violation_to_ledger(violation_type: str, details: dict[str, Any]) -> No
         logger.warning("Failed to record safety violation in the audit log: %s", e)
 
 
-def verify_luhn(card_number: str) -> bool:
+def _verify_luhn(card_number: str) -> bool:
     """Validate credit card number using Luhn algorithm to reduce false positives."""
     digits = [int(c) for c in card_number if c.isdigit()]
     if len(digits) < 13 or len(digits) > 19:
@@ -141,7 +141,7 @@ async def get_active_guardrails() -> tuple[str, dict[str, Any]]:
         return "none", {}
 
 
-def resolve_rules(category: str, custom_rules: dict[str, Any]) -> dict[str, Any]:
+def _resolve_rules(category: str, custom_rules: dict[str, Any]) -> dict[str, Any]:
     """Resolve rules mapping categories to active rules dictionaries."""
     if category == "none":
         return {}
@@ -203,7 +203,7 @@ class GuardrailsManager:
 
     def __init__(self, category: str, rules: dict[str, Any]) -> None:
         self.category = category
-        self.rules = resolve_rules(category, rules)
+        self.rules = _resolve_rules(category, rules)
 
     @classmethod
     async def load_current(cls) -> GuardrailsManager:
@@ -314,7 +314,7 @@ class GuardrailsManager:
                 if "credit_card" in pii_fields:
                     for match in CREDIT_CARD_REGEX.finditer(prompt):
                         cleaned_card = "".join(match.group().split())
-                        if verify_luhn(cleaned_card):
+                        if _verify_luhn(cleaned_card):
                             _log_violation_to_ledger("pii_leak", {"classification": "credit_card"})
                             raise PiiAccessBlockedError(
                                 "Access blocked: Prompt contains Personally Identifiable Information (Credit Card).",
@@ -427,7 +427,7 @@ class GuardrailsManager:
                 matches = list(CREDIT_CARD_REGEX.finditer(validated_text))
                 for match in reversed(matches):
                     cleaned_card = "".join(match.group().split())
-                    if verify_luhn(cleaned_card):
+                    if _verify_luhn(cleaned_card):
                         start, end = match.span()
                         validated_text = validated_text[:start] + "[REDACTED_CARD]" + validated_text[end:]
 

@@ -19,8 +19,8 @@ def test_bridge_manifest_stamps_valid_and_runtime_status(monkeypatch):
         "mcp_servers": [],
         "server_count": 0,
     })
-    # Prefer testing through public mcp_bridge_manifest with runtime stubbed.
-    manifest = plugins.mcp_bridge_manifest()
+    # Prefer testing through public _mcp_bridge_manifest with runtime stubbed.
+    manifest = plugins._mcp_bridge_manifest()
     assert manifest["id"] == plugins.MCP_BRIDGE_ID
     assert manifest["valid"] is True
     assert manifest["runtime_status"] == "idle"
@@ -39,7 +39,7 @@ def test_bridge_manifest_ready_when_servers_configured(monkeypatch):
         "mcp_servers": ["fs"],
         "server_count": 1,
     })
-    manifest = plugins.mcp_bridge_manifest()
+    manifest = plugins._mcp_bridge_manifest()
     assert manifest["valid"] is True
     assert manifest["runtime_status"] == "ready"
     assert not manifest.get("error")
@@ -55,7 +55,7 @@ def test_bridge_manifest_precise_error_when_transport_missing(monkeypatch):
         "mcp_servers": ["x"],
         "server_count": 1,
     })
-    manifest = plugins.mcp_bridge_manifest()
+    manifest = plugins._mcp_bridge_manifest()
     assert manifest["valid"] is False
     assert manifest["runtime_status"] == "error"
     assert "transport" in (manifest.get("error") or "").lower()

@@ -283,7 +283,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         supplied = request.headers.get("X-Tala-Token") or request.query.get("token")
         return secrets.compare_digest(str(supplied or ""), token)
 
-    def origin_allowed(request: web.Request, *, require_origin: bool = False) -> bool:
+    def _origin_allowed(request: web.Request, *, require_origin: bool = False) -> bool:
         # The same drive-by gate 8765 applies (see ws_auth): a browser stamps
         # Origin on every cross-origin POST and page script cannot forge it,
         # so a hostile page CSRF-ing /api/bridge announces itself here.
@@ -308,7 +308,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         return web.Response(text=html, content_type="text/html")
 
     async def config(request: web.Request) -> web.Response:
-        if not origin_allowed(request):
+        if not _origin_allowed(request):
             return web.Response(status=403, text="// origin not allowed")
         if not authorised(request):
             return web.Response(status=401, text="// unauthorised")
@@ -333,7 +333,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
             content_type="application/javascript",
         )
 
-    async def ws_ticket(request: web.Request) -> web.Response:
+    async def _ws_ticket(request: web.Request) -> web.Response:
         """
         Short-lived single-use WS ticket exchange (UI-audit C3).
 
@@ -341,7 +341,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         one-shot query param. Origin-checked. Response is no-store and never
         includes the long-lived WS secret.
         """
-        if not origin_allowed(request, require_origin=True):
+        if not _origin_allowed(request, require_origin=True):
             return web.json_response({"error": "origin not allowed"}, status=403)
         if _rate_limited(str(request.remote or "?") + ":ticket"):
             return web.json_response({"error": "rate limited"}, status=429)
@@ -357,7 +357,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
         )
 
     async def bridge(request: web.Request) -> web.Response:
-        if not origin_allowed(request):
+        if not _origin_allowed(request):
             return web.json_response({"error": "origin not allowed"}, status=403)
         if _rate_limited(str(request.remote or "?")):
             return web.json_response({"error": "rate limited"}, status=429)
@@ -389,7 +389,7 @@ def _make_app(ws_port: int, token: str) -> web.Application:
     app.router.add_get("/index.html", index)
     app.router.add_get("/tala-web-config.js", config)
     app.router.add_get("/tala-web-shim.js", shim)
-    app.router.add_post("/api/ws-ticket", ws_ticket)
+    app.router.add_post("/api/ws-ticket", _ws_ticket)
     app.router.add_post("/api/bridge", bridge)
     app.router.add_static("/", _RENDERER_DIR, show_index=False)
     return app

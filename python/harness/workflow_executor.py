@@ -344,7 +344,7 @@ class WorkflowExecutor:
                     msg_id = f"msg-{uuid.uuid4().hex[:12]}"
                     if not result_data:
                         result_data = {}
-                    result_data.update({"message_id": msg_id, "sent_at": datetime_now_iso()})
+                    result_data.update({"message_id": msg_id, "sent_at": _datetime_now_iso()})
                     message = f"Email dispatched successfully via {provider}."
                     node_logs.append(message)
 
@@ -927,6 +927,6 @@ def _truthy(value: Any) -> bool:
     return bool(value)
 
 
-def datetime_now_iso() -> str:
+def _datetime_now_iso() -> str:
     from datetime import datetime, timezone
     return datetime.now(tz=timezone.utc).isoformat()
