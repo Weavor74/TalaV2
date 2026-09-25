@@ -237,24 +237,23 @@ class ToolRegistry:
         principal: Any | None = None,
     ) -> dict[str, Any]:
         """
-        Execute a registered tool by name with specified arguments.
-        Enforces AuthorizationGate (grant model + halt), leases, and RiskClassifier.
-
-        *principal* defaults to the owner for the authenticated local harness
-        session. Peer or plugin callers that must be grant-scoped should pass
-        an explicit ``Principal``; without a grant the gate fails closed.
+        Execute a registered tool by name. Enforces per-agent tool scoping
+        (tool_scoping.py), AuthorizationGate (grant model + halt), leases, and
+        RiskClassifier. *principal* defaults to the owner; peer/agent/plugin
+        callers that must be grant- or scope-limited pass an explicit
+        ``Principal`` -- without a grant the gate fails closed.
         """
         cls.auto_discover_skills()
         tool_entry = cls._tools.get(name.lower())
         if not tool_entry:
-            return {
-                "success": False,
-                "error": f"Tool {name!r} not found in registry.",
-            }
+            return {"success": False, "error": f"Tool {name!r} not found in registry."}
 
         func = tool_entry["func"]
         plugin_id = tool_entry.get("plugin_id")
 
+        from sdk.agent.tool_scoping import check_agent_tool_scope  # per-agent allowlist
+        if (denial := await check_agent_tool_scope(principal, name)) is not None:
+            return denial
         # --- CONFIDENCE GATE (skill nodes only) ----------------------------
         # Only applies to auto-distilled skill-*.html tools that carry a
         # node_path.  Built-in / plugin tools are never gated.
