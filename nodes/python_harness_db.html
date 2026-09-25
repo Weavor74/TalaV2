@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="python.harness.db"
   data-source-files="python/harness/db.py"
-  data-source-fingerprint="sha256:374BC110E95B5B72F8ABACA017F5E3150D71E35552FC7BFCF493D696F2E95A2F"
-  data-source-digest="sha256:DDFBD9822578A747697E14974BC597A673136E93FDEC61C7BD509ED591C2D04A"
-  data-description-baseline-digest="sha256:089A4A587E871AC3577CFA05527846EBDC21B2FCDC6E3CC40CEDDE5FBAD8F2F0"
+  data-source-fingerprint="sha256:2A561450C0B6DC2A6D91ECD3713E6E289BEE07D351841949D6A7564E6C4AA596"
+  data-source-digest="sha256:57F07E5D5A7518034BAF2875722FD571CA54322DD968E7A03B2EB0490AF5341F"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T00:43:48Z"
+  data-generated-at="2026-09-25T20:15:21Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,10 +38,9 @@
   </header>
 
   <section id="semantic-memory">
-  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>db.py — Tala Cognitive Engine Room: PostgreSQL Database Layer ============================================================= The SINGLE authoritative durable-state layer for the entire Tala harness.</p>
     <p>It lives at python/harness/db.py within the Python harness, the backend that runs the system.</p>
-    <p>Functions it exposes: assert_postgres_authority() — Raise :class:`RuntimeError` if invoked from a mem0 context.; init_pool() — Initialise the asyncpg connection pool and apply DDL migrations.; close_pool() — Drain and close the connection pool gracefully.; get_pool() — Return the active connection pool.; execute() — Execute a DML statement (INSERT / UPDATE / DELETE / DDL).; fetch() — Run a SELECT and return all matching rows as a list of :class:`asyncpg.Record`.; fetchrow() — Run a SELECT and return the first row, or ``None`` if no rows match.; fetchval() — Run a SELECT and return a single scalar value from *column* of the first row.; try_claim_auto_eval_run() — Atomically check-and-claim a cooldown slot for the Auto-Eval Gate.; transaction() — Async context manager that provides a transactional connection.; log_to_db() — Append a structured log entry to the ``agent_log`` table.; seed_approved_vps_context() — Seed approved memory contexts into PG embeddings table.</p>
+    <p>Functions it exposes: assert_postgres_authority() — Raise :class:`RuntimeError` if invoked from a mem0 context.; init_pool() — Initialise the asyncpg connection pool and apply DDL migrations.; close_pool() — Drain and close the connection pool gracefully.; get_pool() — Return the active connection pool.; execute() — Execute a DML statement (INSERT / UPDATE / DELETE / DDL).; fetch() — Run a SELECT and return all matching rows as a list of :class:`asyncpg.Record`.; fetchrow() — Run a SELECT and return the first row, or ``None`` if no rows match.; fetchval() — Run a SELECT and return a single scalar value from *column* of the first row.; try_claim_auto_eval_run() — Atomically check-and-claim a cooldown slot for the Auto-Eval Gate.; transaction() — Async context manager that provides a transactional connection.; log_to_db() — Append a structured log entry to the ``agent_log`` table..</p>
   </section>
 
   <section id="source-evidence">
@@ -105,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T00:43:48Z",
+    "created_or_updated": "2026-09-25T20:15:21Z",
     "schema": "neural-node/v2",
     "doc_target": "python.harness.db",
-    "source_fingerprint": "sha256:374BC110E95B5B72F8ABACA017F5E3150D71E35552FC7BFCF493D696F2E95A2F",
+    "source_fingerprint": "sha256:2A561450C0B6DC2A6D91ECD3713E6E289BEE07D351841949D6A7564E6C4AA596",
     "source_files": [
       "python/harness/db.py"
     ],
-    "source_digest": "sha256:DDFBD9822578A747697E14974BC597A673136E93FDEC61C7BD509ED591C2D04A",
+    "source_digest": "sha256:57F07E5D5A7518034BAF2875722FD571CA54322DD968E7A03B2EB0490AF5341F",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

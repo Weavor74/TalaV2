@@ -6,7 +6,7 @@
   <title>Neural Node: Harness: Task Rpc</title>
 </head>
 <body>
-<article
+<article data-description-baseline-digest="sha256:32D92234D37B175EC4D9232068238562D8D125A8163D8D9EFE24B0D3CD53324E"
   data-node-id="python_harness_task_rpc"
   data-node-type="documentation"
   data-schema-version="neural-node/v2"
@@ -23,8 +23,8 @@
   data-doc-target="python.harness.task_rpc"
   data-source-files="python/harness/task_rpc.py"
   data-source-fingerprint="sha256:5F43F03338A80265738BBB95C3311B9CB2C27339D239805F28746E882B110930"
-  data-source-digest="sha256:32D92234D37B175EC4D9232068238562D8D125A8163D8D9EFE24B0D3CD53324E"
-  data-description-baseline-digest=""
+  data-source-digest="sha256:7370EC31659F9E9C175B13F6A16594F8C5A11A1CA5B534C44DCA2392A7E063BD"
+  data-description-verified="false"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -38,6 +38,8 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
+
     <p>python/harness/task_rpc.py — the task lifecycle&#x27;s RPC surface.</p>
     <p>It lives at python/harness/task_rpc.py within the Python harness, the backend that runs the system.</p>
     <p>Functions it exposes: handle_task_submit() — ``task.submit`` — Accept a goal, decompose it, and queue/execute it using GoalEngine.; handle_task_list() — ``task.list`` — Fetch all queued/executing tasks.; handle_task_assign_worker(); handle_task_set_model_override(); handle_task_create_worktree(); handle_task_control() — ``task.control`` — Pause, resume, or abort task loops.; handle_task_clear() — ``task.clear`` — Wipe all tasks and their associated telemetry.; handle_task_delete() — ``task.delete`` — Remove one task and its children.; handle_task_update() — ``task.update`` — Edit a task&#x27;s description or status.; handle_task_get_telemetry() — ``task.get_telemetry`` — Fetch event telemetry streams.; handle_task_status(); handle_task_phase_events(); handle_task_artifacts(); prune_finished_tasks() — Age finished tasks out of the board.; handle_task_prune() — ``task.prune`` — remove finished tasks older than a retention window..</p>
@@ -111,7 +113,7 @@
     "source_files": [
       "python/harness/task_rpc.py"
     ],
-    "source_digest": "sha256:32D92234D37B175EC4D9232068238562D8D125A8163D8D9EFE24B0D3CD53324E",
+    "source_digest": "sha256:7370EC31659F9E9C175B13F6A16594F8C5A11A1CA5B534C44DCA2392A7E063BD",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

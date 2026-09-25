@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.verification"
   data-source-files="sdk/agent/verification.py"
-  data-source-fingerprint="sha256:3CE66DFE5A728F604FB34C1C122A44584EA08487353EE7E0EFDE512CA0A44BFA"
-  data-source-digest="sha256:2D168EED1D516076E9D09E8858104783AED7BD7C5BD946FEDA23BB064EA993BA"
-  data-description-baseline-digest="sha256:B6B580D83CAD0E2433634B88FFE84D15EF6172BB30884EB923FD73B93BA5166A"
+  data-source-fingerprint="sha256:BE00E8B9D05B712183D741481B2EB90017D57122860D33DF5173CE42208BD5DA"
+  data-source-digest="sha256:BFD38A01E69AD4C908D639364600F8E8B18DBD4A3950B55B3C0ACFE8338CF4B6"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-08-13T00:21:38Z"
+  data-generated-at="2026-09-25T20:15:32Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,11 +38,9 @@
   </header>
 
   <section id="semantic-memory">
-  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>sdk/agent/verification.py ========================= Verification Matrix &amp; Invariant Assurance — Tala Cognitive Engine Room Milestone 6 | Task 6.3.1 Provides: • InvariantChecker  — registry + runner for boolean invariant callables • Built-in invariants that enforce Tala&#x27;s core architectural contracts • SmokeTestRunner   — thin pytest wrapper • VerificationMatrix — orchestrates all checks and produces a report Architecture invariants enforced here: 1.</p>
     <p>It lives at sdk/agent/verification.py within the agent SDK.</p>
-    <p>Classes it defines: InvariantStatus; InvariantRecord — Result of a single invariant check.; SmokeTestResult — Aggregated result from running pytest on a set of test paths. (methods: all_passed()); VerificationReport — Full report from VerificationMatrix.run(). (methods: failed_invariants(), passed_count(), total_count()); InvariantChecker — Registry and runner for boolean invariant callables. (methods: register(), register_defaults(), run_all(), run_before_complete()); SmokeTestRunner — Executes pytest on a list of test paths and parses the results. (methods: run_smoke_tests()); VerificationMatrix — Orchestrates all verification checks and produces a VerificationReport. (methods: run(), report_summary()).</p>
-    <p>Functions it exposes: postgres_is_sole_authority() — Verify that PostgreSQL is configured as the sole persistent data authority.; mem0_is_read_only() — Verify that the mem0 adapter cannot perform write operations.; vault_is_network_isolated() — Verify that the vault directory path has no outbound network socket context.; style_cap_enforced() — Verify that the Astro style influence cap is exactly 0.10..</p>
+    <p>Classes it defines: InvariantStatus; InvariantRecord — Result of a single invariant check.; SmokeTestResult — Aggregated result from running pytest on a set of test paths. (methods: all_passed()); VerificationReport — Full report from VerificationMatrix.run(). (methods: failed_invariants(), passed_count(), total_count()); InvariantChecker — Registry and runner for boolean invariant callables. (methods: register(), register_defaults(), run_all(), run_before_complete()); SmokeTestRunner — Executes pytest on a list of test paths and parses the results.; VerificationMatrix — Orchestrates all verification checks and produces a VerificationReport. (methods: run(), report_summary()).</p>
   </section>
 
   <section id="source-evidence">
@@ -106,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-08-13T00:21:38Z",
+    "created_or_updated": "2026-09-25T20:15:32Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.verification",
-    "source_fingerprint": "sha256:3CE66DFE5A728F604FB34C1C122A44584EA08487353EE7E0EFDE512CA0A44BFA",
+    "source_fingerprint": "sha256:BE00E8B9D05B712183D741481B2EB90017D57122860D33DF5173CE42208BD5DA",
     "source_files": [
       "sdk/agent/verification.py"
     ],
-    "source_digest": "sha256:2D168EED1D516076E9D09E8858104783AED7BD7C5BD946FEDA23BB064EA993BA",
+    "source_digest": "sha256:BFD38A01E69AD4C908D639364600F8E8B18DBD4A3950B55B3C0ACFE8338CF4B6",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

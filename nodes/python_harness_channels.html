@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="python.harness.channels"
   data-source-files="python/harness/channels.py"
-  data-source-fingerprint="sha256:9843E9A94E6D9742BAC8AC5E0FA02034D6326D8EC162D4848349C100D55FE779"
-  data-source-digest="sha256:20C7AFD97A3A6D2522D2FB331DFC69CDE386257760F77AE555A0B06B2CFF13D9"
+  data-source-fingerprint="sha256:7E69BBAEA4618142B082A469A5CE590D7D2BB5DE995032FF319DD1DC4E3C0CA6"
+  data-source-digest="sha256:A982B5FB6ABDC3E5CD57B63E255E8B53FC671FCB91374678066B49E070E09216"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-17T13:52:52Z"
+  data-generated-at="2026-09-25T20:15:20Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -40,7 +40,7 @@
   <section id="semantic-memory">
     <p>python/harness/channels.py — Outside messaging channels ======================================================= Lets Tala be reached from outside the desktop app.</p>
     <p>It lives at python/harness/channels.py within the Python harness, the backend that runs the system.</p>
-    <p>Classes it defines: BaseAdapter — One configured channel. (methods: allowlist(), is_allowed(), start(), stop(), poll(), send(), status()); TelegramAdapter — Long-polls getUpdates; no public URL or webhook required. (methods: poll(), send()); DiscordAdapter — Discord Gateway, drained through poll() so the base loop still owns policy. (methods: start(), stop(), poll(), send()); ChannelManager — Singleton owning every configured channel adapter. (methods: get(), register_broadcast(), register_listener(), start(), reload(), send(), status()).</p>
+    <p>Classes it defines: BaseAdapter — One configured channel. (methods: allowlist(), start(), stop(), poll(), send(), status()); TelegramAdapter — Long-polls getUpdates; no public URL or webhook required. (methods: poll(), send()); DiscordAdapter — Discord Gateway, drained through poll() so the base loop still owns policy. (methods: start(), stop(), poll(), send()); ChannelManager — Singleton owning every configured channel adapter. (methods: get(), register_broadcast(), register_listener(), start(), reload(), send(), status()).</p>
   </section>
 
   <section id="source-evidence">
@@ -104,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-17T13:52:52Z",
+    "created_or_updated": "2026-09-25T20:15:20Z",
     "schema": "neural-node/v2",
     "doc_target": "python.harness.channels",
-    "source_fingerprint": "sha256:9843E9A94E6D9742BAC8AC5E0FA02034D6326D8EC162D4848349C100D55FE779",
+    "source_fingerprint": "sha256:7E69BBAEA4618142B082A469A5CE590D7D2BB5DE995032FF319DD1DC4E3C0CA6",
     "source_files": [
       "python/harness/channels.py"
     ],
-    "source_digest": "sha256:20C7AFD97A3A6D2522D2FB331DFC69CDE386257760F77AE555A0B06B2CFF13D9",
+    "source_digest": "sha256:A982B5FB6ABDC3E5CD57B63E255E8B53FC671FCB91374678066B49E070E09216",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

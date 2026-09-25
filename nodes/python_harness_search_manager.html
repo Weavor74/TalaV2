@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="python.harness.search_manager"
   data-source-files="python/harness/search_manager.py"
-  data-source-fingerprint="sha256:13F8FD1199ADAF7776A7CD850E0F6B71E22A40677C2C0D3A3833F4865FD6CFE9"
-  data-source-digest="sha256:518841B64572DFEF358F94EF41CCF714BBCD4BDD5DB9F6EDA98395AB9EDC713C"
-  data-description-baseline-digest="sha256:EF9B8C112CFBDB2C2D3EA20D9514C7E4F9B123032C5C6524D218E1E035DCAD62"
+  data-source-fingerprint="sha256:7E961132FC17E323CC0F4B5995346C85A94CDA476A311BBDD099F08150F2829E"
+  data-source-digest="sha256:4406CAC51C78C2941294626AB215B58D6363456D7330BAB9D25FC88DD3011266"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T00:44:05Z"
+  data-generated-at="2026-09-25T20:15:24Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,11 +38,10 @@
   </header>
 
   <section id="semantic-memory">
-  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>search_manager.py — Tala Cognitive Engine Room: Search Providers &amp; Web Crawler ============================================================================= Orchestrates prioritized web search providers and falls back to direct web crawling if no providers are present.</p>
     <p>It lives at python/harness/search_manager.py within the Python harness, the backend that runs the system.</p>
     <p>Classes it defines: SearchOutcome — The result of a search *and* what happened on the way to it. (methods: degraded(), error_summary()); SearchManager — Manages search queries via prioritized API providers or raw crawler failovers. (methods: query(), query_detailed()).</p>
-    <p>Functions it exposes: get_search_providers() — Retrieve all configured search providers sorted by priority from DB.; crawl_web() — Crawl DuckDuckGo HTML search directly as a fallback..</p>
+    <p>Functions it exposes: get_search_providers() — Retrieve all configured search providers sorted by priority from DB..</p>
   </section>
 
   <section id="source-evidence">
@@ -106,14 +105,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T00:44:05Z",
+    "created_or_updated": "2026-09-25T20:15:24Z",
     "schema": "neural-node/v2",
     "doc_target": "python.harness.search_manager",
-    "source_fingerprint": "sha256:13F8FD1199ADAF7776A7CD850E0F6B71E22A40677C2C0D3A3833F4865FD6CFE9",
+    "source_fingerprint": "sha256:7E961132FC17E323CC0F4B5995346C85A94CDA476A311BBDD099F08150F2829E",
     "source_files": [
       "python/harness/search_manager.py"
     ],
-    "source_digest": "sha256:518841B64572DFEF358F94EF41CCF714BBCD4BDD5DB9F6EDA98395AB9EDC713C",
+    "source_digest": "sha256:4406CAC51C78C2941294626AB215B58D6363456D7330BAB9D25FC88DD3011266",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

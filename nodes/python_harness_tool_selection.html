@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="python.harness.tool_selection"
   data-source-files="python/harness/tool_selection.py"
-  data-source-fingerprint="sha256:CE1B32860A47B4E8FF30B9CA49BCFA5F92DC4C489EDE9005DD0BDE516FEFCB89"
-  data-source-digest="sha256:87FEE9D8A6585D56A57EF956958A64BFB239A3F549463FC2144B02A94C599177"
+  data-source-fingerprint="sha256:0FC4E3545B17B2FF24BEADFF2A32210CBF9F07003ACCCC1B7F9B2BA1AD7BFBF5"
+  data-source-digest="sha256:51BFD8D08D2340E142D49706F6D976077FEE5F3222DAA030C9D59312FAB67E40"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T00:44:14Z"
+  data-generated-at="2026-09-25T20:15:26Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -41,7 +41,7 @@
     <p>tool_selection.py — choose which tools a given turn actually offers the model.</p>
     <p>It lives at python/harness/tool_selection.py within the Python harness, the backend that runs the system.</p>
     <p>Classes it defines: ToolIndex — Keyword index over the registry, plus any authored keyword supplement. (methods: score()).</p>
-    <p>Functions it exposes: select_tool_names() — Names to offer this turn: core, plus anything already used this request, plus the highest-scoring remainder up to `budget`.; budget_for() — Per-turn tool budget, overridable per provider via `tool_budget`.; select_specs() — Filter already-built tool specs down to the selection.; conversation_text() — The text selection is scored against: the last few non-system messages..</p>
+    <p>Functions it exposes: budget_for() — Per-turn tool budget, overridable per provider via `tool_budget`.; select_specs() — Filter already-built tool specs down to the selection.; conversation_text() — The text selection is scored against: the last few non-system messages..</p>
   </section>
 
   <section id="source-evidence">
@@ -105,14 +105,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T00:44:14Z",
+    "created_or_updated": "2026-09-25T20:15:26Z",
     "schema": "neural-node/v2",
     "doc_target": "python.harness.tool_selection",
-    "source_fingerprint": "sha256:CE1B32860A47B4E8FF30B9CA49BCFA5F92DC4C489EDE9005DD0BDE516FEFCB89",
+    "source_fingerprint": "sha256:0FC4E3545B17B2FF24BEADFF2A32210CBF9F07003ACCCC1B7F9B2BA1AD7BFBF5",
     "source_files": [
       "python/harness/tool_selection.py"
     ],
-    "source_digest": "sha256:87FEE9D8A6585D56A57EF956958A64BFB239A3F549463FC2144B02A94C599177",
+    "source_digest": "sha256:51BFD8D08D2340E142D49706F6D976077FEE5F3222DAA030C9D59312FAB67E40",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="python.harness.access"
   data-source-files="python/harness/access.py"
-  data-source-fingerprint="sha256:A217272A5FFB9DCC414F51056AAD599C0C51452BF58510740E16369404338189"
-  data-source-digest="sha256:F013C0ED57AA4FC5C1AB94D9BAC256E6214DD3B184C48F0D0C82D44A864D3518"
-  data-description-baseline-digest="sha256:44E75692301D7AD847E0F1EF1940BEF1EFFF8A91550D339A2FDC6D51472C0210"
+  data-source-fingerprint="sha256:91931417B240F7370B87AB8CFA79D0D816C65A51A1A1B735D52389DD40159C33"
+  data-source-digest="sha256:48754A74280C97412207D2492364F74ABB168BC65A91A67B2427BF45E3D88D81"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T00:43:32Z"
+  data-generated-at="2026-09-25T20:15:19Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,11 +38,10 @@
   </header>
 
   <section id="semantic-memory">
-  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>access.py — one grant model, so the three access systems can compose.</p>
     <p>It lives at python/harness/access.py within the Python harness, the backend that runs the system.</p>
     <p>Classes it defines: Principal — Who is acting. (methods: is_owner()); Decision — Whether an action is permitted, and why..</p>
-    <p>Functions it exposes: check_constraints() — Whether a grant&#x27;s constraints are satisfied right now.; validate_constraints() — Whether a set of constraints is *well formed*, without evaluating it.; check() — Decide whether *principal* may do *permission* on *resource*.; grant() — Record a grant.; revoke() — Withdraw a grant.; list_grants() — Every grant, or every grant held by one principal.; resolve() — Compose an explicit grant with a subsystem&#x27;s own rule..</p>
+    <p>Functions it exposes: check() — Decide whether *principal* may do *permission* on *resource*.; grant() — Record a grant.; revoke() — Withdraw a grant.; list_grants() — Every grant, or every grant held by one principal.; resolve() — Compose an explicit grant with a subsystem&#x27;s own rule..</p>
   </section>
 
   <section id="source-evidence">
@@ -106,14 +105,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T00:43:32Z",
+    "created_or_updated": "2026-09-25T20:15:19Z",
     "schema": "neural-node/v2",
     "doc_target": "python.harness.access",
-    "source_fingerprint": "sha256:A217272A5FFB9DCC414F51056AAD599C0C51452BF58510740E16369404338189",
+    "source_fingerprint": "sha256:91931417B240F7370B87AB8CFA79D0D816C65A51A1A1B735D52389DD40159C33",
     "source_files": [
       "python/harness/access.py"
     ],
-    "source_digest": "sha256:F013C0ED57AA4FC5C1AB94D9BAC256E6214DD3B184C48F0D0C82D44A864D3518",
+    "source_digest": "sha256:48754A74280C97412207D2492364F74ABB168BC65A91A67B2427BF45E3D88D81",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

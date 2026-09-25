@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.leases"
   data-source-files="sdk/agent/leases.py"
-  data-source-fingerprint="sha256:F4AC32282A6AC48A2A6BA8E724AA74712C5E0741B0362D38E565FC73ED9963CF"
-  data-source-digest="sha256:A7D1F247B637A498AA36EF93EF3062EA16755A2BF3489B6B7989C351DD9472E2"
-  data-description-baseline-digest="sha256:7BB80891034AAEDF413EBF3FFD3375A925F2688BA492FEB522A889A83A2ECBE8"
+  data-source-fingerprint="sha256:337DDBF98E666313247E65C56F212AE3D063E8E2D04B6C5E1AD72EA5026082F8"
+  data-source-digest="sha256:30D4568B0244F1E4A424EBDD66D6E32479ACA31002958C5880A665E23601DA68"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-08-13T00:21:36Z"
+  data-generated-at="2026-09-25T20:15:29Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,10 +38,9 @@
   </header>
 
   <section id="semantic-memory">
-  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>sdk/agent/leases.py =================== Controlled Leases, Status Reports &amp; Contracts — Tala Cognitive Engine Room Milestone 6 | Task 6.5.1 Provides: • LeaseRequest    — dataclass for gate-controlled operations • LeaseGateway    — stores pending leases, requires user sign-off • LeaseToken      — represents an approved (or pending) lease • SystemStatusLog — structured application status logger • StatusReport    — dataclass for component health vectors • TelemetryChannel— emits status reports to Electron frontend via WebSocket Gate-controlled operations: &#x27;ledger&#x27;    — any write to the PostgreSQL financial ledger &#x27;file_edit&#x27; — any filesystem mutation outside the agent&#x27;s sandbox &#x27;wallet&#x27;    — any wallet balance or transaction operation A lease MUST be approved before the guarded operation executes.</p>
     <p>It lives at sdk/agent/leases.py within the agent SDK.</p>
-    <p>Classes it defines: StatusLevel — Application vector health levels.; LeaseState; LeaseRequest — A request to perform a gate-controlled operation.; LeaseToken — Represents the approval state of a LeaseRequest. (methods: is_valid(), is_expired(), state()); StatusReport — Health report for a single application component or service. (methods: to_dict(), to_json()); LeaseGateway — Stores and manages pending leases. (methods: request_lease(), approve_lease(), deny_lease(), revoke_lease(), await_approval(), get_token(), pending_leases(), purge_expired()); SystemStatusLog — Structured logger for application vector health status. (methods: log(), latest(), all_latest(), degraded_components(), history(), summary()); TelemetryChannel — Emits StatusReport objects to the Electron frontend over WebSocket. (methods: emit(), emit_many(), stop()).</p>
+    <p>Classes it defines: StatusLevel — Application vector health levels.; LeaseState; LeaseRequest — A request to perform a gate-controlled operation.; LeaseToken — Represents the approval state of a LeaseRequest. (methods: is_valid(), state()); StatusReport — Health report for a single application component or service. (methods: to_dict(), to_json()); LeaseGateway — Stores and manages pending leases. (methods: request_lease(), approve_lease(), deny_lease(), revoke_lease(), await_approval(), get_token(), pending_leases(), purge_expired()); SystemStatusLog — Structured logger for application vector health status. (methods: log(), latest(), history(), summary()); TelemetryChannel — Emits StatusReport objects to the Electron frontend over WebSocket. (methods: emit(), emit_many(), stop()).</p>
   </section>
 
   <section id="source-evidence">
@@ -105,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-08-13T00:21:36Z",
+    "created_or_updated": "2026-09-25T20:15:29Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.leases",
-    "source_fingerprint": "sha256:F4AC32282A6AC48A2A6BA8E724AA74712C5E0741B0362D38E565FC73ED9963CF",
+    "source_fingerprint": "sha256:337DDBF98E666313247E65C56F212AE3D063E8E2D04B6C5E1AD72EA5026082F8",
     "source_files": [
       "sdk/agent/leases.py"
     ],
-    "source_digest": "sha256:A7D1F247B637A498AA36EF93EF3062EA16755A2BF3489B6B7989C351DD9472E2",
+    "source_digest": "sha256:30D4568B0244F1E4A424EBDD66D6E32479ACA31002958C5880A665E23601DA68",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

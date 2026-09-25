@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="python.harness.chat_mode"
   data-source-files="python/harness/chat_mode.py"
-  data-source-fingerprint="sha256:7B15F5AF7380241641798A083BB0CA004646A3984FAC1EA6DFF1B674CFEB0240"
-  data-source-digest="sha256:E701BD5D2EDA25ED3A830E23B8BA4FA1EC0B32905051D9BEF599B0C6B0713AB4"
+  data-source-fingerprint="sha256:EC174D344483674CDEAF267CBB68712190FAB631F5AE0265533F5BF87B541675"
+  data-source-digest="sha256:8036BACCBDF939C7881F22E4321EBB95813EA1A3FFE9A09C6C1DC30BE79DB9C0"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T00:43:42Z"
+  data-generated-at="2026-09-25T20:15:20Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -40,7 +40,7 @@
   <section id="semantic-memory">
     <p>python/harness/chat_mode.py — Active chat mode (rp / hybrid / assistant) ======================================================================= The single source of truth for which conversational mode Tala is in.</p>
     <p>It lives at python/harness/chat_mode.py within the Python harness, the backend that runs the system.</p>
-    <p>Functions it exposes: get_chat_mode_file_path() — Absolute path of chat_mode.json under the active user-data root.; normalize_chat_mode() — Coerce arbitrary input to a valid mode, falling back to the default.; get_current_chat_mode() — Current chat mode, always one of VALID_CHAT_MODES.; save_current_chat_mode() — Persist `mode` and return the normalized value actually written.; is_emotional_mode() — Whether the given mode (default: the current one) carries the astrology-derived emotional state..</p>
+    <p>Functions it exposes: get_current_chat_mode() — Current chat mode, always one of VALID_CHAT_MODES.; save_current_chat_mode() — Persist `mode` and return the normalized value actually written.; is_emotional_mode() — Whether the given mode (default: the current one) carries the astrology-derived emotional state.; determine_effective_mode() — The mode this turn should use: the persisted setting, or a per-turn override from the embedded engine&#x27;s Jev-mode structured decision..</p>
   </section>
 
   <section id="source-evidence">
@@ -104,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T00:43:42Z",
+    "created_or_updated": "2026-09-25T20:15:20Z",
     "schema": "neural-node/v2",
     "doc_target": "python.harness.chat_mode",
-    "source_fingerprint": "sha256:7B15F5AF7380241641798A083BB0CA004646A3984FAC1EA6DFF1B674CFEB0240",
+    "source_fingerprint": "sha256:EC174D344483674CDEAF267CBB68712190FAB631F5AE0265533F5BF87B541675",
     "source_files": [
       "python/harness/chat_mode.py"
     ],
-    "source_digest": "sha256:E701BD5D2EDA25ED3A830E23B8BA4FA1EC0B32905051D9BEF599B0C6B0713AB4",
+    "source_digest": "sha256:8036BACCBDF939C7881F22E4321EBB95813EA1A3FFE9A09C6C1DC30BE79DB9C0",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

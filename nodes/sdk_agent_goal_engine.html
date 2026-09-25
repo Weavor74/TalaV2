@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.goal_engine"
   data-source-files="sdk/agent/goal_engine.py"
-  data-source-fingerprint="sha256:0AE97F5AAAEBB192EAE47601F0BE00BD8FCA4A117631B0F8CC67BFFCC30DE4BF"
-  data-source-digest="sha256:6D7064E70E647904B4ED27AC5FCF7591E3B416492FDB018B14E73D791E62D333"
-  data-description-baseline-digest="sha256:2A4F9FB602AC04B3A25468A926B055FEAA53154FD9A24E75392ABD1079129C71"
+  data-source-fingerprint="sha256:D8811AD6AB8DD5710F4FD028BB65AD1DADE45F70E53F087030CD2B0D217E2052"
+  data-source-digest="sha256:783BB08C45ADE465D7BC6146FDD91A4FB367DAFCB94275DCD67E9AA688AF8676"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-08-24T01:32:08Z"
+  data-generated-at="2026-09-25T20:15:28Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,11 +38,10 @@
   </header>
 
   <section id="semantic-memory">
-  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>sdk/agent/goal_engine.py ======================== Goal Engine Orchestrator — Tala Cognitive Engine Room Milestone 7 | Phase 2 Goal Execution</p>
     <p>It lives at sdk/agent/goal_engine.py within the agent SDK.</p>
-    <p>Classes it defines: GoalEngine — Orchestrates the decomposition, checkpointing, dispatching, verification, rollback, and reporting of multi-phase goals. (methods: run_goal(), should_i_adjust(), process_feedback(), check_dream_trigger(), dream_report_filter(), generate_dream_journal_entry(), dream_cycle()); AdapterSelector — Metadata-aware neural adapter selector (methods: select_adapter()).</p>
-    <p>Functions it exposes: strip_replan_wrapper() — Return the original task description, with any re-plan scaffolding removed.; register_active_task(); unregister_active_task(); get_active_task_ids(); find_resumable_suspended_goals() — Find goal-parent tasks BLOCKED specifically by BatchPolicy budget exhaustion (the `suspended` path in GoalEngine.run_goal) that are still eligible for automatic resume.; resume_suspended_goals() — Auto-resume every eligible budget-suspended goal (see find_resumable_suspended_goals).; infer_emotional_state() — Infer emotional valence state from text query.</p>
+    <p>Classes it defines: GoalEngine — Orchestrates the decomposition, checkpointing, dispatching, verification, rollback, and reporting of multi-phase goals. (methods: run_goal(), should_i_adjust(), process_feedback(), check_dream_trigger(), dream_report_filter(), generate_dream_journal_entry(), dream_cycle()); AdapterSelector — Metadata-aware neural adapter selector.</p>
+    <p>Functions it exposes: register_active_task(); unregister_active_task(); get_active_task_ids(); resume_suspended_goals() — Auto-resume every eligible budget-suspended goal (see find_resumable_suspended_goals)..</p>
   </section>
 
   <section id="source-evidence">
@@ -106,14 +105,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-08-24T01:32:08Z",
+    "created_or_updated": "2026-09-25T20:15:28Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.goal_engine",
-    "source_fingerprint": "sha256:0AE97F5AAAEBB192EAE47601F0BE00BD8FCA4A117631B0F8CC67BFFCC30DE4BF",
+    "source_fingerprint": "sha256:D8811AD6AB8DD5710F4FD028BB65AD1DADE45F70E53F087030CD2B0D217E2052",
     "source_files": [
       "sdk/agent/goal_engine.py"
     ],
-    "source_digest": "sha256:6D7064E70E647904B4ED27AC5FCF7591E3B416492FDB018B14E73D791E62D333",
+    "source_digest": "sha256:783BB08C45ADE465D7BC6146FDD91A4FB367DAFCB94275DCD67E9AA688AF8676",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

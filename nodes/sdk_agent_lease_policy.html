@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.lease_policy"
   data-source-files="sdk/agent/lease_policy.py"
-  data-source-fingerprint="sha256:72CDF109A82F89BD4D881658E45D64CEF82D24CA900CEE8113D36153A4A6CA3E"
-  data-source-digest="sha256:49C63EE614418EEEF6CA8BE51208F621364CD78A89999A0B03F985D3405AE407"
-  data-description-baseline-digest="sha256:27CFF392B05E0CF36728E0BAAD7680CEE9157DC9BB9283F13F8A6CBD7B0A5C09"
+  data-source-fingerprint="sha256:B8A2FF061DEDB99DD4F38DA63BC32A6E2DFE9A6540FF44AE8836E8678D6B43EA"
+  data-source-digest="sha256:C05F2503CD36C45A3F4E4336487490DEB04140D29DD672F4EC1E6680C96DCEB7"
+  data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-03T00:05:57Z"
+  data-generated-at="2026-09-25T20:15:28Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,10 +38,9 @@
   </header>
 
   <section id="semantic-memory">
-  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
     <p>sdk/agent/lease_policy.py — the leases, wired.</p>
     <p>It lives at sdk/agent/lease_policy.py within the agent SDK.</p>
-    <p>Functions it exposes: classify_tool() — The guarded operation a tool performs, or None if it is not gated.; current_mode() — The active lease mode, defaulting to ``open``.; register_broadcast() — Let pending leases reach the UI, the way self-edit approvals already do.; gateway() — The shared LeaseGateway, created on first use.; guard() — Take a lease for *tool_name* if it needs one..</p>
+    <p>Functions it exposes: current_mode() — The active lease mode, defaulting to ``enforce`` (fail-closed).; register_broadcast() — Let pending leases reach the UI, the way self-edit approvals already do.; gateway() — The shared LeaseGateway, created on first use.; guard() — Take a lease for *tool_name* if it needs one..</p>
   </section>
 
   <section id="source-evidence">
@@ -105,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-03T00:05:57Z",
+    "created_or_updated": "2026-09-25T20:15:28Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.lease_policy",
-    "source_fingerprint": "sha256:72CDF109A82F89BD4D881658E45D64CEF82D24CA900CEE8113D36153A4A6CA3E",
+    "source_fingerprint": "sha256:B8A2FF061DEDB99DD4F38DA63BC32A6E2DFE9A6540FF44AE8836E8678D6B43EA",
     "source_files": [
       "sdk/agent/lease_policy.py"
     ],
-    "source_digest": "sha256:49C63EE614418EEEF6CA8BE51208F621364CD78A89999A0B03F985D3405AE407",
+    "source_digest": "sha256:C05F2503CD36C45A3F4E4336487490DEB04140D29DD672F4EC1E6680C96DCEB7",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

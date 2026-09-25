@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="python.harness.system_info"
   data-source-files="python/harness/system_info.py"
-  data-source-fingerprint="sha256:FB963D7C1A6A9C3211C55BEBCA10907E13F4B3FB0D997675E7606A243658C34E"
-  data-source-digest="sha256:ED0616569EA37ADF4C97CD11AB944E52B0AA6B0B62C15E778FA6D7E373488E09"
+  data-source-fingerprint="sha256:72E00E6A1B2887622021078543C2DBF922F6E4DA1B6F44E40E6231AC9DAF7FAD"
+  data-source-digest="sha256:C750D7C1CB6F3F7FA03D8BA14DB0E56CB1964E4A1DCF1BD2A9D5AF90AD35BFB5"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-17T13:56:15Z"
+  data-generated-at="2026-09-25T20:15:25Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -40,7 +40,7 @@
   <section id="semantic-memory">
     <p>system_info.py — host hardware, OS, and installed-software collection.</p>
     <p>It lives at python/harness/system_info.py within the Python harness, the backend that runs the system.</p>
-    <p>Functions it exposes: collect_system_info().</p>
+    <p>Functions it exposes: collect_system_info(); has_gpu() — True when CUDA/torch or nvidia-smi reports at least one GPU device..</p>
   </section>
 
   <section id="source-evidence">
@@ -104,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-17T13:56:15Z",
+    "created_or_updated": "2026-09-25T20:15:25Z",
     "schema": "neural-node/v2",
     "doc_target": "python.harness.system_info",
-    "source_fingerprint": "sha256:FB963D7C1A6A9C3211C55BEBCA10907E13F4B3FB0D997675E7606A243658C34E",
+    "source_fingerprint": "sha256:72E00E6A1B2887622021078543C2DBF922F6E4DA1B6F44E40E6231AC9DAF7FAD",
     "source_files": [
       "python/harness/system_info.py"
     ],
-    "source_digest": "sha256:ED0616569EA37ADF4C97CD11AB944E52B0AA6B0B62C15E778FA6D7E373488E09",
+    "source_digest": "sha256:C750D7C1CB6F3F7FA03D8BA14DB0E56CB1964E4A1DCF1BD2A9D5AF90AD35BFB5",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
