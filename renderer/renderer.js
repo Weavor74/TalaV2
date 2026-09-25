@@ -4826,6 +4826,8 @@ const AgentManager = {
     this._birthdateInput = qs('#agent-birthdate-input');
     this._backgroundInput = qs('#agent-background-input');
     this._tagInput = qs('#agent-tag-input');
+    this._toolsChecklist = qs('#agent-tools-checklist');
+    this._toolsFilter = qs('#agent-tools-filter');
     this._btnReset = qs('#btn-agent-reset');
     this._btnSave = qs('#btn-agent-save');
     this._editorTitle = qs('#editor-title');
@@ -4846,8 +4848,71 @@ const AgentManager = {
       this._btnReset.addEventListener('click', () => this.resetForm());
     }
 
+    if (this._toolsFilter) {
+      this._toolsFilter.addEventListener('input', () => this.filterToolsChecklist());
+    }
+    this._toolCatalogueReady = this.loadToolCatalogue();
+
     // Load agents
     this.load();
+  },
+
+  /**
+   * Populate the tool-access checklist from tools.catalogue (the same RPC
+   * the workflow palette uses — the tool node IS the catalogue, UI-059).
+   * Built once; editAgent()/resetForm() just toggle .checked afterward.
+   */
+  async loadToolCatalogue() {
+    if (!this._toolsChecklist) return;
+    try {
+      const result = await invoke('python:rpc', { method: 'tools.catalogue', params: {} });
+      const tools = (result && result.tools) || [];
+      tools.sort((a, b) => a.name.localeCompare(b.name));
+      this._toolsChecklist.innerHTML = '';
+      for (const tool of tools) {
+        const row = document.createElement('label');
+        row.className = 'agent-tool-row';
+        row.title = tool.description || '';
+        row.style.cssText = 'display: flex; align-items: center; gap: 6px; padding: 3px 0; font-size: 0.75rem; color: var(--text-primary); cursor: pointer;';
+        const box = document.createElement('input');
+        box.type = 'checkbox';
+        box.dataset.toolName = tool.name;
+        row.appendChild(box);
+        const text = document.createElement('span');
+        text.textContent = tool.name;
+        row.appendChild(text);
+        this._toolsChecklist.appendChild(row);
+      }
+      if (!tools.length) {
+        this._toolsChecklist.innerHTML = '<small style="color: var(--text-muted); font-size: 0.7rem;">No tools found.</small>';
+      }
+    } catch (err) {
+      console.warn('[AgentManager] could not load tool catalogue:', err);
+      this._toolsChecklist.innerHTML = '<small style="color: var(--text-muted); font-size: 0.7rem;">Could not load tools.</small>';
+    }
+  },
+
+  filterToolsChecklist() {
+    if (!this._toolsChecklist || !this._toolsFilter) return;
+    const query = this._toolsFilter.value.trim().toLowerCase();
+    for (const row of this._toolsChecklist.querySelectorAll('.agent-tool-row')) {
+      const name = row.querySelector('input').dataset.toolName.toLowerCase();
+      row.style.display = !query || name.includes(query) ? 'flex' : 'none';
+    }
+  },
+
+  setCheckedTools(allowlist) {
+    if (!this._toolsChecklist) return;
+    const wanted = new Set((allowlist || []).map((t) => String(t).toLowerCase()));
+    for (const box of this._toolsChecklist.querySelectorAll('input[type="checkbox"]')) {
+      box.checked = wanted.has(box.dataset.toolName.toLowerCase());
+    }
+  },
+
+  getCheckedTools() {
+    if (!this._toolsChecklist) return [];
+    return Array.from(this._toolsChecklist.querySelectorAll('input[type="checkbox"]:checked'))
+      .map((box) => box.dataset.toolName);
   },
 
   updateConditionalFields() {
@@ -5078,7 +5143,10 @@ const AgentManager = {
     if (this._birthdateInput) this._birthdateInput.value = birthdate;
     if (this._backgroundInput) this._backgroundInput.value = backgroundFile;
     if (this._tagInput) this._tagInput.value = tag;
-    
+
+    const toolAllowlist = agent.config ? (agent.config.tool_allowlist || []) : [];
+    Promise.resolve(this._toolCatalogueReady).then(() => this.setCheckedTools(toolAllowlist));
+
     this.updateConditionalFields();
     
     if (this._editorTitle) this._editorTitle.textContent = 'EDIT PERSONA';
@@ -5117,6 +5185,9 @@ const AgentManager = {
     if (this._birthdateInput) this._birthdateInput.value = '';
     if (this._backgroundInput) this._backgroundInput.value = '';
     if (this._tagInput) this._tagInput.value = '';
+    this.setCheckedTools([]);
+    if (this._toolsFilter) this._toolsFilter.value = '';
+    this.filterToolsChecklist();
     this.updateConditionalFields();
     
     if (this._editorTitle) this._editorTitle.textContent = 'CREATE PERSONA';
@@ -5146,13 +5217,19 @@ const AgentManager = {
     const backgroundFile = this._backgroundInput ? this._backgroundInput.value : '';
     const tag = this._tagInput ? this._tagInput.value.trim() : '';
     
+    const toolAllowlist = this.getCheckedTools();
+
     const config = {
       system_prompt: systemPrompt
     };
     if (birthdate) config.birthdate = birthdate;
     if (backgroundFile) config.background_file = backgroundFile;
     if (tag) config.tag = tag;
-    
+    // Always sent, even empty: an empty list is how an existing agent's
+    // tool access gets revoked, and agent.save_agent's grant sync needs to
+    // see that explicitly rather than "the field was never mentioned."
+    config.tool_allowlist = toolAllowlist;
+
     try {
       const result = await invoke('python:rpc', {
         method: 'agent.save_agent',

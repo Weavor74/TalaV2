@@ -746,6 +746,15 @@
                           </div>
                         </div>
 
+                        <div class="form-group" style="margin-bottom: var(--space-3);">
+                          <label style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">Tool Access</label>
+                          <input type="text" id="agent-tools-filter" placeholder="Filter tools…" style="width: 100%; margin-bottom: var(--space-2); padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.75rem;" />
+                          <div id="agent-tools-checklist" style="max-height: 160px; overflow-y: auto; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px;">
+                            <small style="color: var(--text-muted); font-size: 0.7rem;">Loading tools…</small>
+                          </div>
+                          <small class="form-help" style="display: block; font-size: 0.65rem; color: var(--text-muted); margin-top: 4px;">Only checked tools are offered to this agent in a room conversation. Unchecked = no tool access, same as today. Saving grants execution automatically.</small>
+                        </div>
+
                         <div class="form-group" style="margin-bottom: var(--space-4);">
                           <label for="agent-system-prompt" style="display: block; font-size: 0.75rem; color: var(--text-secondary); margin-bottom: 4px;">System Directive / Prompt</label>
                           <textarea id="agent-system-prompt" rows="6" placeholder="You are a specialized AI assistant that..." required style="width: 100%; padding: var(--space-2); background: rgba(255, 255, 255, 0.03); border: 1px solid rgba(255, 255, 255, 0.1); border-radius: 4px; color: var(--text-primary); font-size: 0.8rem; font-family: inherit; resize: vertical;"></textarea>

@@ -4782,6 +4782,18 @@ async def handle_agent_save_agent(params: dict[str, Any], req_id: Any) -> str:
             await update_settings_agent_node()
         except Exception as exc:
             logger.warning("Failed to update agent settings or persona node: %s", exc)
+
+        # The allowlist alone only decides which tools resolve_agent_tools
+        # offers the model; execution still needs its own grant, so a
+        # save here is what makes a configured agent actually work.
+        tool_allowlist = config.get("tool_allowlist") if isinstance(config, dict) else None
+        if isinstance(tool_allowlist, list):
+            try:
+                from sdk.agent.agent_tool_grants import sync_tool_grants
+                await sync_tool_grants(agent_id, tool_allowlist)
+            except Exception as exc:
+                logger.warning("agent.save_agent: could not sync tool grants: %s", exc)
+
         return _ok(req_id, {"success": True, "id": agent_id, **membership})
     except Exception as exc:
         logger.exception("agent.save_agent error")
