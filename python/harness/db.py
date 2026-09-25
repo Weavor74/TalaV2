@@ -33,6 +33,7 @@ import asyncpg
 from asyncpg import Pool, Record
 
 from .config import settings
+from .db_ddl_extra import _INFERENCE_PROVIDER_EXTRA_DDL
 
 logger = logging.getLogger(__name__)
 
@@ -147,12 +148,8 @@ _DDL_STATEMENTS: list[str] = [
         );
     """),
     textwrap.dedent("""\
-        CREATE INDEX IF NOT EXISTS idx_agent_log_level
-            ON agent_log (level);
-    """),
-    textwrap.dedent("""\
-        CREATE INDEX IF NOT EXISTS idx_agent_log_created_at
-            ON agent_log (created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_agent_log_level ON agent_log (level);
+        CREATE INDEX IF NOT EXISTS idx_agent_log_created_at ON agent_log (created_at DESC);
     """),
     # ------------------------------------------------------------------
     # inference_providers — configured LLM backends (Milestone 15)
@@ -183,6 +180,7 @@ _DDL_STATEMENTS: list[str] = [
         )
         ON CONFLICT (id) DO NOTHING;
     """),
+    *_INFERENCE_PROVIDER_EXTRA_DDL,  # see db_ddl_extra.py: db.py is pinned at its size budget
     # ------------------------------------------------------------------
     # agents — configured agent and workforce personas (Milestone 16)
     # ------------------------------------------------------------------

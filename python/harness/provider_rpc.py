@@ -111,8 +111,31 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
         async with pool.acquire() as conn:
             async with conn.transaction():
                 existing_cfgs: dict[str, Any] = {}
+                existing_ids: set[str] = set()
                 for _row in await conn.fetch("SELECT id, config FROM inference_providers"):
                     existing_cfgs[_row["id"]] = decrypt_config(_row["config"]) or {}
+                    existing_ids.add(_row["id"])
+
+                new_ids = {p["id"] for p in providers}
+
+                # A provider that existed and is no longer in the submitted
+                # list was removed by the user -- tombstone it so the next
+                # startup's auto-detect doesn't silently bring it back just
+                # because the underlying Ollama/LM Studio model is still
+                # installed. A provider that reappears (re-added by hand)
+                # clears its own tombstone.
+                removed_ids = existing_ids - new_ids
+                if removed_ids:
+                    await conn.executemany(
+                        "INSERT INTO dismissed_inference_providers (id) VALUES ($1) "
+                        "ON CONFLICT (id) DO NOTHING",
+                        [(rid,) for rid in removed_ids],
+                    )
+                if new_ids:
+                    await conn.execute(
+                        "DELETE FROM dismissed_inference_providers WHERE id = ANY($1::text[])",
+                        list(new_ids),
+                    )
 
                 # Delete existing providers
                 await conn.execute("DELETE FROM inference_providers")

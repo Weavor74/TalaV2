@@ -1498,12 +1498,15 @@ window.SwarmDashboardManager = SwarmDashboardManager;
    ═══════════════════════════════════════════════════════════════════ */
 const InferenceManager = {
   _initialized: false,
+  // Placeholder shown only until loadProviders() replaces this with the
+  // real server list -- keep the model name here in sync with db.py's
+  // embedded-builtin default so the flash before that first load is right.
   _providers: [
     {
       id: 'embedded-builtin',
       type: 'embedded',
       name: 'Tala Embedded Engine',
-      model: 'qwen2.5-0.5b',
+      model: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
       status: 'unknown',
       locked: true,
     }
@@ -1578,6 +1581,20 @@ const InferenceManager = {
       });
     } catch (err) {
       console.warn('[InferenceManager] Failed to register websocket notification listener:', err);
+    }
+
+    // loadProviders() below fires at page load, before the harness WebSocket
+    // has finished its own connect handshake -- both the RPC call and the
+    // GPU probe it triggers fail with "WebSocket is not connected" on that
+    // first attempt, and nothing retried it, so "No GPU detected" stuck for
+    // the rest of the session even on a machine with a real GPU. Re-run once
+    // the harness actually connects.
+    try {
+      window.tala.on('harness:ws-status', (payload) => {
+        if (payload && payload.connected) this.loadProviders();
+      });
+    } catch (err) {
+      console.warn('[InferenceManager] Failed to register ws-status listener:', err);
     }
 
     this.loadProviders();
@@ -1844,7 +1861,7 @@ const InferenceManager = {
 
   providerModelLabel(provider) {
     const config = provider.config || {};
-    const model = provider.model || config.model || (provider.type === 'embedded' ? 'Qwen/Qwen2.5-0.5B-Instruct' : '');
+    const model = provider.model || config.model || (provider.type === 'embedded' ? 'Qwen/Qwen2.5-1.5B-Instruct-GGUF' : '');
     const endpoint = provider.endpoint || config.endpoint || '';
     const service = provider.service || config.service || provider.engine || config.engine || provider.type;
     return [model, service, endpoint].filter(Boolean).join(' · ') || 'No model configured';
@@ -1975,7 +1992,7 @@ const InferenceManager = {
     let meta = '';
     if (p.type === 'embedded') {
       meta = window.inferenceEmbeddedMeta ? window.inferenceEmbeddedMeta(this, p)
-        : 'Qwen/Qwen2.5-0.5B-Instruct · CPU inference · Always available';
+        : `${(p.config && p.config.model) || 'embedded model'} · CPU inference · Always available`;
     }
     else if (p.type === 'local')  meta = [p.model, p.endpoint, p.engine].filter(Boolean).join(' · ') || 'Local endpoint';
     else if (p.type === 'remote') meta = [p.model, p.service, p.endpoint].filter(Boolean).join(' · ') || 'Remote API';
@@ -2109,7 +2126,7 @@ const InferenceManager = {
         html = `<div class="modal-form">
           <div class="modal-info-banner modal-info-ok">
             <span>⚙</span>
-            <span>Built-in 1B parameter model running on CPU. Always available — no internet or API key needed.</span>
+            <span>Built-in 1.5B parameter model running on CPU. Always available — no internet or API key needed.</span>
           </div>
           <div class="form-field-group">
             <label class="form-field-label" for="prov-name">Display Name</label>
@@ -2117,7 +2134,7 @@ const InferenceManager = {
           </div>
           <div class="form-field-group">
             <label class="form-field-label" for="prov-model">Model</label>
-            <input class="form-field-input" id="prov-model" type="text" value="qwen2.5-0.5b" readonly />
+            <input class="form-field-input" id="prov-model" type="text" value="Qwen/Qwen2.5-1.5B-Instruct-GGUF" readonly />
           </div>
         </div>`;
       }
@@ -2226,7 +2243,7 @@ const InferenceManager = {
     provider.name = name;
 
     if (type === 'embedded') {
-      provider.model  = qs('#prov-model')?.value || 'qwen2.5-0.5b';
+      provider.model  = qs('#prov-model')?.value || 'Qwen/Qwen2.5-1.5B-Instruct-GGUF';
       provider.locked = true;
       provider.status = 'online';
     } else if (type === 'local') {

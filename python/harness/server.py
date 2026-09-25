@@ -14828,6 +14828,13 @@ async def _auto_detect_and_verify_providers() -> None:
 
     # 1. Fetch all existing providers from the DB
     rows = await load_inference_providers()
+
+    # Ids the user explicitly removed via inference.save_providers -- an
+    # auto-detected model that is still installed must not silently reappear
+    # on the next restart just because it is still there.
+    dismissed_rows = await db.fetch("SELECT id FROM dismissed_inference_providers")
+    dismissed_ids = {r["id"] for r in dismissed_rows}
+
     existing_providers = []
     for r in rows:
         cfg = r["config"]
@@ -14926,8 +14933,8 @@ async def _auto_detect_and_verify_providers() -> None:
                                         logger.info("Marked existing provider '%s' as online", p["name"])
                                     break
                             
-                            if not is_registered:
-                                sanitized_id = f"{engine_type}-{model_name.replace(':', '-').replace('/', '-').replace('.', '-')}"
+                            sanitized_id = f"{engine_type}-{model_name.replace(':', '-').replace('/', '-').replace('.', '-')}"
+                            if not is_registered and sanitized_id not in dismissed_ids:
                                 provider_name = f"{engine_type.upper().replace('-', ' ')} - {model_name}"
                                 # next_local_priority keeps this in the local band (>= 1000), after
                                 # any remote provider and before the embedded fallback.
