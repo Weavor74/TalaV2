@@ -6,7 +6,7 @@
   <title>Neural Node: Harness: Db</title>
 </head>
 <body>
-<article
+<article data-description-baseline-digest="sha256:57F07E5D5A7518034BAF2875722FD571CA54322DD968E7A03B2EB0490AF5341F"
   data-node-id="python_harness_db"
   data-node-type="documentation"
   data-schema-version="neural-node/v2"
@@ -23,8 +23,8 @@
   data-doc-target="python.harness.db"
   data-source-files="python/harness/db.py"
   data-source-fingerprint="sha256:2A561450C0B6DC2A6D91ECD3713E6E289BEE07D351841949D6A7564E6C4AA596"
-  data-source-digest="sha256:57F07E5D5A7518034BAF2875722FD571CA54322DD968E7A03B2EB0490AF5341F"
-  data-description-baseline-digest=""
+  data-source-digest="sha256:0E14C646C0016C2C997ACF49F238812CBE32CB373E5C85ABD36ECF976BB902DE"
+  data-description-verified="false"
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
@@ -38,6 +38,8 @@
   </header>
 
   <section id="semantic-memory">
+  <p>[Behaviour unverified] The source of this module has changed since this description was derived, and re-deriving produced the same text — the change was inside code this description does not cover (a function body, not a name or a docstring). Treat the behaviour described here as unverified and read the source before relying on it.</p>
+
     <p>db.py — Tala Cognitive Engine Room: PostgreSQL Database Layer ============================================================= The SINGLE authoritative durable-state layer for the entire Tala harness.</p>
     <p>It lives at python/harness/db.py within the Python harness, the backend that runs the system.</p>
     <p>Functions it exposes: assert_postgres_authority() — Raise :class:`RuntimeError` if invoked from a mem0 context.; init_pool() — Initialise the asyncpg connection pool and apply DDL migrations.; close_pool() — Drain and close the connection pool gracefully.; get_pool() — Return the active connection pool.; execute() — Execute a DML statement (INSERT / UPDATE / DELETE / DDL).; fetch() — Run a SELECT and return all matching rows as a list of :class:`asyncpg.Record`.; fetchrow() — Run a SELECT and return the first row, or ``None`` if no rows match.; fetchval() — Run a SELECT and return a single scalar value from *column* of the first row.; try_claim_auto_eval_run() — Atomically check-and-claim a cooldown slot for the Auto-Eval Gate.; transaction() — Async context manager that provides a transactional connection.; log_to_db() — Append a structured log entry to the ``agent_log`` table..</p>
@@ -111,7 +113,7 @@
     "source_files": [
       "python/harness/db.py"
     ],
-    "source_digest": "sha256:57F07E5D5A7518034BAF2875722FD571CA54322DD968E7A03B2EB0490AF5341F",
+    "source_digest": "sha256:0E14C646C0016C2C997ACF49F238812CBE32CB373E5C85ABD36ECF976BB902DE",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
