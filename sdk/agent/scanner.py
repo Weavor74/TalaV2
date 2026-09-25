@@ -179,7 +179,7 @@ class RepositoryScanner:
         for file in mapped_data.keys():
             if "db.py" in file or "persistence.py" in file:
                 capabilities["persistence"].append(file)
-            elif "inference" in file or "vllm_engine" in file:
+            elif "inference" in file:
                 capabilities["inference"].append(file)
             elif "astrology" in file or "pyswisseph" in file:
                 capabilities["astrology"].append(file)

@@ -3489,23 +3489,23 @@ If the workflow requires information from the user, ask the user and wait for th
     name="manage_inference_engine",
     description="Check status, install, or update the embedded inference engine.",
 )
-async def manage_inference_engine(action: str, engine_id: str = "transformers") -> dict[str, Any]:
+async def manage_inference_engine(action: str, engine_id: str = "llamacpp") -> dict[str, Any]:
     """
     NAME
            manage_inference_engine - Check status, install, or update the embedded inference engine.
-           
+
     SYNOPSIS
            manage_inference_engine(action: str, engine_id: str) -> dict[str, Any]
-           
+
     DESCRIPTION
-           Manages local embedded inference engines (e.g. transformers, llamacpp).
+           Manages Tala's embedded inference engine: a llama.cpp server binary.
            Supported actions:
            - "status": Returns the installation status of the engine.
            - "install": Starts downloading and installing the engine in the background.
            - "list": Returns a list of all available engines and their status.
-           
+
            - action: The action to perform ("status", "install", "list").
-           - engine_id: The ID of the engine (e.g. "transformers", "llamacpp").
+           - engine_id: The engine id. Only "llamacpp" exists.
     """
     from python.inference.engine_manager import get_status, start_install, get_all_engines
     

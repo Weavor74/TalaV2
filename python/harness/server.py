@@ -2751,7 +2751,7 @@ async def handle_inference_generate(
             "name": "Tala Embedded Engine",
             "priority": 1,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
             "locked": True
         }]
 
@@ -2815,7 +2815,7 @@ async def handle_inference_generate(
             "name": "Tala Embedded Engine",
             "priority": 999,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
             "locked": True,
         }]
 
@@ -2871,7 +2871,7 @@ async def handle_inference_generate(
                 "name": "Tala Embedded Engine",
                 "priority": 999,
                 "status": "online",
-                "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+                "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
                 "locked": True
             }]
         providers = _tier_sort_providers(providers)
@@ -2917,7 +2917,7 @@ async def handle_inference_generate(
             try:
                 if p_type == "embedded":
                     # Execute CPU local generation
-                    from python.inference.embedded_engine import check_model_cached, generate_stream
+                    from python.inference.llama_server_manager import check_model_cached, generate_stream
                     if not check_model_cached():
                         raise RuntimeError("Embedded model not fully downloaded / cached yet.")
 
@@ -6748,7 +6748,7 @@ async def _generate_reply(
         
         try:
             if p_type == "embedded":
-                from python.inference.embedded_engine import check_model_cached, generate_stream
+                from python.inference.llama_server_manager import check_model_cached, generate_stream
                 if not check_model_cached():
                     raise RuntimeError("Embedded model not cached.")
                 chunks = []
@@ -9855,7 +9855,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "name": "Tala Embedded Engine",
             "priority": 1,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
             "locked": True
         }]
 
@@ -9887,7 +9887,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "name": "Tala Embedded Engine",
             "priority": 999,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+            "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
             "locked": True,
         }]
 
@@ -9929,7 +9929,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
                     "name": "Tala Embedded Engine",
                     "priority": 999,
                     "status": "online",
-                    "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct"},
+                    "config": {"model": "Qwen/Qwen2.5-0.5B-Instruct-GGUF"},
                     "locked": True
                 })
 
@@ -9940,7 +9940,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
 
         try:
             if p_type == "embedded":
-                from python.inference.embedded_engine import check_model_cached, generate_stream
+                from python.inference.llama_server_manager import check_model_cached, generate_stream
                 if not check_model_cached():
                     raise RuntimeError("Embedded model not cached")
                 chunks = []
@@ -15272,7 +15272,7 @@ async def _startup_background() -> None:
     """Perform slower non-critical hardware discovery, model caching verification, and provider auto-detection in background."""
     loop = asyncio.get_running_loop()
 
-    # embedded_engine pre-warm is now handled by _prewarm_embedded_engine() which
+    # llama_server_manager pre-warm is now handled by _prewarm_embedded_engine() which
     # is launched immediately after the WS server binds, independently of DB init.
     # We still initialise the DB-side status here in case the model became ready.
 
@@ -15288,18 +15288,12 @@ async def _startup_background() -> None:
         logger.warning("Could not read wallet balance: %s", exc)
 
     # 4. Log hardware device info to agent_log (non-blocking; import is lazy)
-    # vllm_engine may import torch which is slow; run in executor to avoid blocking.
     try:
-        async def _log_device():
-            from python.inference.vllm_engine import log_device_info_to_db, DEVICE_INFO
-            await log_device_info_to_db()
-            logger.info(
-                "Inference device: %s (%s)  vRAM=%s GB",
-                DEVICE_INFO.device_type,
-                DEVICE_INFO.device_name,
-                DEVICE_INFO.vram_gb,
-            )
-        await _log_device()
+        from python.inference.llama_server_manager import _preferred_variant_order
+        variants = await asyncio.get_running_loop().run_in_executor(None, _preferred_variant_order)
+        await db.log_to_db("INFO", f"Inference engine startup: preferred llama.cpp variant order={variants}",
+                            {"preferred_variant_order": variants})
+        logger.info("Preferred llama.cpp engine variant on this machine: %s", variants[0])
     except Exception as exc:  # noqa: BLE001
         logger.warning("Could not log device info: %s", exc)
 
@@ -15308,14 +15302,14 @@ async def _startup_background() -> None:
     # Here we just sync the in-memory status to the DB (needs DB to be ready).
     try:
         import sys as _sys
-        mod = _sys.modules.get("python.inference.embedded_engine")
+        mod = _sys.modules.get("python.inference.llama_server_manager")
         if mod is not None:
             status, _progress, _error = mod.get_status()
             if status == "ready":
-                logger.info("Default embedded model Qwen/Qwen2.5-0.5B-Instruct is cached and ready.")
+                logger.info("Embedded llama.cpp engine is downloaded and ready.")
                 await db.execute("UPDATE inference_providers SET status = 'online' WHERE id = 'embedded-builtin'")
             elif status == "not_downloaded":
-                logger.info("Default embedded model Qwen/Qwen2.5-0.5B-Instruct is not cached. Initiating background download...")
+                logger.info("Embedded llama.cpp engine is not downloaded. Initiating background download...")
                 mod.start_download_async()
         else:
             # Module still loading — schedule a follow-up check after 20 s
@@ -15323,7 +15317,7 @@ async def _startup_background() -> None:
                 await asyncio.sleep(20)
                 try:
                     import sys as _sys2
-                    mod2 = _sys2.modules.get("python.inference.embedded_engine")
+                    mod2 = _sys2.modules.get("python.inference.llama_server_manager")
                     if mod2:
                         st, _, _ = mod2.get_status()
                         if st == "ready":
@@ -15711,10 +15705,10 @@ async def _run_server() -> None:
     from python.harness import doc_maintenance
     asyncio.create_task(doc_maintenance.run_forever())
 
-    # ── 2. Pre-warm the embedded_engine module immediately (non-DB-gated) ──
+    # ── 2. Pre-warm the llama_server_manager module immediately (non-DB-gated) ──
     # The huggingface_hub import takes 5-15 s on a cold process.  We await this
-    # to ensure the import completes before we start any other background threads
-    # (like vllm_engine/torch imports), preventing concurrent import deadlocks on Windows.
+    # to ensure the import completes before we start any other background threads,
+    # preventing concurrent import deadlocks on Windows.
     await _prewarm_embedded_engine()
 
     # ── 3. Run DB init + all background work as non-blocking tasks ──
@@ -15908,23 +15902,23 @@ async def _start_mcp_server_safe() -> None:
 
 
 async def _prewarm_embedded_engine() -> None:
-    """Import python.inference.embedded_engine in a thread executor so the
-    heavy huggingface_hub import happens before the renderer polls for status.
-    This task is started immediately after the WS server is bound and runs
-    independently of DB initialisation.
+    """Import python.inference.llama_server_manager in a thread executor so
+    the heavy huggingface_hub import happens before the renderer polls for
+    status. This task is started immediately after the WS server is bound
+    and runs independently of DB initialisation.
     """
     loop = asyncio.get_running_loop()
     try:
         await loop.run_in_executor(
             None,
-            lambda: __import__("python.inference.embedded_engine", fromlist=["get_status", "init_status_from_cache"])
+            lambda: __import__("python.inference.llama_server_manager", fromlist=["get_status", "init_status_from_cache"])
         )
-        # Now initialise the in-memory status from the local HF cache
-        mod = __import__("python.inference.embedded_engine", fromlist=["init_status_from_cache"])
+        # Now initialise the in-memory status from what's already on disk
+        mod = __import__("python.inference.llama_server_manager", fromlist=["init_status_from_cache"])
         mod.init_status_from_cache()
-        logger.info("embedded_engine pre-warmed and status initialised (independent of DB)")
+        logger.info("llama_server_manager pre-warmed and status initialised (independent of DB)")
     except Exception as exc:  # noqa: BLE001
-        logger.warning("Could not pre-warm embedded_engine: %s", exc)
+        logger.warning("Could not pre-warm llama_server_manager: %s", exc)
 
 
 # ---------------------------------------------------------------------------

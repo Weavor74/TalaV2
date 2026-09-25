@@ -805,7 +805,7 @@ async def handle_research_distill_to_node(params: dict[str, Any]) -> dict[str, A
         
     combined_context = "\n\n---\n\n".join(full_contexts)
     
-    from python.inference.embedded_engine import check_model_cached, generate_stream
+    from python.inference.llama_server_manager import check_model_cached, generate_stream
     if check_model_cached():
         prompt = f"Please synthesize and summarize the following search results into a cohesive overview. Cite your sources using the source titles provided.\n\n{combined_context}\n\nStart your response with 'Title: ' followed by a short 3-6 word title summarizing the topic, then a blank line, then the summary."
         messages = [{"role": "user", "content": prompt}]

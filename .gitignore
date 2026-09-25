@@ -12,6 +12,11 @@ __pycache__/
 
 # Tala generated/runtime state
 .tala_snapshots/
+# Downloaded llama.cpp engine binaries -- fetched on demand by
+# python/inference/llama_server_manager.py, never committed (a compiled
+# native binary is not source, and this is exactly the "not vendored" design
+# decision behind BINARIES_MANIFEST_URL).
+/engines/
 data/*.db
 data/*.sqlite
 data/*.sqlite3

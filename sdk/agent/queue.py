@@ -723,7 +723,7 @@ Output JSON array only, wrapped in a Markdown code block like:
 
             elif prov_type == "embedded":
                 try:
-                    from python.inference.embedded_engine import check_model_cached, generate_stream
+                    from python.inference.llama_server_manager import check_model_cached, generate_stream
                     if not check_model_cached():
                         raise RuntimeError("Embedded model not fully downloaded / cached yet.")
                     chunks = []

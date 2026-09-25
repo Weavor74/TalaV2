@@ -137,7 +137,7 @@ async def test_research_unified_search():
 async def test_research_distill_to_node():
     with patch("python.harness.memory.db.fetchval", new_callable=AsyncMock) as mock_fetchval, \
          patch("python.harness.memory.handle_memory_browse", new_callable=AsyncMock) as mock_browse, \
-         patch("python.inference.embedded_engine.check_model_cached", return_value=False):
+         patch("python.inference.llama_server_manager.check_model_cached", return_value=False):
         mock_fetchval.return_value = "new_node_123"
         mock_browse.return_value = {"context": "Simulated context"}
 

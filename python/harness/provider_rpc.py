@@ -179,7 +179,7 @@ async def handle_inference_get_embedded_status(params: dict[str, Any], req_id: A
     """
     import sys
     try:
-        mod = sys.modules.get("python.inference.embedded_engine")
+        mod = sys.modules.get("python.inference.llama_server_manager")
         if mod is None:
             return _ok(req_id, {
                 "status": "not_downloaded",
@@ -216,7 +216,7 @@ async def handle_inference_trigger_download(params: dict[str, Any], req_id: Any)
            handle_inference_get_embedded_status(1)
     """
     try:
-        from python.inference.embedded_engine import start_download_async
+        from python.inference.llama_server_manager import start_download_async
         start_download_async()
         return _ok(req_id, {"success": True})
     except Exception as exc:

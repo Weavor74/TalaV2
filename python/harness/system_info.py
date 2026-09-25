@@ -208,14 +208,14 @@ async def collect_system_info() -> dict[str, Any]:
                 gpu_info["devices"] = devices
                 gpu_info.setdefault("backend", "nvidia-smi")
 
-    # If Tala's embedded model is already loaded in this process, report the
-    # actual device it landed on -- the single most direct answer to "is
-    # local inference using the GPU right now", not just "could it".
+    # If Tala's embedded llama.cpp engine is running, report which variant it
+    # actually launched as -- the single most direct answer to "is local
+    # inference using the GPU right now", not just "could it".
     try:
-        from python.inference import embedded_engine as _ee
-        loaded_model = getattr(_ee, "_model", None)
-        if loaded_model is not None:
-            gpu_info["embedded_model_device"] = str(next(loaded_model.parameters()).device)
+        from python.inference import llama_server_manager as _lsm
+        variant = _lsm.active_variant()
+        if variant is not None:
+            gpu_info["embedded_model_device"] = variant
     except Exception:
         pass
 

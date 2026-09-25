@@ -1,0 +1,17 @@
+{
+  "binary_version": "ad129b08d9f134cd298d1f8a85efc52b1b66e18e",
+  "windows": {
+    "cpu": {
+      "url": "https://talacore.app/engines/llama-server-windows-cpu.zip",
+      "sha256": "c87138ab4860e7e2e7eacaec119621dadb50784a59c6e7d42df40ee611f380e3"
+    },
+    "vulkan": {
+      "url": "https://talacore.app/engines/llama-server-windows-vulkan.zip",
+      "sha256": "18ecf3cdac79f3c9d1c2c624e5506ce9d2818843cf15d4df8866588574663d63"
+    },
+    "cuda": {
+      "url": "https://talacore.app/engines/llama-server-windows-cuda.zip",
+      "sha256": "0d18cf1407120bf4d66aa6a30a2659f524c15f4f4cbe82fa107bedc14dcc61f0"
+    }
+  }
+}

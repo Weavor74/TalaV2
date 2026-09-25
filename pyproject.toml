@@ -72,18 +72,14 @@ test = [
     "pytest==9.1.1",
     "pytest-asyncio==1.4.0"
 ]
-transformers = [
-    "transformers==5.15.0",
-    "accelerate==1.14.0",
-    "sentencepiece==0.2.1",
-]
 # LoRA voice-adapter training (scripts/train_voice_adapter.py, and the JIT path
-# in python/inference/lora_trainer.py).
+# in python/inference/lora_trainer.py). Training-time only -- Tala's embedded
+# inference engine is llama.cpp (see python/inference/llama_server_manager.py),
+# which does not use peft/transformers at runtime; this extra exists solely to
+# produce adapter files, not to apply them.
 #
 # An extra rather than a base dependency deliberately: torch alone is ~2.5GB and
-# Tala is meant to run from a USB stick. Everything here is only needed to TRAIN
-# an adapter; applying one needs peft and transformers, which the transformers
-# extra above already covers.
+# Tala is meant to run from a USB stick.
 #
 #     uv pip install -e ".[training]"
 #
@@ -98,12 +94,6 @@ training = [
     "datasets==5.0.1",
     "transformers==5.15.0",
     "accelerate==1.14.0",
-]
-vllm = [
-    "vllm>=0.5.0",
-]
-llamacpp = [
-    "llama-cpp-python>=0.2.79",
 ]
 voice = [
     "openai-whisper>=20231117",

@@ -5,17 +5,8 @@ LLM inference engine wrappers for the Tala harness.
 
 Sub-modules
 -----------
-vllm_engine   — vLLM AsyncLLMEngine wrapper with stub fallback
+llama_server_manager — the embedded llama.cpp engine (spawn, health-check,
+                        normal-mode chat completion, and Jev-mode structured
+                        decisions via /v1/decision)
+engine_manager        — installation/status tracking for the above
 """
-
-from .vllm_engine import (
-    generate,
-    get_model_info,
-    is_vllm_available,
-)
-
-__all__ = [
-    "generate",
-    "get_model_info",
-    "is_vllm_available",
-]
