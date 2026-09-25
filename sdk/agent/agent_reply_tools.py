@@ -32,9 +32,21 @@ from __future__ import annotations
 import json
 import logging
 import re
+from contextvars import ContextVar
 from typing import Any
 
+from sdk.agent.tools import register_tool
+
 log = logging.getLogger(__name__)
+
+# Who is currently mid-tool-call, for tools that need to know their own
+# caller (send_to_agent, below) without ToolRegistry.run_tool forwarding
+# `principal` into every tool body -- the same "ambient context, no
+# signature/dispatch change" pattern as tools.py's own
+# _WORKSPACE_ROOT_OVERRIDE. Set only for the duration of run_agent_tool_round's
+# own run_tool call; a tool invoked any other way (outside this module) simply
+# sees the default None.
+_CALLING_PRINCIPAL: ContextVar[Any | None] = ContextVar("_calling_principal", default=None)
 
 
 async def resolve_agent_tools(agent_id: str) -> tuple[list[dict[str, Any]] | None, Any | None]:
@@ -206,10 +218,69 @@ async def run_agent_tool_round(
     if tool_name.lower() not in allowed_names:
         tool_result: Any = f"Tool {tool_name!r} was not offered to this agent."
     else:
-        res = await ToolRegistry.run_tool(tool_name, attrs, principal=principal)
+        token = _CALLING_PRINCIPAL.set(principal)
+        try:
+            res = await ToolRegistry.run_tool(tool_name, attrs, principal=principal)
+        finally:
+            _CALLING_PRINCIPAL.reset(token)
         if res.get("success"):
             tool_result = res.get("output")
         else:
             tool_result = f"Tool execution failed: {res.get('error') or 'the tool reported failure'}"
 
     return f"<response: {tool_name} result={json.dumps(tool_result, default=str)} />"
+
+
+@register_tool(
+    name="send_to_agent",
+    description=(
+        "Ask another local agent one question and get its reply, synchronously "
+        "-- your turn waits for the answer. The target agent answers once, in "
+        "its own configured persona, WITHOUT its own tools (it cannot itself "
+        "delegate further). Use this to consult a specialist agent by name."
+    ),
+)
+async def send_to_agent(target_agent: str, message: str) -> dict[str, Any]:
+    """Phase 3 of the multi-agent plan: one agent consulting another as part
+    of its own turn, not the federation A2A protocol (cross-install, wallet-
+    gated -- wrong trust model for two of the owner's own local agents) and
+    not conversations.py's rooms (a shared thread multiple agents post into
+    automatically; this is a private, on-demand, single-question call)."""
+    from python.harness import db
+    from python.harness.access import AGENT
+
+    caller = _CALLING_PRINCIPAL.get()
+    caller_id = caller.id if caller is not None and getattr(caller, "kind", None) == AGENT else None
+
+    try:
+        target_row = await db.fetchrow(
+            "SELECT id FROM agents WHERE (id = $1 OR name = $1) AND is_active = TRUE",
+            target_agent,
+        )
+    except Exception as exc:
+        return {"success": False, "error": f"could not look up agent {target_agent!r}: {exc}"}
+
+    if not target_row:
+        return {"success": False, "error": f"No active agent named {target_agent!r}."}
+
+    resolved_id = target_row["id"]
+    if caller_id and resolved_id == caller_id:
+        return {"success": False, "error": "An agent cannot send_to_agent itself."}
+
+    from python.harness.server import _agent_system_prompt, _generate_reply
+
+    system_prompt = await _agent_system_prompt(resolved_id)
+    messages = [
+        {"role": "system", "content": system_prompt},
+        {"role": "user", "content": message},
+    ]
+    # Bare call, no tools/principal: the identical tool-free path
+    # _handle_inbound_a2a already uses. This is what makes B's reply
+    # incapable of calling send_to_agent (or anything else) back -- not a
+    # depth counter, a structural guarantee.
+    reply = await _generate_reply(messages)
+    if not reply:
+        return {"success": False, "error": f"agent {resolved_id!r} produced no reply (all providers failed)."}
+
+    log.info("send_to_agent: %s -> %s", caller_id or "unknown", resolved_id)
+    return {"success": True, "agent": resolved_id, "reply": reply}
