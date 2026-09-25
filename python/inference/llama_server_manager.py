@@ -614,6 +614,12 @@ async def generate_stream(
     if tools:
         payload["tools"] = tools
 
+    # Accumulated native tool_calls deltas, keyed by their stream index --
+    # OpenAI-shaped streaming splits a call across many chunks (name arrives
+    # once, "arguments" arrives as incremental JSON-string fragments to be
+    # concatenated, not re-sent whole each time).
+    tool_calls_by_index: dict[int, dict[str, Any]] = {}
+
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", f"{handle.base_url}/v1/chat/completions", json=payload) as resp:
             resp.raise_for_status()
@@ -631,6 +637,31 @@ async def generate_stream(
                 chunk = delta.get("content")
                 if chunk:
                     yield chunk
+                for tc in delta.get("tool_calls") or []:
+                    slot = tool_calls_by_index.setdefault(tc.get("index", 0), {"name": "", "arguments": ""})
+                    fn = tc.get("function") or {}
+                    if fn.get("name"):
+                        slot["name"] = fn["name"]
+                    slot["arguments"] += fn.get("arguments") or ""
+
+    if tool_calls_by_index:
+        # No content was streamed for a tool call (confirmed against the real
+        # server: a tool-calling turn's deltas carry only tool_calls, never
+        # content) -- convert to the same <call:name attr="v" /> tag the rest
+        # of the harness already detects, reusing the existing converter
+        # rather than inventing a second tool-call text format.
+        from python.harness.server import _tool_calls_to_call_tags
+
+        # _tool_calls_to_call_tags already parses a string "arguments" itself
+        # (it's built to accept either shape) -- pass the accumulated raw
+        # JSON string straight through rather than parsing it twice.
+        calls = [
+            {"function": {"name": slot["name"], "arguments": slot["arguments"]}}
+            for slot in tool_calls_by_index.values()
+        ]
+        tag = _tool_calls_to_call_tags(calls)
+        if tag:
+            yield tag
 
 
 # ---------------------------------------------------------------------------

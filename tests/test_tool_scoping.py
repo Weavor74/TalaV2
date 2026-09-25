@@ -71,6 +71,28 @@ async def test_a_real_agent_with_no_allowlist_is_unrestricted(monkeypatch):
 
 
 @pytest.mark.asyncio
+async def test_lookup_matches_by_name_as_well_as_id(monkeypatch):
+    """Room participants can be stored by name (_agent_system_prompt already
+    resolves either way) -- enforcement must not silently skip that case."""
+    from python.harness import db
+
+    captured = {}
+
+    async def row(query, *args, **k):
+        captured["query"] = query
+        captured["args"] = args
+        return {"config": json.dumps({"tool_allowlist": ["get_system_info"]})}
+
+    monkeypatch.setattr(db, "fetchrow", row)
+
+    result = await check_agent_tool_scope(Principal(AGENT, "Tala RP"), "web_search")
+
+    assert result is not None and result["tool_scope_denied"] is True
+    assert "id = $1 OR name = $1" in captured["query"]
+    assert captured["args"] == ("Tala RP",)
+
+
+@pytest.mark.asyncio
 async def test_a_tool_in_the_allowlist_is_permitted(monkeypatch):
     from python.harness import db
 

@@ -43,7 +43,11 @@ async def check_agent_tool_scope(principal: Any, tool_name: str) -> dict[str, An
 
     agent_row = None
     try:
-        agent_row = await db.fetchrow("SELECT config FROM agents WHERE id = $1", principal.id)
+        # id OR name: room participants are stored as whatever string was
+        # passed at conversation.create time, and _agent_system_prompt
+        # (server.py) already resolves against agents the same way -- this
+        # matches that so enforcement doesn't silently skip a name-added one.
+        agent_row = await db.fetchrow("SELECT config FROM agents WHERE id = $1 OR name = $1", principal.id)
     except Exception as exc:
         # DB trouble must not block every agent-principal tool call --
         # AuthorizationGate (the caller's next step) still applies its own

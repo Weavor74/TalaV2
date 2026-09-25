@@ -3639,27 +3639,8 @@ async def handle_inference_generate(
         # Truncate any text generated after the call tag to prevent model hallucinations of responses
         generated_text = generated_text[:tool_match.end()]
 
-        tool_name = tool_match.group(1)
-        attr_str = tool_match.group(2)
-        inner_content = tool_match.group(3)
-        if attr_str.endswith('/'):
-            attr_str = attr_str[:-1]
-
-        # Alias common LLM hallucinated tool names or sanitized function names (e.g. docs_create_documentation_node)
-        if tool_name.startswith("run_workflow"):
-            tool_name = "run_workflow_node"
-        elif tool_name == "run_validation":
-            tool_name = "test.run_validation"
-        else:
-            try:
-                from sdk.agent.tools import ToolRegistry
-                if tool_name.lower() not in ToolRegistry._tools:
-                    for orig_name in ToolRegistry._tools.keys():
-                        if re.sub(r'[^a-zA-Z0-9_-]', '_', orig_name) == tool_name.lower():
-                            tool_name = orig_name
-                            break
-            except Exception:
-                pass
+        from sdk.agent.agent_reply_tools import parse_call_tag
+        tool_name, attrs = parse_call_tag(tool_match)
 
         # Keep this tool on offer for the rest of the request. Two reasons: a
         # multi-turn task must not lose a tool it is mid-way through using, and a
@@ -3669,88 +3650,6 @@ async def handle_inference_generate(
             if tool_name not in sticky_tools:
                 logger.info("Tool '%s' pinned for the rest of this request", tool_name)
             sticky_tools.add(tool_name)
-
-        # Parse attributes (handles double quotes, single quotes, escaped quotes, and unquoted values)
-        attrs = {}
-        pattern = r'(\w+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|(\S+))'
-        for match in re.finditer(pattern, attr_str):
-            k = match.group(1)
-            v_dq, v_sq, v_uq = match.group(2), match.group(3), match.group(4)
-            if v_dq is not None:
-                attrs[k] = v_dq.replace('\\"', '"').replace('\\\\', '\\')
-            elif v_sq is not None:
-                attrs[k] = v_sq.replace("\\'", "'").replace('\\\\', '\\')
-            elif v_uq is not None:
-                try:
-                    attrs[k] = json.loads(v_uq.replace("'", '"'))
-                except Exception:
-                    attrs[k] = v_uq
-
-                    
-        if inner_content:
-            inner_content = inner_content.strip()
-            # Try to resolve parameter names dynamically from the tool signature in the registry
-            mapped = False
-            try:
-                from sdk.agent.tools import ToolRegistry
-                tool_entry = ToolRegistry._tools.get(tool_name.lower())
-                if tool_entry:
-                    func = tool_entry.get("func")
-                    if func:
-                        import inspect
-                        sig = inspect.signature(func)
-                        # NOTE: do NOT bind this to the name `params` — that is the
-                        # handler's RPC params dict, and clobbering it corrupts the
-                        # post-tool regeneration turn (e.g. float(params["timeout_seconds"])
-                        # would receive an inspect.Parameter and crash every provider).
-                        sig_params = sig.parameters
-                        if "code" in sig_params:
-                            attrs["code"] = inner_content
-                            mapped = True
-                        elif "goal" in sig_params:
-                            attrs["goal"] = inner_content
-                            mapped = True
-                        elif "command" in sig_params:
-                            attrs["command"] = inner_content
-                            mapped = True
-                        elif "content" in sig_params:
-                            attrs["content"] = inner_content
-                            mapped = True
-                        elif "detailed_markdown" in sig_params:
-                            attrs["detailed_markdown"] = inner_content
-                            mapped = True
-                        elif "semantic_memory" in sig_params:
-                            attrs["semantic_memory"] = inner_content
-                            mapped = True
-                        elif "plan" in sig_params:
-                            try:
-                                attrs["plan"] = json.loads(inner_content)
-                            except Exception:
-                                attrs["plan"] = {"raw": inner_content}
-                            mapped = True
-            except Exception as e:
-                logger.warning("Error resolving tool signature dynamically for mapping: %s", e)
-
-            if not mapped:
-                if tool_name == "generate_detailed_neural_node":
-                    attrs["detailed_markdown"] = inner_content
-                elif tool_name == "write_workspace_file":
-                    attrs["content"] = inner_content
-                elif tool_name in {"docs.create_documentation_node", "docs.register_program_target"}:
-                    attrs["semantic_memory"] = inner_content
-                elif tool_name == "self_improvement.execute_plan":
-                    try:
-                        attrs["plan"] = json.loads(inner_content)
-                    except Exception:
-                        attrs["plan"] = {"raw": inner_content}
-                elif tool_name == "self_improvement.create_plan":
-                    attrs["goal"] = inner_content
-                elif tool_name == "submit_agent_goal":
-                    attrs["goal"] = inner_content
-                elif tool_name.lower() in {"run_workspace_command", "shell.run"}:
-                    attrs["command"] = inner_content
-                elif "content" not in attrs:
-                    attrs["content"] = inner_content
 
         tool_lower = tool_name.lower()
         parts = tool_lower.split(".")
@@ -6712,24 +6611,29 @@ async def _send_a2a_message_helper(username: str, message: str) -> dict[str, Any
     return {"recipient": contact["username"], "response": response}
 
 
+#: Tool-calls WITHIN one agent's reply, not how many agents speak in a room
+#: (that's MAX_CONSECUTIVE_AGENT_TURNS) -- small since the tool set here is
+#: already an explicit, short allowlist, not the main loop's full catalog.
+MAX_TOOL_ROUNDS_PER_REPLY = 3
+
+
 async def _generate_reply(
     inference_messages: list[dict[str, Any]],
     max_tokens: int = 512,
     temperature: float = 0.7,
+    tools: list[dict[str, Any]] | None = None,
+    principal: Any | None = None,
 ) -> str:
     """
     Run a prepared message list through whichever provider answers first.
+    Returns "" when every provider failed rather than raising -- the caller
+    is always a background task, so a reply that couldn't be generated is a
+    reply that doesn't happen, not an error to propagate into a room.
 
-    Lifted out of `_handle_inbound_a2a`, which held the only copy of the
-    provider fallback chain. A second caller needed it -- an agent that is
-    a participant in a conversation has to be able to reply in it -- and
-    the alternative was a second copy of eighty lines that would drift the
-    first time a provider type was added to one of them.
-
-    Returns "" when every provider failed rather than raising: the caller
-    is always a background task, and a reply that could not be generated
-    is a reply that does not happen, not an error to propagate into a
-    room.
+    `tools`/`principal` default to None (today's exact behaviour). Only
+    `_agents_take_a_turn` passes them; `_handle_inbound_a2a` (a REMOTE peer's
+    message) deliberately never does -- see agent_reply_tools.py's docstring
+    for why a remote message must never reach local tool execution here.
     """
     try:
         rows = await load_inference_providers()
@@ -6737,88 +6641,105 @@ async def _generate_reply(
         logger.error("inference: could not query providers: %s", e)
         return ""
 
-    generated_text = None
-    errors = []
-    
-    for provider in rows:
-        if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
-            continue
-            
-        p_type = provider["type"]
-        p_name = provider["name"]
-        p_config = provider["config"] or {}
-        if isinstance(p_config, str):
-            p_config = json.loads(p_config)
-            
-        logger.info("inference: attempting generation with provider '%s' (%s)", p_name, p_type)
-        
-        try:
-            if p_type == "embedded":
-                from python.inference.llama_server_manager import check_model_cached, generate_stream
-                if not check_model_cached():
-                    raise RuntimeError("Embedded model not cached.")
-                chunks = []
-                async for chunk in generate_stream(inference_messages, max_tokens, temperature):
-                    chunks.append(chunk)
-                generated_text = "".join(chunks)
-                break
-            elif p_type in ("local", "remote"):
-                endpoint = p_config.get("endpoint", "").strip()
-                model = p_config.get("model", "").strip()
-                api_key = p_config.get("apiKey", "").strip()
-                
-                if p_type == "local":
-                    engine = p_config.get("engine", "ollama")
-                    if not endpoint:
-                        endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
-                    if not model:
-                        model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
-                else:
-                    service = p_config.get("service", "openai")
-                    if service == "openai" and not endpoint:
-                        endpoint = "https://api.openai.com/v1"
-                    elif service == "gemini" and not endpoint:
-                        endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
-                    elif service == "anthropic" and not endpoint:
-                        endpoint = "https://api.anthropic.com/v1"
-                        
-                import httpx
-                headers = {"Content-Type": "application/json"}
-                if api_key:
-                    if "anthropic" in endpoint or p_config.get("service") == "anthropic":
-                        headers["x-api-key"] = api_key
-                        headers["anthropic-version"] = "2023-06-01"
-                    else:
-                        headers["Authorization"] = f"Bearer {api_key}"
-                        
-                url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
-                payload = {
-                    "model": model,
-                    "messages": inference_messages,
-                    "max_tokens": max_tokens,
-                    "temperature": temperature,
-                    "stream": False
-                }
-                if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
-                    payload["options"] = {"num_ctx": 8192}
-                    
-                async with httpx.AsyncClient(timeout=90.0) as client:
-                    response = await client.post(url, headers=headers, json=payload)
-                    if response.status_code != 200:
-                        raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
-                    resp_json = response.json()
-                    choice = resp_json["choices"][0]["message"]
-                    generated_text = choice.get("content", "") or ""
+    async def _one_completion() -> str:
+        generated_text = None
+        errors = []
+        for provider in rows:
+            if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
+                continue
+
+            p_type = provider["type"]
+            p_name = provider["name"]
+            p_config = provider["config"] or {}
+            if isinstance(p_config, str):
+                p_config = json.loads(p_config)
+
+            logger.info("inference: attempting generation with provider '%s' (%s)", p_name, p_type)
+
+            try:
+                if p_type == "embedded":
+                    from python.inference.llama_server_manager import check_model_cached, generate_stream
+                    if not check_model_cached():
+                        raise RuntimeError("Embedded model not cached.")
+                    chunks = []
+                    async for chunk in generate_stream(inference_messages, max_tokens, temperature, tools=tools):
+                        chunks.append(chunk)
+                    generated_text = "".join(chunks)
                     break
-        except Exception as e:
-            exc_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
-            logger.warning("inference: provider '%s' failed: %s", p_name, exc_desc)
-            errors.append(f"Provider '{p_name}' failed: {exc_desc}")
-            
-    if not generated_text:
-        logger.error("inference: all providers failed: %s", errors)
-        return ""
-    return generated_text
+                elif p_type in ("local", "remote"):
+                    endpoint = p_config.get("endpoint", "").strip()
+                    model = p_config.get("model", "").strip()
+                    api_key = p_config.get("apiKey", "").strip()
+
+                    if p_type == "local":
+                        engine = p_config.get("engine", "ollama")
+                        if not endpoint:
+                            endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
+                        if not model:
+                            model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
+                    else:
+                        service = p_config.get("service", "openai")
+                        if service == "openai" and not endpoint:
+                            endpoint = "https://api.openai.com/v1"
+                        elif service == "gemini" and not endpoint:
+                            endpoint = "https://generativelanguage.googleapis.com/v1beta/openai"
+                        elif service == "anthropic" and not endpoint:
+                            endpoint = "https://api.anthropic.com/v1"
+
+                    import httpx
+                    headers = {"Content-Type": "application/json"}
+                    if api_key:
+                        if "anthropic" in endpoint or p_config.get("service") == "anthropic":
+                            headers["x-api-key"] = api_key
+                            headers["anthropic-version"] = "2023-06-01"
+                        else:
+                            headers["Authorization"] = f"Bearer {api_key}"
+
+                    url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
+                    payload = {
+                        "model": model,
+                        "messages": inference_messages,
+                        "max_tokens": max_tokens,
+                        "temperature": temperature,
+                        "stream": False
+                    }
+                    if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
+                        payload["options"] = {"num_ctx": 8192}
+                    if tools:
+                        payload["tools"] = tools
+
+                    async with httpx.AsyncClient(timeout=90.0) as client:
+                        response = await client.post(url, headers=headers, json=payload)
+                        if response.status_code != 200:
+                            raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
+                        resp_json = response.json()
+                        choice = resp_json["choices"][0]["message"]
+                        generated_text = choice.get("content", "") or ""
+                        break
+            except Exception as e:
+                exc_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
+                logger.warning("inference: provider '%s' failed: %s", p_name, exc_desc)
+                errors.append(f"Provider '{p_name}' failed: {exc_desc}")
+
+        if not generated_text:
+            logger.error("inference: all providers failed: %s", errors)
+        return generated_text or ""
+
+    final_text = await _one_completion()
+    if not tools:
+        return final_text
+
+    from sdk.agent.agent_reply_tools import run_agent_tool_round
+    for _ in range(MAX_TOOL_ROUNDS_PER_REPLY):
+        if not final_text:
+            break
+        tool_response = await run_agent_tool_round(final_text, tools, principal)
+        if tool_response is None:
+            break
+        inference_messages.append({"role": "assistant", "content": final_text})
+        inference_messages.append({"role": "user", "content": tool_response})
+        final_text = await _one_completion()
+    return final_text
 
 
 async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None:
@@ -13244,7 +13165,15 @@ async def _agents_take_a_turn(conversation_id: str, sender: str) -> None:
             }]
             messages.extend(_room_history_for(agent_id, said))
 
-            reply = await _generate_reply(messages)
+            # Tools are opt-in per agent, off by default (agent_reply_tools.py).
+            from sdk.agent.agent_reply_tools import resolve_agent_tools
+            tool_specs, tool_principal = await resolve_agent_tools(agent_id)
+
+            reply = (
+                await _generate_reply(messages, tools=tool_specs, principal=tool_principal)
+                if tool_specs
+                else await _generate_reply(messages)
+            )
             if not reply:
                 logger.info("conversation %s: %s had nothing to say", conversation_id, agent_id)
                 continue
