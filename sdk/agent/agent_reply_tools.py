@@ -49,11 +49,25 @@ log = logging.getLogger(__name__)
 _CALLING_PRINCIPAL: ContextVar[Any | None] = ContextVar("_calling_principal", default=None)
 
 
-async def resolve_agent_tools(agent_id: str) -> tuple[list[dict[str, Any]] | None, Any | None]:
+#: config.tool_choice values that mean something other than "let the model
+#: decide" (the implicit default when the key is absent or unrecognised).
+_VALID_TOOL_CHOICES = {"required", "auto"}
+
+
+async def resolve_agent_tools(
+    agent_id: str,
+) -> tuple[list[dict[str, Any]] | None, Any | None, str | None]:
     """
-    (tool_specs, principal) for `agent_id`'s reply, or (None, None) if it has
-    no `config.tool_allowlist` -- the default for every agent today, and
-    what keeps every agent without one replying exactly as before.
+    (tool_specs, principal, tool_choice) for `agent_id`'s reply, or
+    (None, None, None) if it has no `config.tool_allowlist` -- the default
+    for every agent today, and what keeps every agent without one replying
+    exactly as before.
+
+    `tool_choice` comes from `config.tool_choice` ("required" forces the
+    first completion pass to call one of the offered tools instead of
+    leaving it to the model's discretion -- see _generate_reply). Anything
+    other than "required"/"auto" is treated as absent rather than passed
+    through verbatim to a provider that might reject it.
     """
     from python.harness import db
     from python.harness.access import AGENT, Principal
@@ -65,12 +79,15 @@ async def resolve_agent_tools(agent_id: str) -> tuple[list[dict[str, Any]] | Non
         cfg = agent_row["config"] if agent_row else None
         cfg = json.loads(cfg) if isinstance(cfg, str) else (cfg or {})
         allowlist = cfg.get("tool_allowlist") if isinstance(cfg, dict) else None
+        tool_choice = cfg.get("tool_choice") if isinstance(cfg, dict) else None
     except Exception:
-        return None, None
+        return None, None, None
 
     if not isinstance(allowlist, list) or not allowlist:
-        return None, None
-    return _native_specs_for_allowlist(allowlist), Principal(AGENT, agent_id)
+        return None, None, None
+    if tool_choice not in _VALID_TOOL_CHOICES:
+        tool_choice = None
+    return _native_specs_for_allowlist(allowlist), Principal(AGENT, agent_id), tool_choice
 
 
 def parse_call_tag(tool_match: "re.Match[str]") -> tuple[str, dict[str, Any]]:

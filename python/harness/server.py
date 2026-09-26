@@ -6635,6 +6635,7 @@ async def _generate_reply(
     temperature: float = 0.7,
     tools: list[dict[str, Any]] | None = None,
     principal: Any | None = None,
+    tool_choice: str | None = None,
 ) -> str:
     """
     Run a prepared message list through whichever provider answers first.
@@ -6646,6 +6647,24 @@ async def _generate_reply(
     `_agents_take_a_turn` passes them; `_handle_inbound_a2a` (a REMOTE peer's
     message) deliberately never does -- see agent_reply_tools.py's docstring
     for why a remote message must never reach local tool execution here.
+
+    `tool_choice="required"` (from an agent's own config, see
+    resolve_agent_tools) forces the FIRST completion pass to call one of the
+    offered tools rather than leaving it to the model's discretion -- small
+    local models reliably use a tool when it's the only way to answer, but
+    often just answer directly instead of following a soft "you should
+    delegate this" instruction. It applies only to that first pass: once a
+    tool has actually been called and its result fed back, later rounds go
+    back to unforced so the model can still choose to just answer in text
+    instead of being compelled to call another tool every round until
+    MAX_TOOL_ROUNDS_PER_REPLY cuts it off.
+
+    Only reaches local/remote (real OpenAI-spec) providers below -- confirmed
+    live that the embedded llama.cpp fork does not honour "required" cleanly
+    (it derails into a degenerate repetition loop instead of a tool call), so
+    the embedded branch never forwards it. An agent whose turn happens to be
+    served by the embedded provider gets today's unforced behaviour either
+    way; this only changes anything once a local/remote provider answers.
     """
     try:
         rows = await load_inference_providers()
@@ -6653,7 +6672,7 @@ async def _generate_reply(
         logger.error("inference: could not query providers: %s", e)
         return ""
 
-    async def _one_completion() -> str:
+    async def _one_completion(force_tool_choice: str | None = None) -> str:
         generated_text = None
         errors = []
         for provider in rows:
@@ -6674,7 +6693,17 @@ async def _generate_reply(
                     if not check_model_cached():
                         raise RuntimeError("Embedded model not cached.")
                     chunks = []
-                    async for chunk in generate_stream(inference_messages, max_tokens, temperature, tools=tools):
+                    # tool_choice is deliberately NOT forwarded here: confirmed live
+                    # against the current embedded llama.cpp fork that "required"
+                    # doesn't force a tool call, it derails generation into a
+                    # degenerate repetition loop instead of the clean, coherent
+                    # answer the identical prompt gets without it. Forwarding
+                    # something proven to make output *worse* would be worse than
+                    # not having the feature; local/remote OpenAI-spec-compliant
+                    # providers below still get it.
+                    async for chunk in generate_stream(
+                        inference_messages, max_tokens, temperature, tools=tools,
+                    ):
                         chunks.append(chunk)
                     generated_text = "".join(chunks)
                     break
@@ -6719,6 +6748,8 @@ async def _generate_reply(
                         payload["options"] = {"num_ctx": 8192}
                     if tools:
                         payload["tools"] = tools
+                        if force_tool_choice:
+                            payload["tool_choice"] = force_tool_choice
 
                     async with httpx.AsyncClient(timeout=90.0) as client:
                         response = await client.post(url, headers=headers, json=payload)
@@ -6727,6 +6758,15 @@ async def _generate_reply(
                         resp_json = response.json()
                         choice = resp_json["choices"][0]["message"]
                         generated_text = choice.get("content", "") or ""
+                        # A non-streaming tool call carries no `content` at all -- only
+                        # `tool_calls`. The main turn loop already converts this via
+                        # _tool_calls_to_call_tags (server.py:2990 etc.); _generate_reply's
+                        # own local/remote branch never did, so a room agent whose turn
+                        # happened to be served by Ollama/a remote provider (rather than
+                        # the embedded engine, which generate_stream() already handles)
+                        # would see its tool call silently discarded.
+                        if not generated_text and choice.get("tool_calls"):
+                            generated_text = _tool_calls_to_call_tags(choice["tool_calls"])
                         break
             except Exception as e:
                 exc_desc = f"{type(e).__name__}: {e}" if str(e) else type(e).__name__
@@ -6737,7 +6777,7 @@ async def _generate_reply(
             logger.error("inference: all providers failed: %s", errors)
         return generated_text or ""
 
-    final_text = await _one_completion()
+    final_text = await _one_completion(force_tool_choice=tool_choice)
     if not tools:
         return final_text
 
@@ -13179,10 +13219,10 @@ async def _agents_take_a_turn(conversation_id: str, sender: str) -> None:
 
             # Tools are opt-in per agent, off by default (agent_reply_tools.py).
             from sdk.agent.agent_reply_tools import resolve_agent_tools
-            tool_specs, tool_principal = await resolve_agent_tools(agent_id)
+            tool_specs, tool_principal, tool_choice = await resolve_agent_tools(agent_id)
 
             reply = (
-                await _generate_reply(messages, tools=tool_specs, principal=tool_principal)
+                await _generate_reply(messages, tools=tool_specs, principal=tool_principal, tool_choice=tool_choice)
                 if tool_specs
                 else await _generate_reply(messages)
             )

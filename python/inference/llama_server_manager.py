@@ -589,6 +589,7 @@ async def generate_stream(
     temperature: float = 0.7,
     lora_path: str | None = None,
     tools: list[dict] | None = None,
+    tool_choice: str | None = None,
 ) -> AsyncIterator[str]:
     """Stream a completion from the local llama-server, one turn at a time."""
     if lora_path:
@@ -613,6 +614,8 @@ async def generate_stream(
     }
     if tools:
         payload["tools"] = tools
+        if tool_choice:
+            payload["tool_choice"] = tool_choice
 
     # Accumulated native tool_calls deltas, keyed by their stream index --
     # OpenAI-shaped streaming splits a call across many chunks (name arrives
