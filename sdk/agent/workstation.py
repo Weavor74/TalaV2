@@ -56,7 +56,7 @@ def config() -> pol.WorkstationConfig:
     return pol.load_config()
 
 
-def ensure_root(cfg: pol.WorkstationConfig) -> None:
+def _ensure_root(cfg: pol.WorkstationConfig) -> None:
     for sub in ("audit", "jobs", "runs"):
         (cfg.internal_dir / sub).mkdir(parents=True, exist_ok=True)
 
@@ -103,7 +103,7 @@ APPROVAL_PREFIX = "wsapprove-"
 PAYLOAD_KIND = "workstation_action"
 
 
-def action_digest(tool: str, args: dict) -> str:
+def _action_digest(tool: str, args: dict) -> str:
     blob = json.dumps({"tool": tool, "args": args}, sort_keys=True, default=str)
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()
 
@@ -147,12 +147,6 @@ class DbApprovalStore:
 _STORE: Any = DbApprovalStore()
 
 
-def set_approval_store(store: Any) -> None:
-    """Tests swap in an in-memory store."""
-    global _STORE
-    _STORE = store
-
-
 async def _broadcast_pending(task_id: str, summary: str) -> None:
     try:
         from python.harness.server import broadcast_notification
@@ -162,9 +156,9 @@ async def _broadcast_pending(task_id: str, summary: str) -> None:
         pass
 
 
-async def check_approval(tool: str, args: dict, verdict: pol.Verdict) -> dict:
+async def _check_approval(tool: str, args: dict, verdict: pol.Verdict) -> dict:
     """{'approved': bool, 'task_id', 'status'} -- creates the review task if none exists."""
-    digest = action_digest(tool, args)
+    digest = _action_digest(tool, args)
     summary = f"Tala workstation: {tool} -- " + "; ".join(verdict.reasons)[:220]
     try:
         found = await _STORE.latest(digest)
@@ -211,7 +205,7 @@ async def gate(cfg: pol.WorkstationConfig, tool: str, args: dict, verdict: pol.V
                 "error": "Blocked by the workstation safety policy: " + "; ".join(verdict.reasons)
                          + ". This cannot be approved; choose a different approach."}
     if verdict.verdict == pol.APPROVE:
-        appr = await check_approval(tool, digest_args if digest_args is not None else args, verdict)
+        appr = await _check_approval(tool, digest_args if digest_args is not None else args, verdict)
         decision = {**verdict.as_dict(), "approval": appr}
         if appr["approved"]:
             args["_approval_task"] = appr["task_id"]
@@ -234,17 +228,20 @@ async def gate(cfg: pol.WorkstationConfig, tool: str, args: dict, verdict: pol.V
 # Processes
 # ---------------------------------------------------------------------------
 
-def child_env(cfg: pol.WorkstationConfig) -> dict[str, str]:
+def _child_env(cfg: pol.WorkstationConfig) -> dict[str, str]:
     env = {k: v for k, v in os.environ.items() if not any(t in k.lower() for t in _SECRET_ENV)}
     env["TALA_WORKSPACE"] = str(cfg.root)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
     if os.name == "nt":
-        caches = Path(os.environ.get("TALA_CACHE_ROOT", r"D:\caches"))
+        # Caches on the drive Tala is installed on (D: on Kagura), never the
+        # system drive by accident. Explicit environment settings still win.
+        drive = Path(pol.install_anchor())
+        caches = Path(os.environ.get("TALA_CACHE_ROOT") or (drive / "caches"))
         env.setdefault("PIP_CACHE_DIR", str(caches / "pip"))
         env.setdefault("UV_CACHE_DIR", str(caches / "uv"))
         env.setdefault("npm_config_cache", str(caches / "npm"))
-        env.setdefault("HF_HOME", r"D:\hf-cache")
+        env.setdefault("HF_HOME", str(drive / "hf-cache"))
         env["TEMP"] = env["TMP"] = str(cfg.internal_dir / "tmp")
         (cfg.internal_dir / "tmp").mkdir(parents=True, exist_ok=True)
     return env
@@ -254,7 +251,7 @@ _PS_PREFIX = ("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEn
               "$ProgressPreference='SilentlyContinue'; ")
 
 
-def shell_argv(command: str) -> list[str]:
+def _shell_argv(command: str) -> list[str]:
     if os.name == "nt":
         return ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
                 "-Command", _PS_PREFIX + command]
@@ -277,13 +274,13 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
     return text[:half] + f"\n...[{len(text) - limit} chars truncated]...\n" + text[-half:], True
 
 
-async def run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, timeout: float) -> dict:
+async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, timeout: float) -> dict:
     from sdk.agent.async_shell import _kill_process_tree, _register, _unregister
 
     timeout = max(1.0, min(float(timeout or cfg.default_timeout), cfg.max_timeout))
     started = time.monotonic()
     proc = await asyncio.create_subprocess_exec(
-        *argv, cwd=str(cwd), env=child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
+        *argv, cwd=str(cwd), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **_spawn_kwargs())
     _register(proc)
     timed_out = False
@@ -318,7 +315,7 @@ async def run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, ti
     return result
 
 
-def resolve_cwd(cfg: pol.WorkstationConfig, cwd: str | None) -> tuple[Path, pol.Verdict]:
+def _resolve_cwd(cfg: pol.WorkstationConfig, cwd: str | None) -> tuple[Path, pol.Verdict]:
     v = pol.Verdict()
     target = pol.resolve_in_root(cfg, cwd or ".")
     why = pol.deny_reason(cfg, str(target))
@@ -335,19 +332,19 @@ def resolve_cwd(cfg: pol.WorkstationConfig, cwd: str | None) -> tuple[Path, pol.
 
 async def run_shell(command: str, cwd: str | None = None, timeout_seconds: float | None = None) -> dict:
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     started = time.monotonic()
     args = {"command": command, "cwd": cwd, "timeout_seconds": timeout_seconds}
     if not (command or "").strip():
         return {"success": False, "error": "command is empty"}
-    workdir, v = resolve_cwd(cfg, cwd)
+    workdir, v = _resolve_cwd(cfg, cwd)
     v.merge(pol.classify_shell(cfg, command, workdir))
     refusal = await gate(cfg, "run_shell", args, v, {"command": command, "cwd": str(workdir)})
     if refusal:
         return refusal
     if not workdir.is_dir():
         return {"success": False, "error": f"working directory {workdir} does not exist"}
-    result = await run_process(cfg, shell_argv(command), workdir, timeout_seconds or cfg.default_timeout)
+    result = await _run_process(cfg, _shell_argv(command), workdir, timeout_seconds or cfg.default_timeout)
     result["cwd"] = str(workdir)
     audit(cfg, "run_shell", args, v.as_dict(), {k: result.get(k) for k in ("exit_code", "timed_out", "success")},
           started)
@@ -365,7 +362,7 @@ def _rel(cfg: pol.WorkstationConfig, p: Path) -> str:
 async def read_file(path: str, start_line: int | None = None, end_line: int | None = None,
                     max_chars: int | None = None) -> dict:
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     args = {"path": path, "start_line": start_line, "end_line": end_line}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "read")
@@ -395,7 +392,7 @@ async def read_file(path: str, start_line: int | None = None, end_line: int | No
 
 async def write_file(path: str, content: str, append: bool = False) -> dict:
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     content = "" if content is None else str(content)
     args = {"path": path, "append": append, "content": content}
     target = pol.resolve_in_root(cfg, path)
@@ -430,7 +427,7 @@ def _walk(base: Path, recursive: bool, include_hidden: bool):
 async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*", sort_by: str = "name",
                    limit: int = 200, files_only: bool = False, include_hidden: bool = False) -> dict:
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     args = {"path": path, "recursive": recursive, "pattern": pattern, "sort_by": sort_by, "limit": limit}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "read")
@@ -470,7 +467,7 @@ async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*",
 async def search_files(query: str = "", path: str = ".", pattern: str = "*", regex: bool = False,
                        names_only: bool = False, max_results: int = 100) -> dict:
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     args = {"query": query, "path": path, "pattern": pattern, "regex": regex, "names_only": names_only}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "read")
@@ -515,7 +512,7 @@ async def delete_path(path: str, recursive: bool = False) -> dict:
     import shutil
 
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     args = {"path": path, "recursive": recursive}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "delete")
@@ -538,36 +535,36 @@ async def delete_path(path: str, recursive: bool = False) -> dict:
 # Python
 # ---------------------------------------------------------------------------
 
-def venv_dir(cfg: pol.WorkstationConfig) -> Path:
+def _venv_dir(cfg: pol.WorkstationConfig) -> Path:
     return cfg.internal_dir / "venv"
 
 
-def venv_python(cfg: pol.WorkstationConfig) -> Path:
-    d = venv_dir(cfg)
+def _venv_python(cfg: pol.WorkstationConfig) -> Path:
+    d = _venv_dir(cfg)
     return d / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
 
 
-async def ensure_venv(cfg: pol.WorkstationConfig) -> dict | None:
-    py = venv_python(cfg)
+async def _ensure_venv(cfg: pol.WorkstationConfig) -> dict | None:
+    py = _venv_python(cfg)
     if py.is_file():
         return None
     base = cfg.python or sys.executable
-    res = await run_process(cfg, [base, "-m", "venv", str(venv_dir(cfg))], cfg.root, 300)
+    res = await _run_process(cfg, [base, "-m", "venv", str(_venv_dir(cfg))], cfg.root, 300)
     if not py.is_file():
         return {"success": False, "error": f"could not create the workstation venv: {res.get('stderr') or res}"}
-    audit(cfg, "ensure_venv", {"base": base}, {"verdict": "allow"}, {"venv": str(venv_dir(cfg))})
+    audit(cfg, "ensure_venv", {"base": base}, {"verdict": "allow"}, {"venv": str(_venv_dir(cfg))})
     return None
 
 
 async def run_python(code: str | None = None, script: str | None = None, args: list | None = None,
                      cwd: str | None = None, timeout_seconds: float | None = None) -> dict:
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     started = time.monotonic()
     call_args = {"code": code, "script": script, "args": args, "cwd": cwd}
     if not code and not script:
         return {"success": False, "error": "pass either code or script"}
-    workdir, v = resolve_cwd(cfg, cwd)
+    workdir, v = _resolve_cwd(cfg, cwd)
     script_path = None
     if script:
         script_path = pol.resolve_in_root(cfg, Path(workdir) / script if not os.path.isabs(script) else script)
@@ -589,13 +586,13 @@ async def run_python(code: str | None = None, script: str | None = None, args: l
         return refusal
     if script_path is not None and not script_path.is_file():
         return {"success": False, "error": f"script {script_path} does not exist"}
-    if (err := await ensure_venv(cfg)) is not None:
+    if (err := await _ensure_venv(cfg)) is not None:
         return err
     if script_path is None:
         script_path = cfg.internal_dir / "runs" / f"snippet-{datetime.now().strftime('%Y%m%d-%H%M%S')}-" \
                                                   f"{uuid.uuid4().hex[:6]}.py"
         script_path.write_text(code, encoding="utf-8")
-    result = await run_process(cfg, [str(venv_python(cfg)), str(script_path), *extra], workdir,
+    result = await _run_process(cfg, [str(_venv_python(cfg)), str(script_path), *extra], workdir,
                                timeout_seconds or cfg.default_timeout)
     result["script"] = str(script_path)
     audit(cfg, "run_python", call_args, v.as_dict(),
@@ -606,7 +603,7 @@ async def run_python(code: str | None = None, script: str | None = None, args: l
 async def install_python_package(packages: list | str) -> dict:
     """pip install into the workstation venv. Always needs approval (installs + network)."""
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     pkgs = packages.split() if isinstance(packages, str) else [str(p) for p in (packages or [])]
     pkgs = [p for p in pkgs if p.strip()]
     if not pkgs or any(p.startswith("-") for p in pkgs):
@@ -616,9 +613,9 @@ async def install_python_package(packages: list | str) -> dict:
     refusal = await gate(cfg, "install_python_package", {"packages": pkgs}, v)
     if refusal:
         return refusal
-    if (err := await ensure_venv(cfg)) is not None:
+    if (err := await _ensure_venv(cfg)) is not None:
         return err
-    result = await run_process(cfg, [str(venv_python(cfg)), "-m", "pip", "install", *pkgs], cfg.root, 900)
+    result = await _run_process(cfg, [str(_venv_python(cfg)), "-m", "pip", "install", *pkgs], cfg.root, 900)
     audit(cfg, "install_python_package", {"packages": pkgs}, v.as_dict(),
           {k: result.get(k) for k in ("exit_code", "success")})
     return result
@@ -651,7 +648,7 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
     from sdk.agent.async_shell import _register
 
     cfg = config()
-    ensure_root(cfg)
+    _ensure_root(cfg)
     args = {"command": command, "name": name, "cwd": cwd}
     if not (command or "").strip():
         return {"success": False, "error": "command is empty"}
@@ -659,7 +656,7 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
     if len(running) >= cfg.max_jobs:
         return {"success": False, "error": f"{len(running)} jobs already running (max {cfg.max_jobs}); "
                                            "stop one or wait for it to finish"}
-    workdir, v = resolve_cwd(cfg, cwd)
+    workdir, v = _resolve_cwd(cfg, cwd)
     v.merge(pol.classify_shell(cfg, command, workdir))
     refusal = await gate(cfg, "start_job", args, v, {"command": command, "cwd": str(workdir)})
     if refusal:
@@ -668,7 +665,7 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
     log_path = cfg.internal_dir / "jobs" / f"{job_id}.log"
     fh = log_path.open("wb")
     proc = await asyncio.create_subprocess_exec(
-        *shell_argv(command), cwd=str(workdir), env=child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
+        *_shell_argv(command), cwd=str(workdir), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
         stdout=fh, stderr=asyncio.subprocess.STDOUT, **_spawn_kwargs())
     fh.close()
     _register(proc)

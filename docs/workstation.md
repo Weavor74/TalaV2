@@ -18,14 +18,16 @@ Windows-first (Kagura) and also runs on Linux/macOS (bash) for tests and CI.
 
 ## Where she works
 
-* Root: `D:\TalaWorkspace` on Windows (`~/TalaWorkspace` elsewhere). Override with
+* Root: `TalaWorkspace` on the drive Tala is installed on, so `D:\TalaWorkspace` on Kagura
+  (`~/TalaWorkspace` on Linux/macOS). Override with
   `TALA_WORKSTATION_ROOT`. (Not `TALA_WORKSPACE_ROOT`: older scripts already use
   that name to mean the TalaV2 checkout.)
 * `<root>\.tala\` holds the audit log, job logs, run logs, temp and the venv.
   It is hidden from listings and not writable through the tools.
 * Child processes get secret-looking environment variables stripped, run at
-  below-normal priority, and on Windows have pip/uv/npm caches and TEMP
-  pointed at D: (`D:\caches\...`, `<root>\.tala\tmp`).
+  below-normal priority, and on Windows have pip/uv/npm/HF caches and TEMP
+  pointed at the install drive (`D:\caches\...`, `D:\hf-cache`, `<root>\.tala\tmp` on Kagura)
+  unless those variables are already set.
 
 ## The three verdicts
 
@@ -77,8 +79,9 @@ Environment overrides: `TALA_WORKSTATION=0` (disable), `TALA_WORKSTATION_ROOT`,
 
 * **Main chat** (Tala as the owner): the core five (`run_shell`, `read_file`,
   `write_file`, `list_dir`, `run_python`) are part of the always-offered tool
-  floor (`python/harness/tool_selection.py: core_tools()`); the rest are picked
-  by the keyword ranker when relevant.
+  floor (`python/harness/tool_selection.py: _core_tools()`) for local and remote
+  providers; the embedded tier (8-tool budget) and the other six tools go
+  through the keyword ranker.
 * **Room agents**: `python scripts/grant_workstation_tools.py --agent <name>`
   adds them to the agent's `tool_allowlist` and syncs the AuthorizationGate
   `execute_tool` grants, exactly as the agent editor does.

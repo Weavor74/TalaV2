@@ -52,9 +52,16 @@ _RANK = {ALLOW: 0, APPROVE: 1, DENY: 2}
 INTERNAL_DIRNAME = ".tala"
 
 
+def install_anchor() -> str:
+    """Root of the drive Tala is installed on (the D drive for D:\\src\\TalaV2); empty on POSIX."""
+    return Path(__file__).resolve().anchor if os.name == "nt" else ""
+
+
 def _default_root() -> str:
-    if os.name == "nt":
-        return r"D:\TalaWorkspace"
+    """TalaWorkspace on the same drive as the install on Windows (D: on Kagura;
+    the USB stick when she runs from one), the home folder elsewhere."""
+    if os.name == "nt" and install_anchor():
+        return str(Path(install_anchor()) / "TalaWorkspace")
     return str(Path.home() / "TalaWorkspace")
 
 
@@ -160,25 +167,25 @@ def resolve_in_root(cfg: WorkstationConfig, path: str | os.PathLike | None) -> P
     return _resolve(candidate)
 
 
-def canon(p: str | os.PathLike) -> str:
+def _canon(p: str | os.PathLike) -> str:
     """Lower-case, forward-slash form used for every pattern match."""
     return str(p).replace("\\", "/").lower()
 
 
 def is_within(child: Path, parent: Path) -> bool:
-    c, p = canon(child).rstrip("/"), canon(parent).rstrip("/")
+    c, p = _canon(child).rstrip("/"), _canon(parent).rstrip("/")
     return c == p or c.startswith(p + "/")
 
 
 #: Never touched by any workstation tool, approval or not. Matched (re.search)
-#: against canon() of a resolved path, and against the canon() text of shell
+#: against _canon() of a resolved path, and against the _canon() text of shell
 #: commands / Python sources.
 DEFAULT_DENY_PATTERNS: tuple[tuple[str, str], ...] = (
     (r"trike", "Trike Trails is Antigravity's project on this machine"),
     (r"antigravity", "Antigravity (IDE and its agent) is off limits"),
     (r"/\.gemini(?:/|$)", "Antigravity/Gemini agent state"),
     (r"(?:^|[\s'\"=])[a-z]:/tt-[^/\s]*", "Trike Trails build/test folders (D:\\tt-*)"),
-    (r"[a-z]:/windows(?:/|$|[\s'\"])", "C:\\Windows system files"),
+    (r"[a-z]:/windows(?:/|$|[\s'\"])", "the Windows system folder"),
     (r"/system32/config(?:/|$)", "Windows registry hives"),
     (r"/\.ssh(?:/|$)", "SSH keys"),
     (r"/\.aws(?:/|$)", "AWS credentials"),
@@ -207,15 +214,15 @@ def _deny_patterns(cfg: WorkstationConfig) -> list[tuple[re.Pattern[str], str]]:
         try:
             pats.append((re.compile(extra, re.IGNORECASE), f"config deny pattern {extra!r}"))
         except re.error:
-            pats.append((re.compile(re.escape(canon(extra))), f"config deny path {extra!r}"))
+            pats.append((re.compile(re.escape(_canon(extra))), f"config deny path {extra!r}"))
     if cfg.config_path is not None:
-        pats.append((re.compile(re.escape(canon(_resolve(cfg.config_path)))), "workstation config file"))
+        pats.append((re.compile(re.escape(_canon(_resolve(cfg.config_path)))), "workstation config file"))
     return pats
 
 
 def deny_reason(cfg: WorkstationConfig, text: str) -> str | None:
-    """The first deny-list hit in canon(text), or None."""
-    hay = canon(text)
+    """The first deny-list hit in _canon(text), or None."""
+    hay = _canon(text)
     for pat, why in _deny_patterns(cfg):
         if pat.search(hay):
             return why
@@ -260,7 +267,7 @@ def classify_path_access(cfg: WorkstationConfig, target: Path, mode: str) -> Ver
         return v
     in_root = is_within(target, cfg.root)
     if mode == "read":
-        if not in_root and re.search(r"(?:^|/)\.env(?:\.[\w-]+)?$", canon(target)):
+        if not in_root and re.search(r"(?:^|/)\.env(?:\.[\w-]+)?$", _canon(target)):
             v.raise_to(DENY, "secrets", f"{target} looks like a secrets file (.env)")
         return v
 
@@ -273,7 +280,7 @@ def classify_path_access(cfg: WorkstationConfig, target: Path, mode: str) -> Ver
             v.raise_to(APPROVE, "delete", f"deleting {target} needs approval")
         if not any(is_within(target, r) for r in writable_roots(cfg)):
             v.raise_to(cfg.outside_root_writes, "outside_root", f"{target} is outside the workspace")
-        if canon(target).rstrip("/") == canon(cfg.root).rstrip("/"):
+        if _canon(target).rstrip("/") == _canon(cfg.root).rstrip("/"):
             v.raise_to(DENY, "root", "refusing to delete the workspace root itself")
         return v
     if not any(is_within(target, r) for r in writable_roots(cfg)):
@@ -357,7 +364,7 @@ def _stage_verbs(command: str) -> list[str]:
     return verbs
 
 
-def referenced_paths(command: str) -> list[str]:
+def _referenced_paths(command: str) -> list[str]:
     found: list[str] = []
     for rx in (_WIN_ABS_QUOTED, _WIN_ABS, _UNC):
         found += [m.group(1) for m in rx.finditer(command)]
@@ -388,7 +395,7 @@ def classify_shell(cfg: WorkstationConfig, command: str, cwd: Path) -> Verdict:
             v.raise_to(APPROVE, category, f"command {reason} ({vb})")
 
     outside = []
-    for p in referenced_paths(command):
+    for p in _referenced_paths(command):
         rp = _resolve(p)
         if deny_reason(cfg, str(rp)):
             v.raise_to(DENY, "deny_list", f"{p} is deny-listed")
@@ -441,7 +448,7 @@ def classify_python(cfg: WorkstationConfig, source: str) -> Verdict:
         if re.search(rx, source or ""):
             v.raise_to(APPROVE, category, f"code {reason}")
     outside = []
-    for p in referenced_paths(source or ""):
+    for p in _referenced_paths(source or ""):
         rp = _resolve(p)
         if deny_reason(cfg, str(rp)):
             v.raise_to(DENY, "deny_list", f"{p} is deny-listed")

@@ -57,8 +57,8 @@ def env(tmp_path, monkeypatch):
     store = MemoryStore()
     monkeypatch.setattr(ws, "_STORE", store)
     # run_python uses the current interpreter instead of building a venv in every test.
-    monkeypatch.setattr(ws, "ensure_venv", lambda cfg: asyncio.sleep(0))
-    monkeypatch.setattr(ws, "venv_python", lambda cfg: Path(sys.executable))
+    monkeypatch.setattr(ws, "_ensure_venv", lambda cfg: asyncio.sleep(0))
+    monkeypatch.setattr(ws, "_venv_python", lambda cfg: Path(sys.executable))
     return root, store, tmp_path
 
 
@@ -253,15 +253,16 @@ async def test_job_limit(env, monkeypatch):
 
 
 def test_tools_registered_and_in_core(env, monkeypatch):
-    from python.harness.tool_selection import DEFAULT_CORE_TOOLS, core_tools
+    from python.harness.tool_selection import DEFAULT_CORE_TOOLS, _core_tools
     from sdk.agent.tools import ToolRegistry
     from sdk.agent.workstation_tools import WORKSTATION_CORE_TOOLS, WORKSTATION_TOOLS
 
     for name in WORKSTATION_TOOLS:
         assert name in ToolRegistry._tools, name
-    assert set(WORKSTATION_CORE_TOOLS) <= set(core_tools())
+    assert set(WORKSTATION_CORE_TOOLS) <= set(_core_tools(25))
+    assert _core_tools(8) == DEFAULT_CORE_TOOLS  # embedded tier keeps its budget for the prompt
     monkeypatch.setenv("TALA_WORKSTATION", "0")
-    assert core_tools() == DEFAULT_CORE_TOOLS
+    assert _core_tools(25) == DEFAULT_CORE_TOOLS
 
 
 def test_workstation_tools_are_not_lease_gated_or_shadowed():

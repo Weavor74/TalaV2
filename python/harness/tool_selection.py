@@ -56,14 +56,20 @@ DEFAULT_CORE_TOOLS: tuple[str, ...] = (
 
 
 
-def core_tools() -> tuple[str, ...]:
+def _core_tools(budget: int = 0) -> tuple[str, ...]:
     """
     The always-on floor for this process: DEFAULT_CORE_TOOLS plus, while the
     workstation is enabled, the five tools that make up Tala's own computer
     (run_shell, read_file, write_file, list_dir, run_python). Without them in
     the floor, a keyword ranker at a 25-tool budget would sometimes withhold
     the shell in the middle of a multi-step job.
+
+    Not at the embedded tier (budget < 16): five more guaranteed tools would
+    fill its whole 8-tool budget and crowd out everything the prompt asked
+    for, including web search.
     """
+    if 0 < budget < 16:
+        return DEFAULT_CORE_TOOLS
     try:
         from sdk.agent.workstation_policy import load_config
         from sdk.agent.workstation_tools import WORKSTATION_CORE_TOOLS
@@ -228,7 +234,7 @@ def select_specs(
     if budget <= 0:
         return specs, []
     if core is None:
-        core = core_tools()
+        core = _core_tools(budget)
 
     by_name = {s.get("function", {}).get("name"): s for s in specs}
     keep = _select_tool_names(
