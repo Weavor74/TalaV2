@@ -21,13 +21,12 @@ WORKSTATION_TOOLS: tuple[str, ...] = (
 #: Offered on every non-casual main-chat turn while the workstation is enabled.
 WORKSTATION_CORE_TOOLS: tuple[str, ...] = ("run_shell", "read_file", "write_file", "list_dir", "run_python")
 
-try:
-    _ROOT = str(ws.config().root)
-except Exception:  # pragma: no cover - config is best effort at import
-    _ROOT = "the workspace root"
-
-_WHERE = (f" Your workspace (your own computer's working folder) is {_ROOT}; relative paths are relative to it. "
-          "Risky actions are held for the user's approval; deny-listed places are blocked.")
+#: Static on purpose: descriptions are also written into the tool HTML-NN
+#: catalogue (scripts/generate_tool_nodes.py), which must not depend on the
+#: machine it was generated on. Every result carries the real resolved path.
+_WHERE = (" Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured "
+          "otherwise); relative paths are relative to it. Risky actions are held for the user's approval; "
+          "deny-listed places are blocked.")
 
 
 def _s(props: dict, required: list[str]) -> dict:

@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: search_files</title>
+</head>
+<body>
+<article
+  data-node-id="tool-search-files"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="search_files"
+  data-source-files="sdk/agent/workstation_tools.py"
+  data-source-fingerprint="sha256:179C6B9CF191B864163B7614ED47CC66FF0236CB2F3F472B92DE7EF5C8C8184C"
+  data-source-digest="sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-18T21:24:58Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: search_files</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;search_files&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Search files under a folder on your computer for text (or a regex with regex=true); names_only=true matches file names instead of contents. Your workspace is your own working folder on this computer (D:\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;search_files(query*, path, pattern, regex, names_only)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;path&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;pattern&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;regex&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;names_only&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/workstation_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-search-files"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "search_files"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: search_files",
+  "description": "Program documentation for search_files.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "search_files"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-18T21:24:58Z",
+    "schema": "neural-node/v2",
+    "doc_target": "search_files",
+    "source_fingerprint": "sha256:179C6B9CF191B864163B7614ED47CC66FF0236CB2F3F472B92DE7EF5C8C8184C",
+    "source_files": [
+      "sdk/agent/workstation_tools.py"
+    ],
+    "source_digest": "sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "search_files",
+    "description": "Search files under a folder on your computer for text (or a regex with regex=true); names_only=true matches file names instead of contents. Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user's approval; deny-listed places are blocked.",
+    "signature": "search_files(query*, path, pattern, regex, names_only)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "query": {
+          "type": "string"
+        },
+        "path": {
+          "type": "string"
+        },
+        "pattern": {
+          "type": "string"
+        },
+        "regex": {
+          "type": "boolean"
+        },
+        "names_only": {
+          "type": "boolean"
+        }
+      },
+      "required": [
+        "query"
+      ]
+    },
+    "module": "sdk.agent.workstation_tools",
+    "required": [
+      "query"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

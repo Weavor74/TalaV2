@@ -1,0 +1,153 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: run_python</title>
+</head>
+<body>
+<article
+  data-node-id="tool-run-python"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="run_python"
+  data-source-files="sdk/agent/workstation_tools.py"
+  data-source-fingerprint="sha256:74995B65BDBC76785D1ED35B5C59EDD99A0845F70F2A1E3E7F688E4971177E75"
+  data-source-digest="sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-18T21:24:58Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: run_python</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;run_python&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run Python 3 code (pass code) or a .py file (pass script) in your own Python venv on your computer and get its output. cwd defaults to the workspace. Your workspace is your own working folder on this computer (D:\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_python(code, script, args, cwd, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;code&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;script&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;args&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cwd&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/workstation_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-run-python"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "run_python"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: run_python",
+  "description": "Program documentation for run_python.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "run_python"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-18T21:24:58Z",
+    "schema": "neural-node/v2",
+    "doc_target": "run_python",
+    "source_fingerprint": "sha256:74995B65BDBC76785D1ED35B5C59EDD99A0845F70F2A1E3E7F688E4971177E75",
+    "source_files": [
+      "sdk/agent/workstation_tools.py"
+    ],
+    "source_digest": "sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "run_python",
+    "description": "Run Python 3 code (pass code) or a .py file (pass script) in your own Python venv on your computer and get its output. cwd defaults to the workspace. Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user's approval; deny-listed places are blocked.",
+    "signature": "run_python(code, script, args, cwd, timeout_seconds)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "code": {
+          "type": "string"
+        },
+        "script": {
+          "type": "string"
+        },
+        "args": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "cwd": {
+          "type": "string"
+        },
+        "timeout_seconds": {
+          "type": "integer"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.workstation_tools",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>
