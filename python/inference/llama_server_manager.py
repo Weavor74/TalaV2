@@ -274,6 +274,15 @@ class DBProgressTracker:
     def __exit__(self, *exc):
         self.close()
 
+    # huggingface_hub's Xet transfer path (the default for GGUF repos since
+    # hf_xet ships with it) drives the bar through more of tqdm's surface:
+    # set_postfix_str, refresh, set_description... Missing any one raised
+    # AttributeError mid-download and left a fresh install with no model.
+    def __getattr__(self, name: str):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return lambda *args, **kwargs: None
+
 
 async def _fetch_manifest() -> dict[str, Any]:
     async with httpx.AsyncClient(timeout=15.0) as client:

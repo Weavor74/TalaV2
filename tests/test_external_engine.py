@@ -153,3 +153,12 @@ def test_summary_shape(monkeypatch):
     s = ext.summary(builtin_present=False)
     assert s["resolved"] == "builtin" and s["model_size"] == "3b"
     assert "Llama-3.2-3B" in s["model"]
+
+
+def test_progress_tracker_tolerates_the_rest_of_tqdms_surface():
+    bar = lsm.DBProgressTracker(total=10)
+    bar.set_postfix_str("x")
+    bar.refresh()
+    bar.set_description("y")
+    bar.update(5)
+    bar.close()
