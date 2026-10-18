@@ -16,7 +16,6 @@ on the message and no `content` at all; the old code only ever read
 """
 from __future__ import annotations
 
-import json
 
 import pytest
 

@@ -71,7 +71,7 @@ class ProviderRouter:
             "name": "Tala Embedded Engine",
             "priority": 100,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
+            "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
         }
 
 

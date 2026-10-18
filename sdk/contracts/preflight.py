@@ -530,6 +530,10 @@ class PreflightEngine:
 # Public surface
 # ---------------------------------------------------------------------------
 
+# Public names listed in __all__ (the implementations are underscored).
+count_characters = _count_characters
+estimate_tokens = _estimate_tokens
+
 __all__: list[str] = [
     "CRYPTO_TO_AI_TOKENS",
     "AI_TOKEN_COST_USD",

@@ -92,7 +92,7 @@ def _perform_training_sync(job: dict[str, Any]) -> None:
         # top of it either way.
         #
         # 1. Convert semantic_memory to a HuggingFace Dataset
-        # 2. Load the base model (Qwen/Qwen2.5-0.5B-Instruct is already cached)
+        # 2. Load the base model (unsloth/Llama-3.2-1B-Instruct, the ungated Meta Llama 3.2 1B -- US-origin only; no Qwen/DeepSeek/Mistral bases)
         # 3. LoraConfig(r=8, lora_alpha=16)
         # 4. Train, then model.save_pretrained(output_path)
         raise LoraTrainingUnavailable(

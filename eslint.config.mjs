@@ -59,11 +59,13 @@ export default [
     // The two god files, pinned at their current size. Down only.
     // 16455 -> 16515: inherited 2026-09-23 from the UI-audit campaign merge,
     // which grew renderer.js past its own pin (lint on main was red).
+    // 16515 -> 16501 (2026-10-18): main had drifted to 16609; serializeNodeToHTML
+    // moved out to renderer/node_serializer.js.
     // Recorded, not condoned — cutting it back down is on the ratchet-debt
     // backlog next to sdk/agent/tools.py.
     files: ['renderer/renderer.js'],
     rules: {
-      'max-lines': ['error', { max: 16515, skipBlankLines: false, skipComments: false }],
+      'max-lines': ['error', { max: 16501, skipBlankLines: false, skipComments: false }],
     },
   },
   {

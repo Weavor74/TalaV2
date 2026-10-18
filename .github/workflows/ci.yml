@@ -118,7 +118,9 @@ jobs:
     # even though most local development on this project happens on Windows.
     services:
       postgres:
-        image: postgres:16
+        # pgvector build of Postgres 16: the memory tables need the vector
+        # extension, which the stock postgres image does not ship.
+        image: pgvector/pgvector:pg16
         env:
           POSTGRES_USER: tala
           POSTGRES_PASSWORD: tala

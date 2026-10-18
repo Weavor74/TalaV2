@@ -331,7 +331,7 @@ async def pre_flight_reconciliation() -> bool:
 
     log.info("GhostPersistence: pre-flight check.")
 
-    local_status = await asyncio.to_thread(get_local_status)
+    local_status = await asyncio.to_thread(_get_local_status)
     if "error" in local_status:
         log.warning("GhostPersistence: local chain unreachable: %s",
                     local_status["error"])

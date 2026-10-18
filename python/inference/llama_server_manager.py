@@ -69,6 +69,8 @@ from typing import Any
 
 import httpx
 
+from python.inference import external_engine as _ext
+
 logger = logging.getLogger(__name__)
 
 # ---------------------------------------------------------------------------
@@ -86,15 +88,19 @@ BINARIES_MANIFEST_URL = "https://talacore.app/llama_binaries.json"
 #: Default model: a single GGUF file, not a full HF snapshot -- llama.cpp
 #: needs one file, not the safetensors/tokenizer set transformers used.
 #:
-#: 1.5B, not 0.5B: measured directly against Jev-mode structured decisions
+#: Llama 3.2 3B Instruct (Meta, US-origin) since 2026-10: the project rule is
+#: no non-US base models, which retired the Qwen2.5-1.5B default. 1B is the
+#: low-RAM option (TALA_MODEL_SIZE=1b) and TALA_MODEL_PATH loads any local
+#: GGUF -- see python/inference/external_engine.py.
+#:
+#: History, kept for the size reasoning: 1.5B, not 0.5B: measured directly against Jev-mode structured decisions
 #: (chat_mode.determine_effective_mode()'s two-boolean classification), 0.5B
 #: was chance-level regardless of schema framing (3-way enum, combined
 #: booleans, isolated single boolean, with and without few-shot instructions
 #: -- none beat 50% on a plain yes/no question). 1.5B scored 10/12 fields
 #: correct on the same test set, at ~260ms per decision -- still negligible
 #: latency. This also improves ordinary chat quality, not just Jev mode.
-DEFAULT_MODEL_REPO = "Qwen/Qwen2.5-1.5B-Instruct-GGUF"
-DEFAULT_MODEL_FILENAME = "qwen2.5-1.5b-instruct-q4_k_m.gguf"
+DEFAULT_MODEL_REPO, DEFAULT_MODEL_FILENAME = _ext.default_model()
 
 #: Sequence slots reserved for /v1/decision. Below 3 the endpoint refuses
 #: outright ("decisions are disabled"); 8 comfortably covers a handful of
@@ -141,13 +147,31 @@ def _platform_key() -> str:
     return "linux"
 
 
+#: A user-installed llama-server (TALA_LLAMA_SERVER_BIN or PATH); see external_engine.py.
+EXTERNAL = "external"
+
+
 def _binary_path(variant: str) -> Path:
+    if variant == EXTERNAL:
+        ext = _ext.external_binary()
+        return ext if ext is not None else Path("<no external llama-server>")
     return _variant_dir(variant) / _server_exe_name()
 
 
-def available_variants() -> list[str]:
-    """Which variants are already downloaded and executable, in preference order."""
+def builtin_variants() -> list[str]:
+    """Downloaded built-in variants, in preference order."""
     return [v for v in VARIANT_CHAIN if _binary_path(v).exists()]
+
+
+def available_variants() -> list[str]:
+    """Which variants can be started now, in preference order."""
+    found = builtin_variants()
+    if _ext.external_binary() is not None:
+        if _ext.requested_engine() == EXTERNAL or not found:
+            found.insert(0, EXTERNAL)
+        else:
+            found.append(EXTERNAL)
+    return found
 
 
 # ---------------------------------------------------------------------------
@@ -177,10 +201,12 @@ def get_status() -> tuple[str, float, str]:
 
 def check_model_cached() -> bool:
     """Whether the default GGUF model is already downloaded."""
+    if _ext.explicit_model_path() is not None:
+        return True
     try:
         from huggingface_hub import try_to_load_from_cache
 
-        path = try_to_load_from_cache(DEFAULT_MODEL_REPO, DEFAULT_MODEL_FILENAME)
+        path = try_to_load_from_cache(*_ext.default_model())
         return isinstance(path, str)
     except Exception as exc:
         logger.debug("llama_server_manager: model cache check failed: %s", exc)
@@ -188,10 +214,13 @@ def check_model_cached() -> bool:
 
 
 def _model_path() -> Path | None:
+    explicit = _ext.explicit_model_path()
+    if explicit is not None:
+        return explicit
     try:
         from huggingface_hub import try_to_load_from_cache
 
-        path = try_to_load_from_cache(DEFAULT_MODEL_REPO, DEFAULT_MODEL_FILENAME)
+        path = try_to_load_from_cache(*_ext.default_model())
         return Path(path) if isinstance(path, str) else None
     except Exception:
         return None
@@ -244,6 +273,15 @@ class DBProgressTracker:
 
     def __exit__(self, *exc):
         self.close()
+
+    # huggingface_hub's Xet transfer path (the default for GGUF repos since
+    # hf_xet ships with it) drives the bar through more of tqdm's surface:
+    # set_postfix_str, refresh, set_description... Missing any one raised
+    # AttributeError mid-download and left a fresh install with no model.
+    def __getattr__(self, name: str):
+        if name.startswith("__"):
+            raise AttributeError(name)
+        return lambda *args, **kwargs: None
 
 
 async def _fetch_manifest() -> dict[str, Any]:
@@ -340,6 +378,10 @@ def _detect_vulkan() -> bool:
 def _preferred_variant_order() -> list[str]:
     """Which variants to try, in order, given this machine's hardware."""
     order: list[str] = []
+    if _ext.external_binary() is not None and (
+        _ext.requested_engine() == EXTERNAL or not builtin_variants()
+    ):
+        order.append(EXTERNAL)
     if _detect_nvidia_gpu():
         order.append("cuda")
     if _detect_vulkan():
@@ -372,14 +414,20 @@ def _download_task(main_loop: asyncio.AbstractEventLoop | None) -> None:
 
         variant = _preferred_variant_order()[0]
         if not _binary_path(variant).exists():
+            if not _ext.builtin_build_published():
+                raise RuntimeError(
+                    "No built-in llama.cpp build is published for this platform. Install "
+                    "Ollama, or set TALA_LLAMA_SERVER_BIN to an existing llama-server."
+                )
             asyncio.run(_download_binary(variant))
 
         if not check_model_cached():
             from huggingface_hub import hf_hub_download
 
+            repo_id, filename = _ext.default_model()
             hf_hub_download(
-                repo_id=DEFAULT_MODEL_REPO,
-                filename=DEFAULT_MODEL_FILENAME,
+                repo_id=repo_id,
+                filename=filename,
                 tqdm_class=DBProgressTracker,
             )
 
@@ -477,10 +525,13 @@ async def _spawn(variant: str) -> _ServerHandle | None:
         str(exe), "-m", str(model),
         "--port", str(port),
         "--host", "127.0.0.1",
-        "--ctx-size", "4096",
-        "--decision-seqs", str(DECISION_SEQS),
+        "--ctx-size", str(_ext.context_size()),
         "--jinja",
     ]
+    # --decision-seqs exists only in the parallel-decision fork; a stock
+    # llama-server refuses to start on an unknown flag.
+    if variant != EXTERNAL or _ext.external_is_fork():
+        args[-1:-1] = ["--decision-seqs", str(DECISION_SEQS)]
     logger.info("llama_server_manager: starting %s variant on port %d", variant, port)
     proc = await asyncio.create_subprocess_exec(
         *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
@@ -519,7 +570,7 @@ async def _supervise(handle: _ServerHandle) -> None:
         _server = None
 
     handle.restarts += 1
-    chain = list(VARIANT_CHAIN)
+    chain = [EXTERNAL] if handle.variant == EXTERNAL else list(VARIANT_CHAIN)
     variant_idx = chain.index(handle.variant) if handle.variant in chain else 0
 
     if handle.restarts > _MAX_RESTARTS_PER_VARIANT:
@@ -625,7 +676,11 @@ async def generate_stream(
 
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", f"{handle.base_url}/v1/chat/completions", json=payload) as resp:
-            resp.raise_for_status()
+            if getattr(resp, "status_code", 200) >= 400:
+                # llama-server says why in the body (context overflow, bad
+                # template...). raise_for_status() alone threw that away.
+                body = (await resp.aread()).decode(errors="replace")[:500]
+                raise RuntimeError(f"llama-server HTTP {resp.status_code}: {body}")
             async for line in resp.aiter_lines():
                 if not line.startswith("data:"):
                     continue
@@ -692,6 +747,11 @@ async def decide(
         raise ValueError("decide() needs at least one context")
 
     handle = await _ensure_running()
+    if handle.variant == EXTERNAL and not _ext.external_is_fork():
+        raise RuntimeError(
+            "Structured decisions need the parallel-decision llama-server fork; the "
+            "external llama-server is a stock build (set TALA_LLAMA_SERVER_FORK=1 if not)."
+        )
     payload = {
         "model": "local",
         "instructions": instructions,
