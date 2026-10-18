@@ -411,17 +411,44 @@ async def write_file(path: str, content: str, append: bool = False) -> dict:
     return out
 
 
-def _walk(base: Path, recursive: bool, include_hidden: bool):
+_MAX_WALK = 50_000
+
+
+def _walk(cfg: pol.WorkstationConfig, base: Path, recursive: bool, include_hidden: bool):
+    """Entries under *base*. Deny-listed folders are pruned, never entered."""
     if not recursive:
         for child in sorted(base.iterdir(), key=lambda p: p.name.lower()):
-            if include_hidden or child.name not in _HIDDEN_DIRS:
+            if (include_hidden or child.name not in _HIDDEN_DIRS) and not pol.deny_reason(cfg, str(child)):
                 yield child
         return
+    seen = 0
     for dirpath, dirnames, filenames in os.walk(base):
-        if not include_hidden:
-            dirnames[:] = [d for d in dirnames if d not in _HIDDEN_DIRS]
+        dirnames[:] = [d for d in dirnames if (include_hidden or d not in _HIDDEN_DIRS)
+                       and not pol.deny_reason(cfg, os.path.join(dirpath, d))]
         for name in dirnames + filenames:
+            seen += 1
+            if seen > _MAX_WALK:
+                return
             yield Path(dirpath) / name
+
+
+def _list_entries(cfg, target: Path, recursive: bool, include_hidden: bool, pattern: str,
+                  files_only: bool) -> list[dict]:
+    entries = []
+    for p in _walk(cfg, target, recursive, include_hidden):
+        if not fnmatch.fnmatch(p.name.lower(), (pattern or "*").lower()):
+            continue
+        try:
+            st = p.stat()
+        except OSError:
+            continue
+        is_dir = p.is_dir()
+        if files_only and is_dir:
+            continue
+        entries.append({"path": os.path.relpath(p, target), "type": "dir" if is_dir else "file",
+                        "size": 0 if is_dir else st.st_size,
+                        "modified": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")})
+    return entries
 
 
 async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*", sort_by: str = "name",
@@ -436,22 +463,8 @@ async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*",
         return refusal
     if not target.is_dir():
         return {"success": False, "error": f"{target} is not a directory"}
-    entries = []
-    for p in _walk(target, bool(recursive), bool(include_hidden)):
-        if pol.deny_reason(cfg, str(p)) or not fnmatch.fnmatch(p.name.lower(), (pattern or "*").lower()):
-            continue
-        try:
-            st = p.stat()
-        except OSError:
-            continue
-        is_dir = p.is_dir()
-        if files_only and is_dir:
-            continue
-        entries.append({"path": os.path.relpath(p, target), "type": "dir" if is_dir else "file",
-                        "size": 0 if is_dir else st.st_size,
-                        "modified": datetime.fromtimestamp(st.st_mtime).isoformat(timespec="seconds")})
-        if len(entries) >= 20000:
-            break
+    entries = await asyncio.to_thread(_list_entries, cfg, target, bool(recursive), bool(include_hidden), pattern,
+                                      bool(files_only))
     key = {"size": lambda e: -e["size"], "modified": lambda e: e["modified"]}.get(
         (sort_by or "name").lower(), lambda e: e["path"].lower())
     if (sort_by or "").lower() == "modified":
@@ -464,23 +477,9 @@ async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*",
             "entries": entries[:limit]}
 
 
-async def search_files(query: str = "", path: str = ".", pattern: str = "*", regex: bool = False,
-                       names_only: bool = False, max_results: int = 100) -> dict:
-    cfg = config()
-    _ensure_root(cfg)
-    args = {"query": query, "path": path, "pattern": pattern, "regex": regex, "names_only": names_only}
-    target = pol.resolve_in_root(cfg, path)
-    v = pol.classify_path_access(cfg, target, "read")
-    refusal = await gate(cfg, "search_files", args, v)
-    if refusal:
-        return refusal
-    try:
-        rx = re.compile(query if regex else re.escape(query or ""), re.IGNORECASE)
-    except re.error as exc:
-        return {"success": False, "error": f"bad regex: {exc}"}
-    max_results = max(1, min(int(max_results or 100), 500))
+def _search(cfg, target: Path, rx, query: str, pattern: str, names_only: bool, max_results: int) -> list[dict]:
     matches: list[dict] = []
-    for p in _walk(target, True, False):
+    for p in _walk(cfg, target, True, False):
         if len(matches) >= max_results:
             break
         if not p.is_file() or pol.deny_reason(cfg, str(p)) or not fnmatch.fnmatch(p.name.lower(),
@@ -504,6 +503,25 @@ async def search_files(query: str = "", path: str = ".", pattern: str = "*", reg
                         break
         except OSError:
             continue
+    return matches
+
+
+async def search_files(query: str = "", path: str = ".", pattern: str = "*", regex: bool = False,
+                       names_only: bool = False, max_results: int = 100) -> dict:
+    cfg = config()
+    _ensure_root(cfg)
+    args = {"query": query, "path": path, "pattern": pattern, "regex": regex, "names_only": names_only}
+    target = pol.resolve_in_root(cfg, path)
+    v = pol.classify_path_access(cfg, target, "read")
+    refusal = await gate(cfg, "search_files", args, v)
+    if refusal:
+        return refusal
+    try:
+        rx = re.compile(query if regex else re.escape(query or ""), re.IGNORECASE)
+    except re.error as exc:
+        return {"success": False, "error": f"bad regex: {exc}"}
+    max_results = max(1, min(int(max_results or 100), 500))
+    matches = await asyncio.to_thread(_search, cfg, target, rx, query, pattern, bool(names_only), max_results)
     audit(cfg, "search_files", args, v.as_dict(), {"matches": len(matches)})
     return {"success": True, "path": str(target), "count": len(matches), "matches": matches}
 
@@ -566,6 +584,13 @@ async def run_python(code: str | None = None, script: str | None = None, args: l
         return {"success": False, "error": "pass either code or script"}
     workdir, v = _resolve_cwd(cfg, cwd)
     script_path = None
+    if code and script:
+        # Small models pass both meaning "save this as <script> and run it".
+        # Do exactly that, through write_file so the write policy applies.
+        written = await write_file(str(Path(workdir) / script) if not os.path.isabs(script) else script, code)
+        if not written.get("success"):
+            return written
+        code = None
     if script:
         script_path = pol.resolve_in_root(cfg, Path(workdir) / script if not os.path.isabs(script) else script)
         sv = pol.classify_path_access(cfg, script_path, "read")
@@ -576,7 +601,12 @@ async def run_python(code: str | None = None, script: str | None = None, args: l
             v.merge(pol.classify_python(cfg, script_path.read_text(encoding="utf-8", errors="replace")))
     else:
         v.merge(pol.classify_python(cfg, code))
-    extra = [str(a) for a in (args or [])]
+    if isinstance(args, str):  # models often send '[]' or 'a b' as a string
+        try:
+            args = json.loads(args)
+        except ValueError:
+            args = args.split()
+    extra = [str(a) for a in (args or [])] if isinstance(args, list) else []
     for a in extra:
         v.merge(pol.classify_python(cfg, json.dumps(a)))
     digest_args = {"code": code, "script": str(script_path) if script_path else None, "args": extra,

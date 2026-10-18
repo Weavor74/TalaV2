@@ -216,6 +216,37 @@ async def test_run_python_primes_and_saves(env):
 
 
 @pytest.mark.asyncio
+async def test_run_python_with_code_and_script_saves_then_runs(env):
+    root, _, _ = env
+    res = await ws.run_python(code="print('saved and ran')", script="project-test/hello.py", args="[]")
+    assert res["success"] and "saved and ran" in res["stdout"]
+    assert (root / "project-test" / "hello.py").read_text() == "print('saved and ran')"
+
+
+@pytest.mark.asyncio
+async def test_recursive_walks_never_enter_deny_listed_folders(env, monkeypatch):
+    _, _, tmp = env
+    (tmp / "Trike Trails").mkdir()
+    (tmp / "Trike Trails" / "secret.txt").write_text("needle")
+    (tmp / "other").mkdir()
+    (tmp / "other" / "ok.txt").write_text("needle")
+    entered = []
+    real_walk = os.walk
+
+    def spy(base, *a, **k):
+        for dirpath, dirnames, filenames in real_walk(base, *a, **k):
+            entered.append(dirpath)
+            yield dirpath, dirnames, filenames
+
+    monkeypatch.setattr(ws.os, "walk", spy)
+    res = await ws.search_files("needle", path=str(tmp))
+    assert [m["path"] for m in res["matches"]] == [os.path.join("other", "ok.txt")]
+    assert not any("Trike" in d for d in entered)
+    listing = await ws.list_dir(str(tmp), recursive=True)
+    assert not any("Trike" in e["path"] for e in listing["entries"])
+
+
+@pytest.mark.asyncio
 async def test_run_python_network_code_is_held(env):
     res = await ws.run_python(code="import urllib.request\nurllib.request.urlopen('http://example.com')")
     assert res["approval_required"] and "network" in " ".join(res["reasons"])
