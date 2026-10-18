@@ -22,6 +22,8 @@ DESCRIPTION
 
 from __future__ import annotations
 
+import asyncio
+
 import logging
 from typing import Any
 
@@ -210,10 +212,14 @@ async def handle_inference_get_embedded_status(params: dict[str, Any], req_id: A
                 "error": ""
             })
         status, progress, error = mod.get_status()
+        from python.inference import external_engine
+        engine = await asyncio.to_thread(
+            external_engine.summary, bool(mod.builtin_variants()))
         return _ok(req_id, {
             "status": status,
             "progress": progress,
-            "error": error
+            "error": error,
+            "engine": engine,
         })
     except Exception as exc:
         logger.exception("inference.get_embedded_status error")

@@ -507,7 +507,10 @@ def _source_digest(source_files: list[str]) -> str:
         digest.update(name.encode("utf-8"))
         path = _REPO_ROOT / name
         try:
-            digest.update(path.read_bytes())
+            # Line endings normalised: a Windows checkout (CRLF via autocrlf)
+            # and a Linux one (LF) hold the same source, and hashing raw bytes
+            # made every node look stale on whichever side did not write it.
+            digest.update(path.read_bytes().replace(b"\r\n", b"\n"))
         except OSError:
             digest.update(b"<absent>")
     return f"sha256:{digest.hexdigest().upper()}"

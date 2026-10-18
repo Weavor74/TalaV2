@@ -387,7 +387,7 @@ async def count_and_check(
     else:
         # Real mode: read live blockchain balance.
         try:
-            balance_before = await loop.run_in_executor(None, check_balance_sync)
+            balance_before = await loop.run_in_executor(None, _check_balance_sync)
         except Exception as exc:
             logger.warning(
                 "Failed to read blockchain balance — falling back to ghost tokens: %s", exc
@@ -502,7 +502,7 @@ async def get_wallet_balance() -> float:
             return float(data.get("balance", 0.0))
 
     try:
-        return await loop.run_in_executor(None, check_balance_sync)
+        return await loop.run_in_executor(None, _check_balance_sync)
     except Exception as exc:
         logger.warning("Failed to check blockchain balance: %s", exc)
         return _GHOST_BALANCE  # Ghost tokens as graceful fallback

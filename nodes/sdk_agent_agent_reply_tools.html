@@ -1,0 +1,125 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: SDK Agent: Agent Reply Tools</title>
+</head>
+<body>
+<article
+  data-node-id="sdk_agent_agent_reply_tools"
+  data-node-type="documentation"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="sdk.agent.agent_reply_tools"
+  data-source-files="sdk/agent/agent_reply_tools.py"
+  data-source-fingerprint="sha256:B1FE99366EB4A749E28424658B526BBB253464F3E85CE4049B0A4094DA7387D4"
+  data-source-digest="sha256:3C4B3CD2E490F5388F1E1502E1B877BFB4ACA3F0C6EABA1A19DF03E0994FD6B6"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-18T15:06:00Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">SDK Agent: Agent Reply Tools</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>agent_reply_tools.py — tool-calling for room-agent replies.</p>
+    <p>It lives at sdk/agent/agent_reply_tools.py within the agent SDK.</p>
+    <p>Functions it exposes: resolve_agent_tools() — (tool_specs, principal, tool_choice) for `agent_id`&#x27;s reply, or (None, None, None) if it has no `config.tool_allowlist` -- the default for every agent today, and what keeps every agent without one replying exactly as before.; parse_call_tag() — A ``_find_tool_call`` match -&gt; (tool_name, attrs).; run_agent_tool_round() — Detect and execute at most one tool call in `reply_text`.; send_to_agent() — Phase 3 of the multi-agent plan: one agent consulting another as part of its own turn, not the federation A2A protocol (cross-install, wallet- gated -- wrong trust model for two of the owner&#x27;s own local agents) and not conversations.py&#x27;s rooms (a shared thread multiple agents post into automatically.</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/agent_reply_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-sdk_agent_agent_reply_tools"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "sdk.agent.agent_reply_tools"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "SDK Agent: Agent Reply Tools",
+  "description": "Program documentation for sdk.agent.agent_reply_tools.",
+  "tags": [
+    "html-nn",
+    "documentation",
+    "sdk",
+    "agent",
+    "agent_reply_tools"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-18T15:06:00Z",
+    "schema": "neural-node/v2",
+    "doc_target": "sdk.agent.agent_reply_tools",
+    "source_fingerprint": "sha256:B1FE99366EB4A749E28424658B526BBB253464F3E85CE4049B0A4094DA7387D4",
+    "source_files": [
+      "sdk/agent/agent_reply_tools.py"
+    ],
+    "source_digest": "sha256:3C4B3CD2E490F5388F1E1502E1B877BFB4ACA3F0C6EABA1A19DF03E0994FD6B6",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  }
+}
+  </script>
+</article>
+</body>
+</html>

@@ -28,6 +28,18 @@ _INFERENCE_PROVIDER_EXTRA_DDL: list[str] = [
             AND (config #>> '{}')::jsonb->>'model' = 'qwen2.5-0.5b')
     );
     """,
+    # Retire the Qwen default (project rule: US-origin base models only).
+    # Only a row still on a Qwen value moves; any other choice is left alone.
+    """
+    UPDATE inference_providers
+    SET config = '{"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"}'::jsonb
+    WHERE id = 'embedded-builtin' AND (
+        config->>'model' ILIKE 'qwen%'
+        OR config->>'model' ILIKE 'Qwen/%'
+        OR (jsonb_typeof(config) = 'string'
+            AND (config #>> '{}')::jsonb->>'model' ILIKE '%qwen%')
+    );
+    """,
     # inference.save_providers replaces the whole table on every save, so a
     # removed provider whose model is still installed looked identical to
     # one never seen -- auto-detect always re-added it. This tombstone is

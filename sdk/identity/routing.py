@@ -405,6 +405,10 @@ def _safe_int(value: Any, fallback: int) -> int:
 # Public surface
 # ---------------------------------------------------------------------------
 
+# Public names listed in __all__ (the implementations are underscored).
+parse_peer_identity = _parse_peer_identity
+map_sender_to_config = _map_sender_to_config
+
 __all__: list[str] = [
     "PeerIdentity",
     "FormattingConfig",

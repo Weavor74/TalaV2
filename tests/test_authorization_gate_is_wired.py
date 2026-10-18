@@ -11,7 +11,7 @@ import inspect
 import pytest
 
 from python.harness.access import AGENT, OWNER, Principal
-from sdk.agent.gates import AuthorizationGate, RevocationHalt
+from sdk.agent.gates import RevocationHalt
 from sdk.agent.tools import ToolRegistry
 
 

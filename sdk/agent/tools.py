@@ -19,7 +19,6 @@ from typing import Any, Callable, TYPE_CHECKING, get_args, get_origin, get_type_
 if TYPE_CHECKING:
     from pathlib import Path
 
-from sdk.agent.governance import RiskClassifier
 
 log = logging.getLogger(__name__)
 

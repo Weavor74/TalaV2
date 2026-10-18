@@ -29,7 +29,7 @@ emotion and tool habit on one axis rather than three.
 USAGE
     python scripts/train_voice_adapter.py --dry-run      # show the dataset, no torch needed
     python scripts/train_voice_adapter.py --train
-    python scripts/train_voice_adapter.py --train --base Qwen/Qwen2.5-0.5B-Instruct
+    python scripts/train_voice_adapter.py --train --base unsloth/Llama-3.2-1B-Instruct
 
 Training needs peft, trl, transformers and torch:
     uv pip install peft trl transformers accelerate
@@ -47,11 +47,11 @@ sys.path.insert(0, str(REPO_ROOT))
 DEFAULT_CORPUS = REPO_ROOT / "data" / "training_corpus"
 DEFAULT_OUTPUT = REPO_ROOT / "nodes" / "corpus-tala-training-stories_lora"
 
-# Qwen2.5-0.5B-Instruct is already in the HuggingFace cache and is the embedded
-# provider's model, so it trains without a download. The chat model
-# (qwen3-abliterated:4b) is served by Ollama as GGUF and has no HF weights
-# locally; point --base at it once they are present.
-DEFAULT_BASE_MODEL = "Qwen/Qwen2.5-0.5B-Instruct"
+# Llama 3.2 1B Instruct (Meta, US-origin) -- same family as the embedded
+# engine's default GGUF (Llama 3.2 3B), small enough to train on CPU. The
+# unsloth mirror is the ungated copy of meta-llama/Llama-3.2-1B-Instruct.
+# Project rule: no non-US base models (Qwen/DeepSeek/Mistral).
+DEFAULT_BASE_MODEL = "unsloth/Llama-3.2-1B-Instruct"
 
 # Attributes are pulled from the captured tag rather than matched in sequence:
 # a greedy [^>]* between them swallows data-emotion before an optional group can

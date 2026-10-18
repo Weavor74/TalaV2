@@ -2757,7 +2757,7 @@ async def handle_inference_generate(
             "name": "Tala Embedded Engine",
             "priority": 1,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
+            "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
             "locked": True
         }]
 
@@ -2821,7 +2821,7 @@ async def handle_inference_generate(
             "name": "Tala Embedded Engine",
             "priority": 999,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
+            "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
             "locked": True,
         }]
 
@@ -2877,7 +2877,7 @@ async def handle_inference_generate(
                 "name": "Tala Embedded Engine",
                 "priority": 999,
                 "status": "online",
-                "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
+                "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
                 "locked": True
             }]
         providers = _tier_sort_providers(providers)
@@ -3019,7 +3019,7 @@ async def handle_inference_generate(
                         if not endpoint:
                             endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
                         if not model:
-                            model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
+                            model = "llama3.2:3b" if engine == "ollama" else "llama-3.2-3b-instruct"
                     else:  # remote
                         service = p_config.get("service", "openai")
                         if service == "openai" and not endpoint:
@@ -3660,7 +3660,7 @@ async def handle_inference_generate(
         if is_search:
             query = attrs.get("query", attrs.get("q", "")).strip()
             if not query:
-                fallback_match = re.search(r'["\']([^"\']+)["\']', attr_str)
+                fallback_match = re.search(r'["\']([^"\']+)["\']', tool_match.group(2))
                 if fallback_match:
                     query = fallback_match.group(1).strip()
             # Clean up query from trailing action terms (e.g. "third link", "and click the 3rd link")
@@ -3685,7 +3685,7 @@ async def handle_inference_generate(
             if isinstance(urls, str):
                 urls = [urls]
             if not urls:
-                fallback_match = re.search(r'["\']([^"\']+)["\']', attr_str)
+                fallback_match = re.search(r'["\']([^"\']+)["\']', tool_match.group(2))
                 if fallback_match:
                     urls = [fallback_match.group(1).strip()]
             subject = attrs.get("subject", attrs.get("s", "Scraped Content"))
@@ -6717,7 +6717,7 @@ async def _generate_reply(
                         if not endpoint:
                             endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
                         if not model:
-                            model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
+                            model = "llama3.2:3b" if engine == "ollama" else "llama-3.2-3b-instruct"
                     else:
                         service = p_config.get("service", "openai")
                         if service == "openai" and not endpoint:
@@ -9834,7 +9834,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "name": "Tala Embedded Engine",
             "priority": 1,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
+            "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
             "locked": True
         }]
 
@@ -9866,7 +9866,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "name": "Tala Embedded Engine",
             "priority": 999,
             "status": "online",
-            "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
+            "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
             "locked": True,
         }]
 
@@ -9908,7 +9908,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
                     "name": "Tala Embedded Engine",
                     "priority": 999,
                     "status": "online",
-                    "config": {"model": "Qwen/Qwen2.5-1.5B-Instruct-GGUF"},
+                    "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
                     "locked": True
                 })
 
@@ -9938,7 +9938,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
                     if not endpoint:
                         endpoint = "http://localhost:11434/v1" if engine == "ollama" else "http://localhost:1234/v1"
                     if not model:
-                        model = "llama3.2:3b" if engine == "ollama" else "qwen2.5-1.5b-instruct"
+                        model = "llama3.2:3b" if engine == "ollama" else "llama-3.2-3b-instruct"
                 else:  # remote
                     service = p_config.get("service", "openai")
                     if service == "openai" and not endpoint:
