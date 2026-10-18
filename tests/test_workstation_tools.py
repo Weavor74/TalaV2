@@ -305,3 +305,14 @@ def test_workstation_tools_are_not_lease_gated_or_shadowed():
     for name in WORKSTATION_TOOLS:
         assert lease_policy._classify_tool(name) is None, name
     assert pol.INTERNAL_DIRNAME == ".tala"
+
+
+@pytest.mark.asyncio
+async def test_wrappers_treat_none_strings_as_omitted(env):
+    from sdk.agent import workstation_tools as wt
+
+    root, _, _ = env
+    res = await wt.run_python(code="print('ok')", script="None", args="[]", cwd="null")
+    assert res["success"] and not (root / "None").exists()
+    listing = await wt.list_dir(path="None", pattern="null", sort_by="None")
+    assert listing["success"]

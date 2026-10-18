@@ -29,6 +29,13 @@ _WHERE = (" Your workspace is your own working folder on this computer (D:\\Tala
           "deny-listed places are blocked.")
 
 
+def _n(value: Any, default: Any = None) -> Any:
+    """Small local models send "None" / "null" / "" for arguments they mean to omit."""
+    if value is None or (isinstance(value, str) and value.strip().lower() in ("", "none", "null", "undefined")):
+        return default
+    return value
+
+
 def _s(props: dict, required: list[str]) -> dict:
     return {"type": "object", "properties": props, "required": required}
 
@@ -46,7 +53,7 @@ _BOOL = {"type": "boolean"}
     schema=_s({"command": _STR, "cwd": _STR, "timeout_seconds": _INT}, ["command"]),
 )
 async def run_shell(command: str, cwd: str | None = None, timeout_seconds: float | None = None) -> dict[str, Any]:
-    return await ws.run_shell(command, cwd=cwd, timeout_seconds=timeout_seconds)
+    return await ws.run_shell(command, cwd=_n(cwd), timeout_seconds=_n(timeout_seconds))
 
 
 @register_tool(
@@ -55,7 +62,7 @@ async def run_shell(command: str, cwd: str | None = None, timeout_seconds: float
     schema=_s({"path": _STR, "start_line": _INT, "end_line": _INT}, ["path"]),
 )
 async def read_file(path: str, start_line: int | None = None, end_line: int | None = None) -> dict[str, Any]:
-    return await ws.read_file(path, start_line=start_line, end_line=end_line)
+    return await ws.read_file(path, start_line=_n(start_line), end_line=_n(end_line))
 
 
 @register_tool(
@@ -78,8 +85,8 @@ async def write_file(path: str, content: str, append: bool = False) -> dict[str,
 )
 async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*", sort_by: str = "name",
                    limit: int = 200, files_only: bool = False) -> dict[str, Any]:
-    return await ws.list_dir(path, recursive=recursive, pattern=pattern, sort_by=sort_by, limit=limit,
-                             files_only=files_only)
+    return await ws.list_dir(_n(path, "."), recursive=recursive, pattern=_n(pattern, "*"),
+                             sort_by=_n(sort_by, "name"), limit=_n(limit, 200), files_only=files_only)
 
 
 @register_tool(
@@ -90,7 +97,8 @@ async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*",
 )
 async def search_files(query: str, path: str = ".", pattern: str = "*", regex: bool = False,
                        names_only: bool = False) -> dict[str, Any]:
-    return await ws.search_files(query, path=path, pattern=pattern, regex=regex, names_only=names_only)
+    return await ws.search_files(query, path=_n(path, "."), pattern=_n(pattern, "*"), regex=regex,
+                                 names_only=names_only)
 
 
 @register_tool(
@@ -102,7 +110,8 @@ async def search_files(query: str, path: str = ".", pattern: str = "*", regex: b
 )
 async def run_python(code: str | None = None, script: str | None = None, args: list | None = None,
                      cwd: str | None = None, timeout_seconds: float | None = None) -> dict[str, Any]:
-    return await ws.run_python(code=code, script=script, args=args, cwd=cwd, timeout_seconds=timeout_seconds)
+    return await ws.run_python(code=_n(code), script=_n(script), args=_n(args), cwd=_n(cwd),
+                               timeout_seconds=_n(timeout_seconds))
 
 
 @register_tool(
@@ -130,7 +139,7 @@ async def install_python_package(packages: list) -> dict[str, Any]:
     schema=_s({"command": _STR, "name": _STR, "cwd": _STR}, ["command"]),
 )
 async def start_job(command: str, name: str = "", cwd: str | None = None) -> dict[str, Any]:
-    return await ws.start_job(command, name=name, cwd=cwd)
+    return await ws.start_job(command, name=_n(name, ""), cwd=_n(cwd))
 
 
 @register_tool(
@@ -139,7 +148,7 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
     schema=_s({"job_id": _STR, "tail_lines": _INT}, []),
 )
 async def job_status(job_id: str = "", tail_lines: int = 40) -> dict[str, Any]:
-    return await ws.job_status(job_id, tail_lines=tail_lines)
+    return await ws.job_status(_n(job_id, ""), tail_lines=_n(tail_lines, 40))
 
 
 @register_tool(
