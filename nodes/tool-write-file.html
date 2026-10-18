@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="write_file"
   data-source-files="sdk/agent/workstation_tools.py"
-  data-source-fingerprint="sha256:6FB6EB33A83FFDE7D24D072D3C0EA7CE0C2DCFFB57074B05A806B1D49A436EE5"
-  data-source-digest="sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F"
+  data-source-fingerprint="sha256:60755973A1BD8631B49E6CB2B8E0BDC387A12F20941CBC6736D7944DE79230C8"
+  data-source-digest="sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-10-18T21:24:58Z"
+  data-generated-at="2026-10-18T22:53:16Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;write_file&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Create or overwrite a text file on your computer (parent folders are created). Set append=true to add to the end instead. Your workspace is your own working folder on this computer (D:\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;write_file(path*, content*, append)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;content&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;append&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;write_file&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Create or overwrite a text file on your computer (parent folders are created). Set append=true to add to the end instead. Your workspace is the working folder the user chose for you in Settings &gt; Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;write_file(path*, content*, append)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;content&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;append&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-10-18T21:24:58Z",
+    "created_or_updated": "2026-10-18T22:53:16Z",
     "schema": "neural-node/v2",
     "doc_target": "write_file",
-    "source_fingerprint": "sha256:6FB6EB33A83FFDE7D24D072D3C0EA7CE0C2DCFFB57074B05A806B1D49A436EE5",
+    "source_fingerprint": "sha256:60755973A1BD8631B49E6CB2B8E0BDC387A12F20941CBC6736D7944DE79230C8",
     "source_files": [
       "sdk/agent/workstation_tools.py"
     ],
-    "source_digest": "sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F",
+    "source_digest": "sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "write_file",
-    "description": "Create or overwrite a text file on your computer (parent folders are created). Set append=true to add to the end instead. Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user's approval; deny-listed places are blocked.",
+    "description": "Create or overwrite a text file on your computer (parent folders are created). Set append=true to add to the end instead. Your workspace is the working folder the user chose for you in Settings > Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user's approval; deny-listed places are blocked.",
     "signature": "write_file(path*, content*, append)",
     "schema": {
       "type": "object",

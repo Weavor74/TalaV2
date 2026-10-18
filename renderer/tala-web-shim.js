@@ -247,6 +247,13 @@
           'shell process, and there is no per-session handle to kill yet.'
         ));
       }
+      if (channel === 'dialog:pick-folder') {
+        // No native folder dialog in a browser: Settings > Workspace shows a
+        // text field instead, and the harness validates what is typed.
+        return Promise.reject(new Error(
+          'The folder picker needs the desktop app; type the folder path instead.'
+        ));
+      }
       if (channel === 'python:rpc') {
         return rpc((data && data.method) || '', (data && data.params) || {});
       }

@@ -24,9 +24,9 @@ WORKSTATION_CORE_TOOLS: tuple[str, ...] = ("run_shell", "read_file", "write_file
 #: Static on purpose: descriptions are also written into the tool HTML-NN
 #: catalogue (scripts/generate_tool_nodes.py), which must not depend on the
 #: machine it was generated on. Every result carries the real resolved path.
-_WHERE = (" Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured "
-          "otherwise); relative paths are relative to it. Risky actions are held for the user's approval; "
-          "deny-listed places are blocked.")
+_WHERE = (" Your workspace is the working folder the user chose for you in Settings > Workspace; relative "
+          "paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one "
+          "there. Risky actions are held for the user's approval; deny-listed places are blocked.")
 
 
 def _n(value: Any, default: Any = None) -> Any:
@@ -47,8 +47,9 @@ _BOOL = {"type": "boolean"}
 
 @register_tool(
     name="run_shell",
-    description=("Run a PowerShell command on your computer (Windows) and get stdout, stderr and the exit code. "
-                 "Write PowerShell syntax. cwd defaults to the workspace. timeout_seconds defaults to 60; "
+    description=("Run a shell command on your computer and get stdout, stderr and the exit code. The shell is "
+                 "PowerShell on Windows and bash on Linux/macOS; the result's 'shell' field says which, so write "
+                 "that syntax. cwd defaults to the workspace. timeout_seconds defaults to 60; "
                  "use start_job for anything longer than a few minutes." + _WHERE),
     schema=_s({"command": _STR, "cwd": _STR, "timeout_seconds": _INT}, ["command"]),
 )
@@ -134,7 +135,8 @@ async def install_python_package(packages: list) -> dict[str, Any]:
 
 @register_tool(
     name="start_job",
-    description=("Start a long-running PowerShell command in the background on your computer; returns a job_id. "
+    description=("Start a long-running shell command (PowerShell on Windows, bash on Linux/macOS) in the "
+                 "background on your computer; returns a job_id. "
                  "Check it with job_status and end it with stop_job." + _WHERE),
     schema=_s({"command": _STR, "name": _STR, "cwd": _STR}, ["command"]),
 )

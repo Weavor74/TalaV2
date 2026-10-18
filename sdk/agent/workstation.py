@@ -1,8 +1,10 @@
 """
 workstation.py -- Tala's own computer: shell, files, Python and background jobs.
 
-Everything here acts inside one working root (``D:\\TalaWorkspace`` on Windows by
-default, ``TALA_WORKSTATION_ROOT`` to move it). The policy -- what is allowed,
+Everything here acts inside one working root, the workspace the user chose in
+Settings > Workspace (``workstation.set_workspace``; ``TALA_WORKSTATION_ROOT`` is
+the headless fallback). With no workspace chosen, every tool refuses with
+"workspace not configured" -- there is no silent default folder. The policy -- what is allowed,
 what waits for the owner, what never happens -- lives in
 ``sdk/agent/workstation_policy.py``; this module executes, audits and routes
 approvals. The registry wrappers the model sees are in
@@ -43,6 +45,7 @@ from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
 
+from sdk.agent import workstation_platform as plat
 from sdk.agent import workstation_policy as pol
 
 log = logging.getLogger(__name__)
@@ -59,6 +62,29 @@ def config() -> pol.WorkstationConfig:
 def _ensure_root(cfg: pol.WorkstationConfig) -> None:
     for sub in ("audit", "jobs", "runs"):
         (cfg.internal_dir / sub).mkdir(parents=True, exist_ok=True)
+
+
+NOT_CONFIGURED = ("Tala's workspace is not configured, so nothing was run. Tell the user to choose a workspace "
+                  "folder in Settings > Workspace; the workstation tools work once one is saved.")
+
+
+def _ready() -> tuple[pol.WorkstationConfig, dict | None]:
+    """The live config (re-read on every call, so a workspace change applies to the
+    very next tool call) and a refusal when the tools cannot run at all."""
+    cfg = config()
+    if not cfg.enabled:
+        return cfg, {"success": False, "error": "The workstation tools are disabled (TALA_WORKSTATION=0)."}
+    if not cfg.configured:
+        msg = NOT_CONFIGURED
+        if cfg.root_problem:
+            msg += f" (The configured folder was refused: {cfg.root_problem})"
+        return cfg, {"success": False, "workspace_configured": False, "error": msg}
+    try:
+        _ensure_root(cfg)
+    except OSError as exc:
+        return cfg, {"success": False, "error": f"The workspace {cfg.root} is not usable ({exc}). "
+                                                "Choose another one in Settings > Workspace."}
+    return cfg, None
 
 
 # ---------------------------------------------------------------------------
@@ -233,38 +259,25 @@ def _child_env(cfg: pol.WorkstationConfig) -> dict[str, str]:
     env["TALA_WORKSPACE"] = str(cfg.root)
     env["PYTHONIOENCODING"] = "utf-8"
     env["PYTHONUTF8"] = "1"
-    if os.name == "nt":
-        # Caches on the drive Tala is installed on (D: on Kagura), never the
-        # system drive by accident. Explicit environment settings still win.
-        drive = Path(pol.install_anchor())
-        caches = Path(os.environ.get("TALA_CACHE_ROOT") or (drive / "caches"))
-        env.setdefault("PIP_CACHE_DIR", str(caches / "pip"))
-        env.setdefault("UV_CACHE_DIR", str(caches / "uv"))
-        env.setdefault("npm_config_cache", str(caches / "npm"))
-        env.setdefault("HF_HOME", str(drive / "hf-cache"))
-        env["TEMP"] = env["TMP"] = str(cfg.internal_dir / "tmp")
-        (cfg.internal_dir / "tmp").mkdir(parents=True, exist_ok=True)
+    # Cache/temp defaults come from the platform adapter. TEMP/TMP/TMPDIR always
+    # point into the workspace; caches only fill in what the environment leaves unset.
+    for key, value in plat.current().child_env_defaults(cfg.internal_dir).items():
+        if key in ("TEMP", "TMP", "TMPDIR"):
+            env[key] = value
+        else:
+            env.setdefault(key, value)
+    (cfg.internal_dir / "tmp").mkdir(parents=True, exist_ok=True)
     return env
 
 
-_PS_PREFIX = ("[Console]::OutputEncoding=[System.Text.Encoding]::UTF8; $OutputEncoding=[System.Text.Encoding]::UTF8; "
-              "$ProgressPreference='SilentlyContinue'; ")
-
-
 def _shell_argv(command: str) -> list[str]:
-    if os.name == "nt":
-        return ["powershell.exe", "-NoProfile", "-NonInteractive", "-ExecutionPolicy", "Bypass",
-                "-Command", _PS_PREFIX + command]
-    return ["bash", "-c", command]
+    """PowerShell on Windows, bash/sh elsewhere, at below-normal priority."""
+    osp = plat.current()
+    return osp.low_priority_argv(osp.shell_argv(command))
 
 
 def _spawn_kwargs() -> dict:
-    if os.name == "nt":
-        import subprocess
-
-        # BELOW_NORMAL priority: keep the machine responsive for whatever else runs on it.
-        return {"creationflags": subprocess.CREATE_NEW_PROCESS_GROUP | 0x00004000}
-    return {"start_new_session": True}
+    return plat.current().spawn_kwargs()
 
 
 def truncate(text: str, limit: int) -> tuple[str, bool]:
@@ -331,8 +344,9 @@ def _resolve_cwd(cfg: pol.WorkstationConfig, cwd: str | None) -> tuple[Path, pol
 # ---------------------------------------------------------------------------
 
 async def run_shell(command: str, cwd: str | None = None, timeout_seconds: float | None = None) -> dict:
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     started = time.monotonic()
     args = {"command": command, "cwd": cwd, "timeout_seconds": timeout_seconds}
     if not (command or "").strip():
@@ -346,6 +360,7 @@ async def run_shell(command: str, cwd: str | None = None, timeout_seconds: float
         return {"success": False, "error": f"working directory {workdir} does not exist"}
     result = await _run_process(cfg, _shell_argv(command), workdir, timeout_seconds or cfg.default_timeout)
     result["cwd"] = str(workdir)
+    result["shell"] = "powershell" if plat.current().is_windows else "bash"
     audit(cfg, "run_shell", args, v.as_dict(), {k: result.get(k) for k in ("exit_code", "timed_out", "success")},
           started)
     return result
@@ -361,8 +376,9 @@ def _rel(cfg: pol.WorkstationConfig, p: Path) -> str:
 
 async def read_file(path: str, start_line: int | None = None, end_line: int | None = None,
                     max_chars: int | None = None) -> dict:
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     args = {"path": path, "start_line": start_line, "end_line": end_line}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "read")
@@ -391,8 +407,9 @@ async def read_file(path: str, start_line: int | None = None, end_line: int | No
 
 
 async def write_file(path: str, content: str, append: bool = False) -> dict:
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     content = "" if content is None else str(content)
     args = {"path": path, "append": append, "content": content}
     target = pol.resolve_in_root(cfg, path)
@@ -453,8 +470,9 @@ def _list_entries(cfg, target: Path, recursive: bool, include_hidden: bool, patt
 
 async def list_dir(path: str = ".", recursive: bool = False, pattern: str = "*", sort_by: str = "name",
                    limit: int = 200, files_only: bool = False, include_hidden: bool = False) -> dict:
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     args = {"path": path, "recursive": recursive, "pattern": pattern, "sort_by": sort_by, "limit": limit}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "read")
@@ -508,8 +526,9 @@ def _search(cfg, target: Path, rx, query: str, pattern: str, names_only: bool, m
 
 async def search_files(query: str = "", path: str = ".", pattern: str = "*", regex: bool = False,
                        names_only: bool = False, max_results: int = 100) -> dict:
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     args = {"query": query, "path": path, "pattern": pattern, "regex": regex, "names_only": names_only}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "read")
@@ -529,8 +548,9 @@ async def search_files(query: str = "", path: str = ".", pattern: str = "*", reg
 async def delete_path(path: str, recursive: bool = False) -> dict:
     import shutil
 
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     args = {"path": path, "recursive": recursive}
     target = pol.resolve_in_root(cfg, path)
     v = pol.classify_path_access(cfg, target, "delete")
@@ -558,8 +578,7 @@ def _venv_dir(cfg: pol.WorkstationConfig) -> Path:
 
 
 def _venv_python(cfg: pol.WorkstationConfig) -> Path:
-    d = _venv_dir(cfg)
-    return d / ("Scripts/python.exe" if os.name == "nt" else "bin/python")
+    return plat.current().venv_python(_venv_dir(cfg))
 
 
 async def _ensure_venv(cfg: pol.WorkstationConfig) -> dict | None:
@@ -576,8 +595,9 @@ async def _ensure_venv(cfg: pol.WorkstationConfig) -> dict | None:
 
 async def run_python(code: str | None = None, script: str | None = None, args: list | None = None,
                      cwd: str | None = None, timeout_seconds: float | None = None) -> dict:
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     started = time.monotonic()
     call_args = {"code": code, "script": script, "args": args, "cwd": cwd}
     if not code and not script:
@@ -632,8 +652,9 @@ async def run_python(code: str | None = None, script: str | None = None, args: l
 
 async def install_python_package(packages: list | str) -> dict:
     """pip install into the workstation venv. Always needs approval (installs + network)."""
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     pkgs = packages.split() if isinstance(packages, str) else [str(p) for p in (packages or [])]
     pkgs = [p for p in pkgs if p.strip()]
     if not pkgs or any(p.startswith("-") for p in pkgs):
@@ -661,7 +682,8 @@ _JOBS: dict[str, dict[str, Any]] = {}
 def _job_view(job: dict, tail_lines: int = 40) -> dict:
     proc = job.get("proc")
     rc = proc.returncode if proc is not None else job.get("exit_code")
-    view = {k: job[k] for k in ("job_id", "name", "command", "cwd", "log_path", "started_at") if k in job}
+    view = {k: job[k] for k in ("job_id", "name", "command", "cwd", "workspace", "log_path", "started_at")
+            if k in job}
     view["status"] = "running" if (proc is not None and rc is None) else ("stopped" if job.get("stopped")
                                                                          else "finished")
     view["exit_code"] = rc
@@ -677,8 +699,9 @@ def _job_view(job: dict, tail_lines: int = 40) -> dict:
 async def start_job(command: str, name: str = "", cwd: str | None = None) -> dict:
     from sdk.agent.async_shell import _register
 
-    cfg = config()
-    _ensure_root(cfg)
+    cfg, refusal = _ready()
+    if refusal:
+        return refusal
     args = {"command": command, "name": name, "cwd": cwd}
     if not (command or "").strip():
         return {"success": False, "error": "command is empty"}
@@ -700,7 +723,8 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
     fh.close()
     _register(proc)
     job = {"job_id": job_id, "name": name or command[:40], "command": command, "cwd": str(workdir),
-           "log_path": str(log_path), "started_at": datetime.now().isoformat(timespec="seconds"), "proc": proc}
+           "log_path": str(log_path), "started_at": datetime.now().isoformat(timespec="seconds"), "proc": proc,
+           "workspace": str(cfg.root), "cfg": cfg}
     _JOBS[job_id] = job
     audit(cfg, "start_job", args, v.as_dict(), {"job_id": job_id, "pid": proc.pid})
     return {"success": True, **_job_view(job, 5)}
@@ -719,10 +743,10 @@ async def stop_job(job_id: str) -> dict:
     """Stopping one of Tala's own jobs needs no approval; arbitrary processes are run_shell + approval."""
     from sdk.agent.async_shell import _kill_process_tree, _unregister
 
-    cfg = config()
     job = _JOBS.get(job_id)
     if not job:
         return {"success": False, "error": f"no job {job_id!r}"}
+    cfg = job["cfg"]  # audited in the workspace the job was started in, even after a switch
     proc = job["proc"]
     if proc.returncode is None:
         await _kill_process_tree(proc)
@@ -734,3 +758,92 @@ async def stop_job(job_id: str) -> dict:
     _unregister(proc)
     audit(cfg, "stop_job", {"job_id": job_id}, {"verdict": "allow"}, {"exit_code": proc.returncode})
     return {"success": True, **_job_view(job, 10)}
+
+
+# ---------------------------------------------------------------------------
+# Choosing the workspace (Settings > Workspace, workstation.* RPCs)
+# ---------------------------------------------------------------------------
+
+def _running_jobs() -> list[dict]:
+    return [_job_view(j, 0) for j in _JOBS.values() if j["proc"].returncode is None]
+
+
+def workspace_status() -> dict:
+    """What Settings > Workspace shows: the live workspace, where it came from, and a suggestion."""
+    cfg = config()
+    return {
+        "configured": cfg.configured,
+        "root": str(cfg.root) if cfg.root else None,
+        "source": cfg.root_source,
+        "problem": cfg.root_problem,
+        "extra_roots": [str(p) for p in cfg.extra_roots],
+        "suggested_root": pol.suggested_root(),
+        "env_fallback": os.environ.get("TALA_WORKSTATION_ROOT") or None,
+        "config_path": str(cfg.config_path) if cfg.config_path else None,
+        "audit_path": str(cfg.audit_path) if cfg.root else None,
+        "enabled": cfg.enabled,
+        "running_jobs": _running_jobs(),
+    }
+
+
+def validate_folder(path: str) -> dict:
+    """Dry-run check for the UI: nothing is created."""
+    return pol.validate_workspace(path, extra_deny=pol.read_config_file().get("extra_deny_patterns") or []).as_dict()
+
+
+def _write_settings(cfg_path: Path, data: dict) -> None:
+    cfg_path.parent.mkdir(parents=True, exist_ok=True)
+    tmp = cfg_path.with_name(cfg_path.name + f".{uuid.uuid4().hex[:6]}.tmp")
+    tmp.write_text(json.dumps(data, indent=2), encoding="utf-8")
+    os.replace(tmp, cfg_path)
+
+
+def set_workspace(root: str, extra_roots: list | None = None) -> dict:
+    """Validate (creating the folder if needed), save to data/workstation.json and
+    apply immediately: the next tool call re-reads the config, so the sandbox,
+    audit log and venv all move with it. Running jobs keep running where they
+    started; they stay visible in job_status and stoppable with stop_job."""
+    before = config()
+    data = pol.read_config_file(before.config_path)
+    extra_deny = data.get("extra_deny_patterns") or []
+    check = pol.validate_workspace(root, create=True, extra_deny=extra_deny)
+    if not check.ok:
+        return {"success": False, "field": "root", "error": check.reason, "check": check.as_dict()}
+    extras: list[str] = []
+    for raw in [str(x) for x in (extra_roots or []) if str(x or "").strip()]:
+        ec = pol.validate_workspace(raw, create=True, extra_deny=extra_deny)
+        if not ec.ok:
+            return {"success": False, "field": "extra_roots", "error": f"Extra folder refused: {ec.reason}",
+                    "check": ec.as_dict()}
+        if pol.is_within(ec.path, check.path):
+            continue  # already inside the workspace
+        if str(ec.path) not in extras:
+            extras.append(str(ec.path))
+    data.update({"root": str(check.path), "extra_roots": extras,
+                 "updated_at": datetime.now(UTC).isoformat(timespec="seconds")})
+    try:
+        _write_settings(before.config_path, data)
+    except OSError as exc:
+        return {"success": False, "field": "root", "error": f"Could not save the setting: {exc}"}
+    after = config()
+    if not after.configured or after.root != check.path:
+        reason = after.root_problem or "the saved setting did not take effect"
+        if after.root_source == "env":
+            reason = "TALA_WORKSTATION_ROOT is in use instead of the saved setting"
+        return {"success": False, "field": "root", "error": f"Saved, but not applied: {reason}"}
+    running = _running_jobs()
+    change = {"from": str(before.root) if before.root else None, "to": str(after.root),
+              "extra_roots": extras, "created": check.created, "running_jobs_kept": [j["job_id"] for j in running]}
+    _ensure_root(after)
+    audit(after, "workspace_change", change, {"verdict": "owner_settings"})
+    if before.configured and before.root != after.root:
+        try:
+            audit(before, "workspace_change", change, {"verdict": "owner_settings"})
+        except Exception:
+            pass
+    status = workspace_status()
+    note = ""
+    if running and change["from"] != change["to"]:
+        note = (f"{len(running)} background job(s) started in the old workspace keep running there; "
+                "see job_status, stop them with stop_job.")
+    return {"success": True, "created": check.created, "note": note, **status}

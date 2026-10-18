@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="read_file"
   data-source-files="sdk/agent/workstation_tools.py"
-  data-source-fingerprint="sha256:0447C82B2BA3876810B7283E9AE0D83953FA1A8208D8B09C71762AE98BCFE069"
-  data-source-digest="sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F"
+  data-source-fingerprint="sha256:AE256E3860573EEBA3BFF2FC9DD64B13947FB98BA668720C8F47E50405EA40BB"
+  data-source-digest="sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-10-18T21:24:58Z"
+  data-generated-at="2026-10-18T22:53:16Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;read_file&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read a text file from your computer, optionally a line range. Your workspace is your own working folder on this computer (D:\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;read_file(path*, start_line, end_line)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;start_line&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;end_line&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;read_file&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Read a text file from your computer, optionally a line range. Your workspace is the working folder the user chose for you in Settings &gt; Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;read_file(path*, start_line, end_line)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;start_line&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;end_line&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-10-18T21:24:58Z",
+    "created_or_updated": "2026-10-18T22:53:16Z",
     "schema": "neural-node/v2",
     "doc_target": "read_file",
-    "source_fingerprint": "sha256:0447C82B2BA3876810B7283E9AE0D83953FA1A8208D8B09C71762AE98BCFE069",
+    "source_fingerprint": "sha256:AE256E3860573EEBA3BFF2FC9DD64B13947FB98BA668720C8F47E50405EA40BB",
     "source_files": [
       "sdk/agent/workstation_tools.py"
     ],
-    "source_digest": "sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F",
+    "source_digest": "sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "read_file",
-    "description": "Read a text file from your computer, optionally a line range. Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user's approval; deny-listed places are blocked.",
+    "description": "Read a text file from your computer, optionally a line range. Your workspace is the working folder the user chose for you in Settings > Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user's approval; deny-listed places are blocked.",
     "signature": "read_file(path*, start_line, end_line)",
     "schema": {
       "type": "object",

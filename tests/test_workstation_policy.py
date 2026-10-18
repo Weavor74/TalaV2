@@ -6,7 +6,18 @@ from pathlib import Path
 
 import pytest
 
+from sdk.agent import workstation_platform as plat
 from sdk.agent import workstation_policy as pol
+
+# Most cases below are written in PowerShell / Windows paths (Kagura is where
+# this was first used). They select the Windows adapter explicitly, so they
+# run, and mean the same thing, on Linux CI. The Linux and macOS adapters are
+# covered in tests/test_workstation_platform.py.
+
+
+@pytest.fixture
+def win(monkeypatch):
+    monkeypatch.setattr(plat, "current", lambda: plat.ADAPTERS[plat.WINDOWS])
 
 
 @pytest.fixture
@@ -63,10 +74,18 @@ def test_reads_outside_root_are_allowed_but_secrets_are_not(cfg, tmp_path):
 
 @pytest.mark.parametrize("rel", [
     "src/Trike Trails/main.gd", "Antigravity/settings.json", "home/.ssh/id_ed25519", "home/.aws/credentials",
-    "u/AppData/Roaming/Microsoft/Credentials/x", "u/AppData/Local/Google/Chrome/User Data/Default/Cookies",
-    "u/.git-credentials", "u/.gemini/antigravity/brain",
+    "u/.git-credentials", "u/.gemini/antigravity/brain", "u/.config/Code/User/globalStorage/state.vscdb",
 ])
-def test_deny_list_blocks_every_mode(cfg, tmp_path, rel):
+def test_common_deny_list_blocks_every_mode(cfg, tmp_path, rel):
+    target = tmp_path / rel
+    for mode in ("read", "write", "delete"):
+        assert pol.classify_path_access(cfg, target, mode).verdict == pol.DENY, (rel, mode)
+
+
+@pytest.mark.parametrize("rel", [
+    "u/AppData/Roaming/Microsoft/Credentials/x", "u/AppData/Local/Google/Chrome/User Data/Default/Cookies",
+])
+def test_windows_deny_list_blocks_every_mode(cfg, win, tmp_path, rel):
     target = tmp_path / rel
     for mode in ("read", "write", "delete"):
         assert pol.classify_path_access(cfg, target, mode).verdict == pol.DENY, (rel, mode)
@@ -114,7 +133,7 @@ def _sh(cfg, cmd):
     "Get-Content ri.txt", "python primes.py > primes.txt", "New-Item -ItemType Directory project-test",
     "Get-ChildItem C:\\Users\\steve\\Documents", "echo hello",
 ])
-def test_ordinary_in_root_or_read_only_commands_run(cfg, cmd):
+def test_ordinary_in_root_or_read_only_commands_run(cfg, win, cmd):
     (cfg.root / "primes.py").write_text("print(2)\n", encoding="utf-8")
     assert _sh(cfg, cmd).verdict == pol.ALLOW, (cmd, _sh(cfg, cmd).reasons)
 
@@ -131,7 +150,7 @@ def test_ordinary_in_root_or_read_only_commands_run(cfg, cmd):
     ("Set-Content C:\\Users\\steve\\x.txt hi", "outside_root"), ("Copy-Item a.txt ..\\a.txt", "outside_root"),
     ("Get-Content $env:USERPROFILE\\x.txt | Set-Content y.txt", "outside_root"),
 ])
-def test_risky_commands_are_held_for_approval(cfg, cmd, category):
+def test_risky_commands_are_held_for_approval(cfg, win, cmd, category):
     v = _sh(cfg, cmd)
     assert v.verdict == pol.APPROVE, (cmd, v.reasons)
     assert category in v.categories, (cmd, v.categories)
@@ -142,7 +161,7 @@ def test_risky_commands_are_held_for_approval(cfg, cmd, category):
     "Set-Content C:\\Windows\\System32\\drivers\\etc\\hosts x", "cmdkey /list", "Get-Content C:\\Users\\s\\.ssh\\id_rsa",
     "diskpart", "Remove-Item .tala\\audit\\workstation-audit.jsonl", "'' > .tala/audit/workstation-audit.jsonl",
 ])
-def test_deny_listed_commands_never_run(cfg, cmd):
+def test_deny_listed_commands_never_run(cfg, win, cmd):
     assert _sh(cfg, cmd).verdict == pol.DENY, (cmd, _sh(cfg, cmd).reasons)
 
 
@@ -173,11 +192,11 @@ def test_plain_python_runs(cfg, src):
     ("import os\nos.remove('a')", "delete"), ("import winreg", "registry"), ("exec(open('x').read())", "obfuscation"),
     ("open(r'C:\\Users\\steve\\notes.txt', 'w')", "outside_root"), ("open('../x.txt','w')", "outside_root"),
 ])
-def test_risky_python_is_held(cfg, src, category):
+def test_risky_python_is_held(cfg, win, src, category):
     v = pol.classify_python(cfg, src)
     assert v.verdict == pol.APPROVE and category in v.categories, (src, v.as_dict())
 
 
-def test_python_touching_deny_listed_paths_is_denied(cfg):
+def test_python_touching_deny_listed_paths_is_denied(cfg, win):
     assert pol.classify_python(cfg, "open(r'D:\\src\\Trike Trails\\x.gd').read()").verdict == pol.DENY
     assert pol.classify_python(cfg, "open('C:/Windows/win.ini').read()").verdict == pol.DENY

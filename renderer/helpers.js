@@ -46,6 +46,7 @@ function fmtTime(d = new Date()) {
 const _TALA_IPC_CHANNELS = new Set([
   'file:read', 'file:write', 'file:list', 'file:delete',
   'vault:read', 'python:rpc', 'terminal:command', 'terminal:kill', 'git:status',
+  'dialog:pick-folder',
 ]);
 
 async function invoke(channel, data) {

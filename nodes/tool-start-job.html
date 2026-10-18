@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="start_job"
   data-source-files="sdk/agent/workstation_tools.py"
-  data-source-fingerprint="sha256:ACBC1591EA7CE82BA24C277BD36B0C3BE2D22A8439F3C548C39F52A2AF2E934D"
-  data-source-digest="sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F"
+  data-source-fingerprint="sha256:5CF235153C36353B6779E01518147600FB99942C8A6940D4347FBBD5ED071F22"
+  data-source-digest="sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-10-18T21:24:58Z"
+  data-generated-at="2026-10-18T22:53:16Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;start_job&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Start a long-running PowerShell command in the background on your computer; returns a job_id. Check it with job_status and end it with stop_job. Your workspace is your own working folder on this computer (D:\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;start_job(command*, name, cwd)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;command&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cwd&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;start_job&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Start a long-running shell command (PowerShell on Windows, bash on Linux/macOS) in the background on your computer; returns a job_id. Check it with job_status and end it with stop_job. Your workspace is the working folder the user chose for you in Settings &gt; Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;start_job(command*, name, cwd)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;command&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;name&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cwd&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-10-18T21:24:58Z",
+    "created_or_updated": "2026-10-18T22:53:16Z",
     "schema": "neural-node/v2",
     "doc_target": "start_job",
-    "source_fingerprint": "sha256:ACBC1591EA7CE82BA24C277BD36B0C3BE2D22A8439F3C548C39F52A2AF2E934D",
+    "source_fingerprint": "sha256:5CF235153C36353B6779E01518147600FB99942C8A6940D4347FBBD5ED071F22",
     "source_files": [
       "sdk/agent/workstation_tools.py"
     ],
-    "source_digest": "sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F",
+    "source_digest": "sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "start_job",
-    "description": "Start a long-running PowerShell command in the background on your computer; returns a job_id. Check it with job_status and end it with stop_job. Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user's approval; deny-listed places are blocked.",
+    "description": "Start a long-running shell command (PowerShell on Windows, bash on Linux/macOS) in the background on your computer; returns a job_id. Check it with job_status and end it with stop_job. Your workspace is the working folder the user chose for you in Settings > Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user's approval; deny-listed places are blocked.",
     "signature": "start_job(command*, name, cwd)",
     "schema": {
       "type": "object",

@@ -40,6 +40,8 @@ import re
 from dataclasses import dataclass, field
 from pathlib import Path
 
+from sdk.agent import workstation_platform as plat
+
 log = logging.getLogger(__name__)
 
 ALLOW = "allow"
@@ -53,16 +55,15 @@ INTERNAL_DIRNAME = ".tala"
 
 
 def install_anchor() -> str:
-    """Root of the drive Tala is installed on (the D drive for D:\\src\\TalaV2); empty on POSIX."""
-    return Path(__file__).resolve().anchor if os.name == "nt" else ""
+    """Root of the drive Tala is installed on (Windows); empty elsewhere. See workstation_platform."""
+    return plat.current().install_anchor()
 
 
-def _default_root() -> str:
-    """TalaWorkspace on the same drive as the install on Windows (D: on Kagura;
-    the USB stick when she runs from one), the home folder elsewhere."""
-    if os.name == "nt" and install_anchor():
-        return str(Path(install_anchor()) / "TalaWorkspace")
-    return str(Path.home() / "TalaWorkspace")
+def suggested_root() -> str:
+    """The folder the Settings > Workspace picker OFFERS first (platform-aware:
+    <install drive>\\TalaWorkspace on Windows, ~/TalaWorkspace on Linux/macOS).
+    Only a suggestion -- nothing uses it until the user saves it."""
+    return plat.current().suggested_root()
 
 
 def _default_config_path() -> Path:
@@ -83,7 +84,7 @@ def _split_env_list(value: str | None) -> list[str]:
 
 @dataclass
 class WorkstationConfig:
-    root: Path
+    root: Path | None  # None = no workspace chosen yet: every tool refuses
     extra_write_roots: list[Path] = field(default_factory=list)
     extra_deny_patterns: list[str] = field(default_factory=list)
     config_path: Path | None = None
@@ -95,6 +96,13 @@ class WorkstationConfig:
     max_jobs: int = 3
     python: str | None = None
     enabled: bool = True
+    root_source: str = ""  # "settings" (Settings > Workspace), "env" (TALA_WORKSTATION_ROOT) or ""
+    root_problem: str = ""  # why a configured root was refused, if it was
+    extra_roots: list[Path] = field(default_factory=list)  # the user's extra folders (settings)
+
+    @property
+    def configured(self) -> bool:
+        return self.root is not None
 
     @property
     def internal_dir(self) -> Path:
@@ -105,18 +113,42 @@ class WorkstationConfig:
         return self.internal_dir / "audit" / "workstation-audit.jsonl"
 
 
-def load_config() -> WorkstationConfig:
-    """Environment first, then the JSON file (outside the root), then defaults."""
-    cfg_path = _default_config_path()
-    data: dict = {}
+def read_config_file(cfg_path: Path | None = None) -> dict:
+    """The saved settings (data/workstation.json); {} when missing or unreadable."""
+    cfg_path = cfg_path or _default_config_path()
     try:
         if cfg_path.is_file():
             data = json.loads(cfg_path.read_text(encoding="utf-8")) or {}
+            return data if isinstance(data, dict) else {}
     except Exception as exc:  # a broken config must not widen anything
         log.warning("workstation: could not read %s (%s); using defaults", cfg_path, exc)
-        data = {}
+    return {}
 
-    root = os.environ.get("TALA_WORKSTATION_ROOT") or data.get("root") or _default_root()
+
+def load_config() -> WorkstationConfig:
+    """The workspace saved in Settings > Workspace (data/workstation.json) wins;
+    TALA_WORKSTATION_ROOT is the fallback for headless installs. With neither,
+    there is NO workspace -- the tools refuse instead of picking a folder."""
+    cfg_path = _default_config_path()
+    data = read_config_file(cfg_path)
+
+    root_raw, source = (data.get("root"), "settings") if data.get("root") else (
+        os.environ.get("TALA_WORKSTATION_ROOT"), "env")
+    root, problem = None, ""
+    if root_raw:
+        check = validate_workspace(str(root_raw), extra_deny=data.get("extra_deny_patterns") or [])
+        if check.ok:
+            root = check.path
+        else:
+            problem = f"{root_raw}: {check.reason}"
+            log.warning("workstation: configured workspace refused (%s)", problem)
+    extra_roots = []
+    for raw in data.get("extra_roots") or []:
+        check = validate_workspace(str(raw), extra_deny=data.get("extra_deny_patterns") or [])
+        if check.ok:
+            extra_roots.append(check.path)
+        else:
+            log.warning("workstation: extra folder %s refused (%s)", raw, check.reason)
     extra_write = _split_env_list(os.environ.get("TALA_WORKSTATION_WRITE_ROOTS")) or list(
         data.get("extra_write_roots") or [])
     extra_deny = _split_env_list(os.environ.get("TALA_WORKSTATION_DENY")) + list(
@@ -131,8 +163,11 @@ def load_config() -> WorkstationConfig:
             return default
 
     return WorkstationConfig(
-        root=_resolve(root),
-        extra_write_roots=[_resolve(p) for p in extra_write],
+        root=root,
+        root_source=source if root is not None else "",
+        root_problem=problem,
+        extra_roots=extra_roots,
+        extra_write_roots=[*extra_roots, *(_resolve(p) for p in extra_write)],
         extra_deny_patterns=[str(p) for p in extra_deny],
         config_path=cfg_path,
         outside_root_writes=DENY if outside == DENY else APPROVE,
@@ -177,39 +212,15 @@ def is_within(child: Path, parent: Path) -> bool:
     return c == p or c.startswith(p + "/")
 
 
-#: Never touched by any workstation tool, approval or not. Matched (re.search)
-#: against _canon() of a resolved path, and against the _canon() text of shell
-#: commands / Python sources.
-DEFAULT_DENY_PATTERNS: tuple[tuple[str, str], ...] = (
-    (r"trike", "Trike Trails is Antigravity's project on this machine"),
-    (r"antigravity", "Antigravity (IDE and its agent) is off limits"),
-    (r"/\.gemini(?:/|$)", "Antigravity/Gemini agent state"),
-    (r"(?:^|[\s'\"=])[a-z]:/tt-[^/\s]*", "Trike Trails build/test folders (D:\\tt-*)"),
-    (r"[a-z]:/windows(?:/|$|[\s'\"])", "the Windows system folder"),
-    (r"/system32/config(?:/|$)", "Windows registry hives"),
-    (r"/\.ssh(?:/|$)", "SSH keys"),
-    (r"/\.aws(?:/|$)", "AWS credentials"),
-    (r"/\.azure(?:/|$)", "Azure credentials"),
-    (r"/\.gnupg(?:/|$)", "GPG keys"),
-    (r"/\.kube(?:/|$)", "Kubernetes credentials"),
-    (r"/\.docker/config\.json", "Docker credentials"),
-    (r"\.git-credentials", "git credential store"),
-    (r"/\.npmrc(?:$|[\s'\"])", "npm token file"),
-    (r"/\.pypirc(?:$|[\s'\"])", "PyPI token file"),
-    (r"/_?\.?netrc(?:$|[\s'\"])", "netrc credentials"),
-    (r"/appdata/(?:roaming|local)/microsoft/(?:credentials|protect|crypto|vault)", "Windows credential store"),
-    (r"/appdata/local/(?:google/chrome|microsoft/edge|bravesoftware/[^/]+)/user data", "browser profile"),
-    (r"/appdata/roaming/mozilla/firefox/profiles", "browser profile"),
-    (r"/appdata/roaming/(?:code|cursor)/user/globalstorage", "editor credential storage"),
-    (r"\bcmdkey\b|\bvaultcmd\b|get-storedcredential|keymgr\.dll|mimikatz|lsass", "credential store access"),
-    (r"\bdiskpart\b|format-volume|\bformat\s+[a-z]:|\bbcdedit\b|vssadmin\s+delete|cipher\s+/w",
-     "disk / boot destruction"),
-    (r"set-mppreference|add-mppreference", "Windows Defender configuration"),
-)
+#: Never touched by any workstation tool, approval or not: the COMMON set plus
+#: the host OS's set, both in workstation_platform. Matched (re.search) against
+#: _canon() of a resolved path, and against the _canon() text of commands / sources.
+def _default_deny_patterns() -> tuple[tuple[str, str], ...]:
+    return plat.current().deny_patterns
 
 
 def _deny_patterns(cfg: WorkstationConfig) -> list[tuple[re.Pattern[str], str]]:
-    pats = [(re.compile(p), why) for p, why in DEFAULT_DENY_PATTERNS]
+    pats = [(re.compile(p), why) for p, why in _default_deny_patterns()]
     for extra in cfg.extra_deny_patterns:
         try:
             pats.append((re.compile(extra, re.IGNORECASE), f"config deny pattern {extra!r}"))
@@ -227,6 +238,117 @@ def deny_reason(cfg: WorkstationConfig, text: str) -> str | None:
         if pat.search(hay):
             return why
     return None
+
+
+# ---------------------------------------------------------------------------
+# Choosing the workspace (Settings > Workspace)
+# ---------------------------------------------------------------------------
+
+@dataclass
+class WorkspaceCheck:
+    ok: bool
+    path: Path | None = None
+    reason: str = ""
+    exists: bool = False
+    created: bool = False
+
+    def as_dict(self) -> dict:
+        return {"ok": self.ok, "path": str(self.path) if self.path else None, "reason": self.reason,
+                "exists": self.exists, "created": self.created}
+
+
+def _tala_dirs() -> list[Path]:
+    """Tala's own checkout/install and her data folder: a workspace may be neither,
+    nor contain either, or she could rewrite herself with her own write tool."""
+    dirs = [Path(__file__).resolve().parents[2]]
+    try:
+        from sdk.agent.documentation_nodes import resolve_user_data_dir
+
+        dirs.append(_resolve(resolve_user_data_dir()))
+    except Exception:
+        pass
+    return dirs
+
+
+def _system_dirs() -> list[tuple[Path, str]]:
+    return [(_resolve(p), why) for p, why in plat.current().system_dirs()]
+
+
+def _deny_text(text: str, extra_deny) -> str | None:
+    hay = _canon(text)
+    for pat, why in _default_deny_patterns():
+        if re.search(pat, hay):
+            return why
+    for extra in extra_deny or ():
+        try:
+            if re.search(extra, hay, re.IGNORECASE):
+                return f"config deny pattern {extra!r}"
+        except re.error:
+            if _canon(extra) in hay:
+                return f"config deny path {extra!r}"
+    return None
+
+
+def validate_workspace(raw: str | None, *, create: bool = False, extra_deny=()) -> WorkspaceCheck:
+    """May *raw* be Tala's workspace (or an extra folder)? Exists or can be created,
+    and is not a drive root, a system folder, the user profile itself, an app-data
+    or credential folder, a deny-listed place, or Tala's own install/data folder.
+    ``create=True`` (saving) also creates it."""
+    text = str(raw or "").strip().strip('"').strip("'").strip()
+    if not text:
+        return WorkspaceCheck(False, reason="No folder given. Pick or type a folder.")
+    expanded = os.path.expandvars(os.path.expanduser(text))
+    if not Path(expanded).is_absolute():
+        return WorkspaceCheck(False, reason=f"Use a full path (for example {suggested_root()}), not a relative one.")
+    path = _resolve(expanded)
+
+    def no(reason: str) -> WorkspaceCheck:
+        return WorkspaceCheck(False, path=path, reason=reason)
+
+    if path.parent == path or (path.exists() and os.path.ismount(path)):
+        return no(f"{path} is a whole drive (a drive root, mount point or the filesystem root). Pick or create a folder inside it, "
+                  f"such as {Path(path) / 'TalaWorkspace'}.")
+    why = _deny_text(str(path), extra_deny)
+    if why:
+        return no(f"{path} is off limits ({why}).")
+    for sysdir, label in _system_dirs():
+        if is_within(path, sysdir):
+            return no(f"{path} is inside {label} ({sysdir}).")
+    home = _resolve(Path.home())
+    if _canon(path).rstrip("/") == _canon(home).rstrip("/"):
+        return no(f"{path} is your whole user profile. Pick or create a folder inside it, such as "
+                  f"{home / 'TalaWorkspace'}.")
+    if is_within(home, path):
+        return no(f"{path} contains your user profile ({home}).")
+    if is_within(path, home):
+        first = Path(os.path.relpath(path, home)).parts[0]
+        if first.startswith(".") or first.lower() == "appdata":
+            return no(f"{path} is inside {home / first}, which holds app settings and credentials.")
+    for tala_dir in _tala_dirs():
+        if is_within(path, tala_dir) or is_within(tala_dir, path):
+            return no(f"{path} overlaps Tala's own install/data folder ({tala_dir}). Her workspace must be "
+                      "separate so she cannot edit herself.")
+    cfg_file = _resolve(_default_config_path())
+    if is_within(cfg_file, path):
+        return no(f"{path} contains Tala's workstation settings file ({cfg_file}).")
+    if path.exists():
+        if not path.is_dir():
+            return no(f"{path} exists but is a file, not a folder.")
+        if not os.access(path, os.W_OK):
+            return no(f"{path} is not writable by Tala.")
+        return WorkspaceCheck(True, path=path, exists=True)
+    anchor = path.parent
+    while not anchor.exists() and anchor.parent != anchor:
+        anchor = anchor.parent
+    if not anchor.is_dir() or not os.access(anchor, os.W_OK):
+        return no(f"{path} does not exist and cannot be created ({anchor} is not a writable folder).")
+    if create:
+        try:
+            path.mkdir(parents=True, exist_ok=True)
+        except OSError as exc:
+            return no(f"Could not create {path}: {exc}")
+        return WorkspaceCheck(True, path=path, exists=True, created=True)
+    return WorkspaceCheck(True, path=path)
 
 
 @dataclass
@@ -293,66 +415,13 @@ def classify_path_access(cfg: WorkstationConfig, target: Path, mode: str) -> Ver
 # Commands
 # ---------------------------------------------------------------------------
 
-_SHELL_RISK: tuple[tuple[str, str, str], ...] = (
-    # (category, regex searched anywhere in the lower-cased command, reason).
-    # Short aliases (rm, del, ri, kill, iex ...) are matched only in command
-    # position -- see _VERB_RISK -- so a file called ri.txt is not a delete.
-    ("delete", r"\bremove-item\b|\bclear-content\b|\brmdir\b|\[io\.(?:file|directory)\]::delete", "deletes files"),
-    ("process_kill", r"\bstop-process\b|\btaskkill\b|\bpskill\b|wmic\s+process", "kills processes"),
-    ("registry", r"\breg(?:\.exe)?\s+(?:add|delete|import|load|copy|restore|unload)\b|\bhk(?:lm|cu|cr|u|cc):"
-                 r"|registry::|\b(?:set|new|remove|rename)-itemproperty\b", "touches the registry"),
-    ("install", r"\b(?:pip3?|uv)\s+(?:pip\s+)?(?:install|add|uninstall)\b|-m\s+pip\b|\bnpm\s+(?:i|install|ci|add)\b"
-                r"|\byarn\s+add\b|\bpnpm\s+(?:add|i|install)\b|\bwinget\b|\bchoco\b|\bscoop\s+install\b"
-                r"|\binstall-(?:module|package|script)\b|\bmsiexec\b|\.msi\b|\badd-appxpackage\b"
-                r"|\bcargo\s+install\b|\bgo\s+install\b|\bconda\s+install\b", "installs software"),
-    ("network", r"\binvoke-webrequest\b|\binvoke-restmethod\b|\bcurl(?:\.exe)?\s|\bwget\b"
-                r"|\bstart-bitstransfer\b|net\.webclient|downloadstring|downloadfile|\bbitsadmin\b"
-                r"|\bgit\s+(?:clone|fetch|pull|push|remote|submodule)\b"
-                r"|\btest-netconnection\b|\bsend-mailmessage\b|https?://", "uses the network"),
-    ("elevation", r"-verb\s+runas|\brunas(?:\.exe)?\s|\bset-executionpolicy\b|\bschtasks\b|\bregister-scheduledtask\b"
-                  r"|\bnew-service\b|\bsc\.exe\s|\bnetsh\b|\bnew-netfirewallrule\b|\bshutdown(?:\.exe)?\s"
-                  r"|\brestart-computer\b|\bstop-computer\b|\b(?:set|start|stop|restart)-service\b"
-                  r"|\bicacls\b|\btakeown\b|\benable-psremoting\b",
-     "changes system configuration or needs admin"),
-    ("obfuscation", r"\s-enc(?:odedcommand)?\b|frombase64string|\binvoke-expression\b"
-                    r"|\b(?:powershell|pwsh|cmd)(?:\.exe)?\s+(?:/c|-c|-command|/k)\b|\bstart-process\b"
-                    r"|\bwsl(?:\.exe)?\b|\bbash(?:\.exe)?\s+-c\b|\badd-type\b|\bstart-job\b",
-     "spawns another shell or hides what it runs"),
-)
+# Command-risk tables, verbs and path forms are per OS: see workstation_platform
+# (COMMON_SHELL_RISK + WINDOWS_/POSIX_SHELL_RISK, *_VERB_RISK, *_READONLY ...).
+# Short aliases (rm, del, ri, kill, iex ...) are matched only in command
+# position, so a file called ri.txt is not a delete.
 
-#: Short aliases that only mean something in command position.
-_VERB_RISK: dict[str, tuple[str, str]] = {
-    **{v: ("delete", "deletes files") for v in ("rm", "rd", "del", "erase", "ri", "clc", "rmdir")},
-    **{v: ("process_kill", "kills processes") for v in ("kill", "spps")},
-    **{v: ("network", "uses the network") for v in ("iwr", "irm", "curl", "curl.exe", "ssh", "scp", "sftp",
-                                                    "ftp", "nc", "ncat", "telnet")},
-    **{v: ("obfuscation", "spawns another shell or hides what it runs")
-       for v in ("iex", "powershell", "powershell.exe", "pwsh", "cmd", "cmd.exe", "bash", "sh", "start", "saps")},
-    **{v: ("elevation", "changes system configuration or needs admin") for v in ("sc", "reg", "runas", "shutdown")},
-}
-
-_WRITE_MARKERS = re.compile(
-    r"(?<![<2*&])>{1,2}(?!&)|\b(?:out-file|set-content|add-content|copy-item|move-item|new-item|rename-item"
-    r"|tee-object|expand-archive|compress-archive|export-csv|export-clixml|set-acl|robocopy|xcopy)\b")
-_WRITE_VERBS = frozenset("sc ac cpi copy cp mi move mv ni mkdir md ren rni tee attrib git".split())
-
-_READONLY_VERBS = frozenset("""
-get-childitem gci dir ls get-content gc type cat test-path get-item gi get-itemproperty gp select-string sls
-measure-object measure sort-object sort select-object select format-table ft format-list fl format-wide fw
-where-object where ? resolve-path get-filehash get-acl split-path join-path write-output echo write-host
-get-date out-string foreach-object % group-object group get-location pwd get-psdrive get-volume
-convertto-json convertfrom-json get-command get-help hostname whoami
-""".split())
-
-_WIN_ABS = re.compile(r"(?<![\w])([a-zA-Z]:[\\/][^\s'\"`;|<>,()]*)")
-_WIN_ABS_QUOTED = re.compile(r"['\"]([a-zA-Z]:[\\/][^'\"]*)['\"]")
-_UNC = re.compile(r"(?<![\w])(\\\\[^\s'\"`;|<>]+)")
-_POSIX_ABS = re.compile(r"(?<![\w.:/~-])(/[A-Za-z0-9_.][^\s'\"`;|<>()]*)")
-_ENV_PATHS = re.compile(r"\$env:\w+|%[a-z_]+%|\$home\b|(?:^|[\s'\"])~[\\/]|\$pshome|\[environment\]::",
-                        re.IGNORECASE)
 _PARENT_REF = re.compile(r"(?:^|[\s'\"\\/=])\.\.(?:[\\/]|$|[\s'\"])")
 _PY_FILE = re.compile(r"\b(?:python[\d.]*|py)(?:\.exe)?\b[^|;&\n]*?([\w./\\:-]+\.py)\b", re.IGNORECASE)
-_BENIGN_ABS = {"/dev/null"}
 
 
 def _stage_verbs(command: str) -> list[str]:
@@ -366,10 +435,8 @@ def _stage_verbs(command: str) -> list[str]:
 
 def _referenced_paths(command: str) -> list[str]:
     found: list[str] = []
-    for rx in (_WIN_ABS_QUOTED, _WIN_ABS, _UNC):
-        found += [m.group(1) for m in rx.finditer(command)]
-    if os.name != "nt":
-        found += [m.group(1) for m in _POSIX_ABS.finditer(command) if m.group(1) not in _BENIGN_ABS]
+    for rx in plat.current().path_patterns:
+        found += [m.group(1) for m in rx.finditer(command) if m.group(1) not in plat.BENIGN_PATHS]
     return found
 
 
@@ -380,18 +447,20 @@ def classify_shell(cfg: WorkstationConfig, command: str, cwd: Path) -> Verdict:
     if why:
         v.raise_to(DENY, "deny_list", f"command references something deny-listed ({why})")
         return v
+    osp = plat.current()
     verbs = _stage_verbs(command or "")
-    writes = bool(_WRITE_MARKERS.search(low)) or any(vb in _WRITE_VERBS for vb in verbs)
-    deletes = bool(re.search(_SHELL_RISK[0][1], low)) or any(_VERB_RISK.get(vb, ("",))[0] == "delete" for vb in verbs)
+    writes = bool(re.search(osp.write_markers, low)) or any(vb in osp.write_verbs for vb in verbs)
+    deletes = any(cat == "delete" and re.search(rx, low) for cat, rx, _ in osp.shell_risk) or any(
+        osp.verb_risk.get(vb, ("",))[0] == "delete" for vb in verbs)
     if INTERNAL_DIRNAME in low and (writes or deletes):
         v.raise_to(DENY, "internal", f"command would modify the workstation's {INTERNAL_DIRNAME} area")
         return v
-    for category, rx, reason in _SHELL_RISK:
+    for category, rx, reason in osp.shell_risk:
         if re.search(rx, low):
             v.raise_to(APPROVE, category, f"command {reason}")
     for vb in verbs:
-        if vb in _VERB_RISK:
-            category, reason = _VERB_RISK[vb]
+        if vb in osp.verb_risk:
+            category, reason = osp.verb_risk[vb]
             v.raise_to(APPROVE, category, f"command {reason} ({vb})")
 
     outside = []
@@ -402,12 +471,12 @@ def classify_shell(cfg: WorkstationConfig, command: str, cwd: Path) -> Verdict:
             return v
         if not any(is_within(rp, r) for r in writable_roots(cfg)):
             outside.append(p)
-    if _ENV_PATHS.search(command):
+    if osp.env_paths.search(command):
         outside.append("(environment-variable path)")
     if _PARENT_REF.search(command):
         outside.append("(parent-directory '..' path)")
     if outside:
-        read_only = bool(verbs) and all(vb in _READONLY_VERBS for vb in verbs) and not writes
+        read_only = bool(verbs) and all(vb in osp.readonly_verbs for vb in verbs) and not writes
         if not read_only:
             v.raise_to(APPROVE, "outside_root",
                        "command touches paths outside the workspace: " + ", ".join(outside[:5]))

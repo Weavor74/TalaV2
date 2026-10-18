@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="run_python"
   data-source-files="sdk/agent/workstation_tools.py"
-  data-source-fingerprint="sha256:74995B65BDBC76785D1ED35B5C59EDD99A0845F70F2A1E3E7F688E4971177E75"
-  data-source-digest="sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F"
+  data-source-fingerprint="sha256:4E42D689878049EF346ABAAF78BC931334634E8BF5864786D4347947AADC015B"
+  data-source-digest="sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-10-18T21:24:58Z"
+  data-generated-at="2026-10-18T22:53:16Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;run_python&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run Python 3 code (pass code) or a .py file (pass script) in your own Python venv on your computer and get its output. cwd defaults to the workspace. Your workspace is your own working folder on this computer (D:\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_python(code, script, args, cwd, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;code&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;script&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;args&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cwd&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;run_python&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Run Python 3 code (pass code) or a .py file (pass script) in your own Python venv on your computer and get its output. cwd defaults to the workspace. Your workspace is the working folder the user chose for you in Settings &gt; Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;run_python(code, script, args, cwd, timeout_seconds)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;code&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;script&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;args&lt;/code&gt; (array, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cwd&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;timeout_seconds&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-10-18T21:24:58Z",
+    "created_or_updated": "2026-10-18T22:53:16Z",
     "schema": "neural-node/v2",
     "doc_target": "run_python",
-    "source_fingerprint": "sha256:74995B65BDBC76785D1ED35B5C59EDD99A0845F70F2A1E3E7F688E4971177E75",
+    "source_fingerprint": "sha256:4E42D689878049EF346ABAAF78BC931334634E8BF5864786D4347947AADC015B",
     "source_files": [
       "sdk/agent/workstation_tools.py"
     ],
-    "source_digest": "sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F",
+    "source_digest": "sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "run_python",
-    "description": "Run Python 3 code (pass code) or a .py file (pass script) in your own Python venv on your computer and get its output. cwd defaults to the workspace. Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user's approval; deny-listed places are blocked.",
+    "description": "Run Python 3 code (pass code) or a .py file (pass script) in your own Python venv on your computer and get its output. cwd defaults to the workspace. Your workspace is the working folder the user chose for you in Settings > Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user's approval; deny-listed places are blocked.",
     "signature": "run_python(code, script, args, cwd, timeout_seconds)",
     "schema": {
       "type": "object",

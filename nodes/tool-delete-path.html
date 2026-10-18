@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="delete_path"
   data-source-files="sdk/agent/workstation_tools.py"
-  data-source-fingerprint="sha256:702D0605F83BCCB53A87FF5328762D719279ED40123F2C20A4976A03D653C741"
-  data-source-digest="sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F"
+  data-source-fingerprint="sha256:9D12267759471890814C2BE57BE89E9068D84105D84F44AECB1F687190D431B2"
+  data-source-digest="sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-10-18T21:24:58Z"
+  data-generated-at="2026-10-18T22:53:15Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;delete_path&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Delete a file (or a folder with recursive=true) on your computer. Always needs approval. Your workspace is your own working folder on this computer (D:\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;delete_path(path*, recursive)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;recursive&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;delete_path&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Delete a file (or a folder with recursive=true) on your computer. Always needs approval. Your workspace is the working folder the user chose for you in Settings &gt; Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user&#x27;s approval; deny-listed places are blocked.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;delete_path(path*, recursive)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;recursive&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-10-18T21:24:58Z",
+    "created_or_updated": "2026-10-18T22:53:15Z",
     "schema": "neural-node/v2",
     "doc_target": "delete_path",
-    "source_fingerprint": "sha256:702D0605F83BCCB53A87FF5328762D719279ED40123F2C20A4976A03D653C741",
+    "source_fingerprint": "sha256:9D12267759471890814C2BE57BE89E9068D84105D84F44AECB1F687190D431B2",
     "source_files": [
       "sdk/agent/workstation_tools.py"
     ],
-    "source_digest": "sha256:797737F85950DE2DD5421739E92B8BC130F40112AD7C14E4B067F2242C01954F",
+    "source_digest": "sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "delete_path",
-    "description": "Delete a file (or a folder with recursive=true) on your computer. Always needs approval. Your workspace is your own working folder on this computer (D:\\TalaWorkspace unless configured otherwise); relative paths are relative to it. Risky actions are held for the user's approval; deny-listed places are blocked.",
+    "description": "Delete a file (or a folder with recursive=true) on your computer. Always needs approval. Your workspace is the working folder the user chose for you in Settings > Workspace; relative paths are relative to it. If no workspace is configured the tool says so: tell the user to choose one there. Risky actions are held for the user's approval; deny-listed places are blocked.",
     "signature": "delete_path(path*, recursive)",
     "schema": {
       "type": "object",
