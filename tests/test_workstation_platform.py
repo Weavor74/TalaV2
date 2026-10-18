@@ -142,6 +142,10 @@ def test_powershell_rules_do_not_leak_into_linux(cfg, linux):
 
 # --- workspace validation per OS ----------------------------------------------
 
+_POSIX_PATHS = pytest.mark.skipif(os.name == "nt", reason="POSIX absolute paths need a POSIX host's pathlib")
+
+
+@_POSIX_PATHS
 def test_linux_workspace_validation(linux, monkeypatch):
     monkeypatch.setattr(Path, "home", staticmethod(lambda: Path(HOME)))
     for bad, needle in (("/", "whole drive"), ("/etc/tala", "off limits"), ("/proc/tala", "off limits"),
@@ -151,6 +155,7 @@ def test_linux_workspace_validation(linux, monkeypatch):
         assert not check.ok and needle in check.reason, (bad, check.reason)
 
 
+@_POSIX_PATHS
 def test_macos_workspace_validation(macos):
     for bad in ("/System/Tala", "/Library/Tala", "/Applications/Tala"):
         assert not pol.validate_workspace(bad).ok, bad
@@ -162,7 +167,7 @@ def test_shell_interface_per_os(monkeypatch):
     win = plat.ADAPTERS[plat.WINDOWS].shell_argv("Get-Date")
     assert win[0] == "powershell.exe" and win[-1].endswith("Get-Date") and "-NoProfile" in win
     lin = plat.ADAPTERS[plat.LINUX].shell_argv("date")
-    assert Path(lin[0]).name in ("bash", "sh") and lin[1:] == ["-c", "date"]
+    assert Path(lin[0]).stem.lower() in ("bash", "sh") and lin[1:] == ["-c", "date"]
     assert plat.ADAPTERS[plat.WINDOWS].low_priority_argv(["x"]) == ["x"]
     monkeypatch.setattr(plat.shutil, "which", lambda name: "/usr/bin/" + name)
     assert plat.ADAPTERS[plat.LINUX].low_priority_argv(["bash", "-c", "x"])[:3] == ["/usr/bin/nice", "-n", "10"]
