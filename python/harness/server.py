@@ -2887,6 +2887,7 @@ async def handle_inference_generate(
     max_loops = 8  # Raised from 3 — complex agentic tasks need more turns
     all_responses = []
     last_raw_assistant_text = ""  # Track last raw LLM output for accurate loop detection
+    repeat_nudges = 0  # times a re-issued identical tool call was answered with "use the result"
     failed_endpoints = set()
 
     while loop_count < max_loops:
@@ -3559,7 +3560,7 @@ async def handle_inference_generate(
                         # still present in both sides — cleaned all_responses strips the tags.
                         tool_match = _find_tool_call(_normalize_alt_invoke_syntax(generated_text))
                         last_tool_match = _find_tool_call(_normalize_alt_invoke_syntax(last_raw_assistant_text))
-                        if tool_match and last_tool_match and tool_match.group(0) == last_tool_match.group(0):
+                        if tool_match and last_tool_match and tool_match.group(0) == last_tool_match.group(0) and repeat_nudges >= 2:
                             fallback_reason = "Identical tool call loop detected"
                             
                     if fallback_reason:
@@ -3620,6 +3621,15 @@ async def handle_inference_generate(
         # generated_text since it's what was actually searched.
         generated_text = _normalize_alt_invoke_syntax(generated_text)
         tool_match = _find_tool_call(generated_text)
+        _prev_call = _find_tool_call(_normalize_alt_invoke_syntax(last_raw_assistant_text)) if last_raw_assistant_text else None
+        if tool_match and _prev_call and _prev_call.group(0) == tool_match.group(0) and repeat_nudges < 2:
+            # Small local models (Llama 3.2 3B, seen live on Kagura) re-issue the call they just made
+            # instead of reading its result. Say so, at most twice, rather than failing every provider.
+            repeat_nudges += 1
+            messages.append({"role": "assistant", "content": generated_text[:tool_match.end()]})
+            messages.append({"role": "user", "content": "[SYSTEM DIRECTIVE]: You already ran that exact tool call and its result is above. Do NOT call it again. Answer the user now in plain text using that result."})
+            loop_count += 1
+            continue
         if not tool_match:
             # If the user's actual message implies action/search/fix/remove and the
             # model spoke prose without emitting a tool call:

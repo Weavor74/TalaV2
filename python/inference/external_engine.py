@@ -59,6 +59,18 @@ def default_model() -> tuple[str, str]:
     return MODEL_CHOICES[_model_size()]
 
 
+def context_size() -> int:
+    """llama-server --ctx-size. TALA_LLAMA_CTX overrides; 4096 on the 1B
+    low-RAM profile, 16384 otherwise. Measured on Kagura: Tala's system
+    prompt plus 8 tool schemas plus one system.capabilities result is ~8.5k
+    tokens, so 4096 (and 8192) rejected the second turn of an ordinary
+    tool-using chat. Llama 3.2 3B's KV cache at 16k is ~1.8 GB."""
+    raw = os.environ.get("TALA_LLAMA_CTX", "").strip()
+    if raw.isdigit() and int(raw) >= 512:
+        return int(raw)
+    return 4096 if _model_size() == "1b" else 16384
+
+
 def explicit_model_path() -> Path | None:
     raw = os.environ.get("TALA_MODEL_PATH", "").strip()
     if not raw:

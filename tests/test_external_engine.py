@@ -16,7 +16,7 @@ from python.inference import llama_server_manager as lsm
 @pytest.fixture(autouse=True)
 def _clean_env(monkeypatch):
     for var in ("TALA_ENGINE", "TALA_LLAMA_SERVER_BIN", "TALA_LLAMA_SERVER_FORK",
-                "TALA_MODEL_SIZE", "TALA_MODEL_PATH", "OLLAMA_HOST"):
+                "TALA_MODEL_SIZE", "TALA_MODEL_PATH", "OLLAMA_HOST", "TALA_LLAMA_CTX"):
         monkeypatch.delenv(var, raising=False)
     monkeypatch.setattr(ext.shutil, "which", lambda name: None)
 
@@ -162,3 +162,11 @@ def test_progress_tracker_tolerates_the_rest_of_tqdms_surface():
     bar.set_description("y")
     bar.update(5)
     bar.close()
+
+
+def test_context_size_profiles(monkeypatch):
+    assert ext.context_size() == 16384
+    monkeypatch.setenv("TALA_MODEL_SIZE", "1b")
+    assert ext.context_size() == 4096
+    monkeypatch.setenv("TALA_LLAMA_CTX", "8192")
+    assert ext.context_size() == 8192

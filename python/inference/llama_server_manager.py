@@ -525,7 +525,7 @@ async def _spawn(variant: str) -> _ServerHandle | None:
         str(exe), "-m", str(model),
         "--port", str(port),
         "--host", "127.0.0.1",
-        "--ctx-size", "4096",
+        "--ctx-size", str(_ext.context_size()),
         "--jinja",
     ]
     # --decision-seqs exists only in the parallel-decision fork; a stock
@@ -676,7 +676,11 @@ async def generate_stream(
 
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", f"{handle.base_url}/v1/chat/completions", json=payload) as resp:
-            resp.raise_for_status()
+            if getattr(resp, "status_code", 200) >= 400:
+                # llama-server says why in the body (context overflow, bad
+                # template...). raise_for_status() alone threw that away.
+                body = (await resp.aread()).decode(errors="replace")[:500]
+                raise RuntimeError(f"llama-server HTTP {resp.status_code}: {body}")
             async for line in resp.aiter_lines():
                 if not line.startswith("data:"):
                     continue
