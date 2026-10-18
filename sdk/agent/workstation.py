@@ -64,8 +64,12 @@ def _ensure_root(cfg: pol.WorkstationConfig) -> None:
         (cfg.internal_dir / sub).mkdir(parents=True, exist_ok=True)
 
 
-NOT_CONFIGURED = ("Tala's workspace is not configured, so nothing was run. Tell the user to choose a workspace "
-                  "folder in Settings > Workspace; the workstation tools work once one is saved.")
+#: Worded for small local models, which retry a failing tool unless told plainly to stop and what to say.
+NOT_CONFIGURED_USER = ("I don't have a workspace folder yet, so I can't use my computer tools. Please choose one in "
+                       "Settings > Workspace, then ask me again.")
+NOT_CONFIGURED = ("Workspace not configured: nothing was run, and no workstation tool will work until the user "
+                  "chooses a folder in Settings > Workspace. Do not call workstation tools again in this turn. "
+                  f"Reply to the user: \"{NOT_CONFIGURED_USER}\"")
 
 
 def _ready() -> tuple[pol.WorkstationConfig, dict | None]:
@@ -78,7 +82,8 @@ def _ready() -> tuple[pol.WorkstationConfig, dict | None]:
         msg = NOT_CONFIGURED
         if cfg.root_problem:
             msg += f" (The configured folder was refused: {cfg.root_problem})"
-        return cfg, {"success": False, "workspace_configured": False, "error": msg}
+        return cfg, {"success": False, "workspace_configured": False, "error": msg,
+                     "user_message": NOT_CONFIGURED_USER}
     try:
         _ensure_root(cfg)
     except OSError as exc:
