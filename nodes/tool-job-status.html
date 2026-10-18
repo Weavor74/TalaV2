@@ -1,0 +1,141 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: job_status</title>
+</head>
+<body>
+<article
+  data-node-id="tool-job-status"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="job_status"
+  data-source-files="sdk/agent/workstation_tools.py"
+  data-source-fingerprint="sha256:5D7492477D73E300052E57B6B0BD9B9588B9A7A7F8F163F7D070C101BD28E395"
+  data-source-digest="sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-18T21:24:58Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: job_status</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;job_status&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Status and recent output of a background job (or all jobs when job_id is empty).&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;job_status(job_id, tail_lines)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;job_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;tail_lines&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.workstation_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/workstation_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-job-status"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "job_status"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: job_status",
+  "description": "Program documentation for job_status.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "job_status"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-18T21:24:58Z",
+    "schema": "neural-node/v2",
+    "doc_target": "job_status",
+    "source_fingerprint": "sha256:5D7492477D73E300052E57B6B0BD9B9588B9A7A7F8F163F7D070C101BD28E395",
+    "source_files": [
+      "sdk/agent/workstation_tools.py"
+    ],
+    "source_digest": "sha256:E9DD1392BB91E6E2DA7183CCC8F31ECC78BA35BAF8577DA5E7224B7A3990808A",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "job_status",
+    "description": "Status and recent output of a background job (or all jobs when job_id is empty).",
+    "signature": "job_status(job_id, tail_lines)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "job_id": {
+          "type": "string"
+        },
+        "tail_lines": {
+          "type": "integer"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.workstation_tools",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

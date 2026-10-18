@@ -4861,8 +4861,4 @@ from sdk.agent import desktop_agent  # noqa: E402,F401
 # to desktop_control. Moved out of this file to stay under the size ratchet;
 # bottom-of-module for the usual reason -- it imports register_tool from here.
 from sdk.agent import vision_tools  # noqa: E402,F401
-
-
-
-
-
+from sdk.agent import workstation_tools  # noqa: E402,F401  (run_shell, read_file, write_file, ... -- her own computer)

@@ -93,6 +93,7 @@ from python.harness.heartbeat_rpc import (
     handle_heartbeat_list, handle_heartbeat_reload, handle_heartbeat_update,
 )
 from python.harness.health_rpc import handle_harness_health
+from python.harness.workstation_rpc import WORKSTATION_RPC_HANDLERS
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
     handle_task_control, handle_task_create_worktree, handle_task_delete,
@@ -14514,6 +14515,7 @@ _HANDLERS: dict[str, Any] = {
     "p2p.webrtc_offer": handle_p2p_webrtc_offer,
     "p2p.webrtc_answer": handle_p2p_webrtc_answer,
     "p2p.encrypted_payload": handle_p2p_encrypted_payload,
+    **WORKSTATION_RPC_HANDLERS,
 }
 
 

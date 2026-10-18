@@ -30,6 +30,7 @@ const ALLOWED_CHANNELS = new Set([
   'terminal:command',
   'terminal:kill',
   'git:status',
+  'dialog:pick-folder',
 ]);
 
 /* ──────────────────────────────────────────────────────────────────

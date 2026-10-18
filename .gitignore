@@ -98,3 +98,4 @@ data/emergency_halt.json
 
 # Claude Code session data (worktrees, local settings)
 .claude/
+data/workstation.json

@@ -529,6 +529,9 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     return { ok: true, data, size: stat.size, isolated: true };
   });
 
+  /* ── dialog:pick-folder (Settings > Workspace) ─────────────────── */
+  require('./workspace_dialog').registerWorkspaceDialog(ipcMain);
+
   /* ── git:status ─────────────────────────────────────────────────── */
   ipcMain.handle('git:status', async () => {
     const { exec } = require('node:child_process');

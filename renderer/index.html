@@ -546,6 +546,7 @@
             <div class="settings-sub-nav" id="settings-tab-nav">
               <button class="settings-sub-tab active" data-panel="inference">INFERENCE</button>
               <button class="settings-sub-tab" data-panel="agent">AGENT</button>
+              <button class="settings-sub-tab" data-panel="workspace" title="The folder Tala uses as her own computer">WORKSPACE</button>
               <button class="settings-sub-tab" data-panel="identity">USER PROFILE</button>
               <button class="settings-sub-tab" data-panel="workflows">WORKFLOWS</button>
               <button class="settings-sub-tab" data-panel="guardrails">GUARDRAILS</button>
@@ -1818,6 +1819,59 @@
                       <span class="fallback-rule-bullet fallback-bullet-embedded" style="background: rgba(142, 68, 173, 0.1); color: #8e44ad; border: 1px solid rgba(142, 68, 173, 0.3);">🔑</span>
                       <div class="fallback-rule-text"><strong>API Key / PAT</strong> — A personal access token (PAT) is used for authenticated operations. Leave blank for public repos.</div>
                     </div>
+                  </div>
+                </div>
+              </div>
+
+              <!-- ══ WORKSPACE (Tala's own computer) ═══════════════════ -->
+              <!-- Wired by renderer/workspace_settings.js; saved through the
+                   workstation.set_workspace RPC, which validates server-side. -->
+              <div class="settings-panel" id="settings-panel-workspace" hidden>
+                <div class="panel-toolbar">
+                  <div class="panel-toolbar-info">
+                    <h2 class="panel-heading">Workspace</h2>
+                    <p class="panel-subheading">The folder Tala uses as her own computer: her shell, files, Python and background jobs start here, and she can work inside it without asking. Anything outside it (and every delete) waits for your approval in Mission Control. Until you choose a folder, her computer tools stay off.</p>
+                  </div>
+                </div>
+
+                <div class="inference-session-router" id="workspace-status-card">
+                  <div class="inference-router-header">
+                    <div>
+                      <div class="inference-router-eyebrow">CURRENT WORKSPACE</div>
+                      <h3 class="inference-router-title" id="workspace-current" style="word-break: break-all;">Loading…</h3>
+                      <p class="inference-router-copy" id="workspace-current-detail"></p>
+                    </div>
+                    <div class="inference-router-status" id="workspace-state-badge">…</div>
+                  </div>
+                </div>
+
+                <div class="inference-session-router" style="margin-top: var(--space-4);">
+                  <div class="inference-router-field" style="margin-bottom: var(--space-3);">
+                    <label for="workspace-root-input">Workspace folder</label>
+                    <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                      <input id="workspace-root-input" class="form-field-input" type="text" spellcheck="false" autocomplete="off" style="flex: 1 1 320px; min-width: 240px;" />
+                      <button class="btn btn-ghost" id="btn-workspace-browse" type="button" hidden>Browse…</button>
+                      <button class="btn btn-ghost" id="btn-workspace-suggest" type="button">Use suggested</button>
+                    </div>
+                    <p class="inference-router-copy" id="workspace-suggest-copy" style="margin-top: 6px;"></p>
+                  </div>
+                  <div class="inference-router-field" style="margin-bottom: var(--space-3);">
+                    <label for="workspace-extra-input">Extra folders (optional, one per line): Tala may read and write these without asking</label>
+                    <textarea id="workspace-extra-input" class="form-field-input" rows="3" spellcheck="false" style="width: 100%; resize: vertical;"></textarea>
+                  </div>
+                  <div style="display: flex; gap: 8px; align-items: center; flex-wrap: wrap;">
+                    <button class="btn btn-primary" id="btn-workspace-save" type="button">Save</button>
+                    <span id="workspace-message" role="status" aria-live="polite" style="font-size: 0.8rem;"></span>
+                  </div>
+                  <p class="inference-router-copy" id="workspace-jobs-note" hidden></p>
+                </div>
+
+                <div class="inference-fallback-info" style="margin-top: var(--space-5);">
+                  <div class="fallback-info-header">WHAT CAN BE A WORKSPACE</div>
+                  <div class="fallback-rules-list">
+                    <div class="fallback-rule-item"><span class="fallback-rule-bullet fallback-bullet-token">✓</span><div class="fallback-rule-text"><strong>A folder of its own</strong>: it is created if it does not exist yet. Changes apply immediately, with no restart needed.</div></div>
+                    <div class="fallback-rule-item"><span class="fallback-rule-bullet fallback-bullet-error">✕</span><div class="fallback-rule-text"><strong>Refused</strong>: a whole drive (C:\ or D:\), the Windows and Program Files folders, your user profile folder itself, app-data and credential folders, browser profiles, Trike Trails / Antigravity / Gemini, and Tala's own install or data folder.</div></div>
+                    <div class="fallback-rule-item"><span class="fallback-rule-bullet fallback-bullet-embedded">⟳</span><div class="fallback-rule-text"><strong>Switching</strong>: her sandbox, audit log and Python environment move to the new folder. Background jobs already running keep running in the old one until they finish or you stop them. The change is recorded in the audit log.</div></div>
                   </div>
                 </div>
               </div>
@@ -3590,6 +3644,7 @@
   <script src="health_ops.js"></script>
   <script src="inference_gpu_ops.js"></script>
   <script src="plugins_ops.js"></script>
+  <script src="workspace_settings.js"></script>
   <script src="node_serializer.js"></script>
   <script type="module" src="renderer.js"></script>
 
