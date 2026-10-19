@@ -3041,7 +3041,7 @@ async def handle_inference_generate(
                             headers["Authorization"] = f"Bearer {api_key}"
 
                     model_lower = model.lower()
-                    is_reasoning_model = any(k in model_lower for k in ("gemma4", "reasoning", "deepseek", "thought"))
+                    is_reasoning_model = any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "deepseek", "thought", "thinking", "o1", "o3"))
                     adjusted_max_tokens = max_tokens
                     if is_reasoning_model and adjusted_max_tokens < 2048:
                         adjusted_max_tokens = 2048
@@ -6686,6 +6686,7 @@ async def _generate_reply(
     async def _one_completion(force_tool_choice: str | None = None) -> str:
         generated_text = None
         errors = []
+        tried_providers = []
         for provider in rows:
             if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
                 continue
@@ -6697,6 +6698,7 @@ async def _generate_reply(
                 p_config = json.loads(p_config)
 
             logger.info("inference: attempting generation with provider '%s' (%s)", p_name, p_type)
+            tried_providers.append((p_name, p_type))
 
             try:
                 if p_type == "embedded":
@@ -6786,13 +6788,27 @@ async def _generate_reply(
 
         if not generated_text:
             logger.error("inference: all providers failed: %s", errors)
+            if tried_providers and len(tried_providers) > 1:
+                first_type = tried_providers[0][1]
+                last_type = tried_providers[-1][1]
+                if first_type == "remote" and last_type in ("local", "embedded"):
+                    try:
+                        await broadcast_notification("inference.fallback", {
+                            "from": tried_providers[0][0],
+                            "to": tried_providers[-1][0],
+                            "reason": "Remote provider failed; fell back to local model"
+                        })
+                    except Exception:
+                        pass
         return generated_text or ""
 
     final_text = await _one_completion(force_tool_choice=tool_choice)
     if not tools:
+        final_text = _strip_tool_tags_if_no_tools(final_text)
         return final_text
 
     from sdk.agent.agent_reply_tools import run_agent_tool_round
+    tool_rounds_executed = 0
     for _ in range(MAX_TOOL_ROUNDS_PER_REPLY):
         if not final_text:
             break
@@ -6802,7 +6818,30 @@ async def _generate_reply(
         inference_messages.append({"role": "assistant", "content": final_text})
         inference_messages.append({"role": "user", "content": tool_response})
         final_text = await _one_completion()
+        tool_rounds_executed += 1
+    
+    if tool_rounds_executed >= MAX_TOOL_ROUNDS_PER_REPLY and _find_tool_call(final_text):
+        final_text = (
+            "I've reached my step limit while working on this request. "
+            "The task may require breaking it into smaller steps or simplifying the approach."
+        )
+    else:
+        final_text = _strip_tool_tags_if_no_tools(final_text)
+    
     return final_text
+
+
+def _strip_tool_tags_if_no_tools(text: str) -> str:
+    """Remove raw <call:...> tags that should not reach the user."""
+    if not text:
+        return text
+    match = _find_tool_call(text)
+    if match:
+        stripped = text[:match.start()].strip()
+        if stripped:
+            return stripped + "\n\n[Note: Tool execution was not available for this request.]"
+        return "[Tool execution was not available for this request.]"
+    return text
 
 
 async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None:
@@ -15118,8 +15157,10 @@ async def _auto_detect_and_verify_providers() -> None:
                 new_status = "offline"
             elif not endpoint:
                 new_status = "offline"
-                logger.warning(
-                    "Provider %s has a key but no endpoint; cannot verify it.", p["id"]
+                logger.error(
+                    "Provider %s (%s) has an API key but no endpoint. "
+                    "Configure the endpoint URL in Settings → Inference → Edit Provider.",
+                    p["id"], p.get("name", "Unnamed")
                 )
             elif endpoint in cached_openai_models:
                 models = cached_openai_models[endpoint]
@@ -15136,15 +15177,22 @@ async def _auto_detect_and_verify_providers() -> None:
                         resp = await client.get(f"{ep_url}/models", headers=headers)
                     if resp.status_code == 200:
                         data = resp.json()
-                        models = [m.get("id") for m in data.get("data", [])]
+                        raw_ids = [m.get("id") for m in data.get("data", [])]
+                        models = raw_ids
                         cached_openai_models[endpoint] = models
-                        if not model or model in models:
+                        model_found = not model or model in models
+                        if not model_found:
+                            model_found = any(
+                                mid.endswith(f"/{model}") or mid.endswith(f"/{model.split(':')[0]}")
+                                for mid in models
+                            )
+                        if model_found:
                             new_status = "online"
                         else:
                             new_status = "offline"
                             logger.warning(
-                                "Provider %s answered but does not list model %r.",
-                                p["id"], model,
+                                "Provider %s answered but does not list model %r (available: %s).",
+                                p["id"], model, ", ".join(models[:5]),
                             )
                     else:
                         # 401 is the case this finding exists for: a key that

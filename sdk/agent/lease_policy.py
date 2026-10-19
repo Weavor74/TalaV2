@@ -174,15 +174,21 @@ def gateway():
             if _BROADCAST is None:
                 return
             try:
+                import asyncio
                 req = token.request
-                _BROADCAST("lease.pending", {
+                coro = _BROADCAST("lease.pending", {
                     "token_id": token.token_id,
                     "operation": getattr(req, "operation_type", "?"),
                     "description": getattr(req, "description", ""),
                     "requested_by": getattr(req, "requested_by", ""),
                     "expires_at": token.expires_at.isoformat() if token.expires_at else None,
                 })
-            except Exception as exc:  # pragma: no cover - broadcast is best effort
+                try:
+                    loop = asyncio.get_running_loop()
+                    asyncio.ensure_future(coro, loop=loop)
+                except RuntimeError:
+                    pass
+            except Exception as exc:
                 log.debug("lease_policy: could not announce lease: %s", exc)
 
         _GATEWAY = LeaseGateway(approval_callback=_announce)
