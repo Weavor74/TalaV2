@@ -590,10 +590,10 @@ def spawn_appcontainer(
             ctypes.byref(sc), ctypes.sizeof(sc), None, None,
         ):
             raise OSError(f"UpdateProcThreadAttribute failed ({ctypes.get_last_error()})")
-        desktop = ctypes.create_unicode_buffer("WinSta0\\Default")
         si = STARTUPINFOEXW()
         si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
-        si.StartupInfo.lpDesktop = desktop
+        # LPWSTR field; a c_wchar array raises "incompatible types" on assign.
+        si.StartupInfo.lpDesktop = "WinSta0\\Default"
         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW
         si.StartupInfo.wShowWindow = SW_HIDE
         si.StartupInfo.hStdInput = k32.GetStdHandle(STD_INPUT_HANDLE)
@@ -614,12 +614,12 @@ def spawn_appcontainer(
             )
             return ok_, procinfo, 0 if ok_ else ctypes.get_last_error()
 
+        # Diagnostic on windows-latest: same STARTUPINFOEXW without
+        # SECURITY_CAPABILITIES starts cmd (exit 0). With the attribute,
+        # CreateProcessW returns Win32 2 for cwd=System32 and a granted
+        # workspace. That is AppContainer image lookup, not struct plumbing.
         ok, pi, err = _create(None, str(workdir))
         if not ok and err == 2:
-            si.StartupInfo.lpDesktop = None
-            ok, pi, err = _create(None, str(workdir))
-        if not ok and err == 2:
-            si.StartupInfo.lpDesktop = desktop
             ok, pi, err = _create(None, None)
         if not ok and err == 2 and os.path.isabs(exe):
             ok, pi, err = _create(exe, str(workdir))
