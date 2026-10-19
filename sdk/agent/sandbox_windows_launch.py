@@ -7,6 +7,7 @@ so the wrap path does not import the rest of the SDK (sdk/__init__.py pulls lxml
 from __future__ import annotations
 
 import argparse
+import json
 import sys
 from pathlib import Path
 
@@ -17,12 +18,22 @@ if str(_DIR) not in sys.path:
 import sandbox_windows_appcontainer as ac  # noqa: E402
 
 
+def _write_status(path: str, payload: dict) -> None:
+    if not path:
+        return
+    try:
+        Path(path).write_text(json.dumps(payload) + "\n", encoding="utf-8")
+    except OSError:
+        pass
+
+
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Tala Windows AppContainer launcher")
     parser.add_argument("--workdir", required=True)
     parser.add_argument("--grant", action="append", default=[])
     parser.add_argument("--grant-read", action="append", default=[])
     parser.add_argument("--allow-network", action="store_true")
+    parser.add_argument("--status-file", default="")
     parser.add_argument("--probe", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
@@ -46,13 +57,26 @@ def main(argv: list[str] | None = None) -> int:
     workdir = args.workdir
     try:
         if not ac.appcontainer_available():
+            _write_status(args.status_file, {
+                "mode": "guarded-policy-only",
+                "reason": "CreateAppContainerProfile missing",
+            })
             result = ac.guarded_run(command, workdir, "CreateAppContainerProfile missing")
         else:
+            _write_status(args.status_file, {"mode": "appcontainer"})
             result = ac.spawn_appcontainer(
                 command, workdir, args.grant, allow_network=args.allow_network,
                 read_paths=args.grant_read,
             )
+    except ac.AccessDenied as exc:
+        _write_status(args.status_file, {
+            "mode": "access-denied", "path": exc.path, "reason": str(exc),
+        })
+        sys.stderr.write(f"{ac.ACCESS_DENIED_MARK} path={exc.path}\n{exc}\n")
+        sys.stderr.flush()
+        return 5
     except Exception as exc:
+        _write_status(args.status_file, {"mode": "guarded-policy-only", "reason": str(exc)})
         result = ac.guarded_run(command, workdir, str(exc))
     sys.stdout.buffer.write(result.stdout or b"")
     sys.stderr.buffer.write(result.stderr or b"")

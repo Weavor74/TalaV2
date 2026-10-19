@@ -18,6 +18,7 @@ import os
 import platform
 import shutil
 import subprocess
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -39,6 +40,7 @@ class SandboxConfig:
     tmpdir: Path | None = None
     uid: int | None = None
     gid: int | None = None
+    status_file: Path | None = None
 
 
 @dataclass
@@ -297,6 +299,7 @@ class SandboxSession:
     argv: list[str]
     backend: SandboxBackend
     enabled: bool
+    status_path: Path | None = None
 
     def attach(self, proc: Any) -> None:
         if self.enabled:
@@ -332,6 +335,21 @@ def _is_protected_write(path: Path) -> bool:
     return False
 
 
+def refresh_workspace_isolation(old_paths: list | tuple | None, new_paths: list | tuple | None) -> None:
+    """Revoke AppContainer ACLs on workspaces we left; grant on the new ones.
+
+    No-op on non-Windows. Grants are also applied on spawn; this exists so a
+    workspace change does not leave the old folder writable by Tala.Workstation.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        from sdk.agent.sandbox_windows_appcontainer import refresh_workspace_acls
+        refresh_workspace_acls(old_paths or [], new_paths or [])
+    except Exception as exc:
+        log.warning("TALA_SANDBOX: could not refresh workspace ACLs: %s", exc)
+
+
 def prepare_sandbox(
     cfg: Any, argv: list[str], workdir: Path, *, allow_network: bool | None = None,
 ) -> SandboxSession:
@@ -351,14 +369,35 @@ def prepare_sandbox(
         rw.append(path)
     if workdir and not _is_protected_write(Path(workdir)):
         rw.append(Path(workdir))
+    ro: list[Path] = []
+    if platform.system() == "Windows":
+        try:
+            from sdk.agent.sandbox_windows import command_rx_paths
+            if argv:
+                ro.extend(command_rx_paths(argv[0]))
+            extra_py = getattr(cfg, "python", None)
+            if extra_py:
+                ro.extend(command_rx_paths(extra_py))
+        except Exception as exc:
+            log.warning("TALA_SANDBOX: could not collect interpreter RX paths: %s", exc)
+    status_path = None
+    if platform.system() == "Windows":
+        tmp = Path(getattr(cfg, "internal_dir", None) or workdir) / "tmp"
+        try:
+            tmp.mkdir(parents=True, exist_ok=True)
+            status_path = tmp / f"sandbox-{os.getpid()}-{uuid.uuid4().hex[:8]}.json"
+        except OSError:
+            status_path = None
     config = SandboxConfig(
         mode="strict",
         allow_network=net,
         readwrite_paths=rw,
+        readonly_paths=ro,
         tmpdir=getattr(cfg, "internal_dir", None),
+        status_file=status_path,
     )
     wrapped = backend.wrap_command(list(argv), config, workdir)
-    return SandboxSession(argv=wrapped, backend=backend, enabled=True)
+    return SandboxSession(argv=wrapped, backend=backend, enabled=True, status_path=status_path)
 
 
 async def _sandbox_exec(

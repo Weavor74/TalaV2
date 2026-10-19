@@ -175,11 +175,20 @@ Linux host it also runs the real adapter end to end (bash, TMPDIR, `/etc/shadow`
     grant for that SID; Tala's install and user-data folders are never granted.
     Network capabilities (`internetClient`, `privateNetworkClientServer`) are
     omitted unless the command was approved for network or `TALA_WORKSTATION_NET=1`.
-    A job object still wraps the tree (kill-on-close). If AppContainer APIs
-    fail, stderr gets `TALA_SANDBOX: guarded-policy-only` and the command runs
-    unsandboxed. Not used: LPAC (breaks Python/cmd), restricted tokens, Windows
-    Sandbox/Hyper-V, WFP (admin). AppContainer may still **read** world-readable
-    files, including the install; it must not **write** them.
+    A job object still wraps the tree (kill-on-close). Read+execute ACLs are
+    granted on the **specific** interpreter, venv and tool paths the child
+    runs (`icacls /grant:r`, never a whole drive) so a workspace on `D:` can
+    still start Python when `ALL APPLICATION PACKAGES` is missing. Workspace
+    write grants use `/grant:r` and are **revoked** (`icacls /remove`) when
+    Settings > Workspace moves the folder. If AppContainer APIs fail, the
+    command runs unsandboxed **loudly**: the tool result carries
+    `sandbox_fallback` + a warning, the UI gets `workstation.sandbox_fallback`
+    (same system-notice path as `inference.fallback`), and the workstation
+    audit log records `sandbox_fallback`. Access denied names the path and
+    does **not** fall back to unsandboxed. Not used: LPAC (breaks Python/cmd),
+    restricted tokens, Windows Sandbox/Hyper-V, WFP (admin). AppContainer may
+    still **read** world-readable files on volumes that grant
+    `ALL APPLICATION PACKAGES`; it must not **write** Tala's install.
   Workstation sandbox wrap is on by default on Windows (`sandbox_default`);
   set `TALA_WORKSTATION_SANDBOX=0` to disable. Linux stays opt-in
   (`TALA_WORKSTATION_SANDBOX=1`) because `unshare` is not a full FS sandbox.

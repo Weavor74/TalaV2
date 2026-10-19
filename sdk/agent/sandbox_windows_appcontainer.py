@@ -47,12 +47,30 @@ PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
 WAIT_OBJECT_0 = 0
 STILL_ACTIVE = 259
 GENERIC_ALL_DIR = "(OI)(CI)(F)"
-GENERIC_READ_DIR = "(OI)(CI)(R)"
+GENERIC_RX_DIR = "(OI)(CI)(RX)"
+GENERIC_RX_FILE = "(RX)"
+ERROR_ACCESS_DENIED = 5
+FALLBACK_MARK = "TALA_SANDBOX: guarded-policy-only"
+ACCESS_DENIED_MARK = "TALA_SANDBOX: access-denied"
 CAP_INTERNET_CLIENT = "S-1-15-3-1"
 CAP_PRIVATE_NETWORK = "S-1-15-3-3"
 JobObjectExtendedLimitInformation = 9
 JOB_OBJECT_LIMIT_ACTIVE_PROCESS = 0x00000008
 JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE = 0x00002000
+
+
+class AccessDenied(OSError):
+    """AppContainer SID cannot read or execute a specific path."""
+
+    def __init__(self, path: str, winerr: int = ERROR_ACCESS_DENIED):
+        self.path = path
+        self.winerr = winerr
+        super().__init__(
+            f"AppContainer ACCESS DENIED on {path} (Win32 {winerr}). "
+            "The sandboxed process has no read+execute ACL on this specific path. "
+            "Non-system drives (for example D:) usually lack 'ALL APPLICATION PACKAGES'; "
+            "Tala grants only the interpreter/venv/tool paths it runs, never a whole drive."
+        )
 
 
 class SID_AND_ATTRIBUTES(ctypes.Structure):
@@ -256,25 +274,135 @@ def ensure_profile() -> str:
     raise OSError(f"CreateAppContainerProfile failed hr=0x{hr & 0xFFFFFFFF:08X}")
 
 
+def is_volume_root(path: Path | str) -> bool:
+    try:
+        resolved = Path(path).resolve()
+    except OSError:
+        resolved = Path(path)
+    return resolved.parent == resolved
+
+
+def rx_paths_for_executable(executable: str) -> list[str]:
+    """Read+execute grants for a specific interpreter or tool; never a whole drive."""
+    if not executable:
+        return []
+    raw = Path(executable)
+    if not raw.exists():
+        found = shutil.which(str(executable))
+        raw = Path(found) if found else raw
+    out: list[str] = []
+
+    def add(candidate: Path) -> None:
+        try:
+            candidate = candidate.resolve()
+        except OSError:
+            return
+        if not candidate.exists() or is_volume_root(candidate):
+            return
+        text = str(candidate)
+        if text not in out:
+            out.append(text)
+
+    if raw.is_file():
+        add(raw)
+        add(raw.parent)
+        if raw.parent.name.lower() in ("scripts", "bin"):
+            venv = raw.parent.parent
+            add(venv)
+            cfg = venv / "pyvenv.cfg"
+            if cfg.is_file():
+                try:
+                    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+                        if line.lower().startswith("home"):
+                            home = Path(line.split("=", 1)[-1].strip().strip('"'))
+                            add(home)
+                            py_name = "python.exe" if os.name == "nt" else "python"
+                            add(home / py_name)
+                            add(home / "DLLs")
+                            add(home / "Lib")
+                except OSError:
+                    pass
+        add(raw.parent / "DLLs")
+        add(raw.parent / "Lib")
+    elif raw.is_dir():
+        add(raw)
+    return out
+
+
+def _ace_for(target: Path, write: bool) -> str:
+    if write:
+        return GENERIC_ALL_DIR if target.is_dir() else "(F)"
+    return GENERIC_RX_DIR if target.is_dir() else GENERIC_RX_FILE
+
+
 def _grant_paths(sid_str: str, write_paths: Sequence[str], read_paths: Sequence[str] = ()) -> None:
     icacls = shutil.which("icacls") or "icacls"
-    for path, ace in [*((p, GENERIC_ALL_DIR) for p in write_paths), *((p, GENERIC_READ_DIR) for p in read_paths)]:
+    items: list[tuple[str, bool]] = [(p, True) for p in write_paths] + [(p, False) for p in read_paths]
+    for path, write in items:
         if not path:
             continue
         target = Path(path)
-        try:
-            target.mkdir(parents=True, exist_ok=True)
-        except OSError:
-            pass
+        if is_volume_root(target):
+            log.warning("TALA_SANDBOX: refusing ACL grant on volume root %s", target)
+            continue
+        if write:
+            try:
+                target.mkdir(parents=True, exist_ok=True)
+            except OSError:
+                pass
         if not target.exists():
             continue
-        spec = f"*{sid_str}:{ace}"
+        spec = f"*{sid_str}:{_ace_for(target, write)}"
         result = subprocess.run(
-            [icacls, str(target), "/grant", spec, "/Q"],
+            [icacls, str(target), "/grant:r", spec, "/Q"],
             capture_output=True, text=True, timeout=30,
         )
         if result.returncode != 0:
             log.warning("icacls grant failed for %s: %s %s", target, result.stdout, result.stderr)
+
+
+def _revoke_paths(sid_str: str, paths: Sequence[str]) -> None:
+    icacls = shutil.which("icacls") or "icacls"
+    for path in paths:
+        if not path:
+            continue
+        target = Path(path)
+        if is_volume_root(target) or not target.exists():
+            continue
+        result = subprocess.run(
+            [icacls, str(target), "/remove", f"*{sid_str}", "/Q"],
+            capture_output=True, text=True, timeout=30,
+        )
+        if result.returncode != 0:
+            log.warning("icacls revoke failed for %s: %s %s", target, result.stdout, result.stderr)
+
+
+def refresh_workspace_acls(old_paths: Sequence[str], new_paths: Sequence[str]) -> None:
+    """Idempotent: revoke the SID on workspaces we left, grant:r on the new ones."""
+    if os.name != "nt":
+        return
+    try:
+        sid = ensure_profile()
+    except Exception as exc:
+        log.warning("TALA_SANDBOX: cannot refresh workspace ACLs (%s)", exc)
+        return
+    old_n, new_n, seen_old, seen_new = [], [], set(), set()
+    for raw in old_paths or []:
+        if not raw:
+            continue
+        text = str(Path(raw))
+        if text not in seen_old:
+            seen_old.add(text)
+            old_n.append(text)
+    for raw in new_paths or []:
+        if not raw:
+            continue
+        text = str(Path(raw))
+        if text not in seen_new:
+            seen_new.add(text)
+            new_n.append(text)
+    _revoke_paths(sid, [p for p in old_n if p not in seen_new])
+    _grant_paths(sid, new_n, ())
 
 
 def _capability_sids(allow_network: bool) -> list:
@@ -342,7 +470,18 @@ def spawn_appcontainer(
     if not argv:
         raise ValueError("argv is empty")
     sid_str = ensure_profile()
-    _grant_paths(sid_str, list(write_paths) + [workdir], read_paths)
+    exe = shutil.which(argv[0]) or argv[0]
+    merged_read: list[str] = []
+    seen_read: set[str] = set()
+    for raw in [*list(read_paths), *rx_paths_for_executable(str(exe))]:
+        if not raw:
+            continue
+        text = str(raw)
+        if text in seen_read:
+            continue
+        seen_read.add(text)
+        merged_read.append(text)
+    _grant_paths(sid_str, list(write_paths) + [workdir], merged_read)
 
     adv = _advapi()
     app_sid = ctypes.c_void_p()
@@ -382,7 +521,6 @@ def spawn_appcontainer(
         si.StartupInfo.hStdError = w_err
         si.lpAttributeList = ctypes.cast(attr, ctypes.c_void_p)
 
-        exe = shutil.which(argv[0]) or argv[0]
         cmdline = subprocess.list2cmdline([exe, *list(argv[1:])])
         cmdbuf = ctypes.create_unicode_buffer(cmdline)
         pi = PROCESS_INFORMATION()
@@ -397,7 +535,10 @@ def spawn_appcontainer(
         if not ok:
             k32.CloseHandle(r_out)
             k32.CloseHandle(r_err)
-            raise OSError(f"CreateProcessW(AppContainer) failed ({ctypes.get_last_error()})")
+            err = ctypes.get_last_error()
+            if err == ERROR_ACCESS_DENIED:
+                raise AccessDenied(str(exe), err)
+            raise OSError(f"CreateProcessW(AppContainer) failed ({err}) for {exe}")
         job = _job(k32)
         if job:
             k32.AssignProcessToJobObject(job, pi.hProcess)
@@ -432,7 +573,7 @@ def spawn_appcontainer(
 
 def guarded_run(argv: Sequence[str], workdir: str, reason: str) -> subprocess.CompletedProcess:
     msg = (
-        f"TALA_SANDBOX: guarded-policy-only: AppContainer unavailable ({reason}). "
+        f"{FALLBACK_MARK}: AppContainer unavailable ({reason}). "
         "Filesystem and network are NOT OS-enforced.\n"
     )
     sys.stderr.write(msg)

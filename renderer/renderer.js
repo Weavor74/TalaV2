@@ -1576,11 +1576,11 @@ const InferenceManager = {
     try {
       this._wsListenerCleanup = window.tala.on('python:notification', (msg) => {
         if (msg && msg.method === 'inference.providers_changed') this.loadProviders();
-        if (msg && msg.method === 'inference.fallback') {
+        if (msg && (msg.method === 'inference.fallback' || msg.method === 'workstation.sandbox_fallback')) {
           const f = msg.params?.from || 'remote', t = msg.params?.to || 'local', r = msg.params?.reason || 'failed';
           if (window.ChatManager?.appendMessage) window.ChatManager.appendMessage({sender:'system',body:`⚠️ ${r}: "${f}" → "${t}"`,timestamp:new Date().toISOString(),isSystem:true});
-          console.warn(`[Inference Fallback] ${f} → ${t}: ${r}`);
-          if (window.IPCLog) window.IPCLog.append('warn', `Inference fallback: ${f} → ${t}`);
+          console.warn(`[${msg.method}] ${f} → ${t}: ${r}`);
+          if (window.IPCLog) window.IPCLog.append('warn', `${msg.method}: ${f} → ${t}`);
         }
       });
     } catch (err) {

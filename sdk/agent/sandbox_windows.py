@@ -18,8 +18,9 @@ What this DOES NOT:
 - Hide world-readable files (the child may still READ the install)
 
 If AppContainer APIs fail, the launcher prints TALA_SANDBOX: guarded-policy-only
-and runs unsandboxed. Job-object attach() failing is still guarded-policy-only
-for the process tree only.
+and runs unsandboxed. That fallback is also written to a status file so the
+workstation tool result, UI notice, and audit log can surface it. Job-object
+attach() failing is still guarded-policy-only for the process tree only.
 """
 from __future__ import annotations
 
@@ -165,12 +166,21 @@ def _enforcement_label(assigned: bool) -> str:
     return "job-object" if assigned else "guarded-policy-only"
 
 
+def command_rx_paths(executable: str | Path) -> list[Path]:
+    """Specific interpreter/venv/tool paths to RX-grant. Never a volume root."""
+    from sdk.agent.sandbox_windows_appcontainer import rx_paths_for_executable
+    return [Path(p) for p in rx_paths_for_executable(str(executable or ""))]
+
+
 def wrap_appcontainer_argv(argv: list[str], config: Any, workdir: Path) -> list[str]:
     """Prepend the AppContainer launcher. sandbox.py wrap_command calls this."""
     launch = Path(__file__).resolve().parent / "sandbox_windows_launch.py"
     out = [sys.executable, str(launch), "--workdir", str(workdir)]
     if getattr(config, "allow_network", False):
         out.append("--allow-network")
+    status = getattr(config, "status_file", None)
+    if status:
+        out.extend(["--status-file", str(status)])
     seen: set[str] = set()
     for raw in list(getattr(config, "readwrite_paths", None) or []) + [workdir]:
         if not raw:
@@ -180,9 +190,18 @@ def wrap_appcontainer_argv(argv: list[str], config: Any, workdir: Path) -> list[
             continue
         seen.add(path)
         out.extend(["--grant", path])
-    for raw in getattr(config, "readonly_paths", None) or []:
-        if raw:
-            out.extend(["--grant-read", str(Path(raw))])
+    read_seen: set[str] = set()
+    extra_read: list[Path] = list(getattr(config, "readonly_paths", None) or [])
+    if argv:
+        extra_read.extend(command_rx_paths(argv[0]))
+    for raw in extra_read:
+        if not raw:
+            continue
+        path = str(Path(raw))
+        if path in read_seen or path in seen:
+            continue
+        read_seen.add(path)
+        out.extend(["--grant-read", path])
     out.append("--")
     out.extend(argv)
     return out

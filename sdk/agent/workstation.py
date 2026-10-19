@@ -126,6 +126,79 @@ def audit(cfg: pol.WorkstationConfig, tool: str, args: dict, decision: dict, out
         log.error("workstation: could not write audit log %s: %s", cfg.audit_path, exc)
 
 
+
+_SANDBOX_FALLBACK_MARK = "TALA_SANDBOX: guarded-policy-only"
+_SANDBOX_DENIED_MARK = "TALA_SANDBOX: access-denied"
+
+
+def _sandbox_status_from(stderr: str, status_path: Path | None) -> dict | None:
+    if status_path:
+        try:
+            if status_path.exists():
+                raw = status_path.read_text(encoding="utf-8").strip().splitlines()[0]
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get("mode"):
+                    return data
+        except (OSError, json.JSONDecodeError, IndexError):
+            pass
+    text = stderr or ""
+    if _SANDBOX_DENIED_MARK in text:
+        path = ""
+        for line in text.splitlines():
+            if _SANDBOX_DENIED_MARK in line and "path=" in line:
+                path = line.split("path=", 1)[-1].strip()
+                break
+        return {"mode": "access-denied", "path": path}
+    if _SANDBOX_FALLBACK_MARK in text:
+        reason = text.split(_SANDBOX_FALLBACK_MARK, 1)[-1].split("\n", 1)[0].strip(" :")
+        return {"mode": "guarded-policy-only", "reason": reason or "AppContainer unavailable"}
+    return None
+
+
+async def _broadcast_sandbox_fallback(reason: str) -> None:
+    try:
+        from python.harness.server import broadcast_notification
+        await broadcast_notification("workstation.sandbox_fallback", {
+            "from": "appcontainer",
+            "to": "guarded-policy-only",
+            "reason": reason,
+        })
+    except Exception:
+        pass
+
+
+async def _apply_sandbox_status(cfg: pol.WorkstationConfig, result: dict, stderr: str,
+                                status_path: Path | None, *, tool: str) -> None:
+    status = _sandbox_status_from(stderr, status_path)
+    if not status:
+        return
+    mode = status.get("mode")
+    if mode == "guarded-policy-only":
+        reason = status.get("reason") or "AppContainer unavailable"
+        warning = (
+            f"Windows AppContainer isolation is not active ({reason}). "
+            "This command ran unsandboxed: filesystem and network are NOT OS-enforced."
+        )
+        result["sandbox"] = "guarded-policy-only"
+        result["sandbox_fallback"] = True
+        result["warning"] = warning
+        audit(cfg, "sandbox_fallback", {"tool": tool, "reason": reason},
+              {"verdict": "guarded-policy-only"}, {"warning": warning})
+        await _broadcast_sandbox_fallback(warning)
+    elif mode == "access-denied":
+        path = status.get("path") or "unknown path"
+        error = (
+            f"AppContainer cannot read or execute {path}: access denied. "
+            "On non-system drives the sandboxed SID needs an explicit read+execute "
+            "ACL on that specific path (not the whole drive)."
+        )
+        result["success"] = False
+        result["sandbox"] = "access-denied"
+        result["error"] = error
+        audit(cfg, "sandbox_access_denied", {"tool": tool, "path": path},
+              {"verdict": "deny"}, {"error": error})
+
+
 # ---------------------------------------------------------------------------
 # Approvals (Mission Control review queue)
 # ---------------------------------------------------------------------------
@@ -336,6 +409,15 @@ async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, t
     if timed_out:
         result["error"] = f"Timed out after {timeout:.0f}s and was killed. Use start_job for long-running work."
     result["success"] = (not timed_out) and proc.returncode == 0
+    try:
+        await _apply_sandbox_status(cfg, result, stderr, getattr(session, "status_path", None), tool="process")
+    finally:
+        sp = getattr(session, "status_path", None)
+        if sp:
+            try:
+                Path(sp).unlink(missing_ok=True)
+            except OSError:
+                pass
     return result
 
 
@@ -748,7 +830,16 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
            "workspace": str(cfg.root), "cfg": cfg, "sandbox": session}
     _JOBS[job_id] = job
     audit(cfg, "start_job", args, v.as_dict(), {"job_id": job_id, "pid": proc.pid})
-    return {"success": True, **_job_view(job, 5)}
+    view = {"success": True, **_job_view(job, 5)}
+    status_path = getattr(session, "status_path", None)
+    if status_path:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not Path(status_path).exists():
+            await asyncio.sleep(0.05)
+        await _apply_sandbox_status(cfg, view, "", Path(status_path), tool="start_job")
+        if view.get("sandbox") == "access-denied":
+            view["success"] = False
+    return view
 
 
 async def job_status(job_id: str = "", tail_lines: int = 40) -> dict:
@@ -859,6 +950,12 @@ def set_workspace(root: str, extra_roots: list | None = None) -> dict:
     change = {"from": str(before.root) if before.root else None, "to": str(after.root),
               "extra_roots": extras, "created": check.created, "running_jobs_kept": [j["job_id"] for j in running]}
     _ensure_root(after)
+    from sdk.agent.sandbox import refresh_workspace_isolation
+    old_paths = []
+    if before.configured and before.root:
+        old_paths = [str(before.root), *[str(p) for p in (before.extra_roots or [])]]
+    new_paths = [str(after.root), *extras]
+    refresh_workspace_isolation(old_paths, new_paths)
     audit(after, "workspace_change", change, {"verdict": "owner_settings"})
     if before.configured and before.root != after.root:
         try:
