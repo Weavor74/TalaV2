@@ -480,10 +480,6 @@ def rx_paths_for_executable(executable: str) -> list[str]:
         if text not in out:
             out.append(text)
 
-    def add_stdlib(prefix: Path) -> None:
-        for item in _stdlib_dirs(prefix):
-            add(item)
-
     if raw.is_file():
         add(raw)
         add(raw.parent)
@@ -492,12 +488,15 @@ def rx_paths_for_executable(executable: str) -> list[str]:
             add(venv)
             home = _pyvenv_home(venv)
             if home is not None:
-                add_stdlib(home)
+                for item in _stdlib_dirs(home):
+                    add(item)
         if _looks_like_python_exe(raw):
-            add_stdlib(_base_prefix())
+            for item in _stdlib_dirs(_base_prefix()):
+                add(item)
             prefix = Path(sys.prefix)
             if not _is_venv_prefix(prefix):
-                add_stdlib(prefix)
+                for item in _stdlib_dirs(prefix):
+                    add(item)
         add(raw.parent / "DLLs")
         add(raw.parent / "Lib")
     elif raw.is_dir():
@@ -505,8 +504,10 @@ def rx_paths_for_executable(executable: str) -> list[str]:
         if (raw / "pyvenv.cfg").is_file():
             home = _pyvenv_home(raw)
             if home is not None:
-                add_stdlib(home)
-            add_stdlib(_base_prefix())
+                for item in _stdlib_dirs(home):
+                    add(item)
+            for item in _stdlib_dirs(_base_prefix()):
+                add(item)
     return out
 
 
