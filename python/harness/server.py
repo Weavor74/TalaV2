@@ -6807,8 +6807,6 @@ async def _generate_reply(
         tool_rounds_executed += 1
     if tool_rounds_executed >= MAX_TOOL_ROUNDS_PER_REPLY and _find_tool_call(final_text):
         return "I've reached my step limit while working on this request. The task may require breaking it into smaller steps or simplifying the approach."
-    if tool_rounds_executed == 0:
-        final_text = _strip_tool_tags_if_no_tools(final_text)
     return final_text
 
 def _strip_tool_tags_if_no_tools(text: str) -> str:
