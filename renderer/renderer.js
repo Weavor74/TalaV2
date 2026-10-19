@@ -1572,23 +1572,22 @@ const InferenceManager = {
       if (e.key === 'Escape' && this._modal && !this._modal.hidden) this.closeModal();
     });
 
-    // Register WebSocket Push Notification Listener for provider list changes
+    // Register WebSocket Push Notification Listener for provider list changes and fallback
     try {
       this._wsListenerCleanup = window.tala.on('python:notification', (msg) => {
-        if (msg && msg.method === 'inference.providers_changed') {
-          this.loadProviders();
+        if (msg && msg.method === 'inference.providers_changed') this.loadProviders();
+        if (msg && msg.method === 'inference.fallback') {
+          const f = msg.params?.from || 'remote', t = msg.params?.to || 'local', r = msg.params?.reason || 'failed';
+          if (window.ChatManager?.appendMessage) window.ChatManager.appendMessage({sender:'system',body:`⚠️ ${r}: "${f}" → "${t}"`,timestamp:new Date().toISOString(),isSystem:true});
+          console.warn(`[Inference Fallback] ${f} → ${t}: ${r}`);
+          if (window.IPCLog) window.IPCLog.append('warn', `Inference fallback: ${f} → ${t}`);
         }
       });
     } catch (err) {
       console.warn('[InferenceManager] Failed to register websocket notification listener:', err);
     }
 
-    // loadProviders() below fires at page load, before the harness WebSocket
-    // has finished its own connect handshake -- both the RPC call and the
-    // GPU probe it triggers fail with "WebSocket is not connected" on that
-    // first attempt, and nothing retried it, so "No GPU detected" stuck for
-    // the rest of the session even on a machine with a real GPU. Re-run once
-    // the harness actually connects.
+    // loadProviders() fires before WS handshake completes, retry once harness connects (GPU probe needs WS)
     try {
       window.tala.on('harness:ws-status', (payload) => {
         if (payload && payload.connected) this.loadProviders();
@@ -1709,11 +1708,7 @@ const InferenceManager = {
 
   startDownloadPolling() {
     if (this._downloadInterval) clearInterval(this._downloadInterval);
-    // The get_embedded_status handler is now non-blocking (returns immediately even
-    // during module pre-warm).  Poll more aggressively:
-    //   - Start after 3 s (enough for the WS connection to establish)
-    //   - Poll every 5 s while downloading, 15 s when idle
-    let _polling = false;
+    let _polling = false; // get_embedded_status non-blocking: poll 3s start, 5s downloading, 15s idle
 
     const poll = async () => {
       if (_polling) return;           // skip if previous call is still in-flight
@@ -2203,11 +2198,14 @@ const InferenceManager = {
       this._stepDet.innerHTML = html;
       this._stepDet.hidden = false;
 
-      // Wire service -> show/hide custom endpoint
+      // Wire service -> prefill known endpoints
       if (type === 'remote') {
-        const svc = qs('#prov-service');
-        const epg = qs('#prov-endpoint-group');
-        // We now allow endpoint override for ALL services.
+        const svc = qs('#prov-service'), ep = qs('#prov-endpoint');
+        if (svc && ep) {
+          const fill = () => { if (!ep.value.trim()) { const u = {gemini:'https://generativelanguage.googleapis.com/v1beta/openai',openai:'https://api.openai.com/v1'}[svc.value]; if (u) ep.value = ep.placeholder = u; } };
+          svc.addEventListener('change', fill);
+          if (!this._editingId) setTimeout(fill, 0);
+        }
       }
     }
   },

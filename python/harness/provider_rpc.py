@@ -90,7 +90,8 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
     DESCRIPTION
            ``inference.save_providers`` - Persist the list of providers and their
            ordering/priorities. Re-merges existing credentials for redacted records
-           so API keys are not destroyed on save.
+           so API keys are not destroyed on save. Validates remote providers have
+           endpoints when API keys are present.
 
            - params: Dictionary containing 'providers' (list of provider dicts).
            - req_id: JSON-RPC request identifier.
@@ -103,6 +104,24 @@ async def handle_inference_save_providers(params: dict[str, Any], req_id: Any) -
         return _err(req_id, JsonRpcError.INVALID_PARAMS, "'providers' (list) is required")
 
     import json as json_mod
+    
+    for p in providers:
+        if p.get("type") == "remote":
+            cfg = p.get("config", {})
+            api_key = cfg.get("apiKey") or p.get("apiKey") or ""
+            endpoint = cfg.get("endpoint") or p.get("endpoint") or ""
+            
+            if api_key.strip() and not endpoint.strip():
+                service = cfg.get("service", "").lower()
+                provider_name = p.get("name", "this provider")
+                return _err(
+                    req_id,
+                    JsonRpcError.INVALID_PARAMS,
+                    f"Remote provider '{provider_name}' has an API key but no endpoint. "
+                    f"The endpoint/address field is required for remote providers. "
+                    f"Configure it in Settings → Inference → Edit Provider."
+                )
+    
     try:
         from python.harness.credential_crypto import (
             decrypt_config,

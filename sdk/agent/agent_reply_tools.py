@@ -116,20 +116,58 @@ def parse_call_tag(tool_match: "re.Match[str]") -> tuple[str, dict[str, Any]]:
             pass
 
     # Parse attributes (handles double quotes, single quotes, escaped quotes, and unquoted values)
+    # Fixed to properly handle JSON arrays and objects with nested quotes
     attrs: dict[str, Any] = {}
-    pattern = r'(\w+)\s*=\s*(?:"((?:[^"\\]|\\.)*)"|\'((?:[^\'\\]|\\.)*)\'|(\S+))'
-    for match in re.finditer(pattern, attr_str):
-        k = match.group(1)
-        v_dq, v_sq, v_uq = match.group(2), match.group(3), match.group(4)
-        if v_dq is not None:
-            attrs[k] = v_dq.replace('\\"', '"').replace('\\\\', '\\')
-        elif v_sq is not None:
-            attrs[k] = v_sq.replace("\\'", "'").replace('\\\\', '\\')
-        elif v_uq is not None:
-            try:
-                attrs[k] = json.loads(v_uq.replace("'", '"'))
-            except Exception:
-                attrs[k] = v_uq
+    pos = 0
+    while pos < len(attr_str):
+        attr_match = re.match(r'(\w+)\s*=\s*', attr_str[pos:])
+        if not attr_match:
+            pos += 1
+            continue
+        k = attr_match.group(1)
+        pos += attr_match.end()
+        
+        if pos >= len(attr_str):
+            break
+            
+        quote_char = attr_str[pos] if attr_str[pos] in ('"', "'") else None
+        if quote_char:
+            pos += 1
+            value_start = pos
+            escaped = False
+            bracket_depth = 0
+            while pos < len(attr_str):
+                ch = attr_str[pos]
+                if escaped:
+                    escaped = False
+                    pos += 1
+                    continue
+                if ch == '\\':
+                    escaped = True
+                    pos += 1
+                    continue
+                if ch in '[{':
+                    bracket_depth += 1
+                elif ch in ']}':
+                    bracket_depth -= 1
+                elif ch == quote_char and bracket_depth == 0:
+                    value = attr_str[value_start:pos]
+                    if quote_char == '"':
+                        attrs[k] = value.replace('\\"', '"').replace('\\\\', '\\')
+                    else:
+                        attrs[k] = value.replace("\\'", "'").replace('\\\\', '\\')
+                    pos += 1
+                    break
+                pos += 1
+        else:
+            value_match = re.match(r'(\S+)', attr_str[pos:])
+            if value_match:
+                v_uq = value_match.group(1)
+                try:
+                    attrs[k] = json.loads(v_uq.replace("'", '"'))
+                except Exception:
+                    attrs[k] = v_uq
+                pos += value_match.end()
 
     if inner_content:
         inner_content = inner_content.strip()

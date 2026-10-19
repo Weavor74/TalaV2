@@ -38,9 +38,11 @@ from __future__ import annotations
 
 import json
 import argparse
+import os
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -133,7 +135,7 @@ def _build_self_test_plan(include_audit: bool = True) -> list[tuple[str, list[st
         (
             "python tests",
             [python_exe, "-u", "-m", "pytest", "tests", "--ignore=tests/benchmarks",
-             "--basetemp=data/pytest_temp", "-v", "--tb=short", "--durations=10"],
+             f"--basetemp={os.path.join(tempfile.gettempdir(), 'tala-pytest')}", "-v", "--tb=short", "--durations=10"],
             600.0,
         ),
         ("javascript tests", ["npx", "jest", "--runInBand"], 120.0),

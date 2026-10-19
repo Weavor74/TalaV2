@@ -2614,10 +2614,7 @@ async def tree_of_thought_ideation(goal: str) -> dict[str, Any]:
         }
 
 
-@register_tool(
-    name="submit_agent_goal",
-    description="Submit a multi-phase goal to the autonomous GoalEngine and wait for execution.",
-)
+@register_tool(name="submit_agent_goal", description="Execute a complex, multi-step goal autonomously. The GoalEngine decomposes it into phases, synthesizes code/workflows, and runs them. Use for: 'create and run...', 'build a workflow for...', 'implement...', or multi-step tasks.")
 async def submit_agent_goal(goal: str, min_skill_phases: int | None = None) -> dict[str, Any]:
     """
     NAME
@@ -4395,6 +4392,12 @@ async def search_conversations(query: str, limit: int = 10) -> dict[str, Any]:
     """
     from python.harness.memory import handle_memory_session_search
     return await handle_memory_session_search({"query": query, "limit": int(limit)})
+
+
+@register_tool(name="write_memory", description="Save a simple fact, insight, or user preference to durable memory. Use this for 'remember that...' requests instead of the heavier docs.create_learning_node.")
+async def write_memory(content: str, topic: str = "user-preference") -> dict[str, Any]:
+    from sdk.agent.memory_tools import write_memory as _impl
+    return await _impl(content, topic)
 
 
 @register_tool(

@@ -171,18 +171,51 @@ def gateway():
         from sdk.agent.leases import LeaseGateway
 
         def _announce(token: Any) -> None:
+            """
+            Thread-safe broadcast of lease notifications.
+            
+            Captures the main event loop and uses run_coroutine_threadsafe
+            when called from off-loop (e.g. from executor thread during
+            await_approval). Falls back to ensure_future when on-loop.
+            """
             if _BROADCAST is None:
                 return
             try:
+                import asyncio
                 req = token.request
-                _BROADCAST("lease.pending", {
+                coro = _BROADCAST("lease.pending", {
                     "token_id": token.token_id,
                     "operation": getattr(req, "operation_type", "?"),
                     "description": getattr(req, "description", ""),
                     "requested_by": getattr(req, "requested_by", ""),
                     "expires_at": token.expires_at.isoformat() if token.expires_at else None,
                 })
-            except Exception as exc:  # pragma: no cover - broadcast is best effort
+                
+                # Thread-safe scheduling: use run_coroutine_threadsafe when off-loop
+                try:
+                    loop = asyncio.get_running_loop()
+                    # We're on the loop, use ensure_future
+                    asyncio.ensure_future(coro, loop=loop)
+                except RuntimeError:
+                    # Not on the loop (e.g. called from executor thread)
+                    # Try to get the main loop and schedule there
+                    try:
+                        import threading
+                        main_thread = threading.main_thread()
+                        if hasattr(main_thread, '_tala_main_loop'):
+                            loop = main_thread._tala_main_loop
+                            asyncio.run_coroutine_threadsafe(coro, loop)
+                        else:
+                            # Last resort: try to get any running loop
+                            try:
+                                loop = asyncio.get_event_loop()
+                                if loop.is_running():
+                                    asyncio.run_coroutine_threadsafe(coro, loop)
+                            except Exception:
+                                pass
+                    except Exception:
+                        pass
+            except Exception as exc:
                 log.debug("lease_policy: could not announce lease: %s", exc)
 
         _GATEWAY = LeaseGateway(approval_callback=_announce)

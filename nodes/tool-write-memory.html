@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: write_memory</title>
+</head>
+<body>
+<article
+  data-node-id="tool-write-memory"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.80"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="write_memory"
+  data-source-files="sdk/agent/memory_tools.py"
+  data-source-fingerprint="sha256:PLACEHOLDER"
+  data-source-digest="sha256:PLACEHOLDER"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-19T02:55:00Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: write_memory</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;write_memory&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Save a simple fact, insight, or user preference to durable memory. Use this for &#x27;remember that...&#x27; requests instead of the heavier docs.create_learning_node.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;write_memory(content*, topic)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;content&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;topic&lt;/code&gt; (string, optional, default: &quot;user-preference&quot;)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME write_memory - save a fact to durable memory SYNOPSIS write_memory(content: str, topic: str = &quot;user-preference&quot;) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.memory_tools&lt;/code&gt; and registered in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/memory_tools.py</code></li>
+      <li><code>sdk/agent/tools.py</code></li>
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was manually created for write_memory tool added in PR #19.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-write-memory"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "write_memory"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: write_memory",
+  "description": "Program documentation for write_memory.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "write_memory",
+    "memory"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-19T02:55:00Z",
+    "schema": "neural-node/v2",
+    "doc_target": "write_memory",
+    "source_fingerprint": "sha256:PLACEHOLDER",
+    "source_files": [
+      "sdk/agent/memory_tools.py",
+      "sdk/agent/tools.py"
+    ],
+    "source_digest": "sha256:PLACEHOLDER",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "write_memory",
+    "description": "Save a simple fact, insight, or user preference to durable memory. Use this for 'remember that...' requests instead of the heavier docs.create_learning_node.",
+    "signature": "write_memory(content*, topic)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "content": {
+          "type": "string"
+        },
+        "topic": {
+          "type": "string"
+        }
+      },
+      "required": [
+        "content"
+      ]
+    },
+    "module": "sdk.agent.memory_tools",
+    "required": [
+      "content"
+    ]
+  }
+}
+  </script>
+</article>
+</body>
+</html>

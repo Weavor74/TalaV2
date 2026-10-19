@@ -361,7 +361,17 @@ class LeaseGateway:
             "await_approval: waiting up to %.1fs for lease %s",
             effective_timeout, lease_token.token_id[:8],
         )
-        signalled = evt.wait(timeout=effective_timeout)
+        
+        import asyncio
+        try:
+            loop = asyncio.get_running_loop()
+            signalled_future = loop.run_in_executor(None, evt.wait, effective_timeout)
+            try:
+                signalled = loop.run_until_complete(asyncio.wait_for(signalled_future, timeout=effective_timeout + 0.1))
+            except asyncio.TimeoutError:
+                signalled = False
+        except RuntimeError:
+            signalled = evt.wait(timeout=effective_timeout)
 
         if not signalled:
             log.warning(
