@@ -2240,7 +2240,7 @@ const InferenceManager = {
               const knownEndpoints = {
                 'gemini': 'https://generativelanguage.googleapis.com/v1beta/openai',
                 'openai': 'https://api.openai.com/v1',
-                'anthropic': 'https://api.anthropic.com/v1',
+                // Anthropic doesn't have OpenAI-compatible endpoint, user must provide their own
               };
               
               if (knownEndpoints[service]) {

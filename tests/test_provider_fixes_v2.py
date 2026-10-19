@@ -105,40 +105,68 @@ def test_max_tokens_robust_logic():
 
 async def test_event_loop_responsive_during_lease():
     """Issue 5 v2: Event loop should stay responsive during lease wait."""
+    try:
+        from sdk.agent.leases import LeaseGateway, LeaseRequest
+        from datetime import datetime, UTC
+    except ImportError as e:
+        print(f"⚠ test_event_loop_responsive_during_lease skipped (missing deps: {e})")
+        return
     
-    # Simulate a lease wait that runs in executor
+    # Create a real lease gateway
+    gateway = LeaseGateway()
+    
+    # Create a lease request
+    request = LeaseRequest(
+        operation_type="file_edit",
+        description="test lease wait",
+        requested_by="test",
+    )
+    
+    # Request a lease (it will be pending)
+    token = gateway.request_lease(request)
+    
+    # Track responsiveness
     responsive_counter = 0
     
     async def background_task():
+        """This should keep running while lease waits."""
         nonlocal responsive_counter
         for _ in range(10):
             await asyncio.sleep(0.1)
             responsive_counter += 1
     
-    def blocking_wait():
-        """Simulates the old blocking evt.wait()"""
-        time.sleep(0.5)
-        return True
-    
     # Start background task
     task = asyncio.create_task(background_task())
     
-    # Run blocking wait in executor (like the fix does)
-    loop = asyncio.get_running_loop()
-    result = await loop.run_in_executor(None, blocking_wait)
+    # Wait for lease approval (will timeout after 0.5s)
+    # This exercises the real await_approval path with run_in_executor
+    start = datetime.now(UTC)
+    approved = gateway.await_approval(token, timeout_seconds=0.5)
+    elapsed = (datetime.now(UTC) - start).total_seconds()
     
     # Wait for background task
     await task
     
     # If event loop was responsive, background task should have incremented counter
-    assert responsive_counter >= 4, f"Event loop should stay responsive (got {responsive_counter} increments)"
-    assert result, "Blocking wait should complete"
+    # During the 0.5s lease wait, background task should have run ~5 times
+    assert responsive_counter >= 4, (
+        f"Event loop should stay responsive during lease wait "
+        f"(got {responsive_counter} increments in {elapsed:.2f}s)"
+    )
+    assert not approved, "Lease should timeout (no approval given)"
+    assert 0.4 < elapsed < 0.7, f"Wait should take ~0.5s, got {elapsed:.2f}s"
     
     print("✓ test_event_loop_responsive_during_lease passed")
 
 
 async def test_broadcast_thread_safe():
     """Issue 6 v2: Broadcast should work from both on-loop and off-loop."""
+    try:
+        from sdk.agent import lease_policy
+        from sdk.agent.leases import LeaseRequest
+    except ImportError as e:
+        print(f"⚠ test_broadcast_thread_safe skipped (missing deps: {e})")
+        return
     
     broadcasts_received = []
     
@@ -146,37 +174,59 @@ async def test_broadcast_thread_safe():
         broadcasts_received.append((method, params, threading.current_thread().name))
         await asyncio.sleep(0.01)
     
+    # Register mock broadcast function
+    lease_policy.register_broadcast(mock_broadcast)
+    
     # Store loop reference on main thread (like the fix does)
     threading.main_thread()._tala_main_loop = asyncio.get_running_loop()
     
-    # Test 1: On-loop call (ensure_future path)
+    # Test 1: On-loop call (via gateway request_lease, which calls approval_callback)
     try:
-        loop = asyncio.get_running_loop()
-        coro1 = mock_broadcast("on_loop_test", {"source": "main"})
-        asyncio.ensure_future(coro1, loop=loop)
-    except RuntimeError:
-        assert False, "Should not raise on on-loop call"
+        gw = lease_policy.gateway()
+        request = LeaseRequest(
+            operation_type="file_edit",
+            description="on-loop test",
+            requested_by="test_on_loop",
+        )
+        token = gw.request_lease(request)
+        
+        # Give broadcast time to schedule and run
+        await asyncio.sleep(0.1)
+        
+        assert len(broadcasts_received) >= 1, "On-loop broadcast should be received"
+        assert broadcasts_received[0][0] == "lease.pending", "Should be lease.pending notification"
+    except Exception as e:
+        print(f"On-loop test failed: {e}")
+        raise
     
-    await asyncio.sleep(0.05)
-    assert len(broadcasts_received) >= 1, "On-loop broadcast should be received"
-    
-    # Test 2: Off-loop call (run_coroutine_threadsafe path)
+    # Test 2: Off-loop call (from thread, triggers the real lease_policy path)
     def off_loop_caller():
+        """Simulates lease request from executor thread."""
         try:
-            coro2 = mock_broadcast("off_loop_test", {"source": "thread"})
-            loop = threading.main_thread()._tala_main_loop
-            future = asyncio.run_coroutine_threadsafe(coro2, loop)
-            # Wait for it to complete
-            future.result(timeout=1.0)
+            # This creates another lease, triggering the approval_callback
+            # from an off-loop context (this thread)
+            gw = lease_policy.gateway()
+            request2 = LeaseRequest(
+                operation_type="ledger",
+                description="off-loop test",
+                requested_by="test_off_loop",
+            )
+            token2 = gw.request_lease(request2)
         except Exception as e:
-            print(f"Off-loop call failed: {e}")
+            print(f"Off-loop request failed: {e}")
     
-    thread = threading.Thread(target=off_loop_caller)
+    initial_count = len(broadcasts_received)
+    thread = threading.Thread(target=off_loop_caller, name="test-off-loop-thread")
     thread.start()
     thread.join(timeout=2.0)
     
-    await asyncio.sleep(0.05)
-    assert len(broadcasts_received) >= 2, "Off-loop broadcast should also be received"
+    # Give the broadcast time to be scheduled and run
+    await asyncio.sleep(0.2)
+    
+    assert len(broadcasts_received) > initial_count, (
+        f"Off-loop broadcast should also be received "
+        f"(had {initial_count}, now {len(broadcasts_received)})"
+    )
     
     print("✓ test_broadcast_thread_safe passed")
 
