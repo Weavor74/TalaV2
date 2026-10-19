@@ -178,7 +178,12 @@ Linux host it also runs the real adapter end to end (bash, TMPDIR, `/etc/shadow`
     A job object still wraps the tree (kill-on-close). Read+execute ACLs are
     granted on the **specific** interpreter, venv and tool paths the child
     runs (`icacls /grant:r`, never a whole drive) so a workspace on `D:` can
-    still start Python when `ALL APPLICATION PACKAGES` is missing. Workspace
+    still start Python when `ALL APPLICATION PACKAGES` is missing. `cmd.exe`
+    and `powershell.exe` are launched with `CreateProcessW(lpApplicationName=NULL)`
+    and the canonical System32 path from `GetSystemDirectoryW`; Tala does
+    **not** icacls `Windows`/`System32` (that tree already grants
+    `ALL APPLICATION PACKAGES`). CreateProcess Win32 2 is `spawn-failed`,
+    not an unsandboxed fallback. Workspace
     write grants use `/grant:r` and are **revoked** (`icacls /remove`) when
     Settings > Workspace moves the folder. If AppContainer APIs fail, the
     command runs unsandboxed **loudly**: the tool result carries

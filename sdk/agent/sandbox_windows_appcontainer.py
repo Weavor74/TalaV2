@@ -464,15 +464,20 @@ def _make_pipes(k32):
     sa = SECURITY_ATTRIBUTES()
     sa.nLength = ctypes.sizeof(sa)
     sa.bInheritHandle = True
+    r_in, w_in = wintypes.HANDLE(), wintypes.HANDLE()
     r_out, w_out = wintypes.HANDLE(), wintypes.HANDLE()
     r_err, w_err = wintypes.HANDLE(), wintypes.HANDLE()
+    if not k32.CreatePipe(ctypes.byref(r_in), ctypes.byref(w_in), ctypes.byref(sa), 0):
+        raise OSError(f"CreatePipe stdin failed ({ctypes.get_last_error()})")
     if not k32.CreatePipe(ctypes.byref(r_out), ctypes.byref(w_out), ctypes.byref(sa), 0):
         raise OSError(f"CreatePipe stdout failed ({ctypes.get_last_error()})")
     if not k32.CreatePipe(ctypes.byref(r_err), ctypes.byref(w_err), ctypes.byref(sa), 0):
         raise OSError(f"CreatePipe stderr failed ({ctypes.get_last_error()})")
+    k32.SetHandleInformation(w_in, HANDLE_FLAG_INHERIT, 0)
     k32.SetHandleInformation(r_out, HANDLE_FLAG_INHERIT, 0)
     k32.SetHandleInformation(r_err, HANDLE_FLAG_INHERIT, 0)
-    return r_out, w_out, r_err, w_err
+    k32.CloseHandle(w_in)
+    return r_in, r_out, w_out, r_err, w_err
 
 
 def _drain(k32, handle, bucket: list[bytes]) -> None:
@@ -502,6 +507,43 @@ def _job(k32):
     return handle
 
 
+def _system_directory() -> Path:
+    k32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    k32.GetSystemDirectoryW.argtypes = [wintypes.LPWSTR, wintypes.UINT]
+    k32.GetSystemDirectoryW.restype = wintypes.UINT
+    buf = ctypes.create_unicode_buffer(4096)
+    n = k32.GetSystemDirectoryW(buf, 4096)
+    if not n:
+        return Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
+    return Path(buf.value)
+
+
+def resolve_launch_exe(argv0: str) -> str:
+    """Canonical System32 path for cmd/PowerShell; shutil.which otherwise.
+
+    AppContainer CreateProcess looks up the image from the container's view.
+    A bare ``cmd.exe`` depends on PATH inside that view; the System32 path
+    does not. System32 is expected to already grant ALL APPLICATION PACKAGES;
+    this helper does not ACL-grant Windows directories.
+    """
+    name = Path(argv0).name.lower()
+    if os.name == "nt" and name in ("cmd.exe", "powershell.exe"):
+        sys32 = _system_directory()
+        candidate = (
+            sys32 / "cmd.exe" if name == "cmd.exe"
+            else sys32 / "WindowsPowerShell" / "v1.0" / "powershell.exe"
+        )
+        if candidate.is_file():
+            return str(candidate)
+    found = shutil.which(argv0)
+    if found:
+        try:
+            return str(Path(found).resolve())
+        except OSError:
+            return found
+    return argv0
+
+
 def spawn_appcontainer(
     argv: Sequence[str],
     workdir: str,
@@ -516,7 +558,7 @@ def spawn_appcontainer(
     except OSError:
         workdir = str(workdir)
     sid_str = ensure_profile()
-    exe = shutil.which(argv[0]) or argv[0]
+    exe = resolve_launch_exe(str(argv[0]))
     merged_read: list[str] = []
     seen_read: set[str] = set()
     for raw in [*list(read_paths), *rx_paths_for_executable(str(exe))]:
@@ -558,33 +600,52 @@ def spawn_appcontainer(
             ctypes.byref(sc), ctypes.sizeof(sc), None, None,
         ):
             raise OSError(f"UpdateProcThreadAttribute failed ({ctypes.get_last_error()})")
-        r_out, w_out, r_err, w_err = _make_pipes(k32)
+        r_in, r_out, w_out, r_err, w_err = _make_pipes(k32)
         si = STARTUPINFOEXW()
         si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW
         si.StartupInfo.wShowWindow = SW_HIDE
+        si.StartupInfo.hStdInput = r_in
         si.StartupInfo.hStdOutput = w_out
         si.StartupInfo.hStdError = w_err
         si.lpAttributeList = ctypes.cast(attr, ctypes.c_void_p)
 
-        cmdline = subprocess.list2cmdline([exe, *list(argv[1:])])
-        cmdbuf = ctypes.create_unicode_buffer(cmdline)
-        pi = PROCESS_INFORMATION()
+        quoted = subprocess.list2cmdline([exe, *list(argv[1:])])
         flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW
-        ok = k32.CreateProcessW(
-            exe if os.path.isabs(exe) else None,
-            cmdbuf, None, None, True, flags, None, str(workdir),
-            ctypes.byref(si), ctypes.byref(pi),
-        )
+
+        def _create(app_name):
+            # CreateProcessW mutates the command-line buffer; allocate a fresh one.
+            cmdbuf = ctypes.create_unicode_buffer(quoted)
+            procinfo = PROCESS_INFORMATION()
+            ok_ = k32.CreateProcessW(
+                app_name, cmdbuf, None, None, True, flags, None, str(workdir),
+                ctypes.byref(si), ctypes.byref(procinfo),
+            )
+            return ok_, procinfo, 0 if ok_ else ctypes.get_last_error()
+
+        # Microsoft AppContainer samples pass lpApplicationName=NULL and put
+        # the full image path in the command line. Passing both can yield
+        # Win32 2 (ERROR_FILE_NOT_FOUND) even when cmd.exe exists.
+        ok, pi, err = _create(None)
+        if not ok and err == 2 and os.path.isabs(exe):
+            ok, pi, err = _create(exe)
         k32.CloseHandle(w_out)
         k32.CloseHandle(w_err)
+        k32.CloseHandle(r_in)
         if not ok:
             k32.CloseHandle(r_out)
             k32.CloseHandle(r_err)
-            err = ctypes.get_last_error()
-            if err in (ERROR_ACCESS_DENIED, 2):
+            if err == ERROR_ACCESS_DENIED:
                 raise AccessDenied(str(exe), err)
-            raise OSError(f"CreateProcessW(AppContainer) failed ({err}) for {exe}")
+            raise OSError(
+                f"CreateProcessW(AppContainer) Win32 {err} for {exe!r} "
+                f"cmdline={quoted!r} cwd={workdir!r}. "
+                "Tried lpApplicationName=NULL then the absolute path. "
+                "Win32 2 is the AppContainer's path lookup (not the caller's); "
+                "System32 is expected to already grant ALL APPLICATION PACKAGES "
+                "so Tala does not icacls it. If cmd/PowerShell still cannot start, "
+                "the sandboxed shell cannot run on this host."
+            )
         job = _job(k32)
         if job:
             k32.AssignProcessToJobObject(job, pi.hProcess)

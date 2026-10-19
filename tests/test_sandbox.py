@@ -27,9 +27,7 @@ def _backend():
 
 def _write_argv(path: Path) -> list[str]:
     if platform.system() == "Windows":
-        # cmd.exe lives in System32; AppContainer cannot icacls that without
-        # admin (Windows Server CI). Python is grantable and is what Tala runs.
-        return [sys.executable, "-c", f"open({str(path)!r}, 'w', encoding='utf-8').write('escaped\\n')"]
+        return ["cmd.exe", "/c", f'echo escaped>"{path}"']
     return ["sh", "-c", f"echo escaped > '{path}'"]
 
 
@@ -75,6 +73,12 @@ def test_windows_honesty_in_module():
     assert "/remove" in ac
     assert "(RX)" in ac
     assert "ACCESS DENIED" in ac
+    assert "lpApplicationName=NULL" in ac
+    assert "GetSystemDirectoryW" in ac
+    assert "CreateProcessW.argtypes" in ac
+    assert "wintypes.LPCWSTR, wintypes.LPWSTR" in ac
+    assert "_is_windows_system_path" in ac
+    assert "refusing ACL grant" in ac
     assert "Start-Job" not in Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
 
 
@@ -87,6 +91,35 @@ def test_macos_profile_lists_resolved_and_raw_paths(tmp_path):
         assert f'(allow file-write* (subpath "{sub}"))' in profile
         assert f'(allow file-read* (subpath "{sub}"))' in profile
     assert "(allow file-map-executable)" in profile
+    write_rules = [ln.strip() for ln in profile.splitlines() if "file-write*" in ln]
+    assert write_rules
+    for rule in write_rules:
+        inner = rule.split('(subpath "', 1)[1].rsplit('")', 1)[0].replace("\\\\", "\\")
+        assert inner.rstrip("/\\").endswith("workspace"), rule
+        assert inner.replace("\\", "/") not in ("/var", "/private/var", "/tmp")
+
+
+def test_macos_file_write_scoped_to_workspace_under_var():
+    """file-write* is the workspace folder under /var and /private/var, never all of /var."""
+    backend = MacOSSandbox()
+    raw = "/var/folders/zz/test/T/workspace"
+    priv = "/private/var/folders/zz/test/T/workspace"
+    backend._subpaths = lambda _path: [raw, priv]  # noqa: ARG005
+    profile = backend._profile(SandboxConfig(readwrite_paths=[Path(raw)]), Path(raw))
+    quoted = [
+        '(allow file-write* (subpath "/var/folders/zz/test/T/workspace"))',
+        '(allow file-write* (subpath "/private/var/folders/zz/test/T/workspace"))',
+    ]
+    for rule in quoted:
+        assert rule in profile, profile
+    write_rules = [
+        ln.strip() for ln in profile.splitlines()
+        if ln.strip().startswith("(allow file-write*")
+    ]
+    assert write_rules, profile
+    assert set(write_rules) == set(quoted), write_rules
+    assert '(allow file-write* (subpath "/var"))' not in profile
+    assert '(allow file-write* (subpath "/private/var"))' not in profile
 
 
 def test_macos_sandbox_exec_is_labeled_deprecated():
@@ -143,9 +176,10 @@ async def test_escape_parent_directory_write_blocked():
         parent_file = Path(tmp) / "escape.txt"
         inner = workdir / "ok.txt"
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
-        inner_result = await _sandbox_exec(_write_argv(inner), workdir, config, timeout=5.0)
+        timeout = 12.0 if platform.system() == "Windows" else 5.0
+        inner_result = await _sandbox_exec(_write_argv(inner), workdir, config, timeout=timeout)
         assert inner.exists(), (inner_result.returncode, inner_result.stdout, inner_result.stderr)
-        await _sandbox_exec(_write_argv(parent_file), workdir, config, timeout=5.0)
+        await _sandbox_exec(_write_argv(parent_file), workdir, config, timeout=timeout)
         assert not parent_file.exists()
 
 
@@ -156,7 +190,8 @@ async def test_escape_outside_workspace_write_blocked():
         workdir = Path(ws)
         target = Path(other) / "escape.txt"
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
-        await _sandbox_exec(_write_argv(target), workdir, config, timeout=5.0)
+        timeout = 12.0 if platform.system() == "Windows" else 5.0
+        await _sandbox_exec(_write_argv(target), workdir, config, timeout=timeout)
         assert not target.exists()
 
 
@@ -194,18 +229,14 @@ async def test_network_isolation():
                     srv.close()
 
             threading.Thread(target=_accept, daemon=True).start()
-            probe = (
-                "import socket,sys\n"
-                f"s=socket.socket(); s.settimeout(3)\n"
-                "try:\n"
-                f"    s.connect(('127.0.0.1', {port}))\n"
-                "    sys.exit(0)\n"
-                "except Exception:\n"
-                "    sys.exit(1)\n"
+            ps = (
+                f"try {{ $c = New-Object System.Net.Sockets.TcpClient; "
+                f"$c.Connect('127.0.0.1', {port}); "
+                f"if ($c.Connected) {{ exit 0 }} else {{ exit 1 }} }} catch {{ exit 1 }}"
             )
             result = await _sandbox_exec(
-                [sys.executable, "-c", probe],
-                workdir, config, timeout=8.0,
+                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
+                workdir, config, timeout=12.0,
             )
             assert result.returncode != 0, result.stderr
         else:
@@ -221,6 +252,46 @@ async def test_escape_keychain_dump_blocked():
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
         result = await _sandbox_exec(["security", "dump-keychain"], workdir, config, timeout=5.0)
         assert result.returncode != 0
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() != "Windows", reason="Windows cmd.exe AppContainer spawn")
+async def test_windows_cmd_echo_sandboxed():
+    with tempfile.TemporaryDirectory() as tmp:
+        workdir = Path(tmp)
+        config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
+        result = await _sandbox_exec(
+            ["cmd.exe", "/c", "echo tala-cmd-ok"], workdir, config, timeout=12.0,
+        )
+        assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+        assert b"tala-cmd-ok" in (result.stdout or b"")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() != "Windows", reason="Windows PowerShell AppContainer spawn")
+async def test_windows_powershell_oneliner_sandboxed():
+    with tempfile.TemporaryDirectory() as tmp:
+        workdir = Path(tmp)
+        config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
+        result = await _sandbox_exec(
+            ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", "Write-Output 'tala-ps-ok'"],
+            workdir, config, timeout=20.0,
+        )
+        assert result.returncode == 0, (result.returncode, result.stdout, result.stderr)
+        assert b"tala-ps-ok" in (result.stdout or b"")
+
+
+@pytest.mark.asyncio
+@pytest.mark.skipif(platform.system() != "Windows", reason="Windows cmd.exe outside-workspace write")
+async def test_windows_cmd_outside_workspace_write_denied():
+    with tempfile.TemporaryDirectory() as ws, tempfile.TemporaryDirectory() as other:
+        workdir = Path(ws)
+        target = Path(other) / "escape.txt"
+        config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
+        result = await _sandbox_exec(
+            ["cmd.exe", "/c", f'echo escaped>"{target}"'], workdir, config, timeout=12.0,
+        )
+        assert not target.exists(), (result.returncode, result.stdout, result.stderr)
 
 
 def test_renderer_surfaces_sandbox_fallback_like_inference():
@@ -385,6 +456,7 @@ def test_report_skip_vs_execute_for_this_os():
         ("test_windows_honesty_in_module", "EXECUTE"),
         ("test_macos_sandbox_exec_is_labeled_deprecated", "EXECUTE"),
         ("test_macos_profile_lists_resolved_and_raw_paths", "EXECUTE"),
+        ("test_macos_file_write_scoped_to_workspace_under_var", "EXECUTE"),
         ("test_windows_none_mode_does_not_rewrite_argv", "EXECUTE"),
         (
             "test_windows_strict_wrap_uses_launcher",
@@ -398,6 +470,18 @@ def test_report_skip_vs_execute_for_this_os():
         ("test_windows_strict_wrap_includes_status_file", "EXECUTE"),
         (
             "test_nonsystem_volume_workspace_and_interpreter",
+            "EXECUTE" if system == "Windows" else "SKIP",
+        ),
+        (
+            "test_windows_cmd_echo_sandboxed",
+            "EXECUTE" if system == "Windows" else "SKIP",
+        ),
+        (
+            "test_windows_powershell_oneliner_sandboxed",
+            "EXECUTE" if system == "Windows" else "SKIP",
+        ),
+        (
+            "test_windows_cmd_outside_workspace_write_denied",
             "EXECUTE" if system == "Windows" else "SKIP",
         ),
         ("test_basic_execution", "EXECUTE"),
@@ -431,4 +515,7 @@ def test_report_skip_vs_execute_for_this_os():
         assert by_name["test_escape_outside_workspace_write_blocked"] == "EXECUTE"
         assert by_name["test_network_isolation"] == "EXECUTE"
         assert by_name["test_nonsystem_volume_workspace_and_interpreter"] == "EXECUTE"
+        assert by_name["test_windows_cmd_echo_sandboxed"] == "EXECUTE"
+        assert by_name["test_windows_powershell_oneliner_sandboxed"] == "EXECUTE"
+        assert by_name["test_windows_cmd_outside_workspace_write_denied"] == "EXECUTE"
     assert executed >= 7

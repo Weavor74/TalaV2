@@ -171,7 +171,10 @@ class MacOSSandbox(SandboxBackend):
         if config.mode == "strict":
             # deny default. Denied writes on modern macOS SIGABRT the child
             # (empty stderr, returncode -6), so workspace paths must match the
-            # vnode (/var is a symlink to /private/var).
+            # vnode (/var is a symlink to /private/var). Writes are the
+            # workspace folder only, never all of /var:
+            #   (allow file-write* (subpath "/var/folders/.../workspace"))
+            #   (allow file-write* (subpath "/private/var/folders/.../workspace"))
             lines += [
                 "(deny default)",
                 "(allow process-exec*)",
