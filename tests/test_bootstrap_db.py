@@ -1,6 +1,7 @@
 """Installer DB bootstrap: psql notices must not abort; password prompted once."""
 from __future__ import annotations
 
+import os
 import re
 import subprocess
 import sys
@@ -100,8 +101,25 @@ def test_sh_uses_on_error_stop_and_exit_code():
     assert missing < complete
 
 
+def _unix_bash() -> str | None:
+    """Real bash, not the Windows WSL stub that errors with no distro installed."""
+    if sys.platform != "win32":
+        from shutil import which
+        return which("bash")
+    git_bash = Path(os.environ.get("ProgramFiles", r"C:\Program Files")) / "Git" / "bin" / "bash.exe"
+    if git_bash.is_file():
+        return str(git_bash)
+    return None
+
+
 def test_sh_syntax():
-    subprocess.run(["bash", "-n", str(SH)], check=True)
+    bash = _unix_bash()
+    if not bash:
+        pytest.skip("unix bash not available (Windows PATH bash is the WSL stub)")
+    completed = subprocess.run(
+        [bash, "-n", str(SH)], capture_output=True, text=True, check=False,
+    )
+    assert completed.returncode == 0, (completed.stdout or "") + (completed.stderr or "")
 
 
 def test_install_windows_does_not_abort_the_rest_on_bootstrap_stderr():
