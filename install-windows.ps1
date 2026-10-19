@@ -77,8 +77,17 @@ if (-not (Get-Command "python" -ErrorAction SilentlyContinue) -and -not (Get-Com
 
 # 3. Bootstrap Database
 Write-Host "[3/6] Bootstrapping Database..."
-& "$Root\scripts\bootstrap-db.ps1" -DbUser "tala" -DbPass "tala" -DbName "tala"
-if ($LASTEXITCODE -ne 0) {
+$bootCode = 0
+try {
+    & "$Root\scripts\bootstrap-db.ps1" -DbUser "tala" -DbPass "tala" -DbName "tala"
+    $bootCode = $LASTEXITCODE
+} catch {
+    # NativeCommandError from psql NOTICE used to abort the whole installer
+    # here because this file also sets $ErrorActionPreference = Stop.
+    $bootCode = 1
+    Write-Host $_ -ForegroundColor Red
+}
+if ($bootCode -ne 0) {
     # Most likely cause: pgvector is missing. The winget/EDB PostgreSQL
     # packages do not bundle it, and without it peer writes to a connection
     # node are denied. bootstrap-db.ps1 already printed install steps.

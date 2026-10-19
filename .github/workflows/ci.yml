@@ -78,6 +78,8 @@ jobs:
         run: python -c "import python.harness.server, sdk.agent.tools; print('import smoke ok')"
       - name: Size ratchet
         run: python -m pytest tests/test_size_ratchet.py -q
+      - name: Bootstrap-db installer script tests
+        run: python -m pytest tests/test_bootstrap_db.py -q --tb=short
       - name: AppContainer CreateProcess diagnostic
         if: runner.os == 'Windows'
         run: python sdk/agent/sandbox_windows_launch.py --diagnose
