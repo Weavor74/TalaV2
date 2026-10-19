@@ -100,6 +100,68 @@ def _assert_write_denied(result, target: Path) -> None:
         assert result.returncode != 0, combined
 
 
+def _interpreter_read_paths() -> list[Path]:
+    paths: list[Path] = []
+    exe = Path(sys.executable).resolve()
+    for raw in (exe, exe.parent, Path(sys.prefix), Path(getattr(sys, "base_prefix", sys.prefix))):
+        try:
+            path = Path(raw).resolve()
+        except OSError:
+            path = Path(raw)
+        if path.exists() and path not in paths:
+            paths.append(path)
+    return paths
+
+
+def _tcp_connect_argv(port: int) -> list[str]:
+    code = (
+        "import socket,sys\n"
+        "s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)\n"
+        "s.settimeout(1)\n"
+        "try:\n"
+        f"    s.connect(('127.0.0.1', {int(port)}))\n"
+        "    print('CONNECTED')\n"
+        "except OSError as e:\n"
+        "    print('ERRNO=%s %s' % (getattr(e, 'errno', None), e), file=sys.stderr)\n"
+        "    raise SystemExit(1)\n"
+    )
+    return [sys.executable, "-B", "-c", code]
+
+
+def _macos_deny_log() -> str:
+    try:
+        shown = subprocess.run(
+            [
+                "log", "show", "--last", "20s", "--style", "compact",
+                "--predicate",
+                'eventMessage CONTAINS[c] "deny"',
+            ],
+            capture_output=True, text=True, timeout=30,
+        )
+        return ((shown.stdout or "") + (shown.stderr or ""))[-4000:]
+    except (OSError, subprocess.TimeoutExpired) as extra:
+        return f"LOG_SHOW_FAIL: {extra}"
+
+
+def _assert_network_denied(result) -> None:
+    combined = _combined(result)
+    text = combined.decode("utf-8", "replace")
+    print("TALA_SANDBOX_DENY:", text.strip() or f"returncode={result.returncode}")
+    assert b"spawn-failed" not in combined, combined
+    assert b"CONNECTED" not in combined, combined
+    assert b"SOCKET_TIMEOUT" not in combined, combined
+    assert result.returncode != 0, combined
+    if platform.system() != "Darwin":
+        return
+    low = text.lower()
+    if "operation not permitted" in low or "errno=1" in low or "eperm" in low:
+        return
+    deny = _macos_deny_log()
+    print("TALA_SANDBOX_DENY:", deny)
+    needles = ("network-outbound", "network-inbound", "network-bind", "system-socket")
+    assert any(n in deny for n in needles), (result.returncode, text, deny)
+
+
 def test_backend_selection_matches_host():
     backend = _backend()
     assert backend.is_available()
@@ -377,49 +439,59 @@ async def test_escape_etc_write_blocked():
 async def test_network_isolation():
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        config = SandboxConfig(mode="strict", allow_network=False, readwrite_paths=[workdir])
-        if platform.system() == "Windows":
-            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-            srv.bind(("127.0.0.1", 0))
-            srv.listen(1)
-            port = srv.getsockname()[1]
+        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+        srv.bind(("127.0.0.1", 0))
+        srv.listen(5)
+        port = srv.getsockname()[1]
+        stop = threading.Event()
 
-            def _accept():
+        def _accept():
+            srv.settimeout(0.3)
+            while not stop.is_set():
                 try:
-                    srv.settimeout(5)
                     conn, _ = srv.accept()
                     conn.close()
+                except socket.timeout:
+                    continue
                 except OSError:
-                    pass
-                finally:
-                    srv.close()
+                    break
+            srv.close()
 
-            threading.Thread(target=_accept, daemon=True).start()
-            ps = (
-                f"try {{ $c = New-Object System.Net.Sockets.TcpClient; "
-                f"$c.Connect('127.0.0.1', {port}); "
-                f"if ($c.Connected) {{ exit 0 }} else {{ exit 1 }} }} catch {{ exit 1 }}"
+        threading.Thread(target=_accept, daemon=True).start()
+        try:
+            open_cfg = SandboxConfig(mode="none", readwrite_paths=[workdir])
+            closed_cfg = SandboxConfig(
+                mode="strict",
+                allow_network=False,
+                readwrite_paths=[workdir],
+                readonly_paths=_interpreter_read_paths(),
             )
-            result = await _sandbox_exec(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
-                workdir, config, timeout=12.0,
-            )
-            combined = (result.stdout or b"") + (result.stderr or b"")
-            assert b"spawn-failed" not in combined, combined
-            assert result.returncode != 0, result.stderr
-        else:
-            # After allowing file-read-data of /, ping reaches (deny network*)
-            # instead of aborting on a prior FS deny. macOS ping then waits
-            # for ICMP rather than exiting immediately.
-            ping = ["ping", "-c", "1", "127.0.0.1"]
-            if platform.system() == "Darwin":
-                ping = ["ping", "-c", "1", "-t", "1", "127.0.0.1"]
+            if platform.system() == "Windows":
+                ps = (
+                    f"try {{ $c = New-Object System.Net.Sockets.TcpClient; "
+                    f"$c.Connect('127.0.0.1', {port}); "
+                    f"if ($c.Connected) {{ exit 0 }} else {{ exit 1 }} }} catch {{ exit 1 }}"
+                )
+                argv = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps]
+                open_timeout, closed_timeout = 12.0, 12.0
+            else:
+                argv = _tcp_connect_argv(port)
+                open_timeout, closed_timeout = 5.0, 5.0
+            opened = await _sandbox_exec(argv, workdir, open_cfg, timeout=open_timeout)
+            assert opened.returncode == 0, _combined(opened)
+            assert b"CONNECTED" in _combined(opened) or platform.system() == "Windows", _combined(opened)
             try:
-                result = await _sandbox_exec(ping, workdir, config, timeout=5.0)
+                closed = await _sandbox_exec(argv, workdir, closed_cfg, timeout=closed_timeout)
             except TimeoutError:
-                return
-            assert result.returncode != 0
+                deny = _macos_deny_log() if platform.system() == "Darwin" else ""
+                raise AssertionError(
+                    "sandboxed TCP connect timed out; a timeout is not isolation"
+                    + (f"\n{deny}" if deny else "")
+                ) from None
+            _assert_network_denied(closed)
+        finally:
+            stop.set()
 
 
 @pytest.mark.asyncio
