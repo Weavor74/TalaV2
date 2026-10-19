@@ -297,6 +297,40 @@ async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, t
 
     timeout = max(1.0, min(float(timeout or cfg.default_timeout), cfg.max_timeout))
     started = time.monotonic()
+    
+    # Try sandboxed execution if enabled
+    if cfg.enable_sandbox:
+        try:
+            from sdk.agent.sandbox import sandbox_exec, SandboxConfig
+            sandbox_config = SandboxConfig(
+                mode="strict",
+                allow_network=cfg.allow_network,
+                readwrite_paths=[cfg.root],
+                tmpdir=cfg.internal_dir / "tmp",
+            )
+            result = await sandbox_exec(argv, cwd, sandbox_config, timeout=timeout)
+            stdout = result.stdout.decode("utf-8", errors="replace") if result.stdout else ""
+            stderr = result.stderr.decode("utf-8", errors="replace") if result.stderr else ""
+            result_dict: dict[str, Any] = {
+                "exit_code": result.returncode,
+                "timed_out": False,
+                "duration_s": round(time.monotonic() - started, 2)
+            }
+            result_dict["stdout"], t1 = truncate(stdout, cfg.max_output_chars)
+            result_dict["stderr"], t2 = truncate(stderr, max(2000, cfg.max_output_chars // 3))
+            return result_dict
+        except TimeoutError:
+            return {
+                "exit_code": -1,
+                "timed_out": True,
+                "duration_s": round(time.monotonic() - started, 2),
+                "stdout": "",
+                "stderr": f"Process timed out after {timeout}s"
+            }
+        except Exception as e:
+            log.warning(f"Sandbox execution failed, falling back to unsandboxed: {e}")
+    
+    # Fallback: original unsandboxed execution
     proc = await asyncio.create_subprocess_exec(
         *argv, cwd=str(cwd), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
         stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.PIPE, **_spawn_kwargs())

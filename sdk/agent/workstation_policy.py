@@ -89,6 +89,8 @@ class WorkstationConfig:
     extra_deny_patterns: list[str] = field(default_factory=list)
     config_path: Path | None = None
     outside_root_writes: str = APPROVE  # "approve" or "deny"
+    enable_sandbox: bool = True  # Enable OS-level sandboxing
+    allow_network: bool = False  # Allow network access in sandbox
     auto_delete_in_root: bool = False
     default_timeout: float = 60.0
     max_timeout: float = 1800.0
