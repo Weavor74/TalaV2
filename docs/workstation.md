@@ -164,13 +164,25 @@ Linux host it also runs the real adapter end to end (bash, TMPDIR, `/etc/shadow`
 
 ## Honest limits
 
-* The shell and Python checks are pattern scanners, not an OS sandbox. They catch
-  the ordinary routes (and scripts she wrote herself are scanned before they run),
-  but code that builds a path or command at runtime can get past them. Real
-  isolation means running the workstation as a separate low-privilege OS user (on
-  Windows a local account or AppContainer/Windows Sandbox; on Linux a dedicated user,
-  a container or bubblewrap). That is deliberately not built in (it would be
-  OS-specific containment); it needs admin to set up.
+* The shell and Python checks are pattern scanners. They catch the ordinary
+  routes, but code that builds a path or command at runtime can get past them.
+  OS isolation is in `sdk/agent/sandbox.py` plus OS adapters:
+  * **Linux**: bubblewrap if present, otherwise `unshare` (network/pid, not FS).
+  * **macOS**: `sandbox-exec -p` (deprecated, still functional).
+  * **Windows**: an **AppContainer** (not a job object alone). The first
+    workstation spawn calls `CreateAppContainerProfile` for `Tala.Workstation`
+    (per-user, **no admin**). The workspace and approved extra roots get an ACL
+    grant for that SID; Tala's install and user-data folders are never granted.
+    Network capabilities (`internetClient`, `privateNetworkClientServer`) are
+    omitted unless the command was approved for network or `TALA_WORKSTATION_NET=1`.
+    A job object still wraps the tree (kill-on-close). If AppContainer APIs
+    fail, stderr gets `TALA_SANDBOX: guarded-policy-only` and the command runs
+    unsandboxed. Not used: LPAC (breaks Python/cmd), restricted tokens, Windows
+    Sandbox/Hyper-V, WFP (admin). AppContainer may still **read** world-readable
+    files, including the install; it must not **write** them.
+  Workstation sandbox wrap is on by default on Windows (`sandbox_default`);
+  set `TALA_WORKSTATION_SANDBOX=0` to disable. Linux stays opt-in
+  (`TALA_WORKSTATION_SANDBOX=1`) because `unshare` is not a full FS sandbox.
 * Job tracking does not survive a harness restart. A job still running at shutdown is not
   guaranteed to stop with the harness; stop jobs before restarting.
 * No GUI/browser control here; `desktop_*` tools and `web_browser.py` are separate.

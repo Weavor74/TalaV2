@@ -292,13 +292,14 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
     return text[:half] + f"\n...[{len(text) - limit} chars truncated]...\n" + text[-half:], True
 
 
-async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, timeout: float) -> dict:
+async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, timeout: float,
+                       *, allow_network: bool | None = None) -> dict:
     from sdk.agent.async_shell import _kill_process_tree, _register, _unregister
     from sdk.agent.sandbox import prepare_sandbox
 
     timeout = max(1.0, min(float(timeout or cfg.default_timeout), cfg.max_timeout))
     started = time.monotonic()
-    session = prepare_sandbox(cfg, argv, cwd)
+    session = prepare_sandbox(cfg, argv, cwd, allow_network=allow_network)
     argv = session.argv
     proc = await asyncio.create_subprocess_exec(
         *argv, cwd=str(cwd), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
@@ -368,7 +369,10 @@ async def run_shell(command: str, cwd: str | None = None, timeout_seconds: float
         return refusal
     if not workdir.is_dir():
         return {"success": False, "error": f"working directory {workdir} does not exist"}
-    result = await _run_process(cfg, _shell_argv(command), workdir, timeout_seconds or cfg.default_timeout)
+    need_net = cfg.allow_network or "network" in v.categories or "install" in v.categories
+    result = await _run_process(
+        cfg, _shell_argv(command), workdir, timeout_seconds or cfg.default_timeout, allow_network=need_net,
+    )
     result["cwd"] = str(workdir)
     result["shell"] = "powershell" if plat.current().is_windows else "bash"
     audit(cfg, "run_shell", args, v.as_dict(), {k: result.get(k) for k in ("exit_code", "timed_out", "success")},
@@ -652,8 +656,9 @@ async def run_python(code: str | None = None, script: str | None = None, args: l
         script_path = cfg.internal_dir / "runs" / f"snippet-{datetime.now().strftime('%Y%m%d-%H%M%S')}-" \
                                                   f"{uuid.uuid4().hex[:6]}.py"
         script_path.write_text(code, encoding="utf-8")
+    need_net = cfg.allow_network or "network" in v.categories or "install" in v.categories
     result = await _run_process(cfg, [str(_venv_python(cfg)), str(script_path), *extra], workdir,
-                               timeout_seconds or cfg.default_timeout)
+                               timeout_seconds or cfg.default_timeout, allow_network=need_net)
     result["script"] = str(script_path)
     audit(cfg, "run_python", call_args, v.as_dict(),
           {k: result.get(k) for k in ("exit_code", "timed_out", "success")}, started)
@@ -676,7 +681,9 @@ async def install_python_package(packages: list | str) -> dict:
         return refusal
     if (err := await _ensure_venv(cfg)) is not None:
         return err
-    result = await _run_process(cfg, [str(_venv_python(cfg)), "-m", "pip", "install", *pkgs], cfg.root, 900)
+    result = await _run_process(
+        cfg, [str(_venv_python(cfg)), "-m", "pip", "install", *pkgs], cfg.root, 900, allow_network=True,
+    )
     audit(cfg, "install_python_package", {"packages": pkgs}, v.as_dict(),
           {k: result.get(k) for k in ("exit_code", "success")})
     return result
@@ -727,14 +734,18 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
     job_id = "job-" + uuid.uuid4().hex[:8]
     log_path = cfg.internal_dir / "jobs" / f"{job_id}.log"
     fh = log_path.open("wb")
+    from sdk.agent.sandbox import prepare_sandbox
+    need_net = cfg.allow_network or "network" in v.categories or "install" in v.categories
+    session = prepare_sandbox(cfg, _shell_argv(command), workdir, allow_network=need_net)
     proc = await asyncio.create_subprocess_exec(
-        *_shell_argv(command), cwd=str(workdir), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
+        *session.argv, cwd=str(workdir), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
         stdout=fh, stderr=asyncio.subprocess.STDOUT, **_spawn_kwargs())
+    session.attach(proc)
     fh.close()
     _register(proc)
     job = {"job_id": job_id, "name": name or command[:40], "command": command, "cwd": str(workdir),
            "log_path": str(log_path), "started_at": datetime.now().isoformat(timespec="seconds"), "proc": proc,
-           "workspace": str(cfg.root), "cfg": cfg}
+           "workspace": str(cfg.root), "cfg": cfg, "sandbox": session}
     _JOBS[job_id] = job
     audit(cfg, "start_job", args, v.as_dict(), {"job_id": job_id, "pid": proc.pid})
     return {"success": True, **_job_view(job, 5)}
@@ -766,6 +777,9 @@ async def stop_job(job_id: str) -> dict:
             pass
         job["stopped"] = True
     _unregister(proc)
+    session = job.get("sandbox")
+    if session is not None:
+        session.cleanup()
     audit(cfg, "stop_job", {"job_id": job_id}, {"verdict": "allow"}, {"exit_code": proc.returncode})
     return {"success": True, **_job_view(job, 10)}
 

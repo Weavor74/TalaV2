@@ -224,6 +224,7 @@ class Platform:
     path_patterns: tuple[re.Pattern[str], ...]
     env_paths: re.Pattern[str]
     system_dir_candidates: tuple[tuple[str, str], ...] = field(default_factory=tuple)
+    sandbox_default: str = "0"  # "1" when this OS can confine FS+network without admin
 
     @property
     def is_windows(self) -> bool:
@@ -310,6 +311,7 @@ _WINDOWS = Platform(
     system_dir_candidates=(("$SystemRoot", "the Windows system folder"), ("$windir", "the Windows system folder"),
                            ("$ProgramFiles", "Program Files"), ("$ProgramFiles(x86)", "Program Files (x86)"),
                            ("$ProgramW6432", "Program Files"), ("$ProgramData", "ProgramData")),
+    sandbox_default="1",
 )
 
 _POSIX_SYSTEM = tuple((p, "a system folder") for p in

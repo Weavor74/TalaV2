@@ -23,12 +23,11 @@ Three verdicts, in increasing severity:
 ``deny``     never runs, approval or not (Trike Trails / Antigravity, C:\\Windows,
              credential stores, the workstation's own audit/config files).
 
-HONEST LIMITS: the shell and Python scanners are pattern matching, not an OS
-sandbox. They make the common risky actions visible and gated, and they make
-the deny-listed places unreachable through the obvious routes, but a determined
-program could still construct a path at runtime that no scanner sees. The real
-isolation boundary on Windows would be a separate low-privilege account or an
-AppContainer; see docs/workstation.md.
+HONEST LIMITS: the shell and Python scanners are pattern matching. They make
+the common risky actions visible and gated, but a determined program can still
+construct a path at runtime that no scanner sees. OS isolation is the sandbox
+adapter (AppContainer on Windows, sandbox-exec on macOS, bwrap/unshare on
+Linux); see docs/workstation.md.
 """
 
 from __future__ import annotations
@@ -180,7 +179,9 @@ def load_config() -> WorkstationConfig:
         max_jobs=_num("max_jobs", 3, int),
         python=os.environ.get("TALA_WORKSTATION_PYTHON") or data.get("python"),
         enabled=str(enabled_raw).strip().lower() not in ("0", "false", "off", "no"),
-        enable_sandbox=str(os.environ.get("TALA_WORKSTATION_SANDBOX", data.get("enable_sandbox", "0"))).strip().lower()
+        enable_sandbox=str(os.environ.get(
+            "TALA_WORKSTATION_SANDBOX", data.get("enable_sandbox", plat.current().sandbox_default),
+        )).strip().lower()
             in ("1", "true", "on", "yes"),
         allow_network=str(os.environ.get("TALA_WORKSTATION_NET", data.get("allow_network", "0"))).strip().lower()
             in ("1", "true", "on", "yes"),

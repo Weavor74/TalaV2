@@ -3,10 +3,12 @@ OS-level isolation adapters for workstation commands.
 
 Linux: bubblewrap, else unshare namespaces.
 macOS: sandbox-exec (deprecated by Apple, still functional) with an inline -p profile.
-Windows: native job objects via ctypes (see sandbox_windows.py). Job objects do
-not confine filesystem or network; those stay policy-only.
+Windows: AppContainer (filesystem + network) plus a job object; see
+sandbox_windows.py / sandbox_windows_appcontainer.py. Job objects alone do
+not confine paths or Winsock.
 
-Callers wrap argv (POSIX) and/or attach the spawned process (Windows).
+Callers wrap argv (POSIX and the Windows AppContainer launcher) and/or attach
+the spawned process (Windows job object).
 """
 from __future__ import annotations
 
@@ -177,44 +179,57 @@ class MacOSSandbox(SandboxBackend):
 
 
 class WindowsSandbox(SandboxBackend):
-    """See sandbox_windows.py. Job objects only; no FS/network confinement."""
+    """AppContainer for FS/network; job objects for the process tree.
 
-    confinement = Confinement(filesystem=False, network=False, process_job=True, label="job-object")
+    See sandbox_windows_appcontainer.py for the CreateProcess path.
+    """
+
+    confinement = Confinement(filesystem=True, network=True, process_job=True, label="appcontainer")
 
     def __init__(self) -> None:
         self._session = None
+        if platform.system() != "Windows":
+            return
+        try:
+            from sdk.agent.sandbox_windows_appcontainer import appcontainer_available
+            if appcontainer_available():
+                self.confinement = Confinement(
+                    filesystem=True, network=True, process_job=True, label="appcontainer",
+                )
+            else:
+                self.confinement = Confinement(process_job=True, label="guarded-policy-only")
+        except Exception:
+            self.confinement = Confinement(process_job=True, label="guarded-policy-only")
 
     def is_available(self) -> bool:
         return platform.system() == "Windows"
 
     def wrap_command(self, argv: list[str], config: SandboxConfig, workdir: Path) -> list[str]:
-        # argv is unchanged: confinement is AssignProcessToJobObject after spawn.
-        if config.mode == "none":
-            self.confinement = Confinement(label="none")
-        return argv
+        if config.mode == "none" or platform.system() != "Windows":
+            if config.mode == "none":
+                self.confinement = Confinement(label="none")
+            return argv
+        from sdk.agent.sandbox_windows import wrap_appcontainer_argv
+        return wrap_appcontainer_argv(argv, config, workdir)
 
     def attach(self, proc: Any) -> bool:
         pid = getattr(proc, "pid", None)
         if not pid:
             return False
         try:
-            from sdk.agent.sandbox_windows import WindowsJobSession, _enforcement_label
+            from sdk.agent.sandbox_windows import WindowsJobSession
         except Exception as exc:
             log.warning("Windows job module unavailable: %s", exc)
-            self.confinement = Confinement(label="guarded-policy-only")
             return False
         session = WindowsJobSession()
         if not session.create():
             log.warning("Windows job create failed: %s", session.error)
-            self.confinement = Confinement(label=_enforcement_label(False))
             return False
         if not session.assign_pid(pid):
             log.warning("Windows job assign failed: %s", session.error)
             session.cleanup()
-            self.confinement = Confinement(label=_enforcement_label(False))
             return False
         self._session = session
-        self.confinement = Confinement(process_job=True, label=_enforcement_label(True))
         return True
 
     def cleanup(self) -> None:
@@ -292,15 +307,54 @@ class SandboxSession:
             self.backend.cleanup()
 
 
-def prepare_sandbox(cfg: Any, argv: list[str], workdir: Path) -> SandboxSession:
+def _protected_write_paths() -> list[Path]:
+    """Tala install and user-data folders must never receive a write grant."""
+    out: list[Path] = []
+    for key in ("TALA_INSTALL_ROOT", "TALA_USER_DATA", "TALA_USER_DATA_ROOT"):
+        raw = os.environ.get(key)
+        if raw:
+            out.append(Path(raw))
+    try:
+        from sdk.agent.documentation_nodes import resolve_user_data_dir
+        out.append(Path(resolve_user_data_dir()))
+    except Exception:
+        pass
+    out.append(Path(__file__).resolve().parents[2])
+    return out
+
+
+def _is_protected_write(path: Path) -> bool:
+    child = str(path).replace("\\", "/").lower().rstrip("/")
+    for parent in _protected_write_paths():
+        base = str(parent).replace("\\", "/").lower().rstrip("/")
+        if child == base or child.startswith(base + "/") or base.startswith(child + "/"):
+            return True
+    return False
+
+
+def prepare_sandbox(
+    cfg: Any, argv: list[str], workdir: Path, *, allow_network: bool | None = None,
+) -> SandboxSession:
     enabled = bool(getattr(cfg, "enable_sandbox", True))
     if not enabled:
         return SandboxSession(argv=argv, backend=NoOpSandbox(), enabled=False)
     backend = _select_sandbox_backend()
+    net = bool(getattr(cfg, "allow_network", False) if allow_network is None else allow_network)
+    rw: list[Path] = []
+    for raw in [getattr(cfg, "root", None), *list(getattr(cfg, "extra_write_roots", None) or [])]:
+        if not raw:
+            continue
+        path = Path(raw)
+        if _is_protected_write(path):
+            log.error("TALA_SANDBOX: refusing write grant on protected path %s", path)
+            continue
+        rw.append(path)
+    if workdir and not _is_protected_write(Path(workdir)):
+        rw.append(Path(workdir))
     config = SandboxConfig(
         mode="strict",
-        allow_network=bool(getattr(cfg, "allow_network", False)),
-        readwrite_paths=[p for p in [getattr(cfg, "root", None)] if p],
+        allow_network=net,
+        readwrite_paths=rw,
         tmpdir=getattr(cfg, "internal_dir", None),
     )
     wrapped = backend.wrap_command(list(argv), config, workdir)

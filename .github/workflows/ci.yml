@@ -80,7 +80,7 @@ jobs:
         run: python -m pytest tests/test_size_ratchet.py -q
       - name: Sandbox isolation tests
         # Full pytest is Linux-only (Postgres). These tests are OS-specific and
-        # must run here so macOS sandbox-exec and Windows job-object behaviour
+        # must run here so macOS sandbox-exec and Windows AppContainer behaviour
         # is reported as SKIPPED vs EXECUTED on the matching runner.
         run: python -m pytest tests/test_sandbox.py -v --tb=short -rs
 
