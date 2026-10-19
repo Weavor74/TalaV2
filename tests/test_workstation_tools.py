@@ -48,8 +48,10 @@ class MemoryStore:
 @pytest.fixture
 def env(tmp_path, monkeypatch):
     # Prevent tmp_path (which pytest forces into data/pytest_temp via --basetemp)
-    # from being rejected as overlapping the install dir
+    # from being rejected as overlapping the install dir by making _tala_dirs
+    # return a location outside the repo
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path / "tala_data"))
+    monkeypatch.setattr(pol, "_tala_dirs", lambda: [tmp_path / "fake_install"])
     root = tmp_path / "TalaWorkspace"
     root.mkdir()
     monkeypatch.setenv("TALA_WORKSTATION_ROOT", str(root))

@@ -20,8 +20,10 @@ REPO = Path(pol.__file__).resolve().parents[2]
 def fresh(tmp_path, monkeypatch):
     """A fresh data dir: no saved workspace, no env fallback."""
     # Prevent tmp_path (which pytest forces into data/pytest_temp via --basetemp)
-    # from being rejected as overlapping the install dir
+    # from being rejected as overlapping the install dir by making _tala_dirs
+    # return a location outside the repo
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path / "tala_data"))
+    monkeypatch.setattr(pol, "_tala_dirs", lambda: [tmp_path / "fake_install"])
     cfg_file = tmp_path / "data" / "workstation.json"
     monkeypatch.setenv("TALA_WORKSTATION_CONFIG", str(cfg_file))
     for var in ("TALA_WORKSTATION_ROOT", "TALA_WORKSTATION_WRITE_ROOTS", "TALA_WORKSTATION_DENY",
