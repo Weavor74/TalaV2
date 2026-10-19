@@ -38,7 +38,7 @@ remote_provider_ready = _selection.remote_provider_ready
 resolve_provider_chain = _selection.resolve_provider_chain
 skip_provider_attempt = _selection.skip_provider_attempt
 RpcOccupancy = _occupancy.RpcOccupancy
-run_blocking = _occupancy.run_blocking
+_run_blocking = _occupancy._run_blocking
 run_rpc_handler = _occupancy.run_rpc_handler
 
 
@@ -194,11 +194,11 @@ async def test_rpc_status_answers_while_slow_inference_runs():
     occupancy = RpcOccupancy()
 
     async def slow_inference():
-        occupancy.enter_long("inference.generate")
+        occupancy._enter_long("inference.generate")
         try:
-            await run_blocking(time.sleep, 0.4)
+            await _run_blocking(time.sleep, 0.4)
         finally:
-            occupancy.exit_long("inference.generate")
+            occupancy._exit_long("inference.generate")
         return "done"
 
     async def status():

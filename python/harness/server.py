@@ -3191,11 +3191,13 @@ async def handle_inference_generate(
                                 if response.status_code != 200:
                                     err_body = await response.aread()
                                     err_str = err_body.decode(errors='ignore')
-                                    if (
-                                        response.status_code == 400
-                                        and "tools" in payload
-                                        and not is_thought_signature_error(err_str)
-                                    ):
+                                    if response.status_code == 400 and "tools" in payload:
+                                        # Gemini 3 400s for a missing thought_signature
+                                        # are not "this model cannot take tools";
+                                        # retrying as <call:/> would drop the native
+                                        # tool_calls the next turn still needs.
+                                        if is_thought_signature_error(err_str):
+                                            raise RuntimeError(f"HTTP Error {response.status_code}: {err_str}")
                                         # Any 400 with tools attached, not just the
                                         # literal "does not support tools" Ollama
                                         # returns: every other provider words its
@@ -3384,14 +3386,14 @@ async def handle_inference_generate(
                         else:
                             response = await client.post(url, headers=headers, json=payload)
                             if response.status_code != 200:
-                                if (
-                                    response.status_code == 400
-                                    and "tools" in payload
-                                    and not is_thought_signature_error(response.text)
-                                ):
+                                if response.status_code == 400 and "tools" in payload:
                                     # See the streaming branch: match on "a 400 while
                                     # tools were attached", not on one provider's
-                                    # wording of the rejection.
+                                    # wording of the rejection. A thought_signature
+                                    # 400 is a real provider error, not a tools-shape
+                                    # rejection, so it skips the XML retry.
+                                    if is_thought_signature_error(response.text):
+                                        raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
                                     logger.info(
                                         "Provider '%s' rejected the request with tools attached (%s). "
                                         "Retrying non-stream with the <call:/> text protocol...",

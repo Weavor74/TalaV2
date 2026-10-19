@@ -132,13 +132,13 @@ def skip_provider_attempt(
     return True
 
 
-def default_remote_endpoint(service: str) -> str:
+def _default_remote_endpoint(service: str) -> str:
     """
     NAME
-           default_remote_endpoint - well-known OpenAI-compat base URL
+           _default_remote_endpoint - well-known OpenAI-compat base URL
 
     SYNOPSIS
-           default_remote_endpoint(service: str) -> str
+           _default_remote_endpoint(service: str) -> str
     """
     key = (service or "").strip().lower()
     if key == "gemini":
@@ -173,7 +173,7 @@ def remote_provider_ready(provider: dict[str, Any]) -> tuple[bool, str]:
     endpoint = str(cfg.get("endpoint") or "").strip()
     api_key = str(cfg.get("apiKey") or "").strip()
     if not endpoint:
-        endpoint = default_remote_endpoint(service)
+        endpoint = _default_remote_endpoint(service)
         if endpoint:
             cfg["endpoint"] = endpoint
             provider["config"] = cfg

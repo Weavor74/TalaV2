@@ -14,7 +14,7 @@ DESCRIPTION
        agent-list methods must still answer inside their renderer timeout.
        Long methods are marked busy and scheduled so the event loop can run
        fast methods concurrently. Blocking CPU work belongs in
-       ``asyncio.to_thread`` (see ``run_blocking``), never on the dispatcher
+       ``asyncio.to_thread`` (see ``_run_blocking``), never on the dispatcher
        coroutine itself.
 """
 
@@ -61,8 +61,8 @@ class RpcOccupancy:
            RpcOccupancy - in-process count of long-running RPC methods
 
     SYNOPSIS
-           occupancy.enter_long(method)
-           occupancy.exit_long(method)
+           occupancy._enter_long(method)
+           occupancy._exit_long(method)
            occupancy.snapshot() -> dict
 
     DESCRIPTION
@@ -73,10 +73,10 @@ class RpcOccupancy:
     def __init__(self) -> None:
         self._inflight: list[str] = []
 
-    def enter_long(self, method: str) -> None:
+    def _enter_long(self, method: str) -> None:
         self._inflight.append(method)
 
-    def exit_long(self, method: str) -> None:
+    def _exit_long(self, method: str) -> None:
         try:
             self._inflight.remove(method)
         except ValueError:
@@ -101,25 +101,25 @@ occupancy = RpcOccupancy()
 
 
 @asynccontextmanager
-async def long_rpc(method: str):
+async def _long_rpc(method: str):
     """
     NAME
-           long_rpc - mark a long RPC busy and yield the event loop once
+           _long_rpc - mark a long RPC busy and yield the event loop once
 
     SYNOPSIS
-           async with long_rpc("inference.generate"):
+           async with _long_rpc("inference.generate"):
                await generate()
 
     DESCRIPTION
            Entering yields once so a status RPC that arrived in the same
            tick can start before the long job's first blocking stretch.
     """
-    occupancy.enter_long(method)
+    occupancy._enter_long(method)
     try:
         await asyncio.sleep(0)
         yield
     finally:
-        occupancy.exit_long(method)
+        occupancy._exit_long(method)
 
 
 async def run_rpc_handler(
@@ -139,18 +139,18 @@ async def run_rpc_handler(
            is awaiting inference I/O.
     """
     if method in LONG_RPC_METHODS:
-        async with long_rpc(method):
+        async with _long_rpc(method):
             return await handler()
     return await handler()
 
 
-async def run_blocking(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
+async def _run_blocking(func: Callable[..., T], *args: Any, **kwargs: Any) -> T:
     """
     NAME
-           run_blocking - run a sync function off the RPC event loop
+           _run_blocking - run a sync function off the RPC event loop
 
     SYNOPSIS
-           result = await run_blocking(slow_fn, arg)
+           result = await _run_blocking(slow_fn, arg)
 
     DESCRIPTION
            Inference or catalogue parsing that holds the GIL or the CPU
