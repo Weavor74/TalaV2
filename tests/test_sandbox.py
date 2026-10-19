@@ -27,7 +27,7 @@ def _backend():
 
 def _write_argv(path: Path) -> list[str]:
     if platform.system() == "Windows":
-        return ["cmd.exe", "/c", f"echo escaped>{path}"]
+        return ["cmd.exe", "/c", f'echo escaped>"{path}"']
     return ["sh", "-c", f"echo escaped > '{path}'"]
 
 
@@ -58,6 +58,8 @@ def test_windows_honesty_in_module():
     ac = Path("sdk/agent/sandbox_windows_appcontainer.py").read_text(encoding="utf-8")
     win = Path("sdk/agent/sandbox_windows.py").read_text(encoding="utf-8")
     assert "CreateAppContainerProfile" in ac
+    assert "CreateAppContainerProfile.restype = ctypes.HRESULT" not in ac
+    assert "DeriveAppContainerSidFromAppContainerName.restype = ctypes.c_long" in ac
     assert "CreateProcessW" in ac
     assert "PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES" in ac
     assert "S-1-15-3-1" in ac
@@ -72,6 +74,15 @@ def test_windows_honesty_in_module():
     assert "(RX)" in ac
     assert "ACCESS DENIED" in ac
     assert "Start-Job" not in Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
+
+
+def test_macos_profile_lists_resolved_and_raw_paths(tmp_path):
+    workdir = tmp_path / "workspace"
+    workdir.mkdir()
+    profile = MacOSSandbox()._profile(SandboxConfig(readwrite_paths=[workdir]), workdir)
+    assert str(workdir) in profile
+    assert str(workdir.resolve()) in profile
+    assert "(allow file*" in profile
 
 
 def test_macos_sandbox_exec_is_labeled_deprecated():
@@ -129,7 +140,7 @@ async def test_escape_parent_directory_write_blocked():
         inner = workdir / "ok.txt"
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
         inner_result = await _sandbox_exec(_write_argv(inner), workdir, config, timeout=5.0)
-        assert inner.exists(), inner_result.stderr
+        assert inner.exists(), (inner_result.returncode, inner_result.stdout, inner_result.stderr)
         await _sandbox_exec(_write_argv(parent_file), workdir, config, timeout=5.0)
         assert not parent_file.exists()
 
@@ -365,6 +376,7 @@ def test_report_skip_vs_execute_for_this_os():
         ("test_backend_selection_matches_host", "EXECUTE"),
         ("test_windows_honesty_in_module", "EXECUTE"),
         ("test_macos_sandbox_exec_is_labeled_deprecated", "EXECUTE"),
+        ("test_macos_profile_lists_resolved_and_raw_paths", "EXECUTE"),
         ("test_windows_none_mode_does_not_rewrite_argv", "EXECUTE"),
         (
             "test_windows_strict_wrap_uses_launcher",

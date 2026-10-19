@@ -228,11 +228,13 @@ def _userenv():
         wintypes.LPCWSTR, wintypes.LPCWSTR, wintypes.LPCWSTR,
         ctypes.c_void_p, wintypes.DWORD, ctypes.POINTER(ctypes.c_void_p),
     ]
-    ue.CreateAppContainerProfile.restype = ctypes.HRESULT
+    # ctypes.HRESULT restype RAISES OSError on FAILED(hr). ERROR_ALREADY_EXISTS
+    # then never reaches our handler and the launcher falls back to unsandboxed.
+    ue.CreateAppContainerProfile.restype = ctypes.c_long
     ue.DeriveAppContainerSidFromAppContainerName.argtypes = [
         wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p),
     ]
-    ue.DeriveAppContainerSidFromAppContainerName.restype = ctypes.HRESULT
+    ue.DeriveAppContainerSidFromAppContainerName.restype = ctypes.c_long
     return ue
 
 
@@ -247,26 +249,54 @@ def _sid_to_string(sid) -> str:
         ctypes.windll.kernel32.LocalFree(out)
 
 
+_HR_ALREADY_EXISTS = 0x800700B7
+_HR_FILE_EXISTS = 0x80070050
+
+
+def _hr_ok(hr: int) -> bool:
+    return int(hr) >= 0
+
+
+def _hr_already(hr: int) -> bool:
+    code = int(hr) & 0xFFFFFFFF
+    return code in (_HR_ALREADY_EXISTS, _HR_FILE_EXISTS, 183)
+
+
 def ensure_profile() -> str:
     """Return the AppContainer SID string, creating the profile if needed."""
     ue = _userenv()
     sid = ctypes.c_void_p()
-    hr = ue.CreateAppContainerProfile(
-        PROFILE_NAME, "Tala workstation", "Tala workstation AppContainer",
-        None, 0, ctypes.byref(sid),
-    )
-    # 0 == S_OK; 0x800700B7 == HRESULT_FROM_WIN32(ERROR_ALREADY_EXISTS)
-    already = (hr & 0xFFFFFFFF) in (0x800700B7, 0x80070050)
-    if hr >= 0 and sid.value:
+    hr = ue.DeriveAppContainerSidFromAppContainerName(PROFILE_NAME, ctypes.byref(sid))
+    if _hr_ok(hr) and sid.value:
         try:
             return _sid_to_string(sid.value)
         finally:
             _advapi().FreeSid(sid)
-    if already or hr >= 0:
+    sid = ctypes.c_void_p()
+    try:
+        hr = ue.CreateAppContainerProfile(
+            PROFILE_NAME, "Tala workstation", "Tala workstation AppContainer",
+            None, 0, ctypes.byref(sid),
+        )
+    except OSError as exc:
+        winerr = getattr(exc, "winerror", 0) or 0
+        if _hr_already(winerr) or "already exists" in str(exc).lower():
+            hr = ctypes.c_long(_HR_ALREADY_EXISTS).value
+            sid = ctypes.c_void_p()
+        else:
+            raise
+    if _hr_ok(hr) and sid.value:
+        try:
+            return _sid_to_string(sid.value)
+        finally:
+            _advapi().FreeSid(sid)
+    if _hr_already(hr) or _hr_ok(hr):
         sid2 = ctypes.c_void_p()
         hr2 = ue.DeriveAppContainerSidFromAppContainerName(PROFILE_NAME, ctypes.byref(sid2))
-        if hr2 < 0 or not sid2.value:
-            raise OSError(f"DeriveAppContainerSidFromAppContainerName failed hr=0x{hr2 & 0xFFFFFFFF:08X}")
+        if not _hr_ok(hr2) or not sid2.value:
+            raise OSError(
+                f"DeriveAppContainerSidFromAppContainerName failed hr=0x{hr2 & 0xFFFFFFFF:08X}"
+            )
         try:
             return _sid_to_string(sid2.value)
         finally:
@@ -341,7 +371,10 @@ def _grant_paths(sid_str: str, write_paths: Sequence[str], read_paths: Sequence[
     for path, write in items:
         if not path:
             continue
-        target = Path(path)
+        try:
+            target = Path(path).resolve()
+        except OSError:
+            target = Path(path)
         if is_volume_root(target):
             log.warning("TALA_SANDBOX: refusing ACL grant on volume root %s", target)
             continue
@@ -366,7 +399,10 @@ def _revoke_paths(sid_str: str, paths: Sequence[str]) -> None:
     for path in paths:
         if not path:
             continue
-        target = Path(path)
+        try:
+            target = Path(path).resolve()
+        except OSError:
+            target = Path(path)
         if is_volume_root(target) or not target.exists():
             continue
         result = subprocess.run(
