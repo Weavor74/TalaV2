@@ -1580,25 +1580,14 @@ const InferenceManager = {
         }
         // Handle fallback notification when remote provider fails
         if (msg && msg.method === 'inference.fallback') {
-          const fromProvider = msg.params?.from || 'remote provider';
-          const toProvider = msg.params?.to || 'local model';
+          const from = msg.params?.from || 'remote provider';
+          const to = msg.params?.to || 'local model';
           const reason = msg.params?.reason || 'Provider failed';
-          
-          // Show notification in chat or log
-          if (window.ChatManager && window.ChatManager.appendMessage) {
-            window.ChatManager.appendMessage({
-              sender: 'system',
-              body: `⚠️ ${reason}: "${fromProvider}" → "${toProvider}"`,
-              timestamp: new Date().toISOString(),
-              isSystem: true
-            });
+          if (window.ChatManager?.appendMessage) {
+            window.ChatManager.appendMessage({sender: 'system', body: `⚠️ ${reason}: "${from}" → "${to}"`, timestamp: new Date().toISOString(), isSystem: true});
           }
-          
-          // Also log to console and IPC log
-          console.warn(`[Inference Fallback] ${fromProvider} → ${toProvider}: ${reason}`);
-          if (window.IPCLog) {
-            window.IPCLog.append('warn', `Inference fallback: ${fromProvider} → ${toProvider}`);
-          }
+          console.warn(`[Inference Fallback] ${from} → ${to}: ${reason}`);
+          if (window.IPCLog) window.IPCLog.append('warn', `Inference fallback: ${from} → ${to}`);
         }
       });
     } catch (err) {
@@ -2225,39 +2214,21 @@ const InferenceManager = {
       this._stepDet.innerHTML = html;
       this._stepDet.hidden = false;
 
-      // Wire service -> show/hide custom endpoint
+      // Wire service -> prefill known endpoints
       if (type === 'remote') {
         const svc = qs('#prov-service');
         const epField = qs('#prov-endpoint');
         if (svc && epField) {
-          // Prefill known endpoints when service is selected
           const prefillEndpoint = () => {
             const service = svc.value;
-            const currentEndpoint = epField.value.trim();
-            
-            // Only prefill if endpoint is empty
-            if (!currentEndpoint) {
-              const knownEndpoints = {
-                'gemini': 'https://generativelanguage.googleapis.com/v1beta/openai',
-                'openai': 'https://api.openai.com/v1',
-                // Anthropic doesn't have OpenAI-compatible endpoint, user must provide their own
-              };
-              
-              if (knownEndpoints[service]) {
-                epField.value = knownEndpoints[service];
-                epField.placeholder = knownEndpoints[service];
-              }
+            if (!epField.value.trim()) {
+              const endpoints = {'gemini': 'https://generativelanguage.googleapis.com/v1beta/openai', 'openai': 'https://api.openai.com/v1'};
+              if (endpoints[service]) epField.value = epField.placeholder = endpoints[service];
             }
           };
-          
           svc.addEventListener('change', prefillEndpoint);
-          // Run once on load if this is a new provider
-          if (!this._editingId) {
-            setTimeout(prefillEndpoint, 0);
-          }
+          if (!this._editingId) setTimeout(prefillEndpoint, 0);
         }
-        const epg = qs('#prov-endpoint-group');
-        // We now allow endpoint override for ALL services.
       }
     }
   },
