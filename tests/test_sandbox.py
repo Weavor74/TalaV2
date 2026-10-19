@@ -113,16 +113,20 @@ def _interpreter_read_paths() -> list[Path]:
     return paths
 
 
-def _tcp_connect_argv(port: int) -> list[str]:
+def _tcp_connect_argv(host: str, port: int) -> list[str]:
     code = (
         "import socket,sys\n"
         "s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)\n"
         "s.settimeout(1)\n"
         "try:\n"
-        f"    s.connect(('127.0.0.1', {int(port)}))\n"
+        f"    s.connect(({host!r}, {int(port)}))\n"
         "    print('CONNECTED')\n"
+        "except TimeoutError as e:\n"
+        "    print('SOCKET_TIMEOUT %s' % e, file=sys.stderr)\n"
+        "    raise SystemExit(2)\n"
         "except OSError as e:\n"
-        "    print('ERRNO=%s %s' % (getattr(e, 'errno', None), e), file=sys.stderr)\n"
+        "    print('ERRNO=%s WINERR=%s %s' % ("
+        "getattr(e, 'errno', None), getattr(e, 'winerror', None), e), file=sys.stderr)\n"
         "    raise SystemExit(1)\n"
     )
     return [sys.executable, "-B", "-c", code]
@@ -150,10 +154,21 @@ def _assert_network_denied(result) -> None:
     assert b"spawn-failed" not in combined, combined
     assert b"CONNECTED" not in combined, combined
     assert b"SOCKET_TIMEOUT" not in combined, combined
-    assert result.returncode != 0, combined
+    assert result.returncode not in (0, None), combined
+    low = text.lower()
+    assert "timed out" not in low, combined
+    if platform.system() == "Windows":
+        assert (
+            "10013" in low
+            or "forbidden by its access permissions" in low
+            or "access is denied" in low
+            or "access denied" in low
+            or "operation not permitted" in low
+            or "wsaeacces" in low
+        ), combined
+        return
     if platform.system() != "Darwin":
         return
-    low = text.lower()
     if "operation not permitted" in low or "errno=1" in low or "eperm" in low:
         return
     deny = _macos_deny_log()
@@ -439,50 +454,47 @@ async def test_escape_etc_write_blocked():
 async def test_network_isolation():
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
-        srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
-        srv.bind(("127.0.0.1", 0))
-        srv.listen(5)
-        port = srv.getsockname()[1]
-        stop = threading.Event()
+        open_cfg = SandboxConfig(mode="none", readwrite_paths=[workdir])
+        closed_cfg = SandboxConfig(
+            mode="strict",
+            allow_network=False,
+            readwrite_paths=[workdir],
+            readonly_paths=_interpreter_read_paths(),
+        )
+        stop: threading.Event | None = None
+        srv = None
+        if platform.system() == "Windows":
+            # Loopback Connect() is black-holed in AppContainer (hangs).
+            # internetClient-gated outbound fails fast with WSAEACCES (10013).
+            argv = _tcp_connect_argv("1.1.1.1", 443)
+        else:
+            srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+            srv.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
+            srv.bind(("127.0.0.1", 0))
+            srv.listen(5)
+            port = srv.getsockname()[1]
+            stop = threading.Event()
 
-        def _accept():
-            srv.settimeout(0.3)
-            while not stop.is_set():
-                try:
-                    conn, _ = srv.accept()
-                    conn.close()
-                except socket.timeout:
-                    continue
-                except OSError:
-                    break
-            srv.close()
+            def _accept():
+                srv.settimeout(0.3)
+                while not stop.is_set():
+                    try:
+                        conn, _ = srv.accept()
+                        conn.close()
+                    except socket.timeout:
+                        continue
+                    except OSError:
+                        break
+                srv.close()
 
-        threading.Thread(target=_accept, daemon=True).start()
+            threading.Thread(target=_accept, daemon=True).start()
+            argv = _tcp_connect_argv("127.0.0.1", port)
         try:
-            open_cfg = SandboxConfig(mode="none", readwrite_paths=[workdir])
-            closed_cfg = SandboxConfig(
-                mode="strict",
-                allow_network=False,
-                readwrite_paths=[workdir],
-                readonly_paths=_interpreter_read_paths(),
-            )
-            if platform.system() == "Windows":
-                ps = (
-                    f"try {{ $c = New-Object System.Net.Sockets.TcpClient; "
-                    f"$c.Connect('127.0.0.1', {port}); "
-                    f"if ($c.Connected) {{ exit 0 }} else {{ exit 1 }} }} catch {{ exit 1 }}"
-                )
-                argv = ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps]
-                open_timeout, closed_timeout = 12.0, 12.0
-            else:
-                argv = _tcp_connect_argv(port)
-                open_timeout, closed_timeout = 5.0, 5.0
-            opened = await _sandbox_exec(argv, workdir, open_cfg, timeout=open_timeout)
+            opened = await _sandbox_exec(argv, workdir, open_cfg, timeout=5.0)
             assert opened.returncode == 0, _combined(opened)
-            assert b"CONNECTED" in _combined(opened) or platform.system() == "Windows", _combined(opened)
+            assert b"CONNECTED" in _combined(opened), _combined(opened)
             try:
-                closed = await _sandbox_exec(argv, workdir, closed_cfg, timeout=closed_timeout)
+                closed = await _sandbox_exec(argv, workdir, closed_cfg, timeout=5.0)
             except TimeoutError:
                 deny = _macos_deny_log() if platform.system() == "Darwin" else ""
                 raise AssertionError(
@@ -491,7 +503,8 @@ async def test_network_isolation():
                 ) from None
             _assert_network_denied(closed)
         finally:
-            stop.set()
+            if stop is not None:
+                stop.set()
 
 
 @pytest.mark.asyncio
