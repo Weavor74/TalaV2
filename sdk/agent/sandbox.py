@@ -12,12 +12,15 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import os
 import platform
 import shutil
 import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
+
+from sdk.agent.async_shell import AsyncShellExecutor
 
 log = logging.getLogger(__name__)
 
@@ -216,6 +219,38 @@ class WindowsSandbox(SandboxBackend):
         if self._session is not None:
             self._session.cleanup()
             self._session = None
+
+
+class LocalSandbox:
+    """Host-local command executor. Same interface as the old DockerSandbox."""
+
+    async def start_container(self, task_id: str, worktree_path: str, port_mappings: dict[int, int] | None = None) -> bool:
+        log.debug("LocalSandbox: start_container called for task %s (no-op)", task_id)
+        return True
+
+    async def stop_container(self, task_id: str) -> bool:
+        log.debug("LocalSandbox: stop_container called for task %s (no-op)", task_id)
+        return True
+
+    async def pause_container(self, task_id: str) -> bool:
+        return True
+
+    async def resume_container(self, task_id: str) -> bool:
+        return True
+
+    async def execute_command(
+        self,
+        task_id: str,
+        command: str,
+        env: dict[str, str] | None = None,
+        cwd: str | None = None,
+    ) -> dict[str, Any]:
+        effective_cwd = cwd or os.getcwd()
+        log.info("LocalSandbox: executing command for task %s in %s: %s", task_id, effective_cwd, command)
+        return await AsyncShellExecutor.run(command, cwd=effective_cwd, env_override=env)
+
+
+DockerSandbox = LocalSandbox
 
 
 class NoOpSandbox(SandboxBackend):
