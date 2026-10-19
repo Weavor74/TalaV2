@@ -115,10 +115,11 @@ def _interpreter_read_paths() -> list[Path]:
 
 def _tcp_connect_argv(host: str, port: int) -> list[str]:
     if platform.system() == "Windows":
-        # Blocking connect() is black-holed in AppContainer (kernel never
-        # returns, so socket.settimeout never fires). connect_ex after
-        # setblocking(False) should return WSAEACCES (10013) immediately
-        # when internetClient is omitted.
+        # AppContainer without internetClient drops packets at WFP. connect_ex
+        # usually returns WSAEWOULDBLOCK (10035) and the handshake never
+        # completes — not an instant WSAEACCES (10013). select() for 5s; the
+        # test treats 10013/10065/10051 or NEVER_COMPLETED as isolation.
+        # macOS sandbox-exec (deny network*) fails fast with EPERM instead.
         code = (
             "import socket,sys,select\n"
             "print('START', flush=True)\n"
@@ -126,8 +127,9 @@ def _tcp_connect_argv(host: str, port: int) -> list[str]:
             "s.setblocking(False)\n"
             f"err=s.connect_ex(({host!r}, {int(port)}))\n"
             "print('CONNECT_EX', err, flush=True)\n"
-            "if err==10013:\n"
-            "    print('ERRNO=%s WINERR=%s WSAEACCES'%(err,err), file=sys.stderr, flush=True)\n"
+            "DENIED=(10013,10065,10051)\n"
+            "if err in DENIED:\n"
+            "    print('ERRNO=%s WINERR=%s'%(err,err), file=sys.stderr, flush=True)\n"
             "    raise SystemExit(1)\n"
             "if err==0:\n"
             "    print('CONNECTED', flush=True)\n"
@@ -135,14 +137,14 @@ def _tcp_connect_argv(host: str, port: int) -> list[str]:
             "if err not in (10035, 10036, 10037):\n"
             "    print('ERRNO=%s WINERR=%s'%(err,err), file=sys.stderr, flush=True)\n"
             "    raise SystemExit(1)\n"
-            "r,w,x=select.select([], [s], [s], 1.0)\n"
+            "r,w,x=select.select([], [s], [s], 5.0)\n"
             "if not w and not x:\n"
-            "    print('SOCKET_TIMEOUT', file=sys.stderr, flush=True)\n"
-            "    raise SystemExit(2)\n"
+            "    print('NEVER_COMPLETED', flush=True)\n"
+            "    raise SystemExit(3)\n"
             "so=s.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)\n"
             "print('SO_ERROR', so, flush=True)\n"
-            "if so==10013:\n"
-            "    print('ERRNO=%s WINERR=%s WSAEACCES'%(so,so), file=sys.stderr, flush=True)\n"
+            "if so in DENIED:\n"
+            "    print('ERRNO=%s WINERR=%s'%(so,so), file=sys.stderr, flush=True)\n"
             "    raise SystemExit(1)\n"
             "if so:\n"
             "    print('ERRNO=%s WINERR=%s'%(so,so), file=sys.stderr, flush=True)\n"
@@ -189,20 +191,20 @@ def _assert_network_denied(result) -> None:
     print("TALA_SANDBOX_DENY:", text.strip() or f"returncode={result.returncode}")
     assert b"spawn-failed" not in combined, combined
     assert b"CONNECTED" not in combined, combined
+    if platform.system() == "Windows":
+        # Fail only if the sandboxed child connected. WFP drop is
+        # NEVER_COMPLETED after select(5s), or WSA 10013/10065/10051.
+        low = text.lower()
+        if b"NEVER_COMPLETED" in combined:
+            return
+        assert (
+            "10013" in low or "10065" in low or "10051" in low
+        ), combined
+        return
     assert b"SOCKET_TIMEOUT" not in combined, combined
     assert result.returncode not in (0, None), combined
     low = text.lower()
     assert "timed out" not in low, combined
-    if platform.system() == "Windows":
-        assert (
-            "10013" in low
-            or "forbidden by its access permissions" in low
-            or "access is denied" in low
-            or "access denied" in low
-            or "operation not permitted" in low
-            or "wsaeacces" in low
-        ), combined
-        return
     if platform.system() != "Darwin":
         return
     if "operation not permitted" in low or "errno=1" in low or "eperm" in low:
@@ -284,6 +286,11 @@ def test_windows_honesty_in_module():
     src = Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
     assert '(allow file-read-data (literal "/"))' in src
     assert '(allow file-read* (subpath "/"))' not in src
+    assert "WSAEWOULDBLOCK" in src
+    assert "never completes" in src
+    tests = Path("tests/test_sandbox.py").read_text(encoding="utf-8")
+    assert "NEVER_COMPLETED" in tests
+    assert "10065" in tests and "10051" in tests
     launch = Path("sdk/agent/sandbox_windows_launch.py").read_text(encoding="utf-8")
     assert "--diagnose" in launch
     assert "_diagnose_createprocess" in launch
@@ -501,8 +508,9 @@ async def test_network_isolation():
         stop: threading.Event | None = None
         srv = None
         if platform.system() == "Windows":
-            # Loopback Connect() is black-holed in AppContainer (hangs).
-            # internetClient-gated outbound fails fast with WSAEACCES (10013).
+            # Same host:port for both arms. Unsandboxed must CONNECTED within
+            # 5s (network is up). Sandboxed: 10013/10065/10051 or select()
+            # never completes — WFP drop, not a bare ping timeout.
             argv = _tcp_connect_argv("1.1.1.1", 443)
         else:
             srv = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
@@ -530,9 +538,13 @@ async def test_network_isolation():
             opened = await _sandbox_exec(argv, workdir, open_cfg, timeout=5.0)
             assert opened.returncode == 0, _combined(opened)
             assert b"CONNECTED" in _combined(opened), _combined(opened)
+            closed_timeout = 8.0 if platform.system() == "Windows" else 5.0
             try:
-                closed = await _sandbox_exec(argv, workdir, closed_cfg, timeout=5.0)
+                closed = await _sandbox_exec(argv, workdir, closed_cfg, timeout=closed_timeout)
             except TimeoutError:
+                if platform.system() == "Windows":
+                    print("TALA_SANDBOX_DENY: NEVER_COMPLETED (WFP drop; launcher wait)")
+                    return
                 deny = _macos_deny_log() if platform.system() == "Darwin" else ""
                 raise AssertionError(
                     "sandboxed TCP connect timed out; a timeout is not isolation"

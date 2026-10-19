@@ -8,7 +8,10 @@ CreateAppContainerProfile + ACL grants + CreateProcess SECURITY_CAPABILITIES.
 What AppContainer DOES (no admin at runtime):
 - Writes only where we ACL-grant the AppContainer SID (workspace + extra roots)
 - No writes to Tala's install or user-data folder (those paths are never granted)
-- No Winsock unless internetClient / privateNetworkClientServer are passed
+- No Winsock unless internetClient / privateNetworkClientServer are passed.
+  Omitting them is not a fast WSAEACCES (10013). WFP drops the packets:
+  connect_ex returns WSAEWOULDBLOCK (10035) and never completes. macOS
+  sandbox-exec (deny network*) returns EPERM / a deny line instead.
 - First-run CreateAppContainerProfile is per-user; no elevated setup step
 
 What this DOES NOT:

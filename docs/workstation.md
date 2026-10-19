@@ -175,6 +175,9 @@ Linux host it also runs the real adapter end to end (bash, TMPDIR, `/etc/shadow`
     grant for that SID; Tala's install and user-data folders are never granted.
     Network capabilities (`internetClient`, `privateNetworkClientServer`) are
     omitted unless the command was approved for network or `TALA_WORKSTATION_NET=1`.
+    That is not macOS EPERM: WFP drops the packets, so a TCP connect returns
+    WSAEWOULDBLOCK (10035) and never completes (or 10013/10065/10051).
+    `sandbox-exec (deny network*)` fails fast with `Operation not permitted`.
     A job object still wraps the tree (kill-on-close). Read+execute ACLs are
     granted on the **specific** interpreter, venv and tool paths the child
     runs (`icacls /grant:r`, never a whole drive) so a workspace on `D:` can

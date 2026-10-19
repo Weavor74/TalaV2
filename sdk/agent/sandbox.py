@@ -255,6 +255,11 @@ class WindowsSandbox(SandboxBackend):
     cmd.exe / powershell.exe are resolved with GetSystemDirectoryW, not a
     hardcoded "C:\\Windows\\System32" path (that tree already grants
     ALL APPLICATION PACKAGES, so Tala does not icacls it).
+
+    Network without internetClient is not macOS EPERM. WFP drops the
+    packets: connect_ex returns WSAEWOULDBLOCK (10035) and the handshake
+    never completes. sandbox-exec (deny network*) fails fast with EPERM
+    or a deny line instead.
     """
 
     confinement = Confinement(filesystem=True, network=True, process_job=True, label="appcontainer")
