@@ -232,6 +232,10 @@ def _userenv():
         wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p),
     ]
     ue.DeriveAppContainerSidFromAppContainerName.restype = ctypes.c_long
+    ue.GetAppContainerFolderPath.argtypes = [
+        wintypes.LPCWSTR, ctypes.POINTER(wintypes.LPWSTR),
+    ]
+    ue.GetAppContainerFolderPath.restype = ctypes.c_long
     return ue
 
 
@@ -259,16 +263,28 @@ def _hr_already(hr: int) -> bool:
     return code in (_HR_ALREADY_EXISTS, _HR_FILE_EXISTS, 183)
 
 
-def ensure_profile() -> str:
-    """Return the AppContainer SID string, creating the profile if needed."""
+def _appcontainer_folder_path(sid_str: str) -> tuple[int, str]:
+    """GetAppContainerFolderPath; empty path if the API or folder lookup fails."""
     ue = _userenv()
-    sid = ctypes.c_void_p()
-    hr = ue.DeriveAppContainerSidFromAppContainerName(PROFILE_NAME, ctypes.byref(sid))
-    if _hr_ok(hr) and sid.value:
-        try:
-            return _sid_to_string(sid.value)
-        finally:
-            _advapi().FreeSid(sid)
+    out = wintypes.LPWSTR()
+    hr = ue.GetAppContainerFolderPath(sid_str, ctypes.byref(out))
+    path = ""
+    try:
+        if out.value:
+            path = out.value
+    finally:
+        if out.value:
+            ctypes.windll.ole32.CoTaskMemFree(out)
+    return int(hr) & 0xFFFFFFFF, path
+
+
+def _create_appcontainer_profile() -> tuple[int, str]:
+    """Always call CreateAppContainerProfile. Derive SID only if the profile already exists.
+
+    DeriveAppContainerSidFromAppContainerName succeeds without creating the
+    package folder or registry hive. CreateProcess then returns Win32 2.
+    """
+    ue = _userenv()
     sid = ctypes.c_void_p()
     try:
         hr = ue.CreateAppContainerProfile(
@@ -282,23 +298,30 @@ def ensure_profile() -> str:
             sid = ctypes.c_void_p()
         else:
             raise
+    hr_u = int(hr) & 0xFFFFFFFF
     if _hr_ok(hr) and sid.value:
         try:
-            return _sid_to_string(sid.value)
+            return hr_u, _sid_to_string(sid.value)
         finally:
             _advapi().FreeSid(sid)
-    if _hr_already(hr) or _hr_ok(hr):
-        sid2 = ctypes.c_void_p()
-        hr2 = ue.DeriveAppContainerSidFromAppContainerName(PROFILE_NAME, ctypes.byref(sid2))
-        if not _hr_ok(hr2) or not sid2.value:
-            raise OSError(
-                f"DeriveAppContainerSidFromAppContainerName failed hr=0x{hr2 & 0xFFFFFFFF:08X}"
-            )
-        try:
-            return _sid_to_string(sid2.value)
-        finally:
-            _advapi().FreeSid(sid2)
-    raise OSError(f"CreateAppContainerProfile failed hr=0x{hr & 0xFFFFFFFF:08X}")
+    if not _hr_already(hr):
+        raise OSError(f"CreateAppContainerProfile failed hr=0x{hr_u:08X}")
+    sid2 = ctypes.c_void_p()
+    hr2 = ue.DeriveAppContainerSidFromAppContainerName(PROFILE_NAME, ctypes.byref(sid2))
+    if not _hr_ok(hr2) or not sid2.value:
+        raise OSError(
+            f"DeriveAppContainerSidFromAppContainerName failed hr=0x{int(hr2) & 0xFFFFFFFF:08X}"
+        )
+    try:
+        return hr_u, _sid_to_string(sid2.value)
+    finally:
+        _advapi().FreeSid(sid2)
+
+
+def ensure_profile() -> str:
+    """Create the AppContainer profile if needed; return its SID string."""
+    _hr, sid_str = _create_appcontainer_profile()
+    return sid_str
 
 
 def _is_volume_root(path: Path | str) -> bool:
@@ -754,11 +777,20 @@ def _diagnose_createprocess() -> int:
         emit(f"delete empty list {exc}")
 
     try:
-        sid_str = ensure_profile()
+        hr_create, sid_str = _create_appcontainer_profile()
     except Exception as exc:
-        emit(f"ensure_profile FAIL {type(exc).__name__}: {exc}")
+        emit(f"CreateAppContainerProfile FAIL {type(exc).__name__}: {exc}")
         emit("done")
         return 0
+    emit(
+        f"CreateAppContainerProfile hr=0x{hr_create:08X} "
+        f"S_OK={hr_create == 0} ALREADY_EXISTS={hr_create == _HR_ALREADY_EXISTS}"
+    )
+    folder_hr, folder = _appcontainer_folder_path(sid_str)
+    folder_exists = bool(folder) and Path(folder).exists()
+    emit(
+        f"GetAppContainerFolderPath hr=0x{folder_hr:08X} path={folder!r} exists={folder_exists}"
+    )
     emit(f"sid={sid_str}")
     app_sid = ctypes.c_void_p()
     ok_sid = adv.ConvertStringSidToSidW(sid_str, ctypes.byref(app_sid))

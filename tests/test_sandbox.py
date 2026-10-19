@@ -5,6 +5,7 @@ import os
 import platform
 import shutil
 import socket
+import subprocess
 import sys
 import tempfile
 import threading
@@ -60,6 +61,13 @@ def test_windows_honesty_in_module():
     assert "CreateAppContainerProfile" in ac
     assert "CreateAppContainerProfile.restype = ctypes.HRESULT" not in ac
     assert "DeriveAppContainerSidFromAppContainerName.restype = ctypes.c_long" in ac
+    assert "GetAppContainerFolderPath" in ac
+    body = ac.split("def ensure_profile", 1)[1].split("def _is_volume_root", 1)[0]
+    create_fn = ac.split("def _create_appcontainer_profile", 1)[1].split("def ensure_profile", 1)[0]
+    assert create_fn.find("CreateAppContainerProfile") < create_fn.find(
+        "DeriveAppContainerSidFromAppContainerName"
+    )
+    assert "_create_appcontainer_profile()" in body
     assert "CreateProcessW" in ac
     assert "PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES" in ac
     assert "S-1-15-3-1" in ac
@@ -102,6 +110,7 @@ def test_macos_profile_lists_resolved_and_raw_paths(tmp_path):
     src = Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
     assert ".tala-sandbox.sb" in src
     assert '"-f"' in src or "', '-f'," in src
+    assert "(debug deny)" in profile
     assert "(allow file-map-executable)" in profile
     write_rules = [ln.strip() for ln in profile.splitlines() if "file-write*" in ln]
     assert write_rules
@@ -196,7 +205,25 @@ async def test_escape_parent_directory_write_blocked():
         inner_result = await _sandbox_exec(_write_argv(inner), workdir, config, timeout=timeout)
         combined = (inner_result.stdout or b"") + (inner_result.stderr or b"")
         assert b"spawn-failed" not in combined, combined
-        assert inner.exists(), (inner_result.returncode, inner_result.stdout, inner_result.stderr)
+        if not inner.exists():
+            deny = combined.decode("utf-8", "replace") if isinstance(combined, bytes) else combined
+            if platform.system() == "Darwin":
+                try:
+                    shown = subprocess.run(
+                        [
+                            "log", "show", "--last", "45s", "--style", "compact",
+                            "--predicate",
+                            'eventMessage CONTAINS[c] "deny"',
+                        ],
+                        capture_output=True, text=True, timeout=30,
+                    )
+                    deny += "\nLOG_SHOW:\n" + ((shown.stdout or "") + (shown.stderr or ""))[-4000:]
+                except (OSError, subprocess.TimeoutExpired) as exc:
+                    deny += f"\nLOG_SHOW_FAIL: {exc}"
+            print("TALA_SANDBOX_DENY:", deny)
+            assert inner.exists(), (
+                inner_result.returncode, inner_result.stdout, inner_result.stderr, deny,
+            )
         parent_result = await _sandbox_exec(_write_argv(parent_file), workdir, config, timeout=timeout)
         parent_out = (parent_result.stdout or b"") + (parent_result.stderr or b"")
         assert b"spawn-failed" not in parent_out, parent_out

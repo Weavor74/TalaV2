@@ -204,6 +204,7 @@ class MacOSSandbox(SandboxBackend):
             #   (allow file-write* (subpath "/private/var/folders/.../workspace"))
             lines += [
                 "(deny default)",
+                "(debug deny)",
                 "(allow process-exec*)",
                 "(allow process-fork)",
                 "(allow signal)",
