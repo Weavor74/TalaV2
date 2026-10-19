@@ -1572,22 +1572,15 @@ const InferenceManager = {
       if (e.key === 'Escape' && this._modal && !this._modal.hidden) this.closeModal();
     });
 
-    // Register WebSocket Push Notification Listener for provider list changes
+    // Register WebSocket Push Notification Listener for provider list changes and fallback
     try {
       this._wsListenerCleanup = window.tala.on('python:notification', (msg) => {
-        if (msg && msg.method === 'inference.providers_changed') {
-          this.loadProviders();
-        }
-        // Handle fallback notification when remote provider fails
+        if (msg && msg.method === 'inference.providers_changed') this.loadProviders();
         if (msg && msg.method === 'inference.fallback') {
-          const from = msg.params?.from || 'remote provider';
-          const to = msg.params?.to || 'local model';
-          const reason = msg.params?.reason || 'Provider failed';
-          if (window.ChatManager?.appendMessage) {
-            window.ChatManager.appendMessage({sender: 'system', body: `⚠️ ${reason}: "${from}" → "${to}"`, timestamp: new Date().toISOString(), isSystem: true});
-          }
-          console.warn(`[Inference Fallback] ${from} → ${to}: ${reason}`);
-          if (window.IPCLog) window.IPCLog.append('warn', `Inference fallback: ${from} → ${to}`);
+          const f = msg.params?.from || 'remote', t = msg.params?.to || 'local', r = msg.params?.reason || 'failed';
+          if (window.ChatManager?.appendMessage) window.ChatManager.appendMessage({sender:'system',body:`⚠️ ${r}: "${f}" → "${t}"`,timestamp:new Date().toISOString(),isSystem:true});
+          console.warn(`[Inference Fallback] ${f} → ${t}: ${r}`);
+          if (window.IPCLog) window.IPCLog.append('warn', `Inference fallback: ${f} → ${t}`);
         }
       });
     } catch (err) {
@@ -2216,18 +2209,11 @@ const InferenceManager = {
 
       // Wire service -> prefill known endpoints
       if (type === 'remote') {
-        const svc = qs('#prov-service');
-        const epField = qs('#prov-endpoint');
-        if (svc && epField) {
-          const prefillEndpoint = () => {
-            const service = svc.value;
-            if (!epField.value.trim()) {
-              const endpoints = {'gemini': 'https://generativelanguage.googleapis.com/v1beta/openai', 'openai': 'https://api.openai.com/v1'};
-              if (endpoints[service]) epField.value = epField.placeholder = endpoints[service];
-            }
-          };
-          svc.addEventListener('change', prefillEndpoint);
-          if (!this._editingId) setTimeout(prefillEndpoint, 0);
+        const svc = qs('#prov-service'), ep = qs('#prov-endpoint');
+        if (svc && ep) {
+          const fill = () => { if (!ep.value.trim()) { const u = {gemini:'https://generativelanguage.googleapis.com/v1beta/openai',openai:'https://api.openai.com/v1'}[svc.value]; if (u) ep.value = ep.placeholder = u; } };
+          svc.addEventListener('change', fill);
+          if (!this._editingId) setTimeout(fill, 0);
         }
       }
     }
