@@ -8,6 +8,8 @@ from __future__ import annotations
 import asyncio
 import threading
 
+import pytest
+
 
 def test_endpoint_validation_in_save():
     """Issue 4 v2: Provider save should reject key-without-endpoint."""
@@ -102,6 +104,7 @@ def test_max_tokens_robust_logic():
     print("✓ test_max_tokens_robust_logic passed")
 
 
+@pytest.mark.asyncio
 async def test_event_loop_responsive_during_lease():
     """Issue 5 v2: Event loop should stay responsive during lease wait."""
     try:
@@ -158,6 +161,7 @@ async def test_event_loop_responsive_during_lease():
     print("✓ test_event_loop_responsive_during_lease passed")
 
 
+@pytest.mark.asyncio
 async def test_broadcast_thread_safe():
     """Issue 6 v2: Broadcast should work from both on-loop and off-loop."""
     try:
