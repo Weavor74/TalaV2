@@ -3041,10 +3041,26 @@ async def handle_inference_generate(
                             headers["Authorization"] = f"Bearer {api_key}"
 
                     model_lower = model.lower()
-                    is_reasoning_model = any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "deepseek", "thought", "thinking", "o1", "o3"))
-                    adjusted_max_tokens = max_tokens
-                    if is_reasoning_model and adjusted_max_tokens < 2048:
-                        adjusted_max_tokens = 2048
+                    
+                    # Robust max_tokens: remote/OpenAI-compatible providers get higher default
+                    # Word-bounded pattern matching to avoid false matches (e.g. 'ro1' matching 'o1')
+                    is_reasoning_model = (
+                        re.search(r'\b(o1|o3)\b', model_lower) or
+                        any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "deepseek", "thought", "thinking"))
+                    )
+                    
+                    # Provider-specific max_tokens override
+                    provider_max_tokens = p_config.get("max_tokens")
+                    if provider_max_tokens:
+                        adjusted_max_tokens = int(provider_max_tokens)
+                    elif p_type == "remote":
+                        # Remote providers default to 4096 to handle thinking models safely
+                        adjusted_max_tokens = max(max_tokens, 4096)
+                    elif is_reasoning_model:
+                        # Local thinking models get 2048 minimum
+                        adjusted_max_tokens = max(max_tokens, 2048)
+                    else:
+                        adjusted_max_tokens = max_tokens
 
                     actual_temp = temperature
                     # Kimi/Moonshot models only support temperature=1.0. Lower/higher values trigger HTTP 400.
@@ -16020,6 +16036,12 @@ def main() -> None:
         loop = asyncio.new_event_loop()
         loop.set_default_executor(executor)
         asyncio.set_event_loop(loop)
+        
+        # Store loop reference on main thread for thread-safe coroutine scheduling
+        # (lease_policy.py broadcast from executor threads)
+        import threading
+        threading.main_thread()._tala_main_loop = loop
+        
         loop.run_until_complete(_run_server())
     except KeyboardInterrupt:
         pass  # Handled by signal handler
