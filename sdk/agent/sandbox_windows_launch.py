@@ -68,16 +68,20 @@ def main(argv: list[str] | None = None) -> int:
                 command, workdir, args.grant, allow_network=args.allow_network,
                 read_paths=args.grant_read,
             )
-    except ac.AccessDenied as exc:
+    except ac.AccessDenied as extra:
         _write_status(args.status_file, {
-            "mode": "access-denied", "path": exc.path, "reason": str(exc),
+            "mode": "access-denied", "path": extra.path, "reason": str(extra),
         })
-        sys.stderr.write(f"{ac.ACCESS_DENIED_MARK} path={exc.path}\n{exc}\n")
+        sys.stderr.write(f"{ac.ACCESS_DENIED_MARK} path={extra.path}\n{extra}\n")
         sys.stderr.flush()
         return 5
-    except Exception as exc:
-        _write_status(args.status_file, {"mode": "guarded-policy-only", "reason": str(exc)})
-        result = ac.guarded_run(command, workdir, str(exc))
+    except Exception as extra:
+        # Missing APIs already took the guarded path above. CreateProcess /
+        # ACL failures must not silently run unsandboxed.
+        _write_status(args.status_file, {"mode": "spawn-failed", "reason": str(extra)})
+        sys.stderr.write(f"TALA_SANDBOX: spawn-failed {extra}\n")
+        sys.stderr.flush()
+        return 1
     sys.stdout.buffer.write(result.stdout or b"")
     sys.stderr.buffer.write(result.stderr or b"")
     return int(result.returncode or 0)

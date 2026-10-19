@@ -304,12 +304,18 @@ def ensure_profile() -> str:
     raise OSError(f"CreateAppContainerProfile failed hr=0x{hr & 0xFFFFFFFF:08X}")
 
 
-def is_volume_root(path: Path | str) -> bool:
+def _is_volume_root(path: Path | str) -> bool:
     try:
         resolved = Path(path).resolve()
     except OSError:
         resolved = Path(path)
     return resolved.parent == resolved
+
+
+def _is_windows_system_path(path: Path | str) -> bool:
+    """System32 / Program Files ACLs are not writable without admin; skip granting."""
+    low = str(path).replace("/", "\\").lower()
+    return "\\windows\\" in low or "\\program files" in low
 
 
 def rx_paths_for_executable(executable: str) -> list[str]:
@@ -327,7 +333,7 @@ def rx_paths_for_executable(executable: str) -> list[str]:
             candidate = candidate.resolve()
         except OSError:
             return
-        if not candidate.exists() or is_volume_root(candidate):
+        if not candidate.exists() or _is_volume_root(candidate) or _is_windows_system_path(candidate):
             return
         text = str(candidate)
         if text not in out:
@@ -375,8 +381,8 @@ def _grant_paths(sid_str: str, write_paths: Sequence[str], read_paths: Sequence[
             target = Path(path).resolve()
         except OSError:
             target = Path(path)
-        if is_volume_root(target):
-            log.warning("TALA_SANDBOX: refusing ACL grant on volume root %s", target)
+        if _is_volume_root(target) or _is_windows_system_path(target):
+            log.warning("TALA_SANDBOX: refusing ACL grant on %s", target)
             continue
         if write:
             try:
@@ -403,7 +409,7 @@ def _revoke_paths(sid_str: str, paths: Sequence[str]) -> None:
             target = Path(path).resolve()
         except OSError:
             target = Path(path)
-        if is_volume_root(target) or not target.exists():
+        if _is_volume_root(target) or _is_windows_system_path(target) or not target.exists():
             continue
         result = subprocess.run(
             [icacls, str(target), "/remove", f"*{sid_str}", "/Q"],
@@ -505,6 +511,10 @@ def spawn_appcontainer(
 ) -> subprocess.CompletedProcess:
     if not argv:
         raise ValueError("argv is empty")
+    try:
+        workdir = str(Path(workdir).resolve())
+    except OSError:
+        workdir = str(workdir)
     sid_str = ensure_profile()
     exe = shutil.which(argv[0]) or argv[0]
     merged_read: list[str] = []
@@ -572,7 +582,7 @@ def spawn_appcontainer(
             k32.CloseHandle(r_out)
             k32.CloseHandle(r_err)
             err = ctypes.get_last_error()
-            if err == ERROR_ACCESS_DENIED:
+            if err in (ERROR_ACCESS_DENIED, 2):
                 raise AccessDenied(str(exe), err)
             raise OSError(f"CreateProcessW(AppContainer) failed ({err}) for {exe}")
         job = _job(k32)

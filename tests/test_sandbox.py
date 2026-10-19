@@ -27,7 +27,9 @@ def _backend():
 
 def _write_argv(path: Path) -> list[str]:
     if platform.system() == "Windows":
-        return ["cmd.exe", "/c", f'echo escaped>"{path}"']
+        # cmd.exe lives in System32; AppContainer cannot icacls that without
+        # admin (Windows Server CI). Python is grantable and is what Tala runs.
+        return [sys.executable, "-c", f"open({str(path)!r}, 'w', encoding='utf-8').write('escaped\\n')"]
     return ["sh", "-c", f"echo escaped > '{path}'"]
 
 
@@ -79,10 +81,12 @@ def test_windows_honesty_in_module():
 def test_macos_profile_lists_resolved_and_raw_paths(tmp_path):
     workdir = tmp_path / "workspace"
     workdir.mkdir()
-    profile = MacOSSandbox()._profile(SandboxConfig(readwrite_paths=[workdir]), workdir)
-    assert str(workdir) in profile
-    assert str(workdir.resolve()) in profile
-    assert "(allow file*" in profile
+    backend = MacOSSandbox()
+    profile = backend._profile(SandboxConfig(readwrite_paths=[workdir]), workdir)
+    for sub in backend._subpaths(workdir):
+        assert f'(allow file-write* (subpath "{sub}"))' in profile
+        assert f'(allow file-read* (subpath "{sub}"))' in profile
+    assert "(allow file-map-executable)" in profile
 
 
 def test_macos_sandbox_exec_is_labeled_deprecated():
@@ -190,16 +194,20 @@ async def test_network_isolation():
                     srv.close()
 
             threading.Thread(target=_accept, daemon=True).start()
-            ps = (
-                f"try {{ $c = New-Object System.Net.Sockets.TcpClient; "
-                f"$c.Connect('127.0.0.1', {port}); "
-                f"if ($c.Connected) {{ exit 0 }} else {{ exit 1 }} }} catch {{ exit 1 }}"
+            probe = (
+                "import socket,sys\n"
+                f"s=socket.socket(); s.settimeout(3)\n"
+                "try:\n"
+                f"    s.connect(('127.0.0.1', {port}))\n"
+                "    sys.exit(0)\n"
+                "except Exception:\n"
+                "    sys.exit(1)\n"
             )
             result = await _sandbox_exec(
-                ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
+                [sys.executable, "-c", probe],
                 workdir, config, timeout=8.0,
             )
-            assert result.returncode != 0
+            assert result.returncode != 0, result.stderr
         else:
             result = await _sandbox_exec(["ping", "-c", "1", "127.0.0.1"], workdir, config, timeout=5.0)
             assert result.returncode != 0
@@ -239,14 +247,14 @@ def test_access_denied_error_names_path():
 
 
 def test_rx_paths_never_grant_a_volume_root(tmp_path):
-    from sdk.agent.sandbox_windows_appcontainer import is_volume_root, rx_paths_for_executable
-    assert is_volume_root(Path(tmp_path.anchor))
-    assert not is_volume_root(tmp_path)
+    from sdk.agent.sandbox_windows_appcontainer import _is_volume_root, rx_paths_for_executable
+    assert _is_volume_root(Path(tmp_path.anchor))
+    assert not _is_volume_root(tmp_path)
     paths = rx_paths_for_executable(sys.executable)
     assert paths
     assert sys.executable in paths or any(Path(p) == Path(sys.executable).resolve() for p in paths)
     for raw in paths:
-        assert not is_volume_root(Path(raw)), raw
+        assert not _is_volume_root(Path(raw)), raw
 
 
 def test_wrap_grants_rx_on_interpreter_not_drive(tmp_path):

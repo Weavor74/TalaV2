@@ -169,11 +169,23 @@ class MacOSSandbox(SandboxBackend):
     def _profile(self, config: SandboxConfig, workdir: Path) -> str:
         lines = ["(version 1)"]
         if config.mode == "strict":
-            lines += ["(deny default)", "(allow process-exec)", "(allow process-fork)", "(allow sysctl-read)"]
+            # deny default. Denied writes on modern macOS SIGABRT the child
+            # (empty stderr, returncode -6), so workspace paths must match the
+            # vnode (/var is a symlink to /private/var).
+            lines += [
+                "(deny default)",
+                "(allow process-exec*)",
+                "(allow process-fork)",
+                "(allow signal)",
+                "(allow sysctl-read)",
+                "(allow file-read-metadata)",
+                "(allow file-map-executable)",
+            ]
             lines.append("(allow network*)" if config.allow_network else "(deny network*)")
             for rw in list(config.readwrite_paths) + [workdir]:
                 for sub in self._subpaths(rw):
-                    lines.append(f'(allow file* (subpath "{sub}"))')
+                    lines.append(f'(allow file-read* (subpath "{sub}"))')
+                    lines.append(f'(allow file-write* (subpath "{sub}"))')
             lines += [
                 '(allow file-read* (subpath "/usr"))',
                 '(allow file-read* (subpath "/bin"))',
