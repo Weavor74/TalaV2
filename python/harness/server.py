@@ -6807,15 +6807,12 @@ async def _generate_reply(
         tool_rounds_executed += 1
     if tool_rounds_executed >= MAX_TOOL_ROUNDS_PER_REPLY and _find_tool_call(final_text):
         return "I've reached my step limit while working on this request. The task may require breaking it into smaller steps or simplifying the approach."
-    # Only strip tool tags if we never executed any tools (they're not available)
     if tool_rounds_executed == 0:
         final_text = _strip_tool_tags_if_no_tools(final_text)
     return final_text
 
-
 def _strip_tool_tags_if_no_tools(text: str) -> str:
     return strip_tool_tags_if_no_tools(text, _find_tool_call)
-
 async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None:
     """
     NAME
