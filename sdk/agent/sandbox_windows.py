@@ -17,10 +17,11 @@ What this DOES NOT:
 - Windows Sandbox / Hyper-V / WFP (admin or optional-feature)
 - Hide world-readable files (the child may still READ the install)
 
-If AppContainer APIs fail, the launcher prints TALA_SANDBOX: guarded-policy-only
-and runs unsandboxed. That fallback is also written to a status file so the
-workstation tool result, UI notice, and audit log can surface it. Job-object
-attach() failing is still guarded-policy-only for the process tree only.
+If AppContainer APIs fail, the launcher prints TALA_SANDBOX: job-object-only
+and runs with a job object only (filesystem and network are NOT OS-enforced).
+That fallback is written to a status file so the workstation tool result, UI
+notice, and audit log can surface it. Job-object attach() failing is still
+job-object-only for the process tree.
 """
 from __future__ import annotations
 
@@ -163,7 +164,7 @@ class WindowsJobSession:
 
 
 def _enforcement_label(assigned: bool) -> str:
-    return "job-object" if assigned else "guarded-policy-only"
+    return "job-object" if assigned else "job-object-only"
 
 
 def command_rx_paths(executable: str | Path) -> list[Path]:

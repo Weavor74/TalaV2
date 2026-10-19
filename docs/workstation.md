@@ -185,11 +185,13 @@ Linux host it also runs the real adapter end to end (bash, TMPDIR, `/etc/shadow`
     `ALL APPLICATION PACKAGES`). CreateProcess Win32 2 is `spawn-failed`,
     not an unsandboxed fallback. Workspace
     write grants use `/grant:r` and are **revoked** (`icacls /remove`) when
-    Settings > Workspace moves the folder. If AppContainer APIs fail, the
-    command runs unsandboxed **loudly**: the tool result carries
-    `sandbox_fallback` + a warning, the UI gets `workstation.sandbox_fallback`
-    (same system-notice path as `inference.fallback`), and the workstation
-    audit log records `sandbox_fallback`. Access denied names the path and
+    Settings > Workspace moves the folder.     If AppContainer APIs fail, the
+    command runs with a **job-object-only** fallback (loud): the tool result
+    carries `sandbox=job-object-only` + `sandbox_fallback` + a warning that
+    filesystem and network are NOT OS-enforced, the UI gets
+    `workstation.sandbox_fallback` (same system-notice path as
+    `inference.fallback`), and the workstation audit log records
+    `sandbox_fallback`. Access denied names the path and
     does **not** fall back to unsandboxed. Not used: LPAC (breaks Python/cmd),
     restricted tokens, Windows Sandbox/Hyper-V, WFP (admin). AppContainer may
     still **read** world-readable files on volumes that grant

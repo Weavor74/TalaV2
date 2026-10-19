@@ -52,7 +52,7 @@ GENERIC_ALL_DIR = "(OI)(CI)(F)"
 GENERIC_RX_DIR = "(OI)(CI)(RX)"
 GENERIC_RX_FILE = "(RX)"
 ERROR_ACCESS_DENIED = 5
-FALLBACK_MARK = "TALA_SANDBOX: guarded-policy-only"
+FALLBACK_MARK = "TALA_SANDBOX: job-object-only"
 ACCESS_DENIED_MARK = "TALA_SANDBOX: access-denied"
 CAP_INTERNET_CLIENT = "S-1-15-3-1"
 CAP_PRIVATE_NETWORK = "S-1-15-3-3"
@@ -214,6 +214,8 @@ def _advapi():
     adv.ConvertStringSidToSidW.argtypes = [wintypes.LPCWSTR, ctypes.POINTER(ctypes.c_void_p)]
     adv.ConvertSidToStringSidW.argtypes = [ctypes.c_void_p, ctypes.POINTER(wintypes.LPWSTR)]
     adv.FreeSid.argtypes = [ctypes.c_void_p]
+    adv.IsValidSid.argtypes = [ctypes.c_void_p]
+    adv.IsValidSid.restype = wintypes.BOOL
     return adv
 
 
@@ -656,10 +658,169 @@ def spawn_appcontainer(
             adv.FreeSid(cap)
 
 
+def _diagnose_createprocess() -> int:
+    """CI diagnostic: ctypes sizes, attribute list, SID, cwd, control spawns.
+
+    Prints TALA_AC_DIAG lines and always returns 0 so the log is complete even
+    when AppContainer CreateProcess returns Win32 2.
+    """
+    def emit(msg: str) -> None:
+        sys.stdout.write(f"TALA_AC_DIAG: {msg}\n")
+        sys.stdout.flush()
+
+    if os.name != "nt":
+        emit("skip not-windows")
+        return 0
+    import tempfile
+    k32 = _k32()
+    adv = _advapi()
+    emit(f"sizeof STARTUPINFOW={ctypes.sizeof(STARTUPINFOW)} STARTUPINFOEXW={ctypes.sizeof(STARTUPINFOEXW)}")
+    emit(f"sizeof SECURITY_CAPABILITIES={ctypes.sizeof(SECURITY_CAPABILITIES)}")
+    emit(f"PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES=0x{PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES:08X}")
+    emit(f"EXTENDED_STARTUPINFO_PRESENT=0x{EXTENDED_STARTUPINFO_PRESENT:08X}")
+    cmd = _resolve_launch_exe("cmd.exe")
+    emit(f"cmd={cmd!r} exists={os.path.isfile(cmd)}")
+    sys32 = str(_system_directory())
+    emit(f"System32={sys32!r}")
+    quoted = subprocess.list2cmdline([cmd, "/c", "echo tala-diag-ok"])
+    flags = EXTENDED_STARTUPINFO_PRESENT
+    emit(f"flags=0x{flags:08X} EX_PRESENT_set={bool(flags & EXTENDED_STARTUPINFO_PRESENT)}")
+
+    def last() -> int:
+        return int(ctypes.get_last_error())
+
+    def spawn(label: str, si, cwd, app_name=None, use_flags=None) -> None:
+        fl = flags if use_flags is None else use_flags
+        cmdbuf = ctypes.create_unicode_buffer(quoted)
+        pi = PROCESS_INFORMATION()
+        ok = k32.CreateProcessW(
+            app_name, cmdbuf, None, None, True, fl, None, cwd,
+            ctypes.byref(si), ctypes.byref(pi),
+        )
+        err = 0 if ok else last()
+        cb = int(si.StartupInfo.cb)
+        emit(
+            f"{label} ok={bool(ok)} Win32={err} cb={cb} flags=0x{fl:08X} "
+            f"EX_PRESENT_set={bool(fl & EXTENDED_STARTUPINFO_PRESENT)} "
+            f"cb_vs_EX={cb == ctypes.sizeof(STARTUPINFOEXW)} cwd={cwd!r} "
+            f"lpAttributeList={si.lpAttributeList}"
+        )
+        if ok:
+            k32.WaitForSingleObject(pi.hProcess, 8000)
+            code = wintypes.DWORD()
+            k32.GetExitCodeProcess(pi.hProcess, ctypes.byref(code))
+            emit(f"{label} exit={int(code.value)}")
+            k32.CloseHandle(pi.hThread)
+            k32.CloseHandle(pi.hProcess)
+
+    sip = STARTUPINFOW()
+    sip.cb = ctypes.sizeof(STARTUPINFOW)
+    cmdbuf = ctypes.create_unicode_buffer(quoted)
+    pi0 = PROCESS_INFORMATION()
+    ok_plain = k32.CreateProcessW(
+        None, cmdbuf, None, None, True, 0, None, sys32,
+        ctypes.byref(sip), ctypes.byref(pi0),
+    )
+    err_plain = 0 if ok_plain else last()
+    emit(f"control_plain_startupinfo ok={bool(ok_plain)} Win32={err_plain} cb={sip.cb} flags=0")
+    if ok_plain:
+        k32.WaitForSingleObject(pi0.hProcess, 8000)
+        code0 = wintypes.DWORD()
+        k32.GetExitCodeProcess(pi0.hProcess, ctypes.byref(code0))
+        emit(f"control_plain_startupinfo exit={int(code0.value)}")
+        k32.CloseHandle(pi0.hThread)
+        k32.CloseHandle(pi0.hProcess)
+
+    # Same STARTUPINFOEXW + EXTENDED_STARTUPINFO_PRESENT, no SECURITY_CAPABILITIES.
+    si_null = STARTUPINFOEXW()
+    si_null.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+    si_null.lpAttributeList = None
+    spawn("control_no_sc_null_attr", si_null, sys32)
+
+    size0 = ctypes.c_size_t()
+    ok0 = k32.InitializeProcThreadAttributeList(None, 0, 0, ctypes.byref(size0))
+    emit(f"init_list count=0 probe ok={bool(ok0)} last={last()} size={int(size0.value)}")
+    attr0 = (ctypes.c_ubyte * max(int(size0.value), 1))()
+    ok0b = k32.InitializeProcThreadAttributeList(attr0, 0, 0, ctypes.byref(size0))
+    emit(f"init_list count=0 alloc ok={bool(ok0b)} last={last()} addr={ctypes.addressof(attr0)}")
+    si0 = STARTUPINFOEXW()
+    si0.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+    si0.lpAttributeList = ctypes.c_void_p(ctypes.addressof(attr0))
+    emit(f"control_no_sc_empty_list cb={si0.StartupInfo.cb} attr={si0.lpAttributeList}")
+    spawn("control_no_sc_empty_list", si0, sys32)
+    try:
+        k32.DeleteProcThreadAttributeList(attr0)
+    except OSError as exc:
+        emit(f"delete empty list {exc}")
+
+    try:
+        sid_str = ensure_profile()
+    except Exception as exc:
+        emit(f"ensure_profile FAIL {type(exc).__name__}: {exc}")
+        emit("done")
+        return 0
+    emit(f"sid={sid_str}")
+    app_sid = ctypes.c_void_p()
+    ok_sid = adv.ConvertStringSidToSidW(sid_str, ctypes.byref(app_sid))
+    emit(f"ConvertStringSidToSidW ok={bool(ok_sid)} last={last()} ptr={app_sid.value}")
+    valid = bool(adv.IsValidSid(app_sid)) if ok_sid else False
+    emit(f"IsValidSid={valid} last={last()}")
+    sc = SECURITY_CAPABILITIES()
+    sc.AppContainerSid = app_sid
+    sc.CapabilityCount = 0
+    emit(f"SC.AppContainerSid={sc.AppContainerSid} CapabilityCount={sc.CapabilityCount}")
+
+    size = ctypes.c_size_t()
+    okp = k32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
+    emit(f"init_list count=1 probe ok={bool(okp)} last={last()} size={int(size.value)}")
+    attr = (ctypes.c_ubyte * max(int(size.value), 1))()
+    oka = k32.InitializeProcThreadAttributeList(attr, 1, 0, ctypes.byref(size))
+    emit(f"init_list count=1 alloc ok={bool(oka)} last={last()} addr={ctypes.addressof(attr)}")
+    oku = k32.UpdateProcThreadAttribute(
+        attr, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
+        ctypes.byref(sc), ctypes.sizeof(sc), None, None,
+    )
+    emit(
+        f"UpdateProcThreadAttribute(SECURITY_CAPABILITIES=0x{PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES:08X}) "
+        f"ok={bool(oku)} last={last()} sc_size={ctypes.sizeof(sc)}"
+    )
+    si = STARTUPINFOEXW()
+    si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+    si.lpAttributeList = ctypes.c_void_p(ctypes.addressof(attr))
+    emit(
+        f"si.cb={si.StartupInfo.cb} sizeofEX={ctypes.sizeof(STARTUPINFOEXW)} "
+        f"attr_field={si.lpAttributeList} addrof_attr={ctypes.addressof(attr)}"
+    )
+    spawn("ac_cwd_system32", si, sys32)
+    tmp = tempfile.mkdtemp(prefix="tala-ac-diag-")
+    emit(f"workspace={tmp}")
+    try:
+        _grant_paths(sid_str, [tmp], [])
+        here = Path(tmp)
+        while True:
+            ic = subprocess.run(
+                ["icacls", str(here)], capture_output=True, text=True, timeout=20,
+            )
+            blob = ((ic.stdout or "") + (ic.stderr or "")).replace("\r", " ").strip()
+            emit(f"icacls {here} rc={ic.returncode} {blob[:400]}")
+            if here.parent == here:
+                break
+            here = here.parent
+        spawn("ac_cwd_workspace", si, tmp)
+    finally:
+        k32.DeleteProcThreadAttributeList(attr)
+        if app_sid:
+            adv.FreeSid(app_sid)
+        shutil.rmtree(tmp, ignore_errors=True)
+    emit("done")
+    return 0
+
+
 def guarded_run(argv: Sequence[str], workdir: str, reason: str) -> subprocess.CompletedProcess:
     msg = (
         f"{FALLBACK_MARK}: AppContainer unavailable ({reason}). "
-        "Filesystem and network are NOT OS-enforced.\n"
+        "Job object only — filesystem and network are NOT OS-enforced "
+        "(not AppContainer).\n"
     )
     sys.stderr.write(msg)
     sys.stderr.flush()

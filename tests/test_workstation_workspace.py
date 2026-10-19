@@ -169,10 +169,12 @@ async def test_sandbox_fallback_is_loud_in_result_ui_and_audit(fresh, tmp_path, 
     result = {"success": True, "exit_code": 0}
     await ws._apply_sandbox_status(
         ws.config(), result,
-        "TALA_SANDBOX: guarded-policy-only: AppContainer unavailable (missing APIs).\n",
+        "TALA_SANDBOX: job-object-only: AppContainer unavailable (missing APIs).\n",
         None, tool="run_shell",
     )
     assert result["sandbox_fallback"] is True
+    assert result["sandbox"] == "job-object-only"
+    assert "job-object-only" in result["warning"]
     assert "NOT OS-enforced" in result["warning"]
     assert notices and "NOT OS-enforced" in notices[0]
     entries = _audit(a)

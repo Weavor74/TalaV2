@@ -29,14 +29,22 @@ def _write_status(path: str, payload: dict) -> None:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description="Tala Windows AppContainer launcher")
-    parser.add_argument("--workdir", required=True)
+    parser.add_argument("--workdir", default="")
     parser.add_argument("--grant", action="append", default=[])
     parser.add_argument("--grant-read", action="append", default=[])
     parser.add_argument("--allow-network", action="store_true")
     parser.add_argument("--status-file", default="")
     parser.add_argument("--probe", action="store_true")
+    parser.add_argument("--diagnose", action="store_true")
     parser.add_argument("command", nargs=argparse.REMAINDER)
     args = parser.parse_args(argv)
+    if args.diagnose:
+        try:
+            return ac._diagnose_createprocess()
+        except Exception as extra:
+            sys.stdout.write(f"TALA_AC_DIAG: UNCAUGHT {type(extra).__name__}: {extra}\n")
+            sys.stdout.flush()
+            return 0
     if args.probe:
         if not ac.appcontainer_available():
             print("appcontainer=unavailable")
@@ -55,10 +63,13 @@ def main(argv: list[str] | None = None) -> int:
         print("TALA_SANDBOX: launcher needs a command after --", file=sys.stderr)
         return 2
     workdir = args.workdir
+    if not workdir:
+        print("TALA_SANDBOX: launcher needs --workdir", file=sys.stderr)
+        return 2
     try:
         if not ac.appcontainer_available():
             _write_status(args.status_file, {
-                "mode": "guarded-policy-only",
+                "mode": "job-object-only",
                 "reason": "CreateAppContainerProfile missing",
             })
             result = ac.guarded_run(command, workdir, "CreateAppContainerProfile missing")

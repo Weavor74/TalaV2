@@ -265,9 +265,9 @@ class WindowsSandbox(SandboxBackend):
                     filesystem=True, network=True, process_job=True, label="appcontainer",
                 )
             else:
-                self.confinement = Confinement(process_job=True, label="guarded-policy-only")
+                self.confinement = Confinement(process_job=True, label="job-object-only")
         except Exception:
-            self.confinement = Confinement(process_job=True, label="guarded-policy-only")
+            self.confinement = Confinement(process_job=True, label="job-object-only")
 
     def is_available(self) -> bool:
         return platform.system() == "Windows"

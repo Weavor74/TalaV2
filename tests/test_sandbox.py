@@ -68,7 +68,9 @@ def test_windows_honesty_in_module():
     assert "CreateJobObjectW" in win
     assert "AssignProcessToJobObject" in win
     assert "Restricted tokens" in win or "CreateRestrictedToken" in win
-    assert "guarded-policy-only" in ac
+    assert "job-object-only" in ac
+    assert "IsValidSid" in ac
+    assert "TALA_AC_DIAG" in ac
     assert "/grant:r" in ac
     assert "/remove" in ac
     assert "(RX)" in ac
@@ -84,6 +86,9 @@ def test_windows_honesty_in_module():
     assert "hostedtoolcache" in ac
     assert '"\\\\windows\\\\" in low' not in ac
     assert "Start-Job" not in Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
+    launch = Path("sdk/agent/sandbox_windows_launch.py").read_text(encoding="utf-8")
+    assert "--diagnose" in launch
+    assert "_diagnose_createprocess" in launch
 
 
 def test_macos_profile_lists_resolved_and_raw_paths(tmp_path):
@@ -327,6 +332,7 @@ def test_guarded_run_writes_loud_marker(capsys, tmp_path):
     guarded_run(cmd, str(tmp_path), "unit-test")
     captured = capsys.readouterr()
     assert FALLBACK_MARK in captured.err
+    assert "job-object-only" in captured.err
     assert "NOT OS-enforced" in captured.err
 
 

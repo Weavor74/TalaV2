@@ -127,7 +127,8 @@ def audit(cfg: pol.WorkstationConfig, tool: str, args: dict, decision: dict, out
 
 
 
-_SANDBOX_FALLBACK_MARK = "TALA_SANDBOX: guarded-policy-only"
+_SANDBOX_FALLBACK_MARK = "TALA_SANDBOX: job-object-only"
+_SANDBOX_FALLBACK_MARK_LEGACY = "TALA_SANDBOX: guarded-policy-only"
 _SANDBOX_DENIED_MARK = "TALA_SANDBOX: access-denied"
 
 
@@ -149,9 +150,12 @@ def _sandbox_status_from(stderr: str, status_path: Path | None) -> dict | None:
                 path = line.split("path=", 1)[-1].strip()
                 break
         return {"mode": "access-denied", "path": path}
-    if _SANDBOX_FALLBACK_MARK in text:
-        reason = text.split(_SANDBOX_FALLBACK_MARK, 1)[-1].split("\n", 1)[0].strip(" :")
-        return {"mode": "guarded-policy-only", "reason": reason or "AppContainer unavailable"}
+    mark = _SANDBOX_FALLBACK_MARK if _SANDBOX_FALLBACK_MARK in text else (
+        _SANDBOX_FALLBACK_MARK_LEGACY if _SANDBOX_FALLBACK_MARK_LEGACY in text else ""
+    )
+    if mark:
+        reason = text.split(mark, 1)[-1].split("\n", 1)[0].strip(" :")
+        return {"mode": "job-object-only", "reason": reason or "AppContainer unavailable"}
     return None
 
 
@@ -160,7 +164,7 @@ async def _broadcast_sandbox_fallback(reason: str) -> None:
         from python.harness.server import broadcast_notification
         await broadcast_notification("workstation.sandbox_fallback", {
             "from": "appcontainer",
-            "to": "guarded-policy-only",
+            "to": "job-object-only",
             "reason": reason,
         })
     except Exception:
@@ -173,17 +177,18 @@ async def _apply_sandbox_status(cfg: pol.WorkstationConfig, result: dict, stderr
     if not status:
         return
     mode = status.get("mode")
-    if mode == "guarded-policy-only":
+    if mode in ("job-object-only", "guarded-policy-only"):
         reason = status.get("reason") or "AppContainer unavailable"
         warning = (
             f"Windows AppContainer isolation is not active ({reason}). "
-            "This command ran unsandboxed: filesystem and network are NOT OS-enforced."
+            "This command ran with a job-object-only fallback: filesystem and "
+            "network are NOT OS-enforced."
         )
-        result["sandbox"] = "guarded-policy-only"
+        result["sandbox"] = "job-object-only"
         result["sandbox_fallback"] = True
         result["warning"] = warning
         audit(cfg, "sandbox_fallback", {"tool": tool, "reason": reason},
-              {"verdict": "guarded-policy-only"}, {"warning": warning})
+              {"verdict": "job-object-only"}, {"warning": warning})
         await _broadcast_sandbox_fallback(warning)
     elif mode == "access-denied":
         path = status.get("path") or "unknown path"
