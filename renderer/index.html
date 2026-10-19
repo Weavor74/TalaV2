@@ -3643,6 +3643,7 @@
   <script src="mission_control_ops.js"></script>
   <script src="health_ops.js"></script>
   <script src="inference_gpu_ops.js"></script>
+  <script src="gateway_status_ops.js"></script>
   <script src="plugins_ops.js"></script>
   <script src="workspace_settings.js"></script>
   <script src="node_serializer.js"></script>
@@ -4277,6 +4278,6 @@
     </div>
   </div>
 
-  <div id="degraded-state-panel" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--bg-danger, #7a1b1b);color:white;padding:12px;z-index:9999;display:none;justify-content:space-between;align-items:center;border-top:1px solid #ff4444;"><div><strong>System Degraded:</strong> <span id="degraded-state-messages">Connection lost</span></div><div><button id="btn-degraded-retry" style="background:#551111;color:white;border:1px solid #ff4444;padding:4px 8px;border-radius:4px;cursor:pointer;">Retry</button><button id="btn-degraded-logs" style="background:#551111;color:white;border:1px solid #ff4444;padding:4px 8px;border-radius:4px;cursor:pointer;margin-left:8px;">Open Logs</button></div></div>
+  <div id="degraded-state-panel" class="hidden" style="position:fixed;bottom:0;left:0;right:0;background:var(--bg-danger, #7a1b1b);color:white;padding:12px;z-index:9999;display:none;justify-content:space-between;align-items:center;border-top:1px solid #ff4444;"><div><strong id="degraded-state-label">System Degraded:</strong> <span id="degraded-state-messages">Connection lost</span></div><div><button id="btn-degraded-retry" style="background:#551111;color:white;border:1px solid #ff4444;padding:4px 8px;border-radius:4px;cursor:pointer;">Retry</button><button id="btn-degraded-logs" style="background:#551111;color:white;border:1px solid #ff4444;padding:4px 8px;border-radius:4px;cursor:pointer;margin-left:8px;">Open Logs</button></div></div>
 </body>
 </html>

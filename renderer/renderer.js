@@ -1577,10 +1577,8 @@ const InferenceManager = {
       this._wsListenerCleanup = window.tala.on('python:notification', (msg) => {
         if (msg && msg.method === 'inference.providers_changed') this.loadProviders();
         if (msg && (msg.method === 'inference.fallback' || msg.method === 'workstation.sandbox_fallback')) {
-          const f = msg.params?.from || 'remote', t = msg.params?.to || 'local', r = msg.params?.reason || 'failed';
-          if (window.ChatManager?.appendMessage) window.ChatManager.appendMessage({sender:'system',body:`⚠️ ${r}: "${f}" → "${t}"`,timestamp:new Date().toISOString(),isSystem:true});
-          console.warn(`[${msg.method}] ${f} → ${t}: ${r}`);
-          if (window.IPCLog) window.IPCLog.append('warn', `${msg.method}: ${f} → ${t}`);
+          if (typeof showInferenceFallbackNotice === 'function') showInferenceFallbackNotice(msg.params);
+          else console.warn(`[${msg.method}]`, msg.params);
         }
       });
     } catch (err) {
@@ -15880,90 +15878,8 @@ const AgentBuilder = {
     }
   }
 };
-const GatewayStatusManager = {
-  _panel: document.querySelector('#degraded-state-panel'),
-  _msgs: document.querySelector('#degraded-state-messages'),
-  _btnRetry: document.querySelector('#btn-degraded-retry'),
-  _btnLogs: document.querySelector('#btn-degraded-logs'),
-  _pollingInterval: null,
-
-  init() {
-    if (this._btnRetry) this._btnRetry.addEventListener('click', () => this.checkStatus());
-    if (this._btnLogs) this._btnLogs.addEventListener('click', () => { 
-        if(window.tala && window.tala.openLogs) window.tala.openLogs(); 
-    });
-    this.startPolling();
-  },
-
-  startPolling() {
-    if(this._pollingInterval) clearInterval(this._pollingInterval);
-    this._pollingInterval = setInterval(() => this.checkStatus(), 10000);
-    // Initial check
-    setTimeout(() => this.checkStatus(), 2000);
-  },
-
-  async checkStatus() {
-    try {
-      const res = await invoke('gateway.status', {});
-      this.renderAuthPosture(res);
-      if (res && res.status === 'online') {
-        this.hidePanel();
-      } else {
-        this.showPanel("Gateway reported offline or degraded status.");
-      }
-    } catch (err) {
-      this.renderAuthPosture(null, err);
-      this.showPanel("Connection failed: " + err.message);
-    }
-  },
-
-  renderAuthPosture(status, err = null) {
-    const card = document.querySelector('#gateway-auth-posture');
-    if (!card) return;
-    const title = document.querySelector('#gateway-auth-title');
-    const copy = document.querySelector('#gateway-auth-copy');
-    const credentials = document.querySelector('#gateway-auth-credentials');
-    const remotes = document.querySelector('#gateway-auth-remotes');
-    const contacts = document.querySelector('#gateway-auth-contacts');
-
-    const authCredentials = Number(status?.auth_credentials_count || 0);
-    const authedRemotes = Number(status?.authenticated_remote_instances || 0);
-    const trustedContacts = Number(status?.trusted_contacts_count || 0);
-    const ready = Boolean(status?.auth_ready);
-
-    card.classList.toggle('ready', ready);
-    card.classList.toggle('degraded', Boolean(err) || !ready);
-    if (title) title.textContent = err ? 'Gateway unreachable' : (ready ? 'Auth boundary configured' : 'Auth boundary needs credentials');
-    if (copy) {
-      copy.textContent = err
-        ? `Status check failed: ${err.message || err}`
-        : (ready
-          ? 'Remote gateway requests have credential, peer, or authenticated runtime material available without exposing secrets to the UI.'
-          : 'Add an auth credential, authenticated remote instance, or trusted peer before exposing remote gateway workflows.');
-    }
-    if (credentials) credentials.textContent = authCredentials.toString();
-    if (remotes) remotes.textContent = authedRemotes.toString();
-    if (contacts) contacts.textContent = trustedContacts.toString();
-  },
-
-  showPanel(msg) {
-    if (!this._panel) {
-      this._panel = document.querySelector('#degraded-state-panel');
-      this._msgs = document.querySelector('#degraded-state-messages');
-    }
-    if (!this._panel) return;
-    this._panel.style.display = 'flex';
-    if (this._msgs) this._msgs.textContent = msg;
-  },
-
-  hidePanel() {
-    if (!this._panel) return;
-    this._panel.style.display = 'none';
-  }
-};
-
 document.addEventListener('DOMContentLoaded', () => {
-    GatewayStatusManager.init();
+    if (window.GatewayStatusManager) window.GatewayStatusManager.init();
 });
 const PluginRegistryManager = {
   _btnReload: document.querySelector('#btn-plugins-reload'),

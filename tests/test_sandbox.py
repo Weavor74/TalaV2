@@ -809,7 +809,9 @@ async def test_nonsystem_volume_workspace_and_interpreter(tmp_path):
                 readwrite_paths=[workspace],
                 readonly_paths=[interp_home, python, *_interpreter_read_paths()],
             ),
-            timeout=15.0,
+            # Hosted Windows runners often spend 12s+ on the first
+            # AppContainer launch from D:; 15s flakes under load.
+            timeout=30.0,
         )
         out = (result.stdout or b"") + (result.stderr or b"")
         assert result.returncode == 0, out
