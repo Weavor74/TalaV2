@@ -89,6 +89,8 @@ class WorkstationConfig:
     extra_deny_patterns: list[str] = field(default_factory=list)
     config_path: Path | None = None
     outside_root_writes: str = APPROVE  # "approve" or "deny"
+    enable_sandbox: bool = False  # TALA_WORKSTATION_SANDBOX=1 to wrap spawn
+    allow_network: bool = False  # Allow network access in sandbox
     auto_delete_in_root: bool = False
     default_timeout: float = 60.0
     max_timeout: float = 1800.0
@@ -178,6 +180,10 @@ def load_config() -> WorkstationConfig:
         max_jobs=_num("max_jobs", 3, int),
         python=os.environ.get("TALA_WORKSTATION_PYTHON") or data.get("python"),
         enabled=str(enabled_raw).strip().lower() not in ("0", "false", "off", "no"),
+        enable_sandbox=str(os.environ.get("TALA_WORKSTATION_SANDBOX", data.get("enable_sandbox", "0"))).strip().lower()
+            in ("1", "true", "on", "yes"),
+        allow_network=str(os.environ.get("TALA_WORKSTATION_NET", data.get("allow_network", "0"))).strip().lower()
+            in ("1", "true", "on", "yes"),
     )
 
 

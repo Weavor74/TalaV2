@@ -95,6 +95,7 @@ from python.harness.heartbeat_rpc import (
 from python.harness.health_rpc import handle_harness_health
 from python.harness.inference_policy import adjust_max_tokens_for_provider, model_id_matches
 from python.harness.inference_helpers import strip_tool_tags_if_no_tools, notify_inference_fallback
+from python.harness.long_job_loop import attach_long_job, report_long_job_turn, run_reply_tool_rounds
 from python.harness.workstation_rpc import WORKSTATION_RPC_HANDLERS
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
@@ -2888,6 +2889,10 @@ async def handle_inference_generate(
 
     loop_count = 0
     max_loops = 8  # Raised from 3 — complex agentic tasks need more turns
+    long_job = await attach_long_job(session_id, raw_user_prompt, per_reply_cap=max_loops)
+    max_loops = long_job.per_reply_cap
+    if long_job.inject_user_message:
+        messages.append({"role": "user", "content": long_job.inject_user_message})
     all_responses = []
     last_raw_assistant_text = ""  # Track last raw LLM output for accurate loop detection
     repeat_nudges = 0  # times a re-issued identical tool call was answered with "use the result"
@@ -3771,6 +3776,13 @@ async def handle_inference_generate(
     else:
         # Loop limit reached, append final text
         all_responses.append(_close_unclosed_thinking(generated_text))
+
+    _job_note = await report_long_job_turn(
+        long_job, loop_count, max_loops, generated_text,
+        find_tool_call=_find_tool_call, user_prompt=raw_user_prompt,
+    )
+    if _job_note:
+        all_responses.append(_job_note)
 
     generated_text = "\n\n".join(all_responses)
 
@@ -6791,23 +6803,12 @@ async def _generate_reply(
         return generated_text or ""
 
     final_text = await _one_completion(force_tool_choice=tool_choice)
-    if not tools:
-        return _strip_tool_tags_if_no_tools(final_text)
     from sdk.agent.agent_reply_tools import run_agent_tool_round
-    tool_rounds_executed = 0
-    for _ in range(MAX_TOOL_ROUNDS_PER_REPLY):
-        if not final_text:
-            break
-        tool_response = await run_agent_tool_round(final_text, tools, principal)
-        if tool_response is None:
-            break
-        inference_messages.append({"role": "assistant", "content": final_text})
-        inference_messages.append({"role": "user", "content": tool_response})
-        final_text = await _one_completion()
-        tool_rounds_executed += 1
-    if tool_rounds_executed >= MAX_TOOL_ROUNDS_PER_REPLY and _find_tool_call(final_text):
-        return "I've reached my step limit while working on this request. The task may require breaking it into smaller steps or simplifying the approach."
-    return final_text
+    return await run_reply_tool_rounds(
+        final_text, inference_messages, tools, principal, _one_completion,
+        max_rounds=MAX_TOOL_ROUNDS_PER_REPLY, find_tool_call=_find_tool_call,
+        strip_tags=_strip_tool_tags_if_no_tools, run_tool_round=run_agent_tool_round,
+    )
 
 def _strip_tool_tags_if_no_tools(text: str) -> str:
     return strip_tool_tags_if_no_tools(text, _find_tool_call)

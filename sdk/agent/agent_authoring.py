@@ -282,7 +282,7 @@ async def start_swarm(goal: str, topology_id: str) -> dict[str, Any]:
            Returns as soon as the run is dispatched -- it does not wait. Follow
            it with list_active_tasks.
     """
-    from sdk.agent.swarm_engine import SwarmEngine
+    from sdk.agent.delegation import run_topology_swarm
     from sdk.agent.topology import TopologyRegistry
 
     goal = (goal or "").strip()
@@ -307,15 +307,18 @@ async def start_swarm(goal: str, topology_id: str) -> dict[str, Any]:
         }
 
     try:
-        parent_id = await SwarmEngine.spawn_topology(goal, topology_id)
+        dispatched = await run_topology_swarm(goal, topology_id)
     except Exception as exc:
         return {"success": False, "error": f"Could not start the swarm: {exc}"}
 
+    if not dispatched.get("success"):
+        return {"success": False, "error": dispatched.get("error") or "swarm dispatch failed"}
     return {
         "success": True,
-        "parent_task_id": parent_id,
+        "parent_task_id": dispatched.get("engine_parent_task_id"),
         "topology_id": topology_id,
         "dispatched_nodes": len(topology.nodes),
+        "durable_task_id": dispatched.get("durable_task_id"),
     }
 
 
