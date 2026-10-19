@@ -7,10 +7,7 @@ Handles stripping raw tool tags from responses and notifying about fallback.
 from __future__ import annotations
 
 import logging
-from typing import Any, TYPE_CHECKING
-
-if TYPE_CHECKING:
-    import re
+from typing import Any
 
 logger = logging.getLogger(__name__)
 
