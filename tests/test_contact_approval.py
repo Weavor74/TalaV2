@@ -44,9 +44,21 @@ def _error(raw):
 
 @pytest_asyncio.fixture
 async def pool():
+    existing = getattr(db, "_pool", None)
+    if existing is not None:
+        try:
+            await existing.close()
+        except Exception:
+            pass
+        db._pool = None
     await db.init_pool()
-    yield
-    await db.close_pool()
+    try:
+        yield
+    finally:
+        try:
+            await db.close_pool()
+        except Exception:
+            db._pool = None
 
 
 @pytest_asyncio.fixture

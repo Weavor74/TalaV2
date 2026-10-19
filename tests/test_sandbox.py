@@ -26,10 +26,78 @@ def _backend():
     return _select_sandbox_backend()
 
 
+_CMD_SYNTAX_NEEDLES = (
+    b"syntax is incorrect",
+    b"filename, directory name, or volume label syntax",
+    b"the syntax of the command is incorrect",
+)
+
+
+def _combined(result) -> bytes:
+    return (result.stdout or b"") + (result.stderr or b"")
+
+
+def _cmd_redirect_target(path: Path) -> str:
+    """Unquoted cmd redirect target. Inner quotes break after list2cmdline."""
+    path = Path(path)
+    parent = path.parent
+    name = path.name
+    if platform.system() == "Windows" and parent.exists():
+        import ctypes
+        get_short = ctypes.windll.kernel32.GetShortPathNameW
+        get_short.argtypes = [ctypes.c_wchar_p, ctypes.c_wchar_p, ctypes.c_uint]
+        get_short.restype = ctypes.c_uint
+        buf = ctypes.create_unicode_buffer(520)
+        n = get_short(str(parent.resolve()), buf, 520)
+        if n:
+            parent = Path(buf.value)
+    target = str(parent / name)
+    if platform.system() == "Windows":
+        target = target.replace("/", "\\")
+    if any(ch in target for ch in ' "&<>|^'):
+        raise AssertionError(f"cmd redirect target still needs quoting: {target!r}")
+    return target
+
+
+def _windows_write_argv(path: Path) -> list[str]:
+    # /s strips the outer quotes list2cmdline adds around the /c payload.
+    # Do not quote the redirect target: cmd does not treat backslash as an
+    # escape, so a quoted path becomes ERROR_INVALID_NAME after list2cmdline.
+    return ["cmd.exe", "/s", "/c", f"(echo escaped)>{_cmd_redirect_target(path)}"]
+
+
 def _write_argv(path: Path) -> list[str]:
     if platform.system() == "Windows":
-        return ["cmd.exe", "/c", f'echo escaped>"{path}"']
+        return _windows_write_argv(path)
     return ["sh", "-c", f"echo escaped > '{path}'"]
+
+
+def _assert_not_syntax_error(combined: bytes) -> None:
+    low = combined.lower()
+    for needle in _CMD_SYNTAX_NEEDLES:
+        assert needle not in low, combined
+
+
+def _assert_write_succeeded(result, target: Path) -> None:
+    combined = _combined(result)
+    _assert_not_syntax_error(combined)
+    assert b"spawn-failed" not in combined, combined
+    assert target.exists(), (result.returncode, result.stdout, result.stderr, combined)
+    assert result.returncode == 0, combined
+
+
+def _assert_write_denied(result, target: Path) -> None:
+    combined = _combined(result)
+    _assert_not_syntax_error(combined)
+    assert b"spawn-failed" not in combined, combined
+    text = combined.decode("utf-8", "replace")
+    print("TALA_SANDBOX_DENY:", text.strip() or f"returncode={result.returncode}")
+    assert not target.exists(), (result.returncode, combined)
+    if platform.system() == "Windows":
+        low = combined.lower()
+        assert b"access is denied" in low or b"access denied" in low, combined
+    else:
+        assert result.returncode != 0, combined
 
 
 def test_backend_selection_matches_host():
@@ -94,6 +162,15 @@ def test_windows_honesty_in_module():
     assert "hostedtoolcache" in ac
     assert '"\\\\windows\\\\" in low' not in ac
     assert "Start-Job" not in Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
+    write_fn = Path("tests/test_sandbox.py").read_text(encoding="utf-8").split(
+        "def _windows_write_argv", 1
+    )[1].split("def _write_argv", 1)[0]
+    returned = [ln for ln in write_fn.splitlines() if ln.strip().startswith("return ")]
+    assert returned and 'echo escaped>"' not in returned[0]
+    assert "(echo escaped)>" in write_fn
+    src = Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
+    assert '(allow file-read-data (literal "/"))' in src
+    assert '(allow file-read* (subpath "/"))' not in src
     launch = Path("sdk/agent/sandbox_windows_launch.py").read_text(encoding="utf-8")
     assert "--diagnose" in launch
     assert "_diagnose_createprocess" in launch
@@ -112,6 +189,8 @@ def test_macos_profile_lists_resolved_and_raw_paths(tmp_path):
     assert '"-f"' in src or "', '-f'," in src
     assert "(debug deny)" in profile
     assert "(allow file-map-executable)" in profile
+    assert '(allow file-read-data (literal "/"))' in profile
+    assert '(allow file-read* (subpath "/"))' not in profile
     write_rules = [ln.strip() for ln in profile.splitlines() if "file-write*" in ln]
     assert write_rules
     for rule in write_rules:
@@ -141,10 +220,36 @@ def test_macos_file_write_scoped_to_workspace_under_var():
     assert set(write_rules) == set(quoted), write_rules
     assert '(allow file-write* (subpath "/var"))' not in profile
     assert '(allow file-write* (subpath "/private/var"))' not in profile
+    assert '(allow file-read-data (literal "/"))' in profile
+    assert '(allow file-read* (subpath "/"))' not in profile
     aliases = MacOSSandbox()._prefix_aliases("/var/folders/zz/test/T/workspace")
     assert "/private/var/folders/zz/test/T/workspace" in aliases
     assert "/var" not in aliases
     assert "/private/var" not in aliases
+
+
+def test_windows_write_argv_survives_list2cmdline(tmp_path):
+    """list2cmdline must not inject backslash-escaped quotes into the /c payload."""
+    path = tmp_path / "workspace" / "ok.txt"
+    path.parent.mkdir()
+    argv = _windows_write_argv(path)
+    assert argv[:3] == ["cmd.exe", "/s", "/c"]
+    payload = argv[3]
+    assert payload.startswith("(echo escaped)>")
+    assert '"' not in payload
+    cmdline = subprocess.list2cmdline(argv)
+    assert '\\"' not in cmdline
+    assert 'echo escaped>"' not in cmdline
+
+
+def test_syntax_error_is_not_a_denied_write(tmp_path):
+    class Result:
+        returncode = 1
+        stdout = b""
+        stderr = b"The filename, directory name, or volume label syntax is incorrect.\r\n"
+
+    with pytest.raises(AssertionError):
+        _assert_write_denied(Result(), tmp_path / "escape.txt")
 
 
 def test_macos_sandbox_exec_is_labeled_deprecated():
@@ -203,31 +308,45 @@ async def test_escape_parent_directory_write_blocked():
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
         timeout = 12.0 if platform.system() == "Windows" else 5.0
         inner_result = await _sandbox_exec(_write_argv(inner), workdir, config, timeout=timeout)
-        combined = (inner_result.stdout or b"") + (inner_result.stderr or b"")
-        assert b"spawn-failed" not in combined, combined
-        if not inner.exists():
-            deny = combined.decode("utf-8", "replace") if isinstance(combined, bytes) else combined
-            if platform.system() == "Darwin":
-                try:
-                    shown = subprocess.run(
-                        [
-                            "log", "show", "--last", "45s", "--style", "compact",
-                            "--predicate",
-                            'eventMessage CONTAINS[c] "deny"',
-                        ],
-                        capture_output=True, text=True, timeout=30,
-                    )
-                    deny += "\nLOG_SHOW:\n" + ((shown.stdout or "") + (shown.stderr or ""))[-4000:]
-                except (OSError, subprocess.TimeoutExpired) as exc:
-                    deny += f"\nLOG_SHOW_FAIL: {exc}"
+        combined = _combined(inner_result)
+        if not inner.exists() and platform.system() == "Darwin":
+            deny = combined.decode("utf-8", "replace")
+            try:
+                shown = subprocess.run(
+                    [
+                        "log", "show", "--last", "45s", "--style", "compact",
+                        "--predicate",
+                        'eventMessage CONTAINS[c] "deny"',
+                    ],
+                    capture_output=True, text=True, timeout=30,
+                )
+                deny += "\nLOG_SHOW:\n" + ((shown.stdout or "") + (shown.stderr or ""))[-4000:]
+            except (OSError, subprocess.TimeoutExpired) as extra:
+                deny += f"\nLOG_SHOW_FAIL: {extra}"
             print("TALA_SANDBOX_DENY:", deny)
             assert inner.exists(), (
                 inner_result.returncode, inner_result.stdout, inner_result.stderr, deny,
             )
+        _assert_write_succeeded(inner_result, inner)
         parent_result = await _sandbox_exec(_write_argv(parent_file), workdir, config, timeout=timeout)
-        parent_out = (parent_result.stdout or b"") + (parent_result.stderr or b"")
-        assert b"spawn-failed" not in parent_out, parent_out
-        assert not parent_file.exists()
+        if (
+            platform.system() == "Darwin"
+            and not parent_file.exists()
+            and not _combined(parent_result).strip()
+        ):
+            try:
+                shown = subprocess.run(
+                    [
+                        "log", "show", "--last", "45s", "--style", "compact",
+                        "--predicate",
+                        'eventMessage CONTAINS[c] "deny"',
+                    ],
+                    capture_output=True, text=True, timeout=30,
+                )
+                print("TALA_SANDBOX_DENY:", ((shown.stdout or "") + (shown.stderr or ""))[-2000:])
+            except (OSError, subprocess.TimeoutExpired) as extra:
+                print("TALA_SANDBOX_DENY: LOG_SHOW_FAIL", extra)
+        _assert_write_denied(parent_result, parent_file)
 
 
 @pytest.mark.asyncio
@@ -239,9 +358,7 @@ async def test_escape_outside_workspace_write_blocked():
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
         timeout = 12.0 if platform.system() == "Windows" else 5.0
         result = await _sandbox_exec(_write_argv(target), workdir, config, timeout=timeout)
-        combined = (result.stdout or b"") + (result.stderr or b"")
-        assert b"spawn-failed" not in combined, combined
-        assert not target.exists()
+        _assert_write_denied(result, target)
 
 
 @pytest.mark.asyncio
@@ -251,6 +368,7 @@ async def test_escape_etc_write_blocked():
         workdir = Path(tmp)
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
         result = await _sandbox_exec(["sh", "-c", "echo x > /etc/tala_escape_test || exit 1"], workdir, config, timeout=5.0)
+        _assert_not_syntax_error(_combined(result))
         assert result.returncode != 0
 
 
@@ -339,12 +457,8 @@ async def test_windows_cmd_outside_workspace_write_denied():
         workdir = Path(ws)
         target = Path(other) / "escape.txt"
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
-        result = await _sandbox_exec(
-            ["cmd.exe", "/c", f'echo escaped>"{target}"'], workdir, config, timeout=12.0,
-        )
-        combined = (result.stdout or b"") + (result.stderr or b"")
-        assert b"spawn-failed" not in combined, combined
-        assert not target.exists(), (result.returncode, result.stdout, result.stderr)
+        result = await _sandbox_exec(_write_argv(target), workdir, config, timeout=12.0)
+        _assert_write_denied(result, target)
 
 
 def test_renderer_surfaces_sandbox_fallback_like_inference():
@@ -521,6 +635,8 @@ def test_report_skip_vs_execute_for_this_os():
         ("test_macos_sandbox_exec_is_labeled_deprecated", "EXECUTE"),
         ("test_macos_profile_lists_resolved_and_raw_paths", "EXECUTE"),
         ("test_macos_file_write_scoped_to_workspace_under_var", "EXECUTE"),
+        ("test_windows_write_argv_survives_list2cmdline", "EXECUTE"),
+        ("test_syntax_error_is_not_a_denied_write", "EXECUTE"),
         ("test_system_path_skips_real_windows_not_hostedtoolcache", "EXECUTE"),
         ("test_windows_none_mode_does_not_rewrite_argv", "EXECUTE"),
         (

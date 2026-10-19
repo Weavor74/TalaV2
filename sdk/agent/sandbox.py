@@ -202,6 +202,9 @@ class MacOSSandbox(SandboxBackend):
             # workspace folder only, never all of /var:
             #   (allow file-write* (subpath "/var/folders/.../workspace"))
             #   (allow file-write* (subpath "/private/var/folders/.../workspace"))
+            # sh reads the root directory entry while resolving paths; that is
+            # the directory itself, not a subpath of /:
+            #   (allow file-read-data (literal "/"))
             lines += [
                 "(deny default)",
                 "(debug deny)",
@@ -211,6 +214,7 @@ class MacOSSandbox(SandboxBackend):
                 "(allow sysctl-read)",
                 "(allow file-read-metadata)",
                 "(allow file-map-executable)",
+                '(allow file-read-data (literal "/"))',
                 '(allow file-ioctl (literal "/dev/dtracehelper"))',
                 '(allow file-write-data (literal "/dev/dtracehelper"))',
                 '(allow file-write-data (literal "/dev/null"))',
