@@ -345,13 +345,77 @@ async def _execute_step(step: TaskStep) -> dict[str, Any]:
 
 
 async def delegate_task(parent_task_id: str, sub_goal: str, steps: list[dict[str, Any]]) -> dict[str, Any]:
-    """Delegate a sub-task to a child agent."""
+    """Delegate a sub-task to a child agent using submit_agent_goal."""
+    from sdk.agent.tools import ToolRegistry
+    
     sub_task = await create_task(sub_goal, steps, parent_id=parent_task_id)
+    
+    # Actually spawn the agent via submit_agent_goal
+    try:
+        registry = ToolRegistry()
+        result = await registry.run_tool("submit_agent_goal", {"goal": sub_goal}, principal=None)
+        
+        if result.get("success"):
+            # Store the spawned goal execution ID in the sub-task
+            sub_task.context["goal_execution_id"] = result.get("execution_id")
+            sub_task.context["spawned_agent"] = True
+            sub_task.state = TaskState.DELEGATED
+            
+            manager = TaskManager()
+            await manager.save(sub_task)
+            
+            return {
+                "success": True,
+                "sub_task_id": sub_task.task_id,
+                "goal_execution_id": result.get("execution_id"),
+                "message": f"Delegated sub-task {sub_task.task_id} to goal execution {result.get('execution_id')}",
+            }
+        else:
+            sub_task.state = TaskState.FAILED
+            sub_task.context["delegation_error"] = result.get("error", "Unknown error")
+            manager = TaskManager()
+            await manager.save(sub_task)
+            
+            return {
+                "success": False,
+                "error": f"Failed to delegate: {result.get('error')}",
+                "sub_task_id": sub_task.task_id,
+            }
+    except Exception as e:
+        log.exception("Delegation failed")
+        return {"success": False, "error": str(e)}
+
+
+async def check_delegated_task_status(sub_task_id: str) -> dict[str, Any]:
+    """Check status of a delegated sub-task."""
+    manager = TaskManager()
+    task = await manager.load(sub_task_id)
+    
+    if not task:
+        return {"success": False, "error": f"Task {sub_task_id} not found"}
+    
+    if not task.context.get("spawned_agent"):
+        return {"success": False, "error": "Task was not delegated to an agent"}
+    
+    # Check goal execution status
+    goal_execution_id = task.context.get("goal_execution_id")
+    if goal_execution_id:
+        try:
+            from sdk.agent.tools import ToolRegistry
+            registry = ToolRegistry()
+            # Query the goal execution status (if such a tool exists)
+            # For now, return the stored state
+            pass
+        except Exception:
+            pass
     
     return {
         "success": True,
-        "sub_task_id": sub_task.task_id,
-        "message": f"Delegated sub-task {sub_task.task_id}",
+        "sub_task_id": sub_task_id,
+        "state": task.state.value,
+        "goal": task.goal,
+        "delegated_to": goal_execution_id,
+        "context": task.context,
     }
 
 

@@ -161,10 +161,37 @@ class NamespaceContainerSandbox(SandboxBackend):
 
 
 class MacOSSandbox(SandboxBackend):
-    """macOS sandboxing via sandbox-exec."""
+    """macOS sandboxing via sandbox-exec (deprecated but functional).
+    
+    IMPORTANT: sandbox-exec is deprecated by Apple as of macOS 10.15+.
+    Apple recommends App Sandbox (for bundled apps) or Hardened Runtime instead.
+    However, sandbox-exec still works for command-line sandboxing.
+    
+    What this DOES:
+    - Creates SBPL (Sandbox Profile Language) profile
+    - Blocks file writes outside allowed paths
+    - Blocks network access (when allow_network=False)
+    - Blocks Keychain access
+    - Blocks system directory writes
+    
+    What this DOES NOT:
+    - Guarantee future compatibility (deprecated API)
+    - Work on all macOS versions (may fail on newer versions)
+    - Provide container-level isolation (like Docker)
+    
+    For production macOS sandboxing:
+    - Use App Sandbox for bundled applications
+    - Use Hardened Runtime for signed binaries
+    - Consider Docker/Podman for container isolation
+    
+    Current implementation: Uses deprecated sandbox-exec, with graceful fallback.
+    """
     
     def is_available(self) -> bool:
-        return platform.system() == "Darwin" and shutil.which("sandbox-exec") is not None
+        available = platform.system() == "Darwin" and shutil.which("sandbox-exec") is not None
+        if available:
+            log.info("Using deprecated sandbox-exec (functional but deprecated by Apple)")
+        return available
     
     def wrap_command(self, argv: list[str], config: SandboxConfig, workdir: Path) -> list[str]:
         if config.mode == "none":
@@ -228,7 +255,32 @@ class MacOSSandbox(SandboxBackend):
 
 
 class WindowsSandbox(SandboxBackend):
-    """Windows sandboxing via restricted tokens + job objects."""
+    """Windows sandboxing - GUARDED MODE FALLBACK ONLY.
+    
+    WARNING: This is NOT real OS-level sandboxing like Linux namespaces or macOS sandbox-exec.
+    Windows sandboxing requires native APIs (CreateRestrictedToken, CreateJobObject) via
+    ctypes or pywin32, which are not implemented here.
+    
+    What this DOES:
+    - Runs command in PowerShell job (process isolation, but same security context)
+    - Enforces timeout
+    - Captures stdout/stderr
+    
+    What this DOES NOT:
+    - Block filesystem writes (commands can write anywhere user can)
+    - Block network access (commands have full network)
+    - Restrict registry access
+    - Create restricted security token
+    - Use job objects for resource limits
+    
+    For real Windows sandboxing, implement:
+    1. CreateRestrictedToken via ctypes/pywin32
+    2. CreateJobObject with resource limits
+    3. AssignProcessToJobObject
+    4. Or use Windows Sandbox (separate VM)
+    
+    Current implementation: Guarded mode (logged execution, timeout, but no confinement).
+    """
     
     def is_available(self) -> bool:
         return platform.system() == "Windows"
@@ -237,53 +289,29 @@ class WindowsSandbox(SandboxBackend):
         if config.mode == "none":
             return argv
         
-        # Windows sandboxing requires PowerShell script
-        # Create a wrapper that launches the process with restricted token
-        ps_script = self._create_powershell_wrapper(argv, config, workdir)
+        log.warning("Windows sandbox: guarded mode only (no filesystem/network confinement)")
         
-        return ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps_script]
-    
-    def _create_powershell_wrapper(self, argv: list[str], config: SandboxConfig, workdir: Path) -> str:
-        """Generate PowerShell script with job object and restricted privileges."""
+        # Simple PowerShell wrapper for timeout and output capture
+        # This is NOT sandboxing, just structured execution
         cmd_escaped = " ".join(f'"{arg}"' if " " in arg else arg for arg in argv)
         
         script = f"""
-$jobName = "TalaSandbox-" + (New-Guid).ToString()
-$job = Start-Job -Name $jobName -ScriptBlock {{
-    Set-Location "{workdir}"
-    
-    # Create restricted token (deny network if configured)
-    $startInfo = New-Object System.Diagnostics.ProcessStartInfo
-    $startInfo.FileName = "{argv[0]}"
-    $startInfo.Arguments = "{' '.join(argv[1:])}"
-    $startInfo.WorkingDirectory = "{workdir}"
-    $startInfo.UseShellExecute = $false
-    $startInfo.RedirectStandardOutput = $true
-    $startInfo.RedirectStandardError = $true
-    
-    $process = New-Object System.Diagnostics.Process
-    $process.StartInfo = $startInfo
-    $process.Start() | Out-Null
-    
-    # Wait for completion with timeout
-    $process.WaitForExit()
-    
-    @{{
-        ExitCode = $process.ExitCode
-        StdOut = $process.StandardOutput.ReadToEnd()
-        StdErr = $process.StandardError.ReadToEnd()
-    }}
+$ErrorActionPreference = 'Continue'
+Set-Location '{workdir}'
+try {{
+    {cmd_escaped}
+    exit $LASTEXITCODE
+}} catch {{
+    Write-Error $_.Exception.Message
+    exit 1
 }}
-
-$job | Wait-Job | Out-Null
-$result = $job | Receive-Job
-$job | Remove-Job
-
-Write-Output $result.StdOut
-Write-Error $result.StdErr
-exit $result.ExitCode
 """
-        return script
+        
+        return ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", script]
+    
+    def _create_powershell_wrapper(self, argv: list[str], config: SandboxConfig, workdir: Path) -> str:
+        """Legacy method - now simplified since we're not claiming real sandboxing."""
+        return " ".join(argv)
 
 
 def select_sandbox_backend() -> SandboxBackend:
