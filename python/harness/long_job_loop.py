@@ -12,7 +12,13 @@ import logging
 from dataclasses import dataclass
 from typing import Any, Callable
 
-from sdk.agent.long_task import DurableTask, StepLimit, TaskManager, TaskState, create_task
+from sdk.agent.delegation import (
+    check_delegated_task_status,
+    run_small_swarm,
+    run_topology_swarm,
+    spawn_and_assign,
+)
+from sdk.agent.long_task import DurableTask, StepLimit, TaskManager, TaskState, create_task, resume_task
 
 log = logging.getLogger(__name__)
 
@@ -28,7 +34,7 @@ class LongJobTurn:
     inject_user_message: str | None = None
 
 
-def progress_text(task: DurableTask) -> str:
+def _progress_text(task: DurableTask) -> str:
     ctx = task.context
     used = int(ctx.get("overall_used") or 0)
     budget = int(ctx.get("overall_budget") or DEFAULT_OVERALL_BUDGET)
@@ -99,14 +105,14 @@ async def report_long_job_turn(
             task.pause_reason = StepLimit.OVERALL_BUDGET
             await manager.save(task)
             return (
-                progress_text(task)
+                _progress_text(task)
                 + "\nI've used the overall tool-round budget for this job. "
                 "Ask me to continue in a new job if the remaining work still matters."
             )
         task.pause_reason = StepLimit.PER_REPLY_CAP
         await manager.save(task)
         return (
-            progress_text(task)
+            _progress_text(task)
             + "\nI've reached this reply's step limit. The job is saved; "
             "send another message and I will continue automatically."
         )
@@ -116,7 +122,7 @@ async def report_long_job_turn(
         task.state = TaskState.COMPLETE
         task.pause_reason = StepLimit.NONE
         await manager.save(task)
-        return progress_text(task) + "\n✓ Long job finished."
+        return _progress_text(task) + "\n✓ Long job finished."
     return None
 
 
@@ -160,3 +166,33 @@ async def run_reply_tool_rounds(
     if note:
         return (final_text or "") + note
     return final_text
+
+
+async def _delegate_under_session(
+    session_id: str,
+    sub_goal: str,
+    persona_name: str,
+    system_prompt: str,
+) -> dict[str, Any]:
+    """Live-loop entry for spawn_and_assign: child bot + GoalEngine, result on parent."""
+    parent = await TaskManager().load_by_session(session_id)
+    parent_id = parent.task_id if parent else (await create_task(sub_goal)).task_id
+    result = await spawn_and_assign(
+        parent_id, sub_goal, persona_name=persona_name, system_prompt=system_prompt,
+    )
+    if result.get("sub_task_id"):
+        await check_delegated_task_status(result["sub_task_id"])
+    return result
+
+
+async def _delegate_swarm(session_id: str, members: list[dict[str, str]]) -> dict[str, Any]:
+    parent = await TaskManager().load_by_session(session_id)
+    return await run_small_swarm(parent.goal if parent else "swarm", members)
+
+
+async def _dispatch_topology(goal: str, topology_id: str) -> dict[str, Any]:
+    return await run_topology_swarm(goal, topology_id)
+
+
+async def _resume_scripted(task_id: str, max_steps: int = 8) -> dict[str, Any]:
+    return await resume_task(task_id, max_steps_this_reply=max_steps)

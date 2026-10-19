@@ -38,8 +38,18 @@ async def _default_assign_goal(goal: str) -> dict[str, Any]:
 
 
 async def _default_start_swarm(goal: str, topology_id: str) -> dict[str, Any]:
-    from sdk.agent.agent_authoring import start_swarm
-    return await start_swarm(goal, topology_id)
+    from sdk.agent.swarm_engine import SwarmEngine
+    from sdk.agent.topology import TopologyRegistry
+    if not TopologyRegistry.get(topology_id):
+        TopologyRegistry.reset()
+    parent_id = await SwarmEngine.spawn_topology(goal, topology_id)
+    topology = TopologyRegistry.get(topology_id)
+    return {
+        "success": True,
+        "parent_task_id": parent_id,
+        "topology_id": topology_id,
+        "dispatched_nodes": len(topology.nodes) if topology else 0,
+    }
 
 
 async def spawn_and_assign(

@@ -364,19 +364,3 @@ async def resume_task(
     }
 
 
-async def list_pending_tasks() -> dict[str, Any]:
-    tasks = await TaskManager().list_active()
-    return {
-        "success": True,
-        "tasks": [
-            {
-                "task_id": t.task_id,
-                "goal": t.goal,
-                "state": t.state.value,
-                "pause_reason": t.pause_reason.value,
-                "steps_total": len(t.steps),
-                "steps_complete": len([s for s in t.steps if s.state == TaskState.COMPLETE]),
-            }
-            for t in tasks
-        ],
-    }

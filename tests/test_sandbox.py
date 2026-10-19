@@ -12,13 +12,13 @@ from sdk.agent.sandbox import (
     MacOSSandbox,
     SandboxConfig,
     WindowsSandbox,
-    sandbox_exec,
-    select_sandbox_backend,
+    _sandbox_exec,
+    _select_sandbox_backend,
 )
 
 
 def _backend():
-    return select_sandbox_backend()
+    return _select_sandbox_backend()
 
 
 def test_backend_selection_matches_host():
@@ -74,9 +74,9 @@ async def test_basic_execution():
         workdir = Path(tmp)
         config = SandboxConfig(mode="none", readwrite_paths=[workdir])
         if platform.system() == "Windows":
-            result = await sandbox_exec(["cmd.exe", "/c", "echo", "test"], workdir, config, timeout=5.0)
+            result = await _sandbox_exec(["cmd.exe", "/c", "echo", "test"], workdir, config, timeout=5.0)
         else:
-            result = await sandbox_exec(["echo", "test"], workdir, config, timeout=5.0)
+            result = await _sandbox_exec(["echo", "test"], workdir, config, timeout=5.0)
         assert result.returncode == 0
         assert b"test" in result.stdout
 
@@ -88,41 +88,41 @@ async def test_timeout_enforcement():
         config = SandboxConfig(mode="none")
         with pytest.raises(TimeoutError):
             if platform.system() == "Windows":
-                await sandbox_exec(["powershell.exe", "-Command", "Start-Sleep -Seconds 30"], workdir, config, timeout=1.0)
+                await _sandbox_exec(["powershell.exe", "-Command", "Start-Sleep -Seconds 30"], workdir, config, timeout=1.0)
             else:
-                await sandbox_exec(["sleep", "30"], workdir, config, timeout=1.0)
+                await _sandbox_exec(["sleep", "30"], workdir, config, timeout=1.0)
 
 
 @pytest.mark.asyncio
 @pytest.mark.skipif(platform.system() == "Windows", reason="Windows job objects do not confine the filesystem")
-@pytest.mark.skipif(not select_sandbox_backend().confinement.filesystem, reason="current backend does not confine filesystem")
+@pytest.mark.skipif(not _select_sandbox_backend().confinement.filesystem, reason="current backend does not confine filesystem")
 async def test_escape_parent_directory_write_blocked():
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp) / "workspace"
         workdir.mkdir()
         parent_file = Path(tmp) / "escape.txt"
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
-        await sandbox_exec(["sh", "-c", f"echo escaped > {parent_file}"], workdir, config, timeout=5.0)
+        await _sandbox_exec(["sh", "-c", f"echo escaped > {parent_file}"], workdir, config, timeout=5.0)
         assert not parent_file.exists()
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(platform.system() != "Linux" or not select_sandbox_backend().confinement.filesystem, reason="needs Linux FS confinement")
+@pytest.mark.skipif(platform.system() != "Linux" or not _select_sandbox_backend().confinement.filesystem, reason="needs Linux FS confinement")
 async def test_escape_etc_write_blocked():
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
-        result = await sandbox_exec(["sh", "-c", "echo x > /etc/tala_escape_test || exit 1"], workdir, config, timeout=5.0)
+        result = await _sandbox_exec(["sh", "-c", "echo x > /etc/tala_escape_test || exit 1"], workdir, config, timeout=5.0)
         assert result.returncode != 0
 
 
 @pytest.mark.asyncio
-@pytest.mark.skipif(not select_sandbox_backend().confinement.network, reason="current backend does not confine network")
+@pytest.mark.skipif(not _select_sandbox_backend().confinement.network, reason="current backend does not confine network")
 async def test_network_isolation():
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         config = SandboxConfig(mode="strict", allow_network=False, readwrite_paths=[workdir])
-        result = await sandbox_exec(["ping", "-c", "1", "127.0.0.1"], workdir, config, timeout=5.0)
+        result = await _sandbox_exec(["ping", "-c", "1", "127.0.0.1"], workdir, config, timeout=5.0)
         assert result.returncode != 0
 
 
@@ -132,7 +132,7 @@ async def test_escape_keychain_dump_blocked():
     with tempfile.TemporaryDirectory() as tmp:
         workdir = Path(tmp)
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
-        result = await sandbox_exec(["security", "dump-keychain"], workdir, config, timeout=5.0)
+        result = await _sandbox_exec(["security", "dump-keychain"], workdir, config, timeout=5.0)
         assert result.returncode != 0
 
 
@@ -141,3 +141,45 @@ def test_conformance_matrix_is_explicit():
     backend = _backend()
     print(f"sandbox backend={type(backend).__name__} confinement={backend.confinement}")
     assert backend.confinement.label
+
+
+def test_report_skip_vs_execute_for_this_os():
+    """Print the skip/execute matrix for the current OS runner."""
+    system = platform.system()
+    backend = _backend()
+    fs = backend.confinement.filesystem
+    net = backend.confinement.network
+    darwin_exec = system == "Darwin" and shutil.which("sandbox-exec") is not None
+    rows = [
+        ("test_backend_selection_matches_host", "EXECUTE"),
+        ("test_windows_honesty_in_module", "EXECUTE"),
+        ("test_macos_sandbox_exec_is_labeled_deprecated", "EXECUTE"),
+        ("test_windows_wrap_does_not_rewrite_argv", "EXECUTE"),
+        ("test_basic_execution", "EXECUTE"),
+        ("test_timeout_enforcement", "EXECUTE"),
+        (
+            "test_escape_parent_directory_write_blocked",
+            "SKIP" if system == "Windows" or not fs else "EXECUTE",
+        ),
+        (
+            "test_escape_etc_write_blocked",
+            "SKIP" if system != "Linux" or not fs else "EXECUTE",
+        ),
+        ("test_network_isolation", "SKIP" if not net else "EXECUTE"),
+        (
+            "test_escape_keychain_dump_blocked",
+            "SKIP" if not darwin_exec else "EXECUTE",
+        ),
+        ("test_conformance_matrix_is_explicit", "EXECUTE"),
+        ("test_report_skip_vs_execute_for_this_os", "EXECUTE"),
+    ]
+    executed = sum(1 for _, status in rows if status == "EXECUTE")
+    skipped = sum(1 for _, status in rows if status == "SKIP")
+    print(
+        f"SANDBOX_TEST_MATRIX os={system} backend={type(backend).__name__} "
+        f"label={backend.confinement.label} executed={executed} skipped={skipped}"
+    )
+    for name, status in rows:
+        print(f"  {status}: {name}")
+    assert executed + skipped == len(rows)
+    assert executed >= 7

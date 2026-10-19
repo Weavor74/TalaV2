@@ -157,5 +157,5 @@ class WindowsJobSession:
         self.handle = None
 
 
-def enforcement_label(assigned: bool) -> str:
+def _enforcement_label(assigned: bool) -> str:
     return "job-object" if assigned else "guarded-policy-only"

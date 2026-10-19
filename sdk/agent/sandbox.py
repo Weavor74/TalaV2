@@ -158,6 +158,8 @@ class MacOSSandbox(SandboxBackend):
                 lines.append(f'(allow file* (subpath "{rw}"))')
             lines += [
                 '(allow file-read* (subpath "/usr"))',
+                '(allow file-read* (subpath "/bin"))',
+                '(allow file-read* (subpath "/sbin"))',
                 '(allow file-read* (subpath "/System"))',
                 '(allow file-read* (subpath "/Library"))',
                 '(allow file-read* (subpath "/private/tmp"))',
@@ -196,7 +198,7 @@ class WindowsSandbox(SandboxBackend):
         if not pid:
             return False
         try:
-            from sdk.agent.sandbox_windows import WindowsJobSession
+            from sdk.agent.sandbox_windows import WindowsJobSession, _enforcement_label
         except Exception as exc:
             log.warning("Windows job module unavailable: %s", exc)
             self.confinement = Confinement(label="guarded-policy-only")
@@ -204,15 +206,15 @@ class WindowsSandbox(SandboxBackend):
         session = WindowsJobSession()
         if not session.create():
             log.warning("Windows job create failed: %s", session.error)
-            self.confinement = Confinement(label="guarded-policy-only")
+            self.confinement = Confinement(label=_enforcement_label(False))
             return False
         if not session.assign_pid(pid):
             log.warning("Windows job assign failed: %s", session.error)
             session.cleanup()
-            self.confinement = Confinement(label="guarded-policy-only")
+            self.confinement = Confinement(label=_enforcement_label(False))
             return False
         self._session = session
-        self.confinement = Confinement(process_job=True, label="job-object")
+        self.confinement = Confinement(process_job=True, label=_enforcement_label(True))
         return True
 
     def cleanup(self) -> None:
@@ -260,7 +262,7 @@ class NoOpSandbox(SandboxBackend):
         return True
 
 
-def select_sandbox_backend() -> SandboxBackend:
+def _select_sandbox_backend() -> SandboxBackend:
     ordered: list[SandboxBackend] = [
         BubblewrapSandbox(),
         NamespaceContainerSandbox(),
@@ -273,16 +275,6 @@ def select_sandbox_backend() -> SandboxBackend:
             return backend
     log.warning("No sandbox backend available")
     return NoOpSandbox()
-
-
-_SANDBOX_BACKEND: SandboxBackend | None = None
-
-
-def get_sandbox_backend() -> SandboxBackend:
-    global _SANDBOX_BACKEND
-    if _SANDBOX_BACKEND is None:
-        _SANDBOX_BACKEND = select_sandbox_backend()
-    return _SANDBOX_BACKEND
 
 
 @dataclass
@@ -304,7 +296,7 @@ def prepare_sandbox(cfg: Any, argv: list[str], workdir: Path) -> SandboxSession:
     enabled = bool(getattr(cfg, "enable_sandbox", True))
     if not enabled:
         return SandboxSession(argv=argv, backend=NoOpSandbox(), enabled=False)
-    backend = select_sandbox_backend()
+    backend = _select_sandbox_backend()
     config = SandboxConfig(
         mode="strict",
         allow_network=bool(getattr(cfg, "allow_network", False)),
@@ -315,14 +307,14 @@ def prepare_sandbox(cfg: Any, argv: list[str], workdir: Path) -> SandboxSession:
     return SandboxSession(argv=wrapped, backend=backend, enabled=True)
 
 
-async def sandbox_exec(
+async def _sandbox_exec(
     argv: list[str],
     workdir: Path,
     config: SandboxConfig | None = None,
     timeout: float | None = None,
 ) -> subprocess.CompletedProcess:
     config = config or SandboxConfig()
-    backend = select_sandbox_backend()
+    backend = _select_sandbox_backend()
     wrapped = backend.wrap_command(list(argv), config, workdir)
     proc = await asyncio.create_subprocess_exec(
         *wrapped,
