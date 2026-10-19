@@ -71,7 +71,9 @@ class AccessDenied(OSError):
             f"AppContainer ACCESS DENIED on {path} (Win32 {winerr}). "
             "The sandboxed process has no read+execute ACL on this specific path. "
             "Non-system drives (for example D:) usually lack 'ALL APPLICATION PACKAGES'; "
-            "Tala grants only the interpreter/venv/tool paths it runs, never a whole drive."
+            "Tala grants only the interpreter/venv/tool paths it runs, never a whole drive. "
+            "A venv's stdlib lives in sys.base_prefix (Lib and DLLs) and pyvenv.cfg home — "
+            "never set PYTHONHOME to the venv directory."
         )
 
 
@@ -356,8 +358,109 @@ def _is_windows_system_path(path: Path | str) -> bool:
     return False
 
 
+def _looks_like_python_exe(path: Path) -> bool:
+    name = path.name.lower()
+    if name in ("python", "python3", "python.exe", "python3.exe", "pythonw.exe"):
+        return True
+    return name.startswith("python") and name.endswith(".exe")
+
+
+def _has_encodings(prefix: Path) -> bool:
+    try:
+        root = Path(prefix)
+    except TypeError:
+        return False
+    return (root / "Lib" / "encodings").is_dir() or (root / "lib" / "encodings").is_dir()
+
+
+def _is_venv_prefix(prefix: Path) -> bool:
+    try:
+        return (Path(prefix) / "pyvenv.cfg").is_file()
+    except OSError:
+        return False
+
+
+def _venv_root_for(exe: Path) -> Path | None:
+    parent = exe.parent
+    if parent.name.lower() in ("scripts", "bin"):
+        venv = parent.parent
+        if (venv / "pyvenv.cfg").is_file():
+            return venv
+    if (exe.parent / "pyvenv.cfg").is_file():
+        return exe.parent
+    return None
+
+
+def _pyvenv_home(venv: Path) -> Path | None:
+    cfg = venv / "pyvenv.cfg"
+    if not cfg.is_file():
+        return None
+    try:
+        for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
+            stripped = line.strip()
+            if stripped.lower().startswith("home") and "=" in stripped:
+                return Path(stripped.split("=", 1)[-1].strip().strip('"').strip("'"))
+    except OSError:
+        return None
+    return None
+
+
+def _base_prefix() -> Path:
+    return Path(getattr(sys, "base_prefix", sys.prefix) or sys.prefix)
+
+
+def _stdlib_dirs(prefix: Path) -> list[Path]:
+    """Minimal CPython stdlib/DLL dirs. Never a volume root (caller filters)."""
+    py_name = "python.exe" if os.name == "nt" else "python"
+    return [
+        prefix,
+        prefix / py_name,
+        prefix / "DLLs",
+        prefix / "Lib",
+        prefix / "lib",
+        prefix / "libs",
+        prefix / "Lib" / "encodings",
+        prefix / "lib" / "encodings",
+    ]
+
+
+def _apply_pythonhome_for_child(executable: str) -> None:
+    """Sanitize PYTHONHOME for the AppContainer child.
+
+    A venv has no encodings package; PYTHONHOME=venv yields
+    ``ModuleNotFoundError: No module named 'encodings'``. Never set it to a
+    venv. Relocated python.exe (copied off the install) may use sys.base_prefix
+    when that prefix actually contains the stdlib.
+    """
+    exe = Path(executable)
+    current = os.environ.get("PYTHONHOME")
+    if current and (_is_venv_prefix(Path(current)) or not _has_encodings(Path(current))):
+        os.environ.pop("PYTHONHOME", None)
+        log.warning(
+            "TALA_SANDBOX: dropping PYTHONHOME=%s (venv or missing encodings)", current,
+        )
+    if _venv_root_for(exe) is not None:
+        os.environ.pop("PYTHONHOME", None)
+        return
+    if not _looks_like_python_exe(exe):
+        return
+    if os.environ.get("PYTHONHOME"):
+        return
+    if _has_encodings(exe.parent):
+        return
+    base = _base_prefix()
+    if not _is_venv_prefix(base) and _has_encodings(base):
+        os.environ["PYTHONHOME"] = str(base)
+        log.info("TALA_SANDBOX: PYTHONHOME=%s for relocated interpreter %s", base, exe)
+
+
 def rx_paths_for_executable(executable: str) -> list[str]:
-    """Read+execute grants for a specific interpreter or tool; never a whole drive."""
+    """Read+execute grants for a specific interpreter or tool; never a whole drive.
+
+    For a venv python.exe this is the venv, pyvenv.cfg home, and sys.base_prefix
+    Lib/DLLs — a venv does not ship encodings or python3xx.dll from the base
+    install, and AppContainer cannot read those paths by default.
+    """
     if not executable:
         return []
     raw = Path(executable)
@@ -377,29 +480,33 @@ def rx_paths_for_executable(executable: str) -> list[str]:
         if text not in out:
             out.append(text)
 
+    def add_stdlib(prefix: Path) -> None:
+        for item in _stdlib_dirs(prefix):
+            add(item)
+
     if raw.is_file():
         add(raw)
         add(raw.parent)
-        if raw.parent.name.lower() in ("scripts", "bin"):
-            venv = raw.parent.parent
+        venv = _venv_root_for(raw)
+        if venv is not None:
             add(venv)
-            cfg = venv / "pyvenv.cfg"
-            if cfg.is_file():
-                try:
-                    for line in cfg.read_text(encoding="utf-8", errors="replace").splitlines():
-                        if line.lower().startswith("home"):
-                            home = Path(line.split("=", 1)[-1].strip().strip('"'))
-                            add(home)
-                            py_name = "python.exe" if os.name == "nt" else "python"
-                            add(home / py_name)
-                            add(home / "DLLs")
-                            add(home / "Lib")
-                except OSError:
-                    pass
+            home = _pyvenv_home(venv)
+            if home is not None:
+                add_stdlib(home)
+        if _looks_like_python_exe(raw):
+            add_stdlib(_base_prefix())
+            prefix = Path(sys.prefix)
+            if not _is_venv_prefix(prefix):
+                add_stdlib(prefix)
         add(raw.parent / "DLLs")
         add(raw.parent / "Lib")
     elif raw.is_dir():
         add(raw)
+        if (raw / "pyvenv.cfg").is_file():
+            home = _pyvenv_home(raw)
+            if home is not None:
+                add_stdlib(home)
+            add_stdlib(_base_prefix())
     return out
 
 
@@ -409,8 +516,21 @@ def _ace_for(target: Path, write: bool) -> str:
     return GENERIC_RX_DIR if target.is_dir() else GENERIC_RX_FILE
 
 
-def _grant_paths(sid_str: str, write_paths: Sequence[str], read_paths: Sequence[str] = ()) -> None:
+def _grant_paths(
+    sid_str: str,
+    write_paths: Sequence[str],
+    read_paths: Sequence[str] = (),
+    required_read: Sequence[str] = (),
+) -> None:
     icacls = shutil.which("icacls") or "icacls"
+    required: set[str] = set()
+    for raw in required_read:
+        if not raw:
+            continue
+        try:
+            required.add(str(Path(raw).resolve()))
+        except OSError:
+            required.add(str(raw))
     items: list[tuple[str, bool]] = [(p, True) for p in write_paths] + [(p, False) for p in read_paths]
     for path, write in items:
         if not path:
@@ -436,6 +556,8 @@ def _grant_paths(sid_str: str, write_paths: Sequence[str], read_paths: Sequence[
         )
         if result.returncode != 0:
             log.warning("icacls grant failed for %s: %s %s", target, result.stdout, result.stderr)
+            if str(target) in required:
+                raise AccessDenied(str(target))
 
 
 def _revoke_paths(sid_str: str, paths: Sequence[str]) -> None:
@@ -578,7 +700,9 @@ def spawn_appcontainer(
             continue
         seen_read.add(text)
         merged_read.append(text)
-    _grant_paths(sid_str, list(write_paths) + [workdir], merged_read)
+    _grant_paths(
+        sid_str, list(write_paths) + [workdir], merged_read, required_read=[exe],
+    )
 
     adv = _advapi()
     app_sid = ctypes.c_void_p()
@@ -607,6 +731,8 @@ def spawn_appcontainer(
     attr = (ctypes.c_ubyte * max(int(size.value), 1))()
     if not k32.InitializeProcThreadAttributeList(attr, 1, 0, ctypes.byref(size)):
         raise OSError(f"InitializeProcThreadAttributeList failed ({ctypes.get_last_error()})")
+    old_home = os.environ.get("PYTHONHOME")
+    home_was_set = "PYTHONHOME" in os.environ
     try:
         if not k32.UpdateProcThreadAttribute(
             attr, 0, PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES,
@@ -626,6 +752,7 @@ def spawn_appcontainer(
 
         quoted = subprocess.list2cmdline([exe, *list(argv[1:])])
         flags = EXTENDED_STARTUPINFO_PRESENT
+        _apply_pythonhome_for_child(exe)
 
         def _create(app_name, cwd):
             # CreateProcessW mutates the command-line buffer; allocate a fresh one.
@@ -679,6 +806,10 @@ def spawn_appcontainer(
             adv.FreeSid(app_sid)
         for cap in cap_sids:
             adv.FreeSid(cap)
+        if home_was_set:
+            os.environ["PYTHONHOME"] = str(old_home)
+        else:
+            os.environ.pop("PYTHONHOME", None)
 
 
 def _diagnose_createprocess() -> int:

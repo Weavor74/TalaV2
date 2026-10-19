@@ -275,6 +275,10 @@ def test_windows_honesty_in_module():
     assert "_is_windows_system_path" in ac
     assert "refusing ACL grant" in ac
     assert "hostedtoolcache" in ac
+    assert "pyvenv.cfg" in ac
+    assert "PYTHONHOME" in ac
+    assert "base_prefix" in ac
+    assert "encodings" in ac
     assert '"\\\\windows\\\\" in low' not in ac
     assert "Start-Job" not in Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
     write_fn = Path("tests/test_sandbox.py").read_text(encoding="utf-8").split(
@@ -291,6 +295,11 @@ def test_windows_honesty_in_module():
     tests = Path("tests/test_sandbox.py").read_text(encoding="utf-8")
     assert "NEVER_COMPLETED" in tests
     assert "10065" in tests and "10051" in tests
+    assert "venv.create" in tests
+    nonsystem = tests.split(
+        "def test_nonsystem_volume_workspace_and_interpreter", 1,
+    )[1].split("def test_sandboxed_real_venv_python", 1)[0]
+    assert 'os.environ["PYTHONHOME"] = sys.prefix' not in nonsystem
     launch = Path("sdk/agent/sandbox_windows_launch.py").read_text(encoding="utf-8")
     assert "--diagnose" in launch
     assert "_diagnose_createprocess" in launch
@@ -626,6 +635,8 @@ def test_access_denied_error_names_path():
     exc = AccessDenied(path)
     assert path in str(exc)
     assert "ACCESS DENIED" in str(exc)
+    assert "PYTHONHOME" in str(exc)
+    assert "base_prefix" in str(exc)
 
 
 def test_system_path_skips_real_windows_not_hostedtoolcache():
@@ -647,6 +658,55 @@ def test_rx_paths_never_grant_a_volume_root(tmp_path):
     assert sys.executable in paths or any(Path(p) == Path(sys.executable).resolve() for p in paths)
     for raw in paths:
         assert not _is_volume_root(Path(raw)), raw
+
+
+def test_rx_paths_include_venv_and_base_prefix_stdlib(tmp_path):
+    """A venv python.exe must RX-grant pyvenv.cfg home Lib/DLLs, not just the venv."""
+    from sdk.agent.sandbox_windows_appcontainer import rx_paths_for_executable
+    home = tmp_path / "CPython"
+    (home / "Lib" / "encodings").mkdir(parents=True)
+    (home / "DLLs").mkdir()
+    (home / "python.exe").write_bytes(b"")
+    venv = tmp_path / "venv"
+    (venv / "Scripts").mkdir(parents=True)
+    venv_py = venv / "Scripts" / "python.exe"
+    venv_py.write_bytes(b"")
+    (venv / "pyvenv.cfg").write_text(
+        f"home = {home}\ninclude-system-site-packages = false\n", encoding="utf-8",
+    )
+    paths = {str(Path(p).resolve()) for p in rx_paths_for_executable(str(venv_py))}
+    assert str(venv_py.resolve()) in paths
+    assert str(venv.resolve()) in paths
+    assert str(home.resolve()) in paths
+    assert str((home / "Lib").resolve()) in paths
+    assert str((home / "DLLs").resolve()) in paths
+    assert str((home / "Lib" / "encodings").resolve()) in paths
+    for raw in paths:
+        from sdk.agent.sandbox_windows_appcontainer import _is_volume_root
+        assert not _is_volume_root(Path(raw)), raw
+
+
+def test_pythonhome_never_points_at_a_venv(tmp_path, monkeypatch):
+    from sdk.agent.sandbox_windows_appcontainer import _apply_pythonhome_for_child
+    venv = tmp_path / "venv"
+    (venv / "Scripts").mkdir(parents=True)
+    py = venv / "Scripts" / "python.exe"
+    py.write_bytes(b"")
+    (venv / "pyvenv.cfg").write_text("home = /unused\n", encoding="utf-8")
+    monkeypatch.setenv("PYTHONHOME", str(venv))
+    _apply_pythonhome_for_child(str(py))
+    assert "PYTHONHOME" not in os.environ
+
+    dest = tmp_path / "copy" / "python.exe"
+    dest.parent.mkdir()
+    dest.write_bytes(b"")
+    base = tmp_path / "base"
+    (base / "Lib" / "encodings").mkdir(parents=True)
+    monkeypatch.setattr(sys, "base_prefix", str(base), raising=False)
+    monkeypatch.delenv("PYTHONHOME", raising=False)
+    _apply_pythonhome_for_child(str(dest))
+    assert os.environ.get("PYTHONHOME") == str(base)
+    assert not (Path(os.environ["PYTHONHOME"]) / "pyvenv.cfg").is_file()
 
 
 def test_wrap_grants_rx_on_interpreter_not_drive(tmp_path):
@@ -689,8 +749,12 @@ def _writable_nonsystem_root(tmp_path: Path) -> Path | None:
 
 
 def _copy_interpreter(dest: Path) -> Path:
+    """Copy the *base* interpreter, never a venv stub without encodings."""
     dest.mkdir(parents=True, exist_ok=True)
-    src = Path(sys.executable)
+    base = Path(getattr(sys, "base_prefix", sys.prefix))
+    src = base / Path(sys.executable).name
+    if not src.is_file():
+        src = Path(sys.executable)
     target = dest / src.name
     shutil.copy2(src, target)
     for pattern in ("python*.dll", "vcruntime*.dll"):
@@ -732,30 +796,55 @@ async def test_nonsystem_volume_workspace_and_interpreter(tmp_path):
             pytest.skip("icacls unavailable to simulate a non-system volume")
         if simulated:
             _strip_package_acls(workspace)
-        old_home = os.environ.get("PYTHONHOME")
-        os.environ["PYTHONHOME"] = sys.prefix
-        try:
-            result = await _sandbox_exec(
-                [str(python), "-c", "print('tala-ac-ok')"],
-                workspace,
-                SandboxConfig(
-                    mode="strict",
-                    readwrite_paths=[workspace],
-                    readonly_paths=[interp_home, python, Path(sys.prefix)],
-                ),
-                timeout=15.0,
-            )
-        finally:
-            if old_home is None:
-                os.environ.pop("PYTHONHOME", None)
-            else:
-                os.environ["PYTHONHOME"] = old_home
+        # Never PYTHONHOME=<venv>: a venv has no encodings package. The launcher
+        # grants RX on sys.base_prefix Lib/DLLs and may set PYTHONHOME to that
+        # real stdlib prefix for a relocated python.exe.
+        home = os.environ.get("PYTHONHOME")
+        assert not home or not (Path(home) / "pyvenv.cfg").is_file(), home
+        result = await _sandbox_exec(
+            [str(python), "-c", "print('tala-ac-ok')"],
+            workspace,
+            SandboxConfig(
+                mode="strict",
+                readwrite_paths=[workspace],
+                readonly_paths=[interp_home, python, *_interpreter_read_paths()],
+            ),
+            timeout=15.0,
+        )
         out = (result.stdout or b"") + (result.stderr or b"")
         assert result.returncode == 0, out
         assert b"tala-ac-ok" in (result.stdout or b"")
+        assert b"No module named 'encodings'" not in out
     finally:
         if not simulated and root is not None:
             shutil.rmtree(root, ignore_errors=True)
+
+
+@pytest.mark.asyncio
+async def test_sandboxed_real_venv_python(tmp_path):
+    """CI coverage Kagura hit: hostedtoolcache is not a venv; create one and run it."""
+    if platform.system() != "Windows":
+        pytest.skip("Windows AppContainer venv RX")
+    import venv
+    workspace = tmp_path / "workspace"
+    workspace.mkdir()
+    venv_dir = tmp_path / "real-venv"
+    venv.create(str(venv_dir), with_pip=False, symlinks=False)
+    python = venv_dir / "Scripts" / "python.exe"
+    assert python.is_file(), python
+    assert (venv_dir / "pyvenv.cfg").is_file()
+    home = os.environ.get("PYTHONHOME")
+    assert not home or not (Path(home) / "pyvenv.cfg").is_file(), home
+    result = await _sandbox_exec(
+        [str(python), "-c", "import encodings, sys; print(sys.prefix); print('tala-venv-ok')"],
+        workspace,
+        SandboxConfig(mode="strict", readwrite_paths=[workspace]),
+        timeout=30.0,
+    )
+    out = (result.stdout or b"") + (result.stderr or b"")
+    assert result.returncode == 0, out
+    assert b"tala-venv-ok" in (result.stdout or b"")
+    assert b"No module named 'encodings'" not in out
 
 
 def test_conformance_matrix_is_explicit():
@@ -790,10 +879,16 @@ def test_report_skip_vs_execute_for_this_os():
         ("test_guarded_run_writes_loud_marker", "EXECUTE"),
         ("test_access_denied_error_names_path", "EXECUTE"),
         ("test_rx_paths_never_grant_a_volume_root", "EXECUTE"),
+        ("test_rx_paths_include_venv_and_base_prefix_stdlib", "EXECUTE"),
+        ("test_pythonhome_never_points_at_a_venv", "EXECUTE"),
         ("test_wrap_grants_rx_on_interpreter_not_drive", "EXECUTE"),
         ("test_windows_strict_wrap_includes_status_file", "EXECUTE"),
         (
             "test_nonsystem_volume_workspace_and_interpreter",
+            "EXECUTE" if system == "Windows" else "SKIP",
+        ),
+        (
+            "test_sandboxed_real_venv_python",
             "EXECUTE" if system == "Windows" else "SKIP",
         ),
         (
@@ -839,6 +934,7 @@ def test_report_skip_vs_execute_for_this_os():
         assert by_name["test_escape_outside_workspace_write_blocked"] == "EXECUTE"
         assert by_name["test_network_isolation"] == "EXECUTE"
         assert by_name["test_nonsystem_volume_workspace_and_interpreter"] == "EXECUTE"
+        assert by_name["test_sandboxed_real_venv_python"] == "EXECUTE"
         assert by_name["test_windows_cmd_echo_sandboxed"] == "EXECUTE"
         assert by_name["test_windows_powershell_oneliner_sandboxed"] == "EXECUTE"
         assert by_name["test_windows_cmd_outside_workspace_write_denied"] == "EXECUTE"

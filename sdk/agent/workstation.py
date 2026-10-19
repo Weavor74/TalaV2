@@ -143,6 +143,11 @@ def _sandbox_status_from(stderr: str, status_path: Path | None) -> dict | None:
         except (OSError, json.JSONDecodeError, IndexError):
             pass
     text = stderr or ""
+    if "No module named 'encodings'" in text:
+        base = Path(getattr(sys, "base_prefix", sys.prefix))
+        encodings = base / "Lib" / "encodings"
+        path = str(encodings if encodings.exists() else base / "Lib")
+        return {"mode": "access-denied", "path": path}
     if _SANDBOX_DENIED_MARK in text:
         path = ""
         for line in text.splitlines():

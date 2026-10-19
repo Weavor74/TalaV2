@@ -181,7 +181,11 @@ Linux host it also runs the real adapter end to end (bash, TMPDIR, `/etc/shadow`
     A job object still wraps the tree (kill-on-close). Read+execute ACLs are
     granted on the **specific** interpreter, venv and tool paths the child
     runs (`icacls /grant:r`, never a whole drive) so a workspace on `D:` can
-    still start Python when `ALL APPLICATION PACKAGES` is missing. `cmd.exe`
+    still start Python when `ALL APPLICATION PACKAGES` is missing. A venv's
+    stdlib is not inside the venv: Tala also grants RX on `sys.base_prefix`
+    (`Lib`, `DLLs`) and `pyvenv.cfg` `home`, and never sets `PYTHONHOME` to
+    the venv directory (that yields `No module named 'encodings'`). Access
+    denied names the specific path. `cmd.exe`
     and `powershell.exe` are launched with `CreateProcessW(lpApplicationName=NULL)`
     and the canonical System32 path from `GetSystemDirectoryW`; Tala does
     **not** icacls `Windows`/`System32` (that tree already grants
