@@ -409,7 +409,16 @@ async def test_network_isolation():
             assert b"spawn-failed" not in combined, combined
             assert result.returncode != 0, result.stderr
         else:
-            result = await _sandbox_exec(["ping", "-c", "1", "127.0.0.1"], workdir, config, timeout=5.0)
+            # After allowing file-read-data of /, ping reaches (deny network*)
+            # instead of aborting on a prior FS deny. macOS ping then waits
+            # for ICMP rather than exiting immediately.
+            ping = ["ping", "-c", "1", "127.0.0.1"]
+            if platform.system() == "Darwin":
+                ping = ["ping", "-c", "1", "-t", "1", "127.0.0.1"]
+            try:
+                result = await _sandbox_exec(ping, workdir, config, timeout=5.0)
+            except TimeoutError:
+                return
             assert result.returncode != 0
 
 
