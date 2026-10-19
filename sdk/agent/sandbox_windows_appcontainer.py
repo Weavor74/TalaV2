@@ -27,7 +27,6 @@ import os
 import shutil
 import subprocess
 import sys
-import threading
 from ctypes import wintypes
 from pathlib import Path
 from typing import Sequence
@@ -44,7 +43,9 @@ STARTF_USESHOWWINDOW = 0x00000001
 SW_HIDE = 0
 HANDLE_FLAG_INHERIT = 0x00000001
 PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
-PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002
+STD_INPUT_HANDLE = -10
+STD_OUTPUT_HANDLE = -11
+STD_ERROR_HANDLE = -12
 WAIT_OBJECT_0 = 0
 STILL_ACTIVE = 259
 GENERIC_ALL_DIR = "(OI)(CI)(F)"
@@ -195,15 +196,6 @@ def _k32():
     ]
     k32.UpdateProcThreadAttribute.restype = wintypes.BOOL
     k32.DeleteProcThreadAttributeList.argtypes = [ctypes.c_void_p]
-    k32.CreatePipe.argtypes = [
-        ctypes.POINTER(wintypes.HANDLE), ctypes.POINTER(wintypes.HANDLE),
-        ctypes.POINTER(SECURITY_ATTRIBUTES), wintypes.DWORD,
-    ]
-    k32.SetHandleInformation.argtypes = [wintypes.HANDLE, wintypes.DWORD, wintypes.DWORD]
-    k32.ReadFile.argtypes = [
-        wintypes.HANDLE, ctypes.c_void_p, wintypes.DWORD,
-        ctypes.POINTER(wintypes.DWORD), ctypes.c_void_p,
-    ]
     k32.WaitForSingleObject.argtypes = [wintypes.HANDLE, wintypes.DWORD]
     k32.GetExitCodeProcess.argtypes = [wintypes.HANDLE, ctypes.POINTER(wintypes.DWORD)]
     k32.TerminateProcess.argtypes = [wintypes.HANDLE, wintypes.UINT]
@@ -212,6 +204,8 @@ def _k32():
     k32.SetInformationJobObject.argtypes = [wintypes.HANDLE, ctypes.c_int, ctypes.c_void_p, wintypes.DWORD]
     k32.AssignProcessToJobObject.argtypes = [wintypes.HANDLE, wintypes.HANDLE]
     k32.CloseHandle.argtypes = [wintypes.HANDLE]
+    k32.GetStdHandle.argtypes = [wintypes.DWORD]
+    k32.GetStdHandle.restype = wintypes.HANDLE
     return k32
 
 
@@ -479,36 +473,6 @@ def _capability_sids(allow_network: bool) -> list:
     return sids
 
 
-def _make_pipes(k32):
-    sa = SECURITY_ATTRIBUTES()
-    sa.nLength = ctypes.sizeof(sa)
-    sa.bInheritHandle = True
-    r_in, w_in = wintypes.HANDLE(), wintypes.HANDLE()
-    r_out, w_out = wintypes.HANDLE(), wintypes.HANDLE()
-    r_err, w_err = wintypes.HANDLE(), wintypes.HANDLE()
-    if not k32.CreatePipe(ctypes.byref(r_in), ctypes.byref(w_in), ctypes.byref(sa), 0):
-        raise OSError(f"CreatePipe stdin failed ({ctypes.get_last_error()})")
-    if not k32.CreatePipe(ctypes.byref(r_out), ctypes.byref(w_out), ctypes.byref(sa), 0):
-        raise OSError(f"CreatePipe stdout failed ({ctypes.get_last_error()})")
-    if not k32.CreatePipe(ctypes.byref(r_err), ctypes.byref(w_err), ctypes.byref(sa), 0):
-        raise OSError(f"CreatePipe stderr failed ({ctypes.get_last_error()})")
-    k32.SetHandleInformation(w_in, HANDLE_FLAG_INHERIT, 0)
-    k32.SetHandleInformation(r_out, HANDLE_FLAG_INHERIT, 0)
-    k32.SetHandleInformation(r_err, HANDLE_FLAG_INHERIT, 0)
-    k32.CloseHandle(w_in)
-    return r_in, r_out, w_out, r_err, w_err
-
-
-def _drain(k32, handle, bucket: list[bytes]) -> None:
-    while True:
-        buf = ctypes.create_string_buffer(4096)
-        n = wintypes.DWORD()
-        ok = k32.ReadFile(handle, buf, 4096, ctypes.byref(n), None)
-        if not ok or n.value == 0:
-            break
-        bucket.append(buf.raw[:n.value])
-
-
 def _job(k32):
     handle = k32.CreateJobObjectW(None, None)
     if not handle:
@@ -610,11 +574,13 @@ def spawn_appcontainer(
 
     k32 = _k32()
     size = ctypes.c_size_t()
-    # SECURITY_CAPABILITIES + HANDLE_LIST. AppContainer CreateProcess with
-    # inherited std pipes and no HANDLE_LIST often fails with Win32 2.
-    k32.InitializeProcThreadAttributeList(None, 2, 0, ctypes.byref(size))
+    # Microsoft AppContainer samples: one attribute (SECURITY_CAPABILITIES),
+    # lpApplicationName=NULL, parent std handles (not new pipes). New pipes
+    # plus HANDLE_LIST still returned Win32 2 on Windows Server CI for cmd,
+    # PowerShell, and a granted D: python.exe.
+    k32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
     attr = (ctypes.c_ubyte * max(int(size.value), 1))()
-    if not k32.InitializeProcThreadAttributeList(attr, 2, 0, ctypes.byref(size)):
+    if not k32.InitializeProcThreadAttributeList(attr, 1, 0, ctypes.byref(size)):
         raise OSError(f"InitializeProcThreadAttributeList failed ({ctypes.get_last_error()})")
     try:
         if not k32.UpdateProcThreadAttribute(
@@ -622,55 +588,48 @@ def spawn_appcontainer(
             ctypes.byref(sc), ctypes.sizeof(sc), None, None,
         ):
             raise OSError(f"UpdateProcThreadAttribute failed ({ctypes.get_last_error()})")
-        r_in, r_out, w_out, r_err, w_err = _make_pipes(k32)
-        inherited = (wintypes.HANDLE * 3)(r_in, w_out, w_err)
-        if not k32.UpdateProcThreadAttribute(
-            attr, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
-            inherited, ctypes.sizeof(inherited), None, None,
-        ):
-            raise OSError(
-                f"UpdateProcThreadAttribute(HANDLE_LIST) failed ({ctypes.get_last_error()})"
-            )
+        desktop = ctypes.create_unicode_buffer("WinSta0\\Default")
         si = STARTUPINFOEXW()
         si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
+        si.StartupInfo.lpDesktop = desktop
         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW
         si.StartupInfo.wShowWindow = SW_HIDE
-        si.StartupInfo.hStdInput = r_in
-        si.StartupInfo.hStdOutput = w_out
-        si.StartupInfo.hStdError = w_err
+        si.StartupInfo.hStdInput = k32.GetStdHandle(STD_INPUT_HANDLE)
+        si.StartupInfo.hStdOutput = k32.GetStdHandle(STD_OUTPUT_HANDLE)
+        si.StartupInfo.hStdError = k32.GetStdHandle(STD_ERROR_HANDLE)
         si.lpAttributeList = ctypes.c_void_p(ctypes.addressof(attr))
 
         quoted = subprocess.list2cmdline([exe, *list(argv[1:])])
-        flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW
+        flags = EXTENDED_STARTUPINFO_PRESENT
 
-        def _create(app_name):
+        def _create(app_name, cwd):
             # CreateProcessW mutates the command-line buffer; allocate a fresh one.
             cmdbuf = ctypes.create_unicode_buffer(quoted)
             procinfo = PROCESS_INFORMATION()
             ok_ = k32.CreateProcessW(
-                app_name, cmdbuf, None, None, True, flags, None, str(workdir),
+                app_name, cmdbuf, None, None, True, flags, None, cwd,
                 ctypes.byref(si), ctypes.byref(procinfo),
             )
             return ok_, procinfo, 0 if ok_ else ctypes.get_last_error()
 
-        # Microsoft AppContainer samples pass lpApplicationName=NULL and put
-        # the full image path in the command line. Passing both can yield
-        # Win32 2 (ERROR_FILE_NOT_FOUND) even when cmd.exe exists.
-        ok, pi, err = _create(None)
+        ok, pi, err = _create(None, str(workdir))
+        if not ok and err == 2:
+            si.StartupInfo.lpDesktop = None
+            ok, pi, err = _create(None, str(workdir))
+        if not ok and err == 2:
+            si.StartupInfo.lpDesktop = desktop
+            ok, pi, err = _create(None, None)
         if not ok and err == 2 and os.path.isabs(exe):
-            ok, pi, err = _create(exe)
-        k32.CloseHandle(w_out)
-        k32.CloseHandle(w_err)
-        k32.CloseHandle(r_in)
+            ok, pi, err = _create(exe, str(workdir))
         if not ok:
-            k32.CloseHandle(r_out)
-            k32.CloseHandle(r_err)
             if err == ERROR_ACCESS_DENIED:
                 raise AccessDenied(str(exe), err)
             raise OSError(
                 f"CreateProcessW(AppContainer) Win32 {err} for {exe!r} "
-                f"cmdline={quoted!r} cwd={workdir!r}. "
-                "Tried lpApplicationName=NULL then the absolute path. "
+                f"cmdline={quoted!r} cwd={workdir!r} "
+                f"SI={ctypes.sizeof(STARTUPINFOW)} EX={ctypes.sizeof(STARTUPINFOEXW)}. "
+                "Tried lpApplicationName=NULL (WinSta0\\Default, then no desktop, "
+                "then cwd=NULL) then the absolute path. "
                 "Win32 2 is the AppContainer's path lookup (not the caller's); "
                 "System32 is expected to already grant ALL APPLICATION PACKAGES "
                 "so Tala does not icacls it. If cmd/PowerShell still cannot start, "
@@ -679,26 +638,15 @@ def spawn_appcontainer(
         job = _job(k32)
         if job:
             k32.AssignProcessToJobObject(job, pi.hProcess)
-        out_chunks: list[bytes] = []
-        err_chunks: list[bytes] = []
-        t_out = threading.Thread(target=_drain, args=(k32, r_out, out_chunks), daemon=True)
-        t_err = threading.Thread(target=_drain, args=(k32, r_err, err_chunks), daemon=True)
-        t_out.start()
-        t_err.start()
         k32.WaitForSingleObject(pi.hProcess, 0xFFFFFFFF)
         code = wintypes.DWORD()
         k32.GetExitCodeProcess(pi.hProcess, ctypes.byref(code))
-        t_out.join(timeout=5)
-        t_err.join(timeout=5)
-        k32.CloseHandle(r_out)
-        k32.CloseHandle(r_err)
         k32.CloseHandle(pi.hThread)
         k32.CloseHandle(pi.hProcess)
         if job:
             k32.CloseHandle(job)
         return subprocess.CompletedProcess(
-            args=list(argv), returncode=int(code.value),
-            stdout=b"".join(out_chunks), stderr=b"".join(err_chunks),
+            args=list(argv), returncode=int(code.value), stdout=b"", stderr=b"",
         )
     finally:
         k32.DeleteProcThreadAttributeList(attr)

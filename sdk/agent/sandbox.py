@@ -151,7 +151,17 @@ class MacOSSandbox(SandboxBackend):
         exe = shutil.which("sandbox-exec")
         if not exe:
             return argv
-        return [exe, "-p", self._profile(config, workdir), *argv]
+        profile = self._profile(config, workdir)
+        # -p with an inline profile can drop everything after the first
+        # newline on some macOS versions, leaving deny-default with no
+        # workspace writes (SIGABRT -6, empty stderr). -f keeps the full
+        # profile, including both /var and /private/var workspace rules.
+        sb = Path(workdir) / ".tala-sandbox.sb"
+        try:
+            sb.write_text(profile, encoding="utf-8")
+        except OSError:
+            return [exe, "-p", profile, *argv]
+        return [exe, "-f", str(sb), *argv]
 
     def _prefix_aliases(self, path: str) -> list[str]:
         """Same workspace folder under /var and /private/var (and /tmp), never the prefix root."""

@@ -77,7 +77,8 @@ def test_windows_honesty_in_module():
     assert "GetSystemDirectoryW" in ac
     assert "CreateProcessW.argtypes" in ac
     assert "wintypes.LPCWSTR, wintypes.LPWSTR" in ac
-    assert "PROC_THREAD_ATTRIBUTE_HANDLE_LIST" in ac
+    assert "WinSta0\\\\Default" in ac or "WinSta0\\Default" in ac
+    assert "GetStdHandle" in ac
     assert "_is_windows_system_path" in ac
     assert "refusing ACL grant" in ac
     assert "hostedtoolcache" in ac
@@ -93,6 +94,9 @@ def test_macos_profile_lists_resolved_and_raw_paths(tmp_path):
     for sub in backend._subpaths(workdir):
         assert f'(allow file-write* (subpath "{sub}"))' in profile
         assert f'(allow file-read* (subpath "{sub}"))' in profile
+    src = Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
+    assert ".tala-sandbox.sb" in src
+    assert '"-f"' in src or "', '-f'," in src
     assert "(allow file-map-executable)" in profile
     write_rules = [ln.strip() for ln in profile.splitlines() if "file-write*" in ln]
     assert write_rules
