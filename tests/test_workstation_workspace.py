@@ -182,6 +182,22 @@ async def test_sandbox_fallback_is_loud_in_result_ui_and_audit(fresh, tmp_path, 
 
 
 @pytest.mark.asyncio
+async def test_sandbox_encodings_error_names_stdlib_path(fresh, tmp_path):
+    a = tmp_path / "WsA"
+    assert ws.set_workspace(str(a))["success"]
+    result = {"success": True, "exit_code": 1}
+    await ws._apply_sandbox_status(
+        ws.config(), result,
+        "ModuleNotFoundError: No module named 'encodings'\n",
+        None, tool="run_python",
+    )
+    assert result["success"] is False
+    assert result["sandbox"] == "access-denied"
+    assert "base_prefix" in result["error"] or "Lib" in result["error"] or "encodings" in result["error"]
+    assert any(e["tool"] == "sandbox_access_denied" for e in _audit(a))
+
+
+@pytest.mark.asyncio
 async def test_sandbox_access_denied_names_the_path_in_result_and_audit(fresh, tmp_path):
     a = tmp_path / "WsA"
     assert ws.set_workspace(str(a))["success"]
