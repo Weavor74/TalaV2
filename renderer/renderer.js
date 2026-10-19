@@ -1587,12 +1587,7 @@ const InferenceManager = {
       console.warn('[InferenceManager] Failed to register websocket notification listener:', err);
     }
 
-    // loadProviders() below fires at page load, before the harness WebSocket
-    // has finished its own connect handshake -- both the RPC call and the
-    // GPU probe it triggers fail with "WebSocket is not connected" on that
-    // first attempt, and nothing retried it, so "No GPU detected" stuck for
-    // the rest of the session even on a machine with a real GPU. Re-run once
-    // the harness actually connects.
+    // loadProviders() fires before WS handshake completes, retry once harness connects (GPU probe needs WS)
     try {
       window.tala.on('harness:ws-status', (payload) => {
         if (payload && payload.connected) this.loadProviders();
@@ -1713,11 +1708,7 @@ const InferenceManager = {
 
   startDownloadPolling() {
     if (this._downloadInterval) clearInterval(this._downloadInterval);
-    // The get_embedded_status handler is now non-blocking (returns immediately even
-    // during module pre-warm).  Poll more aggressively:
-    //   - Start after 3 s (enough for the WS connection to establish)
-    //   - Poll every 5 s while downloading, 15 s when idle
-    let _polling = false;
+    let _polling = false; // get_embedded_status non-blocking: poll 3s start, 5s downloading, 15s idle
 
     const poll = async () => {
       if (_polling) return;           // skip if previous call is still in-flight
