@@ -93,6 +93,8 @@ from python.harness.heartbeat_rpc import (
     handle_heartbeat_list, handle_heartbeat_reload, handle_heartbeat_update,
 )
 from python.harness.health_rpc import handle_harness_health
+from python.harness.inference_policy import adjust_max_tokens_for_provider, model_id_matches
+from python.harness.inference_helpers import strip_tool_tags_if_no_tools, notify_inference_fallback
 from python.harness.workstation_rpc import WORKSTATION_RPC_HANDLERS
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
@@ -3041,26 +3043,7 @@ async def handle_inference_generate(
                             headers["Authorization"] = f"Bearer {api_key}"
 
                     model_lower = model.lower()
-                    
-                    # Robust max_tokens: remote/OpenAI-compatible providers get higher default
-                    # Word-bounded pattern matching to avoid false matches (e.g. 'ro1' matching 'o1')
-                    is_reasoning_model = (
-                        re.search(r'\b(o1|o3)\b', model_lower) or
-                        any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "deepseek", "thought", "thinking"))
-                    )
-                    
-                    # Provider-specific max_tokens override
-                    provider_max_tokens = p_config.get("max_tokens")
-                    if provider_max_tokens:
-                        adjusted_max_tokens = int(provider_max_tokens)
-                    elif p_type == "remote":
-                        # Remote providers default to 4096 to handle thinking models safely
-                        adjusted_max_tokens = max(max_tokens, 4096)
-                    elif is_reasoning_model:
-                        # Local thinking models get 2048 minimum
-                        adjusted_max_tokens = max(max_tokens, 2048)
-                    else:
-                        adjusted_max_tokens = max_tokens
+                    adjusted_max_tokens = adjust_max_tokens_for_provider(max_tokens, p_type, model, p_config)
 
                     actual_temp = temperature
                     # Kimi/Moonshot models only support temperature=1.0. Lower/higher values trigger HTTP 400.
@@ -6701,8 +6684,7 @@ async def _generate_reply(
 
     async def _one_completion(force_tool_choice: str | None = None) -> str:
         generated_text = None
-        errors = []
-        tried_providers = []
+        errors, tried_providers = [], []
         for provider in rows:
             if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
                 continue
@@ -6804,25 +6786,13 @@ async def _generate_reply(
 
         if not generated_text:
             logger.error("inference: all providers failed: %s", errors)
-            if tried_providers and len(tried_providers) > 1:
-                first_type = tried_providers[0][1]
-                last_type = tried_providers[-1][1]
-                if first_type == "remote" and last_type in ("local", "embedded"):
-                    try:
-                        await broadcast_notification("inference.fallback", {
-                            "from": tried_providers[0][0],
-                            "to": tried_providers[-1][0],
-                            "reason": "Remote provider failed; fell back to local model"
-                        })
-                    except Exception:
-                        pass
+            if len(tried_providers) > 1 and tried_providers[0][1] == "remote" and tried_providers[-1][1] in ("local", "embedded"):
+                await notify_inference_fallback(broadcast_notification, tried_providers[0][0], tried_providers[-1][0], "Remote provider failed; fell back to local model")
         return generated_text or ""
 
     final_text = await _one_completion(force_tool_choice=tool_choice)
     if not tools:
-        final_text = _strip_tool_tags_if_no_tools(final_text)
-        return final_text
-
+        return _strip_tool_tags_if_no_tools(final_text)
     from sdk.agent.agent_reply_tools import run_agent_tool_round
     tool_rounds_executed = 0
     for _ in range(MAX_TOOL_ROUNDS_PER_REPLY):
@@ -6835,30 +6805,13 @@ async def _generate_reply(
         inference_messages.append({"role": "user", "content": tool_response})
         final_text = await _one_completion()
         tool_rounds_executed += 1
-    
     if tool_rounds_executed >= MAX_TOOL_ROUNDS_PER_REPLY and _find_tool_call(final_text):
-        final_text = (
-            "I've reached my step limit while working on this request. "
-            "The task may require breaking it into smaller steps or simplifying the approach."
-        )
-    else:
-        final_text = _strip_tool_tags_if_no_tools(final_text)
-    
-    return final_text
+        return "I've reached my step limit while working on this request. The task may require breaking it into smaller steps or simplifying the approach."
+    return _strip_tool_tags_if_no_tools(final_text)
 
 
 def _strip_tool_tags_if_no_tools(text: str) -> str:
-    """Remove raw <call:...> tags that should not reach the user."""
-    if not text:
-        return text
-    match = _find_tool_call(text)
-    if match:
-        stripped = text[:match.start()].strip()
-        if stripped:
-            return stripped + "\n\n[Note: Tool execution was not available for this request.]"
-        return "[Tool execution was not available for this request.]"
-    return text
-
+    return strip_tool_tags_if_no_tools(text, _find_tool_call)
 
 async def _handle_inbound_a2a(peer_username: str, incoming_message: str) -> None:
     """
@@ -15173,11 +15126,7 @@ async def _auto_detect_and_verify_providers() -> None:
                 new_status = "offline"
             elif not endpoint:
                 new_status = "offline"
-                logger.error(
-                    "Provider %s (%s) has an API key but no endpoint. "
-                    "Configure the endpoint URL in Settings → Inference → Edit Provider.",
-                    p["id"], p.get("name", "Unnamed")
-                )
+                logger.error("Provider %s (%s) has an API key but no endpoint. Configure it in Settings → Inference.", p["id"], p.get("name", "Unnamed"))
             elif endpoint in cached_openai_models:
                 models = cached_openai_models[endpoint]
                 new_status = (
@@ -15196,36 +15145,20 @@ async def _auto_detect_and_verify_providers() -> None:
                         raw_ids = [m.get("id") for m in data.get("data", [])]
                         models = raw_ids
                         cached_openai_models[endpoint] = models
-                        model_found = not model or model in models
-                        if not model_found:
-                            model_found = any(
-                                mid.endswith(f"/{model}") or mid.endswith(f"/{model.split(':')[0]}")
-                                for mid in models
-                            )
+                        model_found = model_id_matches(models, model) if model else True
                         if model_found:
                             new_status = "online"
                         else:
                             new_status = "offline"
-                            logger.warning(
-                                "Provider %s answered but does not list model %r (available: %s).",
-                                p["id"], model, ", ".join(models[:5]),
-                            )
+                            logger.warning("Provider %s does not list model %r (available: %s).", p["id"], model, ", ".join(models[:5]))
                     else:
-                        # 401 is the case this finding exists for: a key that
-                        # is present and rejected.
                         cached_openai_models[endpoint] = None
                         new_status = "offline"
-                        logger.warning(
-                            "Provider %s returned HTTP %d when verifying its key.",
-                            p["id"], resp.status_code,
-                        )
+                        logger.warning("Provider %s returned HTTP %d when verifying its key.", p["id"], resp.status_code)
                 except Exception as exc:
                     cached_openai_models[endpoint] = None
                     new_status = "offline"
-                    logger.warning(
-                        "Provider %s could not be reached: %s", p["id"], exc
-                    )
-                
+                    logger.warning("Provider %s could not be reached: %s", p["id"], exc)
         if p["status"] != new_status:
             await db.execute(
                 "UPDATE inference_providers SET status = $1, updated_at = NOW() WHERE id = $2",
@@ -16036,18 +15969,14 @@ def main() -> None:
         loop = asyncio.new_event_loop()
         loop.set_default_executor(executor)
         asyncio.set_event_loop(loop)
-        
-        # Store loop reference on main thread for thread-safe coroutine scheduling
-        # (lease_policy.py broadcast from executor threads)
+        # Store loop reference for thread-safe coroutine scheduling
         import threading
         threading.main_thread()._tala_main_loop = loop
-        
         loop.run_until_complete(_run_server())
     except KeyboardInterrupt:
         pass  # Handled by signal handler
     finally:
         executor.shutdown(wait=False)
-
 
 if __name__ == "__main__":
     main()

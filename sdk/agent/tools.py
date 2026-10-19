@@ -2614,10 +2614,7 @@ async def tree_of_thought_ideation(goal: str) -> dict[str, Any]:
         }
 
 
-@register_tool(
-    name="submit_agent_goal",
-    description="Execute a complex, multi-step goal autonomously. The GoalEngine decomposes it into phases, synthesizes needed code/workflows, and runs them. Use this for: 'create and run...', 'build a workflow for...', 'implement...', or any task requiring multiple coordinated steps.",
-)
+@register_tool(name="submit_agent_goal", description="Execute a complex, multi-step goal autonomously. The GoalEngine decomposes it into phases, synthesizes code/workflows, and runs them. Use for: 'create and run...', 'build a workflow for...', 'implement...', or multi-step tasks.")
 async def submit_agent_goal(goal: str, min_skill_phases: int | None = None) -> dict[str, Any]:
     """
     NAME
@@ -4397,50 +4394,10 @@ async def search_conversations(query: str, limit: int = 10) -> dict[str, Any]:
     return await handle_memory_session_search({"query": query, "limit": int(limit)})
 
 
-@register_tool(
-    name="write_memory",
-    description="Save a simple fact, insight, or user preference to durable memory. Use this for 'remember that...' requests instead of the heavier docs.create_learning_node.",
-)
+@register_tool(name="write_memory", description="Save a simple fact, insight, or user preference to durable memory. Use this for 'remember that...' requests instead of the heavier docs.create_learning_node.")
 async def write_memory(content: str, topic: str = "user-preference") -> dict[str, Any]:
-    """
-    NAME
-           write_memory - save a fact to durable memory
-           
-    SYNOPSIS
-           write_memory(content: str, topic: str = "user-preference") -> dict[str, Any]
-           
-    DESCRIPTION
-           Record a user preference, learned fact, or important insight to
-           durable memory. Simpler and faster than docs.create_learning_node
-           for straightforward "remember X" requests.
-           
-           - content: The information to remember (required)
-           - topic: Optional category/topic tag (default: "user-preference")
-    """
-    if not content or not content.strip():
-        return {"success": False, "error": "content cannot be empty"}
-    
-    try:
-        from python.harness import db
-        import uuid
-        from datetime import datetime, UTC
-        
-        node_id = f"memory-note-{uuid.uuid4().hex[:12]}"
-        timestamp = datetime.now(UTC)
-        
-        title = f"{topic}: {content[:60]}"
-        await db.execute("""
-            INSERT INTO memory_index (node_id, title, content, topic_tags, created_at)
-            VALUES ($1, $2, $3, $4, $5)
-        """, node_id, title, content.strip(), [topic], timestamp)
-        
-        return {
-            "success": True,
-            "node_id": node_id,
-            "message": f"Saved to memory under topic '{topic}'"
-        }
-    except Exception as exc:
-        return {"success": False, "error": f"Could not write to memory: {exc}"}
+    from sdk.agent.memory_tools import write_memory as _impl
+    return await _impl(content, topic)
 
 
 @register_tool(
