@@ -153,6 +153,19 @@ class MacOSSandbox(SandboxBackend):
             return argv
         return [exe, "-p", self._profile(config, workdir), *argv]
 
+    def _prefix_aliases(self, path: str) -> list[str]:
+        """Same workspace folder under /var and /private/var (and /tmp), never the prefix root."""
+        variants = [path]
+        if path.startswith("/private/var/"):
+            variants.append("/var/" + path[len("/private/var/"):])
+        elif path.startswith("/var/"):
+            variants.append("/private" + path)
+        if path.startswith("/private/tmp"):
+            variants.append(path[len("/private"):])
+        elif path.startswith("/tmp/") or path == "/tmp":
+            variants.append("/private" + path)
+        return variants
+
     def _subpaths(self, path: Path | str) -> list[str]:
         """sandbox-exec matches vnode paths; /var is a symlink to /private/var."""
         raw = str(path)
@@ -162,8 +175,12 @@ class MacOSSandbox(SandboxBackend):
             resolved = raw
         out: list[str] = []
         for item in (raw, resolved):
-            if item and item not in out:
-                out.append(item.replace("\\", "\\\\").replace('"', '\\"'))
+            if not item:
+                continue
+            for variant in self._prefix_aliases(item):
+                escaped = variant.replace("\\", "\\\\").replace('"', '\\"')
+                if escaped not in out:
+                    out.append(escaped)
         return out
 
     def _profile(self, config: SandboxConfig, workdir: Path) -> str:
@@ -183,6 +200,9 @@ class MacOSSandbox(SandboxBackend):
                 "(allow sysctl-read)",
                 "(allow file-read-metadata)",
                 "(allow file-map-executable)",
+                '(allow file-ioctl (literal "/dev/dtracehelper"))',
+                '(allow file-write-data (literal "/dev/dtracehelper"))',
+                '(allow file-write-data (literal "/dev/null"))',
             ]
             lines.append("(allow network*)" if config.allow_network else "(deny network*)")
             for rw in list(config.readwrite_paths) + [workdir]:
@@ -195,7 +215,10 @@ class MacOSSandbox(SandboxBackend):
                 '(allow file-read* (subpath "/sbin"))',
                 '(allow file-read* (subpath "/System"))',
                 '(allow file-read* (subpath "/Library"))',
+                '(allow file-read* (subpath "/tmp"))',
                 '(allow file-read* (subpath "/private/tmp"))',
+                '(allow file-read* (subpath "/var/folders"))',
+                '(allow file-read* (subpath "/private/var/folders"))',
                 '(allow file-read* (subpath "/dev"))',
             ]
             for ro in config.readonly_paths:
@@ -214,6 +237,9 @@ class WindowsSandbox(SandboxBackend):
     """AppContainer for FS/network; job objects for the process tree.
 
     See sandbox_windows_appcontainer.py for the CreateProcess path.
+    cmd.exe / powershell.exe are resolved with GetSystemDirectoryW, not a
+    hardcoded "C:\\Windows\\System32" path (that tree already grants
+    ALL APPLICATION PACKAGES, so Tala does not icacls it).
     """
 
     confinement = Confinement(filesystem=True, network=True, process_job=True, label="appcontainer")

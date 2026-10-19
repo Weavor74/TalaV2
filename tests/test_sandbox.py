@@ -77,8 +77,11 @@ def test_windows_honesty_in_module():
     assert "GetSystemDirectoryW" in ac
     assert "CreateProcessW.argtypes" in ac
     assert "wintypes.LPCWSTR, wintypes.LPWSTR" in ac
+    assert "PROC_THREAD_ATTRIBUTE_HANDLE_LIST" in ac
     assert "_is_windows_system_path" in ac
     assert "refusing ACL grant" in ac
+    assert "hostedtoolcache" in ac
+    assert '"\\\\windows\\\\" in low' not in ac
     assert "Start-Job" not in Path("sdk/agent/sandbox.py").read_text(encoding="utf-8")
 
 
@@ -120,6 +123,10 @@ def test_macos_file_write_scoped_to_workspace_under_var():
     assert set(write_rules) == set(quoted), write_rules
     assert '(allow file-write* (subpath "/var"))' not in profile
     assert '(allow file-write* (subpath "/private/var"))' not in profile
+    aliases = MacOSSandbox()._prefix_aliases("/var/folders/zz/test/T/workspace")
+    assert "/private/var/folders/zz/test/T/workspace" in aliases
+    assert "/var" not in aliases
+    assert "/private/var" not in aliases
 
 
 def test_macos_sandbox_exec_is_labeled_deprecated():
@@ -178,8 +185,12 @@ async def test_escape_parent_directory_write_blocked():
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
         timeout = 12.0 if platform.system() == "Windows" else 5.0
         inner_result = await _sandbox_exec(_write_argv(inner), workdir, config, timeout=timeout)
+        combined = (inner_result.stdout or b"") + (inner_result.stderr or b"")
+        assert b"spawn-failed" not in combined, combined
         assert inner.exists(), (inner_result.returncode, inner_result.stdout, inner_result.stderr)
-        await _sandbox_exec(_write_argv(parent_file), workdir, config, timeout=timeout)
+        parent_result = await _sandbox_exec(_write_argv(parent_file), workdir, config, timeout=timeout)
+        parent_out = (parent_result.stdout or b"") + (parent_result.stderr or b"")
+        assert b"spawn-failed" not in parent_out, parent_out
         assert not parent_file.exists()
 
 
@@ -191,7 +202,9 @@ async def test_escape_outside_workspace_write_blocked():
         target = Path(other) / "escape.txt"
         config = SandboxConfig(mode="strict", readwrite_paths=[workdir])
         timeout = 12.0 if platform.system() == "Windows" else 5.0
-        await _sandbox_exec(_write_argv(target), workdir, config, timeout=timeout)
+        result = await _sandbox_exec(_write_argv(target), workdir, config, timeout=timeout)
+        combined = (result.stdout or b"") + (result.stderr or b"")
+        assert b"spawn-failed" not in combined, combined
         assert not target.exists()
 
 
@@ -238,6 +251,8 @@ async def test_network_isolation():
                 ["powershell.exe", "-NoProfile", "-NonInteractive", "-Command", ps],
                 workdir, config, timeout=12.0,
             )
+            combined = (result.stdout or b"") + (result.stderr or b"")
+            assert b"spawn-failed" not in combined, combined
             assert result.returncode != 0, result.stderr
         else:
             result = await _sandbox_exec(["ping", "-c", "1", "127.0.0.1"], workdir, config, timeout=5.0)
@@ -291,6 +306,8 @@ async def test_windows_cmd_outside_workspace_write_denied():
         result = await _sandbox_exec(
             ["cmd.exe", "/c", f'echo escaped>"{target}"'], workdir, config, timeout=12.0,
         )
+        combined = (result.stdout or b"") + (result.stderr or b"")
+        assert b"spawn-failed" not in combined, combined
         assert not target.exists(), (result.returncode, result.stdout, result.stderr)
 
 
@@ -315,6 +332,16 @@ def test_access_denied_error_names_path():
     exc = AccessDenied(path)
     assert path in str(exc)
     assert "ACCESS DENIED" in str(exc)
+
+
+def test_system_path_skips_real_windows_not_hostedtoolcache():
+    from sdk.agent.sandbox_windows_appcontainer import _is_windows_system_path
+    assert not _is_windows_system_path(r"C:\hostedtoolcache\windows\Python\3.11.9\x64")
+    assert not _is_windows_system_path(r"D:\TalaWorkspace\.tala\venv\Scripts\python.exe")
+    if platform.system() == "Windows":
+        root = os.environ.get("SystemRoot") or os.environ.get("WINDIR")
+        if root:
+            assert _is_windows_system_path(str(Path(root) / "System32" / "cmd.exe"))
 
 
 def test_rx_paths_never_grant_a_volume_root(tmp_path):
@@ -457,6 +484,7 @@ def test_report_skip_vs_execute_for_this_os():
         ("test_macos_sandbox_exec_is_labeled_deprecated", "EXECUTE"),
         ("test_macos_profile_lists_resolved_and_raw_paths", "EXECUTE"),
         ("test_macos_file_write_scoped_to_workspace_under_var", "EXECUTE"),
+        ("test_system_path_skips_real_windows_not_hostedtoolcache", "EXECUTE"),
         ("test_windows_none_mode_does_not_rewrite_argv", "EXECUTE"),
         (
             "test_windows_strict_wrap_uses_launcher",

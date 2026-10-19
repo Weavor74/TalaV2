@@ -44,6 +44,7 @@ STARTF_USESHOWWINDOW = 0x00000001
 SW_HIDE = 0
 HANDLE_FLAG_INHERIT = 0x00000001
 PROC_THREAD_ATTRIBUTE_SECURITY_CAPABILITIES = 0x00020009
+PROC_THREAD_ATTRIBUTE_HANDLE_LIST = 0x00020002
 WAIT_OBJECT_0 = 0
 STILL_ACTIVE = 259
 GENERIC_ALL_DIR = "(OI)(CI)(F)"
@@ -313,9 +314,27 @@ def _is_volume_root(path: Path | str) -> bool:
 
 
 def _is_windows_system_path(path: Path | str) -> bool:
-    """System32 / Program Files ACLs are not writable without admin; skip granting."""
-    low = str(path).replace("/", "\\").lower()
-    return "\\windows\\" in low or "\\program files" in low
+    """Skip ACL grants on %SystemRoot% / Program Files, not any path containing 'windows'.
+
+    ``C:\\hostedtoolcache\\windows\\Python`` is a CI interpreter home, not System32.
+    """
+    try:
+        resolved = Path(path).resolve()
+    except OSError:
+        resolved = Path(path)
+    low = str(resolved).replace("/", "\\").rstrip("\\").lower()
+    roots: list[str] = []
+    for key in ("SystemRoot", "WINDIR", "ProgramFiles", "ProgramFiles(x86)", "ProgramW6432"):
+        val = os.environ.get(key)
+        if val:
+            roots.append(str(Path(val)).replace("/", "\\").rstrip("\\").lower())
+    extra: list[str] = []
+    for root in roots:
+        extra.extend((f"{root}\\system32", f"{root}\\syswow64", f"{root}\\sysnative"))
+    for root in (*roots, *extra):
+        if low == root or low.startswith(root + "\\"):
+            return True
+    return False
 
 
 def rx_paths_for_executable(executable: str) -> list[str]:
@@ -513,12 +532,13 @@ def _system_directory() -> Path:
     k32.GetSystemDirectoryW.restype = wintypes.UINT
     buf = ctypes.create_unicode_buffer(4096)
     n = k32.GetSystemDirectoryW(buf, 4096)
-    if not n:
-        return Path(os.environ.get("SystemRoot", r"C:\Windows")) / "System32"
-    return Path(buf.value)
+    if n:
+        return Path(buf.value)
+    root = os.environ.get("SystemRoot") or os.environ.get("WINDIR") or ""
+    return Path(root) / "System32"
 
 
-def resolve_launch_exe(argv0: str) -> str:
+def _resolve_launch_exe(argv0: str) -> str:
     """Canonical System32 path for cmd/PowerShell; shutil.which otherwise.
 
     AppContainer CreateProcess looks up the image from the container's view.
@@ -558,7 +578,7 @@ def spawn_appcontainer(
     except OSError:
         workdir = str(workdir)
     sid_str = ensure_profile()
-    exe = resolve_launch_exe(str(argv[0]))
+    exe = _resolve_launch_exe(str(argv[0]))
     merged_read: list[str] = []
     seen_read: set[str] = set()
     for raw in [*list(read_paths), *rx_paths_for_executable(str(exe))]:
@@ -590,9 +610,11 @@ def spawn_appcontainer(
 
     k32 = _k32()
     size = ctypes.c_size_t()
-    k32.InitializeProcThreadAttributeList(None, 1, 0, ctypes.byref(size))
-    attr = ctypes.create_string_buffer(size.value)
-    if not k32.InitializeProcThreadAttributeList(attr, 1, 0, ctypes.byref(size)):
+    # SECURITY_CAPABILITIES + HANDLE_LIST. AppContainer CreateProcess with
+    # inherited std pipes and no HANDLE_LIST often fails with Win32 2.
+    k32.InitializeProcThreadAttributeList(None, 2, 0, ctypes.byref(size))
+    attr = (ctypes.c_ubyte * max(int(size.value), 1))()
+    if not k32.InitializeProcThreadAttributeList(attr, 2, 0, ctypes.byref(size)):
         raise OSError(f"InitializeProcThreadAttributeList failed ({ctypes.get_last_error()})")
     try:
         if not k32.UpdateProcThreadAttribute(
@@ -601,6 +623,14 @@ def spawn_appcontainer(
         ):
             raise OSError(f"UpdateProcThreadAttribute failed ({ctypes.get_last_error()})")
         r_in, r_out, w_out, r_err, w_err = _make_pipes(k32)
+        inherited = (wintypes.HANDLE * 3)(r_in, w_out, w_err)
+        if not k32.UpdateProcThreadAttribute(
+            attr, 0, PROC_THREAD_ATTRIBUTE_HANDLE_LIST,
+            inherited, ctypes.sizeof(inherited), None, None,
+        ):
+            raise OSError(
+                f"UpdateProcThreadAttribute(HANDLE_LIST) failed ({ctypes.get_last_error()})"
+            )
         si = STARTUPINFOEXW()
         si.StartupInfo.cb = ctypes.sizeof(STARTUPINFOEXW)
         si.StartupInfo.dwFlags = STARTF_USESTDHANDLES | STARTF_USESHOWWINDOW
@@ -608,7 +638,7 @@ def spawn_appcontainer(
         si.StartupInfo.hStdInput = r_in
         si.StartupInfo.hStdOutput = w_out
         si.StartupInfo.hStdError = w_err
-        si.lpAttributeList = ctypes.cast(attr, ctypes.c_void_p)
+        si.lpAttributeList = ctypes.c_void_p(ctypes.addressof(attr))
 
         quoted = subprocess.list2cmdline([exe, *list(argv[1:])])
         flags = EXTENDED_STARTUPINFO_PRESENT | CREATE_UNICODE_ENVIRONMENT | CREATE_NO_WINDOW
