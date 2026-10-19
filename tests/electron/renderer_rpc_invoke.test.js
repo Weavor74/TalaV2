@@ -22,10 +22,14 @@ function collectBareDottedCalls(src, method) {
 }
 
 describe('renderer RPC invoke migration (H3)', () => {
-  const rendererSrc = fs.readFileSync(
-    path.join(__dirname, '../../renderer/renderer.js'),
-    'utf8',
-  );
+  const rendererDir = path.join(__dirname, '../../renderer');
+  const rendererSrc = fs.readFileSync(path.join(rendererDir, 'renderer.js'), 'utf8');
+  const rendererBundle = [
+    'renderer.js',
+    'gateway_status_ops.js',
+    'plugins_ops.js',
+    'helpers.js',
+  ].map((name) => fs.readFileSync(path.join(rendererDir, name), 'utf8')).join('\n');
 
   test('no window.tala.invoke("swarm.*"|"task.*"|dotted RPC) remain', () => {
     expect(collectBareDottedCalls(rendererSrc, 'invoke')).toEqual([]);
@@ -47,8 +51,8 @@ describe('renderer RPC invoke migration (H3)', () => {
       'mcp.remove_server',
       'mcp.list_tools',
     ]) {
-      expect(rendererSrc).toMatch(new RegExp(`invoke\\(\\s*['"]${method.replace('.', '\\.')}['"]`));
-      expect(rendererSrc).not.toMatch(
+      expect(rendererBundle).toMatch(new RegExp(`invoke\\(\\s*['"]${method.replace('.', '\\.')}['"]`));
+      expect(rendererBundle).not.toMatch(
         new RegExp(`window\\.tala\\.(invoke|request)\\(\\s*['"]${method.replace('.', '\\.')}['"]`),
       );
     }

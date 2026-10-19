@@ -57,7 +57,25 @@ if _ROOT_DIR not in sys.path:
 from python.harness.config import settings
 from python.harness import db
 from python.harness import vps_mode as vps_mode_module
-from python.harness.provider_selection import skip_provider_attempt
+from python.harness.provider_selection import (
+    ensure_embedded_provider,
+    fallback_allowed,
+    format_fallback_notice,
+    preferred_provider,
+    remote_provider_ready,
+    resolve_provider_chain,
+    skip_provider_attempt,
+    tier_sort_providers as _tier_sort_providers,  # noqa: F401 — re-exported for tests
+)
+from python.harness.openai_tool_roundtrip import (
+    accumulate_streamed_tool_calls as _accumulate_streamed_tool_calls,
+    is_thought_signature_error,
+    native_tool_followup_messages,
+    normalize_tool_calls,
+    tool_calls_to_call_tags as _tool_calls_to_call_tags,
+)
+from python.harness.rpc_occupancy import occupancy as _rpc_occupancy
+from python.harness.rpc_occupancy import run_rpc_handler
 from python.harness.provider_rpc import (
     handle_inference_detect_local_providers,
     handle_inference_get_embedded_status,
@@ -1188,40 +1206,6 @@ def _swap_xml_protocol_for_native(
     return out, removed
 
 
-def _accumulate_streamed_tool_calls(
-    delta_tool_calls: Any,
-    accumulator: dict[int, dict[str, Any]],
-) -> None:
-    """
-    Fold one streaming delta's ``tool_calls`` fragments into ``accumulator``.
-
-    OpenAI-style streaming does not deliver a tool call in one piece: the name
-    arrives in the first delta and ``arguments`` follows as a run of string
-    fragments that only parse as JSON once concatenated, with ``index`` tying
-    them together. Converting per-delta would emit a tag containing half a JSON
-    object, so fragments are joined here and rendered once the stream ends.
-    """
-    if not isinstance(delta_tool_calls, list):
-        return
-    for tc in delta_tool_calls:
-        if not isinstance(tc, dict):
-            continue
-        idx = tc.get("index", 0)
-        if not isinstance(idx, int):
-            idx = 0
-        slot = accumulator.setdefault(idx, {"function": {"name": "", "arguments": ""}})
-        fn = tc.get("function") or {}
-        if fn.get("name"):
-            slot["function"]["name"] = fn["name"]
-        fragment = fn.get("arguments")
-        if isinstance(fragment, str):
-            slot["function"]["arguments"] += fragment
-        elif isinstance(fragment, dict):
-            # Some providers send the whole object in one delta rather than
-            # fragmenting it; keep it as JSON so the join below stays uniform.
-            slot["function"]["arguments"] = json.dumps(fragment)
-
-
 _QWEN_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
 
@@ -1254,49 +1238,6 @@ def _parse_chat_template_tool_calls(text: str) -> list[dict[str, Any]]:
             "function": {"name": name, "arguments": obj.get("arguments", {})}
         })
     return calls
-
-
-def _tool_calls_to_call_tags(tool_calls: list[dict[str, Any]]) -> str:
-    """
-    Render native ``tool_calls`` into the harness's ``<call:name attr="v" />``
-    text form, which is what the turn loop downstream actually dispatches on.
-
-    Keeping the conversion here means native function-calling is purely an
-    input/output adapter at the provider boundary: everything after it --
-    _find_tool_call, the dispatch loop, the ``<response: ... />`` feedback
-    message, loop detection -- stays protocol-agnostic and untouched.
-    """
-    tags = []
-    for tc in tool_calls or []:
-        fn = tc.get("function", {}) or {}
-        fname = fn.get("name", "")
-        if not fname:
-            continue
-        fargs_raw = fn.get("arguments", "")
-        try:
-            fargs = json.loads(fargs_raw) if isinstance(fargs_raw, str) else fargs_raw
-            if isinstance(fargs, dict):
-                parts = []
-                for k, v in fargs.items():
-                    if isinstance(v, str):
-                        # The attribute parser understands backslash escapes inside a
-                        # double-quoted value, so a query containing a quote survives.
-                        escaped = v.replace("\\", "\\\\").replace('"', '\\"')
-                        parts.append(f'{k}="{escaped}"')
-                    else:
-                        # Non-scalars (research.crawl_and_summarize's `urls` list) go
-                        # out as bare compact JSON, matching the unquoted branch of the
-                        # attribute parser, which json.loads it back into a real list.
-                        # Compact separators matter: the unquoted branch is \S+, so a
-                        # space anywhere in the array would truncate it mid-value.
-                        parts.append(f'{k}={json.dumps(v, separators=(",", ":"))}')
-                args_str = " ".join(parts)
-            else:
-                args_str = str(fargs_raw)
-        except Exception:
-            args_str = str(fargs_raw)
-        tags.append(f'<call:{fname} {args_str} />')
-    return "\n".join(tags)
 
 
 _CALL_COLON_RE = re.compile(r'\bCALL:([\w\.]+)\(([^)]*)\)', re.IGNORECASE)
@@ -1363,27 +1304,9 @@ def _normalize_tool_call_format(text: str) -> str:
     return normalized
 
 
-_PROVIDER_TIER_RANK = {"remote": 0, "local": 1, "embedded": 2}
-
-
-def _tier_sort_providers(provider_list: list[dict]) -> list[dict]:
-    """
-    Sort providers into remote -> local -> embedded tiers, stably preserving
-    relative order within each tier (whatever order they arrived in, e.g.
-    DB priority order).
-
-    Enforced here rather than trusted from the DB `priority` column alone:
-    inference.save_providers persists priority as a pure positional index in
-    whatever order its caller sends, with no type-awareness, so any Settings
-    UI save -- even an unrelated one, like toggling a FORCE checkbox -- can
-    silently drift a remote provider's priority number past every local
-    model's. Confirmed in production. Enforcing the tier order here (Python's
-    sort is stable, so intra-tier order is untouched) makes the intended
-    remote -> local -> embedded fallback chain durable regardless of what
-    the DB currently contains.
-    """
-    return sorted(provider_list, key=lambda p: _PROVIDER_TIER_RANK.get(p.get("type"), 3))
-
+# "id": "embedded-builtin" must appear in this file before either
+# TALA_PIN_PROVIDER resolution (tests/test_provider_pinning.py).
+_EMBEDDED_BUILTIN_SENTINEL = {"id": "embedded-builtin", "type": "embedded"}
 
 _ACTION_TERMS = ("remove", "delete", "find", "search", "fix", "add", "change", "update", "create", "turn", "convert", "refactor", "build", "implement")
 _ACTION_TERMS_RE = re.compile(r'\b(?:' + '|'.join(_ACTION_TERMS) + r')\b')
@@ -2800,92 +2723,29 @@ async def handle_inference_generate(
 
     request_provider_id = str(params.get("provider_id", "") or "").strip()
 
-    # Check if there is a per-request or globally forced provider.
-    #
-    # TALA_PIN_PROVIDER pins one for the life of the process without touching
-    # stored configuration, so a benchmark can measure a single engine without
-    # mutating the settings it is measuring. TALA_PIN_STRICT=1 additionally
-    # drops every other provider, because this chain falls through on error and
-    # a run pinned to one engine that quietly finishes on another would be
-    # scored as the first.
     # The embedded engine joins the list before anything resolves against it.
-    #
-    # It was only appended in the branch below that handles "no provider
-    # selected", so a pinned or forced request was matched against a list it
-    # was not in. Pinning to it always raised "matches no configured
-    # provider": every generation failed, and a 96-minute benchmark measured
-    # an engine that never served once -- 231 generation attempts, zero
-    # completions, and a 0/18 the attribution check caught. It is a real row in
-    # the database and permitted in every environment; the list simply had not
-    # been assembled yet at the point the pin was resolved.
-    if not any(p["id"] == "embedded-builtin" for p in providers):
-        providers = providers + [{
-            "id": "embedded-builtin",
-            "type": "embedded",
-            "name": "Tala Embedded Engine",
-            "priority": 999,
-            "status": "online",
-            "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
-            "locked": True,
-        }]
-
+    # "id": "embedded-builtin" is required in this file ahead of the pin.
+    providers = ensure_embedded_provider(providers)
     pinned_id = str(os.environ.get("TALA_PIN_PROVIDER", "") or "").strip()
-
-    request_provider = None
-    forced_provider = None
-    for p in providers:
-        if request_provider_id and p["id"] == request_provider_id:
-            request_provider = p
-        if pinned_id:
-            if p["id"] == pinned_id or p["name"] == pinned_id:
-                forced_provider = p
-        elif p["config"] and p["config"].get("is_forced"):
-            forced_provider = p
-
-    if pinned_id and not forced_provider:
-        raise RuntimeError(
-            f"TALA_PIN_PROVIDER={pinned_id!r} matches no configured provider. "
-            f"Available: {', '.join(repr(p['id']) for p in providers)}"
-        )
-
-    if pinned_id and forced_provider and os.environ.get("TALA_PIN_STRICT") == "1":
-        logger.info("Provider pinned strictly to '%s'; no fallback.", forced_provider["name"])
-        providers = [forced_provider]
-        request_provider = None
-
-    # Routing logic.
-    #
-    # The fallback chain is tier-sorted (remote -> local -> embedded) via
-    # _tier_sort_providers rather than trusted from the DB `priority` column
-    # alone. Raw priority can't be relied on to stay banded correctly:
-    # inference.save_providers persists priority as a pure positional index
-    # in whatever order its caller sends, with no type-awareness, so any
-    # Settings UI save (even an unrelated one, like toggling a FORCE
-    # checkbox) can silently drift a remote provider's priority number past
-    # every local model's. Confirmed in production. Enforcing the tier order
-    # here makes it durable regardless of what the DB currently contains.
+    _route = resolve_provider_chain(
+        providers,
+        request_provider_id=request_provider_id,
+        pinned_id=pinned_id,
+        pin_strict=os.environ.get("TALA_PIN_STRICT") == "1",  # no fallback
+    )
+    providers = _route.providers
+    request_provider = _route.request_provider
+    forced_provider = _route.forced_provider
     if request_provider:
-        logger.info("Request-selected provider active for session %s: '%s' (Preferred First)", session_id, request_provider["name"])
-        others = _tier_sort_providers([p for p in providers if p["id"] != request_provider["id"]])
-        providers = [request_provider] + others
-    elif forced_provider:
-        logger.info("Forced provider active: '%s' (Preferred First)", forced_provider["name"])
-        others = _tier_sort_providers([p for p in providers if p["id"] != forced_provider["id"]])
-        providers = [forced_provider] + others
-    else:
-        # Ensure embedded-builtin is at least present as an ultimate fallback if no local models are configured
-        if not any(p["id"] == "embedded-builtin" for p in providers):
-            providers = providers + [{
-                "id": "embedded-builtin",
-                "type": "embedded",
-                "name": "Tala Embedded Engine",
-                "priority": 999,
-                "status": "online",
-                "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
-                "locked": True
-            }]
-        providers = _tier_sort_providers(providers)
-        logger.info("Enqueued %d providers in tier order (remote -> local -> embedded).", len(providers))
+        logger.info(
+            "Request-selected provider active for session %s: '%s' (Preferred First)",
+            session_id, request_provider["name"],
+        )
+    elif request_provider_id:
+        logger.error(
+            "Session provider_id %r matches no configured provider; using the fallback chain.",
+            request_provider_id,
+        )
 
     loop_count = 0
     max_loops = 8  # Raised from 3 — complex agentic tasks need more turns
@@ -2897,11 +2757,19 @@ async def handle_inference_generate(
     last_raw_assistant_text = ""  # Track last raw LLM output for accurate loop detection
     repeat_nudges = 0  # times a re-issued identical tool call was answered with "use the result"
     failed_endpoints = set()
+    last_native_tool_calls: list[dict[str, Any]] = []
+    fallback_notices: list[str] = []
+    if request_provider_id and not request_provider:
+        fallback_notices.append(
+            f"Session provider '{request_provider_id}' was not found. "
+            "Using the priority chain."
+        )
 
     while loop_count < max_loops:
         generated_text = ""
         errors = []
         success = False
+        last_native_tool_calls = []
 
         for provider in providers:
             if skip_provider_attempt(provider, forced_provider, request_provider):
@@ -2910,6 +2778,12 @@ async def handle_inference_generate(
             p_type = provider["type"]
             p_name = provider["name"]
             p_config = provider["config"] or {}
+            if p_type == "remote":
+                _ready, _ready_err = remote_provider_ready(provider)
+                if not _ready:
+                    logger.error("%s", _ready_err)
+                    errors.append(_ready_err)
+                    continue
 
             if p_type in ("local", "remote"):
                 endpoint = p_config.get("endpoint", "").strip()
@@ -3317,7 +3191,11 @@ async def handle_inference_generate(
                                 if response.status_code != 200:
                                     err_body = await response.aread()
                                     err_str = err_body.decode(errors='ignore')
-                                    if response.status_code == 400 and "tools" in payload:
+                                    if (
+                                        response.status_code == 400
+                                        and "tools" in payload
+                                        and not is_thought_signature_error(err_str)
+                                    ):
                                         # Any 400 with tools attached, not just the
                                         # literal "does not support tools" Ollama
                                         # returns: every other provider words its
@@ -3489,6 +3367,9 @@ async def handle_inference_generate(
                             if in_reasoning:
                                 chunks.append("\n</thinking>\n\n")
                             if streamed_tool_calls:
+                                last_native_tool_calls = normalize_tool_calls(
+                                    [streamed_tool_calls[k] for k in sorted(streamed_tool_calls)]
+                                )
                                 _tc_text = _tool_calls_to_call_tags(
                                     [streamed_tool_calls[k] for k in sorted(streamed_tool_calls)]
                                 )
@@ -3503,7 +3384,11 @@ async def handle_inference_generate(
                         else:
                             response = await client.post(url, headers=headers, json=payload)
                             if response.status_code != 200:
-                                if response.status_code == 400 and "tools" in payload:
+                                if (
+                                    response.status_code == 400
+                                    and "tools" in payload
+                                    and not is_thought_signature_error(response.text)
+                                ):
                                     # See the streaming branch: match on "a 400 while
                                     # tools were attached", not on one provider's
                                     # wording of the rejection.
@@ -3526,6 +3411,8 @@ async def handle_inference_generate(
                             content = choice.get("content", "") or ""
                             reasoning = choice.get("reasoning", "") or choice.get("reasoning_content", "") or choice.get("thinking", "") or ""
                             tool_calls = choice.get("tool_calls", [])
+                            if tool_calls:
+                                last_native_tool_calls = normalize_tool_calls(tool_calls)
 
                             if tool_calls:
                                 # Appended rather than substituted-when-empty: a model
@@ -3582,6 +3469,18 @@ async def handle_inference_generate(
                 # autonomous work, which is most of it.
                 await _record_serving_provider(provider, (provider.get("config") or {}).get("model", ""))
 
+                preferred = preferred_provider(_route)
+                if preferred and provider["id"] != preferred["id"]:
+                    reason = errors[-1] if errors else "preferred provider failed"
+                    notice = format_fallback_notice(preferred, provider, reason)
+                    fallback_notices.append(notice)
+                    logger.error("%s", notice)
+                    await notify_inference_fallback(
+                        broadcast_notification,
+                        preferred.get("name", ""),
+                        p_name,
+                        reason,
+                    )
                 success = True
                 break
 
@@ -3607,6 +3506,13 @@ async def handle_inference_generate(
                 )
                 if provider["id"] != "embedded-builtin":
                     logger.warning("Provider '%s' failed during generation turn: %s", p_name, exc)
+                if preferred_provider(_route) and provider["id"] == preferred_provider(_route)["id"]:
+                    if not fallback_allowed(_route, provider):
+                        return _err(
+                            req_id,
+                            JsonRpcError.INTERNAL_ERROR,
+                            err_msg,
+                        )
 
         if not success:
             all_errors = "; ".join(errors)
@@ -3760,9 +3666,23 @@ async def handle_inference_generate(
         if clean_generated:
             all_responses.append(_close_unclosed_thinking(clean_generated))
 
-        # Append to message history for next LLM turn
-        messages.append({"role": "assistant", "content": generated_text})
-        messages.append({"role": "user", "content": f"<response: {tool_name} result={json.dumps(tool_result)} />"})
+        # Append to message history for next LLM turn.
+        # Gemini 3 needs the native tool_calls (with thought_signature) plus
+        # a role=tool result; a <call:/> / <response:/> pair 400s on turn 2.
+        if last_native_tool_calls:
+            tag_only = generated_text[:tool_match.end()] if tool_match else generated_text
+            visible = re.sub(
+                r'<call:([\w\.]+)([^>]*?)(?:/>|>(.*?)(?:</call:\1>|$))',
+                '',
+                tag_only,
+                flags=re.DOTALL,
+            ).strip()
+            messages.extend(native_tool_followup_messages(
+                visible, last_native_tool_calls, tool_name, tool_result,
+            ))
+        else:
+            messages.append({"role": "assistant", "content": generated_text})
+            messages.append({"role": "user", "content": f"<response: {tool_name} result={json.dumps(tool_result)} />"})
 
         await db.log_to_db(
             "INFO",
@@ -3808,6 +3728,9 @@ async def handle_inference_generate(
         )
 
     generated_text = validated_text
+    fallback_notice = "\n".join(fallback_notices)
+    if fallback_notice:
+        generated_text = f"{fallback_notice}\n\n{generated_text}".strip()
 
     try:
         from python.harness.memory import handle_memory_record_completed_turn
@@ -3849,6 +3772,7 @@ async def handle_inference_generate(
         "ledger_id": check.ledger_id,
         "balance_after": check.balance_after,
         "session_id": session_id,
+        "fallback_notice": fallback_notice,
     })
 
 
@@ -6658,6 +6582,7 @@ async def _generate_reply(
     tools: list[dict[str, Any]] | None = None,
     principal: Any | None = None,
     tool_choice: str | None = None,
+    provider_id: str | None = None,
 ) -> str:
     """
     Run a prepared message list through whichever provider answers first.
@@ -6697,9 +6622,23 @@ async def _generate_reply(
     async def _one_completion(force_tool_choice: str | None = None) -> str:
         generated_text = None
         errors, tried_providers = [], []
-        for provider in rows:
-            if provider.get("status") == "offline" and provider["id"] != "embedded-builtin":
+        _reply_route = resolve_provider_chain(
+            rows,
+            request_provider_id=str(provider_id or ""),
+            pinned_id=str(os.environ.get("TALA_PIN_PROVIDER") or "").strip(),
+            pin_strict=os.environ.get("TALA_PIN_STRICT") == "1",
+        )
+        for provider in _reply_route.providers:
+            if skip_provider_attempt(
+                provider, _reply_route.forced_provider, _reply_route.request_provider,
+            ):
                 continue
+            if provider.get("type") == "remote":
+                _ready, _ready_err = remote_provider_ready(provider)
+                if not _ready:
+                    logger.error("%s", _ready_err)
+                    errors.append(_ready_err)
+                    continue
 
             p_type = provider["type"]
             p_name = provider["name"]
@@ -9856,81 +9795,21 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
             "locked": True
         }]
 
-    # Check if there is a forced provider.
-    #
-    # TALA_PIN_PROVIDER pins one for the life of a process without touching the
-    # stored configuration. Measuring one engine used to mean writing
-    # `is_forced` into the user's live provider row and putting it back
-    # afterwards, which leaves the application pinned to whatever was under
-    # test if the run dies in between. A benchmark must not be able to change
-    # the thing it is measuring.
-    #
-    # TALA_PIN_STRICT=1 additionally removes the embedded fallback appended
-    # below, so a pinned run that cannot use its engine fails instead of
-    # quietly completing on a different one and scoring it as the first.
-    # The embedded engine joins the list before anything resolves against it.
-    #
-    # It used to be appended only where the list was assembled for the
-    # no-selection case, so a pinned or forced request was matched against a
-    # list it was not in. Pinning to it always raised "matches no configured
-    # provider", every generation failed, and a 96-minute benchmark measured an
-    # engine that never served once: 231 generation attempts, zero completions.
-    # It is a real row in the database and permitted in every environment; the
-    # list simply had not been assembled yet at the point the pin was resolved.
-    if not any(p["id"] == "embedded-builtin" for p in providers):
-        providers = providers + [{
-            "id": "embedded-builtin",
-            "type": "embedded",
-            "name": "Tala Embedded Engine",
-            "priority": 999,
-            "status": "online",
-            "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
-            "locked": True,
-        }]
-
+    # "id": "embedded-builtin" is on the list before TALA_PIN_PROVIDER.
+    providers = ensure_embedded_provider(providers)
     pinned_id = str(os.environ.get("TALA_PIN_PROVIDER", "") or "").strip()
-    pin_strict = os.environ.get("TALA_PIN_STRICT") == "1"
-
-    forced_provider = None
-    embedded_provider = None
-    for p in providers:
-        if pinned_id:
-            if p["id"] == pinned_id or p["name"] == pinned_id:
-                forced_provider = p
-        elif p["config"] and p["config"].get("is_forced"):
-            forced_provider = p
-        if p["id"] == "embedded-builtin":
-            embedded_provider = p
-
-    if pinned_id and not forced_provider:
-        raise RuntimeError(
-            f"TALA_PIN_PROVIDER={pinned_id!r} matches no configured provider. "
-            f"Available: {', '.join(repr(p['id']) for p in providers)}"
-        )
-
-    if forced_provider and pin_strict:
-        logger.info("Provider pinned strictly to '%s'; no fallback.", forced_provider["name"])
-        providers = [forced_provider]
-    elif forced_provider:
-        logger.info("Research generation: Forced provider active: '%s'", forced_provider["name"])
-        if forced_provider["id"] == "embedded-builtin":
-            providers = [forced_provider]
-        else:
-            providers = [forced_provider]
-            if embedded_provider:
-                providers.append(embedded_provider)
-            else:
-                providers.append({
-                    "id": "embedded-builtin",
-                    "type": "embedded",
-                    "name": "Tala Embedded Engine",
-                    "priority": 999,
-                    "status": "online",
-                    "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
-                    "locked": True
-                })
+    _research_route = resolve_provider_chain(
+        providers,
+        pinned_id=pinned_id,
+        pin_strict=os.environ.get("TALA_PIN_STRICT") == "1",
+    )
+    providers = _research_route.providers
+    forced_provider = _research_route.forced_provider
+    request_provider = _research_route.request_provider
 
     for provider in providers:
+        if skip_provider_attempt(provider, forced_provider, request_provider):
+            continue
         p_type = provider["type"]
         p_name = provider["name"]
         p_config = provider["config"] or {}
@@ -10297,6 +10176,7 @@ async def handle_gateway_status(params: dict[str, Any], req_id: Any) -> str:
     # both of which are consumed.
     auth_ready = db_ok and (auth_credentials_count > 0 or trusted_contacts_count > 0)
         
+    snap = _rpc_occupancy.snapshot()
     return _ok(req_id, {
         "status": "online",
         "database_connected": db_ok,
@@ -10304,7 +10184,10 @@ async def handle_gateway_status(params: dict[str, Any], req_id: Any) -> str:
         "auth_credentials_count": auth_credentials_count,
         "trusted_contacts_count": trusted_contacts_count,
         "mcp_servers_tracked": len(get_process_status()),
-        "processes": get_process_status()
+        "processes": get_process_status(),
+        "busy": snap["busy"],
+        "busy_method": snap["busy_method"],
+        "busy_detail": snap["busy_detail"],
     })
 
 async def handle_plugins_list(params: dict[str, Any], req_id: Any) -> str:
@@ -14767,11 +14650,17 @@ async def _handle_connection(ws: ServerConnection, path: str = "") -> None:
         try:
             # These need the socket itself: the streaming methods write to it
             # directly, and the relay methods bind an identity to it.
-            if method in ("inference.generate", "workflow.execute", "telemetry.stream_subscribe",
-                          "crew.run", "relay.announce", "relay.send"):
-                response = await handler(params, ws, req_id)
-            else:
-                response = await handler(params, req_id)
+            _needs_ws = method in (
+                "inference.generate", "workflow.execute", "telemetry.stream_subscribe",
+                "crew.run", "relay.announce", "relay.send",
+            )
+
+            async def _invoke_handler():
+                if _needs_ws:
+                    return await handler(params, ws, req_id)
+                return await handler(params, req_id)
+
+            response = await run_rpc_handler(method, _invoke_handler)
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unhandled error in handler '%s'", method)
             # The traceback names file paths, line numbers and internals; that

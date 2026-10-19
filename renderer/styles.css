@@ -6882,3 +6882,8 @@ button:focus:not(:focus-visible) {
   font-size: 0.75rem;
   color: var(--accent-blue, #60a5fa);
 }
+
+#degraded-state-panel.busy-state {
+  background: var(--bg-warning, #5a4a12);
+  border-top-color: #d4a017;
+}
