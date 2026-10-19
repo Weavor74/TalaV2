@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-import time
 
 
 def test_endpoint_validation_in_save():
