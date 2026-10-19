@@ -386,7 +386,82 @@ async def delegate_task(parent_task_id: str, sub_goal: str, steps: list[dict[str
         return {"success": False, "error": str(e)}
 
 
-async def check_delegated_task_status(sub_task_id: str) -> dict[str, Any]:
+async def check_and_resume_long_job(
+    conversation_id: str | None,
+    user_message: str,
+    task_manager: TaskManager,
+) -> tuple[str | None, str | None]:
+    """Check for and resume existing long job task.
+    
+    Returns (task_id, progress_message) if task exists, (None, None) otherwise.
+    """
+    active_task_id = None
+    
+    # Look for existing task in conversation context
+    if conversation_id:
+        try:
+            active_tasks = await task_manager.list_active()
+            for task in active_tasks:
+                if task.context.get("conversation_id") == conversation_id:
+                    active_task_id = task.task_id
+                    break
+        except Exception as e:
+            log.warning(f"Failed to check for active tasks: {e}")
+    
+    # If we have an active task, resume it
+    if active_task_id:
+        try:
+            result = await resume_task(active_task_id, max_steps_this_reply=3)  # MAX_TOOL_ROUNDS_PER_REPLY from server
+            if result["success"]:
+                status = f"\n\n[Task Progress: {result['steps_executed']} steps executed, {result['steps_remaining']} remaining]"
+                if result["state"] == TaskState.BLOCKED.value:
+                    return active_task_id, status + "\n\nI've made progress on this task. Please continue the conversation to complete the remaining steps."
+                elif result["state"] == TaskState.COMPLETE.value:
+                    return active_task_id, status + "\n\n✓ Task completed successfully!"
+                return active_task_id, status
+        except Exception as e:
+            log.warning(f"Failed to resume task {active_task_id}: {e}")
+    
+    return None, None
+
+
+async def create_long_job_if_needed(
+    conversation_id: str | None,
+    user_message: str,
+    is_long_job: bool,
+    task_manager: TaskManager,
+) -> str | None:
+    """Create a long job task if this is a complex request.
+    
+    Returns task_id if created, None otherwise.
+    """
+    if not is_long_job:
+        return None
+    
+    try:
+        # Extract intent from user message for task goal
+        task_goal = user_message[:200] + ("..." if len(user_message) > 200 else "")
+        task = await create_task(
+            goal=task_goal,
+            steps=[],  # Will be populated as agent discovers next steps
+        )
+        task.context["conversation_id"] = conversation_id or "unknown"
+        task.state = TaskState.IN_PROGRESS
+        await task_manager.save(task)
+        log.info(f"Created long job task {task.task_id} for continuation")
+        return task.task_id
+    except Exception as e:
+        log.warning(f"Failed to create task for long job: {e}")
+        return None
+
+
+def detect_long_job(user_message: str, threshold_chars: int = 300) -> bool:
+    """Detect if this should be tracked as a long job."""
+    keywords = ["implement", "build", "create", "deploy", "setup", "install", "configure", "migrate"]
+    return (
+        len(user_message) > threshold_chars or
+        any(keyword in user_message.lower() for keyword in keywords)
+    )
     """Check status of a delegated sub-task."""
     manager = TaskManager()
     task = await manager.load(sub_task_id)

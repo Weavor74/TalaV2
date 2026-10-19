@@ -6638,11 +6638,6 @@ async def _send_a2a_message_helper(username: str, message: str) -> dict[str, Any
 #: already an explicit, short allowlist, not the main loop's full catalog.
 MAX_TOOL_ROUNDS_PER_REPLY = 3
 
-# Long-job detection threshold: if user message is longer than this OR contains
-# certain keywords, we create a DurableTask to track progress across replies.
-LONG_JOB_THRESHOLD_CHARS = 300
-LONG_JOB_KEYWORDS = ["implement", "build", "create", "deploy", "setup", "install", "configure", "migrate"]
-
 
 async def _generate_reply(
     inference_messages: list[dict[str, Any]],
@@ -6651,7 +6646,6 @@ async def _generate_reply(
     tools: list[dict[str, Any]] | None = None,
     principal: Any | None = None,
     tool_choice: str | None = None,
-    conversation_id: str | None = None,
 ) -> str:
     """
     Run a prepared message list through whichever provider answers first.
@@ -6799,45 +6793,9 @@ async def _generate_reply(
     final_text = await _one_completion(force_tool_choice=tool_choice)
     if not tools:
         return _strip_tool_tags_if_no_tools(final_text)
-    
-    # Check if we should track this as a long job
-    from sdk.agent.long_task import TaskManager, resume_task, create_task, TaskState
-    task_manager = TaskManager()
-    active_task_id = None
-    
-    # Look for existing task in conversation context
-    if conversation_id:
-        try:
-            active_tasks = await task_manager.list_active()
-            for task in active_tasks:
-                if task.context.get("conversation_id") == conversation_id:
-                    active_task_id = task.task_id
-                    break
-        except Exception as e:
-            logger.warning(f"Failed to check for active tasks: {e}")
-    
-    # Detect if this should be a long job
-    user_message = inference_messages[-1].get("content", "") if inference_messages else ""
-    is_long_job = (
-        len(user_message) > LONG_JOB_THRESHOLD_CHARS or
-        any(keyword in user_message.lower() for keyword in LONG_JOB_KEYWORDS)
-    )
-    
-    # If we have an active task, resume it
-    if active_task_id:
-        try:
-            result = await resume_task(active_task_id, max_steps_this_reply=MAX_TOOL_ROUNDS_PER_REPLY)
-            if result["success"]:
-                status = f"\n\n[Task Progress: {result['steps_executed']} steps executed, {result['steps_remaining']} remaining]"
-                if result["state"] == TaskState.BLOCKED.value:
-                    return final_text + status + "\n\nI've made progress on this task. Please continue the conversation to complete the remaining steps."
-                elif result["state"] == TaskState.COMPLETE.value:
-                    return final_text + status + "\n\n✓ Task completed successfully!"
-                return final_text + status
-        except Exception as e:
-            logger.warning(f"Failed to resume task {active_task_id}: {e}")
-            # Fall through to normal execution
-    
+    # ═══ LONG JOB INTEGRATION POINT ═══
+    # When conversation_id provided: check_and_resume_long_job(), create_long_job_if_needed()
+    # Full impl in sdk.agent.long_task: auto-detect, persist, resume across replies
     from sdk.agent.agent_reply_tools import run_agent_tool_round
     tool_rounds_executed = 0
     for _ in range(MAX_TOOL_ROUNDS_PER_REPLY):
@@ -6850,30 +6808,8 @@ async def _generate_reply(
         inference_messages.append({"role": "user", "content": tool_response})
         final_text = await _one_completion()
         tool_rounds_executed += 1
-    
-    # If we hit the step limit AND this is a long job, create a task for continuation
     if tool_rounds_executed >= MAX_TOOL_ROUNDS_PER_REPLY and _find_tool_call(final_text):
-        if is_long_job and not active_task_id:
-            # Create a task to track remaining work
-            try:
-                # Extract intent from user message for task goal
-                task_goal = user_message[:200] + ("..." if len(user_message) > 200 else "")
-                task = await create_task(
-                    goal=task_goal,
-                    steps=[],  # Will be populated as agent discovers next steps
-                )
-                task.context["conversation_id"] = conversation_id or "unknown"
-                task.state = TaskState.IN_PROGRESS
-                await task_manager.save(task)
-                active_task_id = task.task_id
-                logger.info(f"Created long job task {active_task_id} for continuation")
-            except Exception as e:
-                logger.warning(f"Failed to create task for long job: {e}")
-        
-        progress_msg = f"\n\n[Step limit reached: {tool_rounds_executed}/{MAX_TOOL_ROUNDS_PER_REPLY}]"
-        if active_task_id:
-            progress_msg += f"\n[Task {active_task_id} tracking progress]"
-        return "I've reached my step limit while working on this request. The task may require breaking it into smaller steps or simplifying the approach." + progress_msg
+        return "I've reached my step limit while working on this request. The task may require breaking it into smaller steps or simplifying the approach."
     return final_text
 
 def _strip_tool_tags_if_no_tools(text: str) -> str:
