@@ -114,6 +114,42 @@ def _interpreter_read_paths() -> list[Path]:
 
 
 def _tcp_connect_argv(host: str, port: int) -> list[str]:
+    if platform.system() == "Windows":
+        # Blocking connect() is black-holed in AppContainer (kernel never
+        # returns, so socket.settimeout never fires). connect_ex after
+        # setblocking(False) should return WSAEACCES (10013) immediately
+        # when internetClient is omitted.
+        code = (
+            "import socket,sys,select\n"
+            "print('START', flush=True)\n"
+            "s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)\n"
+            "s.setblocking(False)\n"
+            f"err=s.connect_ex(({host!r}, {int(port)}))\n"
+            "print('CONNECT_EX', err, flush=True)\n"
+            "if err==10013:\n"
+            "    print('ERRNO=%s WINERR=%s WSAEACCES'%(err,err), file=sys.stderr, flush=True)\n"
+            "    raise SystemExit(1)\n"
+            "if err==0:\n"
+            "    print('CONNECTED', flush=True)\n"
+            "    raise SystemExit(0)\n"
+            "if err not in (10035, 10036, 10037):\n"
+            "    print('ERRNO=%s WINERR=%s'%(err,err), file=sys.stderr, flush=True)\n"
+            "    raise SystemExit(1)\n"
+            "r,w,x=select.select([], [s], [s], 1.0)\n"
+            "if not w and not x:\n"
+            "    print('SOCKET_TIMEOUT', file=sys.stderr, flush=True)\n"
+            "    raise SystemExit(2)\n"
+            "so=s.getsockopt(socket.SOL_SOCKET, socket.SO_ERROR)\n"
+            "print('SO_ERROR', so, flush=True)\n"
+            "if so==10013:\n"
+            "    print('ERRNO=%s WINERR=%s WSAEACCES'%(so,so), file=sys.stderr, flush=True)\n"
+            "    raise SystemExit(1)\n"
+            "if so:\n"
+            "    print('ERRNO=%s WINERR=%s'%(so,so), file=sys.stderr, flush=True)\n"
+            "    raise SystemExit(1)\n"
+            "print('CONNECTED', flush=True)\n"
+        )
+        return [sys.executable, "-u", "-B", "-c", code]
     code = (
         "import socket,sys\n"
         "s=socket.socket(socket.AF_INET,socket.SOCK_STREAM)\n"
@@ -129,7 +165,7 @@ def _tcp_connect_argv(host: str, port: int) -> list[str]:
         "getattr(e, 'errno', None), getattr(e, 'winerror', None), e), file=sys.stderr)\n"
         "    raise SystemExit(1)\n"
     )
-    return [sys.executable, "-B", "-c", code]
+    return [sys.executable, "-u", "-B", "-c", code]
 
 
 def _macos_deny_log() -> str:
@@ -452,7 +488,8 @@ async def test_escape_etc_write_blocked():
 @pytest.mark.asyncio
 @pytest.mark.skipif(not _select_sandbox_backend().confinement.network, reason="current backend does not confine network")
 async def test_network_isolation():
-    with tempfile.TemporaryDirectory() as tmp:
+    tmp_kw = {"ignore_cleanup_errors": True} if platform.system() == "Windows" else {}
+    with tempfile.TemporaryDirectory(**tmp_kw) as tmp:
         workdir = Path(tmp)
         open_cfg = SandboxConfig(mode="none", readwrite_paths=[workdir])
         closed_cfg = SandboxConfig(
