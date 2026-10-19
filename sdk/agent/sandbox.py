@@ -3,10 +3,12 @@ OS-level isolation adapters for workstation commands.
 
 Linux: bubblewrap, else unshare namespaces.
 macOS: sandbox-exec (deprecated by Apple, still functional) with an inline -p profile.
-Windows: native job objects via ctypes (see sandbox_windows.py). Job objects do
-not confine filesystem or network; those stay policy-only.
+Windows: AppContainer (filesystem + network) plus a job object; see
+sandbox_windows.py / sandbox_windows_appcontainer.py. Job objects alone do
+not confine paths or Winsock.
 
-Callers wrap argv (POSIX) and/or attach the spawned process (Windows).
+Callers wrap argv (POSIX and the Windows AppContainer launcher) and/or attach
+the spawned process (Windows job object).
 """
 from __future__ import annotations
 
@@ -16,6 +18,7 @@ import os
 import platform
 import shutil
 import subprocess
+import uuid
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any, Literal
@@ -37,6 +40,7 @@ class SandboxConfig:
     tmpdir: Path | None = None
     uid: int | None = None
     gid: int | None = None
+    status_file: Path | None = None
 
 
 @dataclass
@@ -147,26 +151,94 @@ class MacOSSandbox(SandboxBackend):
         exe = shutil.which("sandbox-exec")
         if not exe:
             return argv
-        return [exe, "-p", self._profile(config, workdir), *argv]
+        profile = self._profile(config, workdir)
+        # -p with an inline profile can drop everything after the first
+        # newline on some macOS versions, leaving deny-default with no
+        # workspace writes (SIGABRT -6, empty stderr). -f keeps the full
+        # profile, including both /var and /private/var workspace rules.
+        sb = Path(workdir) / ".tala-sandbox.sb"
+        try:
+            sb.write_text(profile, encoding="utf-8")
+        except OSError:
+            return [exe, "-p", profile, *argv]
+        return [exe, "-f", str(sb), *argv]
+
+    def _prefix_aliases(self, path: str) -> list[str]:
+        """Same workspace folder under /var and /private/var (and /tmp), never the prefix root."""
+        variants = [path]
+        if path.startswith("/private/var/"):
+            variants.append("/var/" + path[len("/private/var/"):])
+        elif path.startswith("/var/"):
+            variants.append("/private" + path)
+        if path.startswith("/private/tmp"):
+            variants.append(path[len("/private"):])
+        elif path.startswith("/tmp/") or path == "/tmp":
+            variants.append("/private" + path)
+        return variants
+
+    def _subpaths(self, path: Path | str) -> list[str]:
+        """sandbox-exec matches vnode paths; /var is a symlink to /private/var."""
+        raw = str(path)
+        try:
+            resolved = str(Path(path).resolve())
+        except OSError:
+            resolved = raw
+        out: list[str] = []
+        for item in (raw, resolved):
+            if not item:
+                continue
+            for variant in self._prefix_aliases(item):
+                escaped = variant.replace("\\", "\\\\").replace('"', '\\"')
+                if escaped not in out:
+                    out.append(escaped)
+        return out
 
     def _profile(self, config: SandboxConfig, workdir: Path) -> str:
         lines = ["(version 1)"]
         if config.mode == "strict":
-            lines += ["(deny default)", "(allow process-exec)", "(allow process-fork)", "(allow sysctl-read)"]
+            # deny default. Denied writes on modern macOS SIGABRT the child
+            # (empty stderr, returncode -6), so workspace paths must match the
+            # vnode (/var is a symlink to /private/var). Writes are the
+            # workspace folder only, never all of /var:
+            #   (allow file-write* (subpath "/var/folders/.../workspace"))
+            #   (allow file-write* (subpath "/private/var/folders/.../workspace"))
+            # sh reads the root directory entry while resolving paths; that is
+            # the directory itself, not a subpath of /:
+            #   (allow file-read-data (literal "/"))
+            lines += [
+                "(deny default)",
+                "(debug deny)",
+                "(allow process-exec*)",
+                "(allow process-fork)",
+                "(allow signal)",
+                "(allow sysctl-read)",
+                "(allow file-read-metadata)",
+                "(allow file-map-executable)",
+                '(allow file-read-data (literal "/"))',
+                '(allow file-ioctl (literal "/dev/dtracehelper"))',
+                '(allow file-write-data (literal "/dev/dtracehelper"))',
+                '(allow file-write-data (literal "/dev/null"))',
+            ]
             lines.append("(allow network*)" if config.allow_network else "(deny network*)")
             for rw in list(config.readwrite_paths) + [workdir]:
-                lines.append(f'(allow file* (subpath "{rw}"))')
+                for sub in self._subpaths(rw):
+                    lines.append(f'(allow file-read* (subpath "{sub}"))')
+                    lines.append(f'(allow file-write* (subpath "{sub}"))')
             lines += [
                 '(allow file-read* (subpath "/usr"))',
                 '(allow file-read* (subpath "/bin"))',
                 '(allow file-read* (subpath "/sbin"))',
                 '(allow file-read* (subpath "/System"))',
                 '(allow file-read* (subpath "/Library"))',
+                '(allow file-read* (subpath "/tmp"))',
                 '(allow file-read* (subpath "/private/tmp"))',
+                '(allow file-read* (subpath "/var/folders"))',
+                '(allow file-read* (subpath "/private/var/folders"))',
                 '(allow file-read* (subpath "/dev"))',
             ]
             for ro in config.readonly_paths:
-                lines.append(f'(allow file-read* (subpath "{ro}"))')
+                for sub in self._subpaths(ro):
+                    lines.append(f'(allow file-read* (subpath "{sub}"))')
         else:
             lines += [
                 "(allow default)",
@@ -177,44 +249,65 @@ class MacOSSandbox(SandboxBackend):
 
 
 class WindowsSandbox(SandboxBackend):
-    """See sandbox_windows.py. Job objects only; no FS/network confinement."""
+    """AppContainer for FS/network; job objects for the process tree.
 
-    confinement = Confinement(filesystem=False, network=False, process_job=True, label="job-object")
+    See sandbox_windows_appcontainer.py for the CreateProcess path.
+    cmd.exe / powershell.exe are resolved with GetSystemDirectoryW, not a
+    hardcoded "C:\\Windows\\System32" path (that tree already grants
+    ALL APPLICATION PACKAGES, so Tala does not icacls it).
+
+    Network without internetClient is not macOS EPERM. WFP drops the
+    packets: connect_ex returns WSAEWOULDBLOCK (10035) and the handshake
+    never completes. sandbox-exec (deny network*) fails fast with EPERM
+    or a deny line instead.
+    """
+
+    confinement = Confinement(filesystem=True, network=True, process_job=True, label="appcontainer")
 
     def __init__(self) -> None:
         self._session = None
+        if platform.system() != "Windows":
+            return
+        try:
+            from sdk.agent.sandbox_windows_appcontainer import appcontainer_available
+            if appcontainer_available():
+                self.confinement = Confinement(
+                    filesystem=True, network=True, process_job=True, label="appcontainer",
+                )
+            else:
+                self.confinement = Confinement(process_job=True, label="job-object-only")
+        except Exception:
+            self.confinement = Confinement(process_job=True, label="job-object-only")
 
     def is_available(self) -> bool:
         return platform.system() == "Windows"
 
     def wrap_command(self, argv: list[str], config: SandboxConfig, workdir: Path) -> list[str]:
-        # argv is unchanged: confinement is AssignProcessToJobObject after spawn.
-        if config.mode == "none":
-            self.confinement = Confinement(label="none")
-        return argv
+        if config.mode == "none" or platform.system() != "Windows":
+            if config.mode == "none":
+                self.confinement = Confinement(label="none")
+            return argv
+        from sdk.agent.sandbox_windows import wrap_appcontainer_argv
+        return wrap_appcontainer_argv(argv, config, workdir)
 
     def attach(self, proc: Any) -> bool:
         pid = getattr(proc, "pid", None)
         if not pid:
             return False
         try:
-            from sdk.agent.sandbox_windows import WindowsJobSession, _enforcement_label
+            from sdk.agent.sandbox_windows import WindowsJobSession
         except Exception as exc:
             log.warning("Windows job module unavailable: %s", exc)
-            self.confinement = Confinement(label="guarded-policy-only")
             return False
         session = WindowsJobSession()
         if not session.create():
             log.warning("Windows job create failed: %s", session.error)
-            self.confinement = Confinement(label=_enforcement_label(False))
             return False
         if not session.assign_pid(pid):
             log.warning("Windows job assign failed: %s", session.error)
             session.cleanup()
-            self.confinement = Confinement(label=_enforcement_label(False))
             return False
         self._session = session
-        self.confinement = Confinement(process_job=True, label=_enforcement_label(True))
         return True
 
     def cleanup(self) -> None:
@@ -282,6 +375,7 @@ class SandboxSession:
     argv: list[str]
     backend: SandboxBackend
     enabled: bool
+    status_path: Path | None = None
 
     def attach(self, proc: Any) -> None:
         if self.enabled:
@@ -292,19 +386,94 @@ class SandboxSession:
             self.backend.cleanup()
 
 
-def prepare_sandbox(cfg: Any, argv: list[str], workdir: Path) -> SandboxSession:
+def _protected_write_paths() -> list[Path]:
+    """Tala install and user-data folders must never receive a write grant."""
+    out: list[Path] = []
+    for key in ("TALA_INSTALL_ROOT", "TALA_USER_DATA", "TALA_USER_DATA_ROOT"):
+        raw = os.environ.get(key)
+        if raw:
+            out.append(Path(raw))
+    try:
+        from sdk.agent.documentation_nodes import resolve_user_data_dir
+        out.append(Path(resolve_user_data_dir()))
+    except Exception:
+        pass
+    out.append(Path(__file__).resolve().parents[2])
+    return out
+
+
+def _is_protected_write(path: Path) -> bool:
+    child = str(path).replace("\\", "/").lower().rstrip("/")
+    for parent in _protected_write_paths():
+        base = str(parent).replace("\\", "/").lower().rstrip("/")
+        if child == base or child.startswith(base + "/") or base.startswith(child + "/"):
+            return True
+    return False
+
+
+def refresh_workspace_isolation(old_paths: list | tuple | None, new_paths: list | tuple | None) -> None:
+    """Revoke AppContainer ACLs on workspaces we left; grant on the new ones.
+
+    No-op on non-Windows. Grants are also applied on spawn; this exists so a
+    workspace change does not leave the old folder writable by Tala.Workstation.
+    """
+    if platform.system() != "Windows":
+        return
+    try:
+        from sdk.agent.sandbox_windows_appcontainer import refresh_workspace_acls
+        refresh_workspace_acls(old_paths or [], new_paths or [])
+    except Exception as exc:
+        log.warning("TALA_SANDBOX: could not refresh workspace ACLs: %s", exc)
+
+
+def prepare_sandbox(
+    cfg: Any, argv: list[str], workdir: Path, *, allow_network: bool | None = None,
+) -> SandboxSession:
     enabled = bool(getattr(cfg, "enable_sandbox", True))
     if not enabled:
         return SandboxSession(argv=argv, backend=NoOpSandbox(), enabled=False)
     backend = _select_sandbox_backend()
+    net = bool(getattr(cfg, "allow_network", False) if allow_network is None else allow_network)
+    rw: list[Path] = []
+    for raw in [getattr(cfg, "root", None), *list(getattr(cfg, "extra_write_roots", None) or [])]:
+        if not raw:
+            continue
+        path = Path(raw)
+        if _is_protected_write(path):
+            log.error("TALA_SANDBOX: refusing write grant on protected path %s", path)
+            continue
+        rw.append(path)
+    if workdir and not _is_protected_write(Path(workdir)):
+        rw.append(Path(workdir))
+    ro: list[Path] = []
+    if platform.system() == "Windows":
+        try:
+            from sdk.agent.sandbox_windows import command_rx_paths
+            if argv:
+                ro.extend(command_rx_paths(argv[0]))
+            extra_py = getattr(cfg, "python", None)
+            if extra_py:
+                ro.extend(command_rx_paths(extra_py))
+        except Exception as exc:
+            log.warning("TALA_SANDBOX: could not collect interpreter RX paths: %s", exc)
+    status_path = None
+    if platform.system() == "Windows":
+        tmp = Path(getattr(cfg, "internal_dir", None) or workdir) / "tmp"
+        try:
+            tmp.mkdir(parents=True, exist_ok=True)
+            status_path = tmp / f"sandbox-{os.getpid()}-{uuid.uuid4().hex[:8]}.json"
+        except OSError:
+            status_path = None
     config = SandboxConfig(
         mode="strict",
-        allow_network=bool(getattr(cfg, "allow_network", False)),
-        readwrite_paths=[p for p in [getattr(cfg, "root", None)] if p],
+        allow_network=net,
+        readwrite_paths=rw,
+        readonly_paths=ro,
         tmpdir=getattr(cfg, "internal_dir", None),
+        status_file=status_path,
     )
     wrapped = backend.wrap_command(list(argv), config, workdir)
-    return SandboxSession(argv=wrapped, backend=backend, enabled=True)
+    return SandboxSession(argv=wrapped, backend=backend, enabled=True, status_path=status_path)
 
 
 async def _sandbox_exec(

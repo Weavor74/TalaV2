@@ -126,6 +126,84 @@ def audit(cfg: pol.WorkstationConfig, tool: str, args: dict, decision: dict, out
         log.error("workstation: could not write audit log %s: %s", cfg.audit_path, exc)
 
 
+
+_SANDBOX_FALLBACK_MARK = "TALA_SANDBOX: job-object-only"
+_SANDBOX_FALLBACK_MARK_LEGACY = "TALA_SANDBOX: guarded-policy-only"
+_SANDBOX_DENIED_MARK = "TALA_SANDBOX: access-denied"
+
+
+def _sandbox_status_from(stderr: str, status_path: Path | None) -> dict | None:
+    if status_path:
+        try:
+            if status_path.exists():
+                raw = status_path.read_text(encoding="utf-8").strip().splitlines()[0]
+                data = json.loads(raw)
+                if isinstance(data, dict) and data.get("mode"):
+                    return data
+        except (OSError, json.JSONDecodeError, IndexError):
+            pass
+    text = stderr or ""
+    if _SANDBOX_DENIED_MARK in text:
+        path = ""
+        for line in text.splitlines():
+            if _SANDBOX_DENIED_MARK in line and "path=" in line:
+                path = line.split("path=", 1)[-1].strip()
+                break
+        return {"mode": "access-denied", "path": path}
+    mark = _SANDBOX_FALLBACK_MARK if _SANDBOX_FALLBACK_MARK in text else (
+        _SANDBOX_FALLBACK_MARK_LEGACY if _SANDBOX_FALLBACK_MARK_LEGACY in text else ""
+    )
+    if mark:
+        reason = text.split(mark, 1)[-1].split("\n", 1)[0].strip(" :")
+        return {"mode": "job-object-only", "reason": reason or "AppContainer unavailable"}
+    return None
+
+
+async def _broadcast_sandbox_fallback(reason: str) -> None:
+    try:
+        from python.harness.server import broadcast_notification
+        await broadcast_notification("workstation.sandbox_fallback", {
+            "from": "appcontainer",
+            "to": "job-object-only",
+            "reason": reason,
+        })
+    except Exception:
+        pass
+
+
+async def _apply_sandbox_status(cfg: pol.WorkstationConfig, result: dict, stderr: str,
+                                status_path: Path | None, *, tool: str) -> None:
+    status = _sandbox_status_from(stderr, status_path)
+    if not status:
+        return
+    mode = status.get("mode")
+    if mode in ("job-object-only", "guarded-policy-only"):
+        reason = status.get("reason") or "AppContainer unavailable"
+        warning = (
+            f"Windows AppContainer isolation is not active ({reason}). "
+            "This command ran with a job-object-only fallback: filesystem and "
+            "network are NOT OS-enforced."
+        )
+        result["sandbox"] = "job-object-only"
+        result["sandbox_fallback"] = True
+        result["warning"] = warning
+        audit(cfg, "sandbox_fallback", {"tool": tool, "reason": reason},
+              {"verdict": "job-object-only"}, {"warning": warning})
+        await _broadcast_sandbox_fallback(warning)
+    elif mode == "access-denied":
+        path = status.get("path") or "unknown path"
+        error = (
+            f"AppContainer cannot read or execute {path}: access denied. "
+            "On non-system drives the sandboxed SID needs an explicit read+execute "
+            "ACL on that specific path (not the whole drive)."
+        )
+        result["success"] = False
+        result["sandbox"] = "access-denied"
+        result["error"] = error
+        audit(cfg, "sandbox_access_denied", {"tool": tool, "path": path},
+              {"verdict": "deny"}, {"error": error})
+
+
 # ---------------------------------------------------------------------------
 # Approvals (Mission Control review queue)
 # ---------------------------------------------------------------------------
@@ -292,13 +370,14 @@ def truncate(text: str, limit: int) -> tuple[str, bool]:
     return text[:half] + f"\n...[{len(text) - limit} chars truncated]...\n" + text[-half:], True
 
 
-async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, timeout: float) -> dict:
+async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, timeout: float,
+                       *, allow_network: bool | None = None) -> dict:
     from sdk.agent.async_shell import _kill_process_tree, _register, _unregister
     from sdk.agent.sandbox import prepare_sandbox
 
     timeout = max(1.0, min(float(timeout or cfg.default_timeout), cfg.max_timeout))
     started = time.monotonic()
-    session = prepare_sandbox(cfg, argv, cwd)
+    session = prepare_sandbox(cfg, argv, cwd, allow_network=allow_network)
     argv = session.argv
     proc = await asyncio.create_subprocess_exec(
         *argv, cwd=str(cwd), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
@@ -335,6 +414,15 @@ async def _run_process(cfg: pol.WorkstationConfig, argv: list[str], cwd: Path, t
     if timed_out:
         result["error"] = f"Timed out after {timeout:.0f}s and was killed. Use start_job for long-running work."
     result["success"] = (not timed_out) and proc.returncode == 0
+    try:
+        await _apply_sandbox_status(cfg, result, stderr, getattr(session, "status_path", None), tool="process")
+    finally:
+        sp = getattr(session, "status_path", None)
+        if sp:
+            try:
+                Path(sp).unlink(missing_ok=True)
+            except OSError:
+                pass
     return result
 
 
@@ -368,7 +456,10 @@ async def run_shell(command: str, cwd: str | None = None, timeout_seconds: float
         return refusal
     if not workdir.is_dir():
         return {"success": False, "error": f"working directory {workdir} does not exist"}
-    result = await _run_process(cfg, _shell_argv(command), workdir, timeout_seconds or cfg.default_timeout)
+    need_net = cfg.allow_network or "network" in v.categories or "install" in v.categories
+    result = await _run_process(
+        cfg, _shell_argv(command), workdir, timeout_seconds or cfg.default_timeout, allow_network=need_net,
+    )
     result["cwd"] = str(workdir)
     result["shell"] = "powershell" if plat.current().is_windows else "bash"
     audit(cfg, "run_shell", args, v.as_dict(), {k: result.get(k) for k in ("exit_code", "timed_out", "success")},
@@ -652,8 +743,9 @@ async def run_python(code: str | None = None, script: str | None = None, args: l
         script_path = cfg.internal_dir / "runs" / f"snippet-{datetime.now().strftime('%Y%m%d-%H%M%S')}-" \
                                                   f"{uuid.uuid4().hex[:6]}.py"
         script_path.write_text(code, encoding="utf-8")
+    need_net = cfg.allow_network or "network" in v.categories or "install" in v.categories
     result = await _run_process(cfg, [str(_venv_python(cfg)), str(script_path), *extra], workdir,
-                               timeout_seconds or cfg.default_timeout)
+                               timeout_seconds or cfg.default_timeout, allow_network=need_net)
     result["script"] = str(script_path)
     audit(cfg, "run_python", call_args, v.as_dict(),
           {k: result.get(k) for k in ("exit_code", "timed_out", "success")}, started)
@@ -676,7 +768,9 @@ async def install_python_package(packages: list | str) -> dict:
         return refusal
     if (err := await _ensure_venv(cfg)) is not None:
         return err
-    result = await _run_process(cfg, [str(_venv_python(cfg)), "-m", "pip", "install", *pkgs], cfg.root, 900)
+    result = await _run_process(
+        cfg, [str(_venv_python(cfg)), "-m", "pip", "install", *pkgs], cfg.root, 900, allow_network=True,
+    )
     audit(cfg, "install_python_package", {"packages": pkgs}, v.as_dict(),
           {k: result.get(k) for k in ("exit_code", "success")})
     return result
@@ -727,17 +821,30 @@ async def start_job(command: str, name: str = "", cwd: str | None = None) -> dic
     job_id = "job-" + uuid.uuid4().hex[:8]
     log_path = cfg.internal_dir / "jobs" / f"{job_id}.log"
     fh = log_path.open("wb")
+    from sdk.agent.sandbox import prepare_sandbox
+    need_net = cfg.allow_network or "network" in v.categories or "install" in v.categories
+    session = prepare_sandbox(cfg, _shell_argv(command), workdir, allow_network=need_net)
     proc = await asyncio.create_subprocess_exec(
-        *_shell_argv(command), cwd=str(workdir), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
+        *session.argv, cwd=str(workdir), env=_child_env(cfg), stdin=asyncio.subprocess.DEVNULL,
         stdout=fh, stderr=asyncio.subprocess.STDOUT, **_spawn_kwargs())
+    session.attach(proc)
     fh.close()
     _register(proc)
     job = {"job_id": job_id, "name": name or command[:40], "command": command, "cwd": str(workdir),
            "log_path": str(log_path), "started_at": datetime.now().isoformat(timespec="seconds"), "proc": proc,
-           "workspace": str(cfg.root), "cfg": cfg}
+           "workspace": str(cfg.root), "cfg": cfg, "sandbox": session}
     _JOBS[job_id] = job
     audit(cfg, "start_job", args, v.as_dict(), {"job_id": job_id, "pid": proc.pid})
-    return {"success": True, **_job_view(job, 5)}
+    view = {"success": True, **_job_view(job, 5)}
+    status_path = getattr(session, "status_path", None)
+    if status_path:
+        deadline = time.monotonic() + 2.0
+        while time.monotonic() < deadline and not Path(status_path).exists():
+            await asyncio.sleep(0.05)
+        await _apply_sandbox_status(cfg, view, "", Path(status_path), tool="start_job")
+        if view.get("sandbox") == "access-denied":
+            view["success"] = False
+    return view
 
 
 async def job_status(job_id: str = "", tail_lines: int = 40) -> dict:
@@ -766,6 +873,9 @@ async def stop_job(job_id: str) -> dict:
             pass
         job["stopped"] = True
     _unregister(proc)
+    session = job.get("sandbox")
+    if session is not None:
+        session.cleanup()
     audit(cfg, "stop_job", {"job_id": job_id}, {"verdict": "allow"}, {"exit_code": proc.returncode})
     return {"success": True, **_job_view(job, 10)}
 
@@ -845,6 +955,12 @@ def set_workspace(root: str, extra_roots: list | None = None) -> dict:
     change = {"from": str(before.root) if before.root else None, "to": str(after.root),
               "extra_roots": extras, "created": check.created, "running_jobs_kept": [j["job_id"] for j in running]}
     _ensure_root(after)
+    from sdk.agent.sandbox import refresh_workspace_isolation
+    old_paths = []
+    if before.configured and before.root:
+        old_paths = [str(before.root), *[str(p) for p in (before.extra_roots or [])]]
+    new_paths = [str(after.root), *extras]
+    refresh_workspace_isolation(old_paths, new_paths)
     audit(after, "workspace_change", change, {"verdict": "owner_settings"})
     if before.configured and before.root != after.root:
         try:

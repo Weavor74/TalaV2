@@ -1,29 +1,38 @@
 """
-Windows process confinement via native job objects (ctypes).
+Windows isolation adapter surface used by sandbox.py.
 
-What this DOES when the APIs succeed:
-- CreateJobObjectW
-- JOB_OBJECT_LIMIT_KILL_ON_JOB_CLOSE (the tree dies when we close the job)
-- JOB_OBJECT_LIMIT_ACTIVE_PROCESS (caps how many processes the job may run)
-- AssignProcessToJobObject on the spawned pid
+Job objects (this file) still wrap the launcher so the tree dies on close.
+Filesystem and network confinement live in sandbox_windows_appcontainer.py:
+CreateAppContainerProfile + ACL grants + CreateProcess SECURITY_CAPABILITIES.
 
-What this DOES NOT do:
-- Filesystem confinement. Job objects do not sandbox paths. Writes outside the
-  workspace are still only blocked by workstation_policy.py before spawn.
-- Network confinement. No WFP / AppContainer here.
-- Restricted tokens / CreateRestrictedToken / CreateProcessAsUser. Privilege
-  drop is not implemented. A process in this job still runs as the Tala user.
+What AppContainer DOES (no admin at runtime):
+- Writes only where we ACL-grant the AppContainer SID (workspace + extra roots)
+- No writes to Tala's install or user-data folder (those paths are never granted)
+- No Winsock unless internetClient / privateNetworkClientServer are passed.
+  Omitting them is not a fast WSAEACCES (10013). WFP drops the packets:
+  connect_ex returns WSAEWOULDBLOCK (10035) and never completes. macOS
+  sandbox-exec (deny network*) returns EPERM / a deny line instead.
+- First-run CreateAppContainerProfile is per-user; no elevated setup step
 
-If the ctypes calls fail (common when the Python process is already in a job,
-as on many CI runners), attach() returns False and enforcement is
-guarded-policy-only: the command still runs, policy deny-lists still apply,
-nothing OS-level is enforced.
+What this DOES NOT:
+- Restricted tokens / CreateRestrictedToken (not implemented)
+- LPAC (would break Python/cmd on a normal desktop)
+- Windows Sandbox / Hyper-V / WFP (admin or optional-feature)
+- Hide world-readable files (the child may still READ the install)
+
+If AppContainer APIs fail, the launcher prints TALA_SANDBOX: job-object-only
+and runs with a job object only (filesystem and network are NOT OS-enforced).
+That fallback is written to a status file so the workstation tool result, UI
+notice, and audit log can surface it. Job-object attach() failing is still
+job-object-only for the process tree.
 """
 from __future__ import annotations
 
 import ctypes
 import logging
+import sys
 from ctypes import wintypes
+from pathlib import Path
 from typing import Any
 
 log = logging.getLogger(__name__)
@@ -158,4 +167,45 @@ class WindowsJobSession:
 
 
 def _enforcement_label(assigned: bool) -> str:
-    return "job-object" if assigned else "guarded-policy-only"
+    return "job-object" if assigned else "job-object-only"
+
+
+def command_rx_paths(executable: str | Path) -> list[Path]:
+    """Specific interpreter/venv/tool paths to RX-grant. Never a volume root."""
+    from sdk.agent.sandbox_windows_appcontainer import rx_paths_for_executable
+    return [Path(p) for p in rx_paths_for_executable(str(executable or ""))]
+
+
+def wrap_appcontainer_argv(argv: list[str], config: Any, workdir: Path) -> list[str]:
+    """Prepend the AppContainer launcher. sandbox.py wrap_command calls this."""
+    launch = Path(__file__).resolve().parent / "sandbox_windows_launch.py"
+    out = [sys.executable, str(launch), "--workdir", str(workdir)]
+    if getattr(config, "allow_network", False):
+        out.append("--allow-network")
+    status = getattr(config, "status_file", None)
+    if status:
+        out.extend(["--status-file", str(status)])
+    seen: set[str] = set()
+    for raw in list(getattr(config, "readwrite_paths", None) or []) + [workdir]:
+        if not raw:
+            continue
+        path = str(Path(raw))
+        if path in seen:
+            continue
+        seen.add(path)
+        out.extend(["--grant", path])
+    read_seen: set[str] = set()
+    extra_read: list[Path] = list(getattr(config, "readonly_paths", None) or [])
+    if argv:
+        extra_read.extend(command_rx_paths(argv[0]))
+    for raw in extra_read:
+        if not raw:
+            continue
+        path = str(Path(raw))
+        if path in read_seen or path in seen:
+            continue
+        read_seen.add(path)
+        out.extend(["--grant-read", path])
+    out.append("--")
+    out.extend(argv)
+    return out

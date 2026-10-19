@@ -140,6 +140,64 @@ async def test_set_workspace_persists_and_applies_without_restart(fresh, tmp_pat
     assert held["success"] is False
 
 
+def test_set_workspace_refreshes_sandbox_acls(fresh, tmp_path, monkeypatch):
+    seen = []
+    monkeypatch.setattr(
+        "sdk.agent.sandbox.refresh_workspace_isolation",
+        lambda old, new: seen.append((list(old), list(new))),
+    )
+    a, b = tmp_path / "WsA", tmp_path / "WsB"
+    assert ws.set_workspace(str(a))["success"]
+    assert seen and str(a.resolve()) in seen[-1][1]
+    assert ws.set_workspace(str(b))["success"]
+    old, new = seen[-1]
+    assert str(a.resolve()) in old
+    assert str(b.resolve()) in new
+    assert str(a.resolve()) not in new
+
+
+@pytest.mark.asyncio
+async def test_sandbox_fallback_is_loud_in_result_ui_and_audit(fresh, tmp_path, monkeypatch):
+    a = tmp_path / "WsA"
+    assert ws.set_workspace(str(a))["success"]
+    notices = []
+
+    async def fake_broadcast(reason):
+        notices.append(reason)
+
+    monkeypatch.setattr(ws, "_broadcast_sandbox_fallback", fake_broadcast)
+    result = {"success": True, "exit_code": 0}
+    await ws._apply_sandbox_status(
+        ws.config(), result,
+        "TALA_SANDBOX: job-object-only: AppContainer unavailable (missing APIs).\n",
+        None, tool="run_shell",
+    )
+    assert result["sandbox_fallback"] is True
+    assert result["sandbox"] == "job-object-only"
+    assert "job-object-only" in result["warning"]
+    assert "NOT OS-enforced" in result["warning"]
+    assert notices and "NOT OS-enforced" in notices[0]
+    entries = _audit(a)
+    assert any(e["tool"] == "sandbox_fallback" for e in entries)
+
+
+@pytest.mark.asyncio
+async def test_sandbox_access_denied_names_the_path_in_result_and_audit(fresh, tmp_path):
+    a = tmp_path / "WsA"
+    assert ws.set_workspace(str(a))["success"]
+    path = r"D:\venv\Scripts\python.exe"
+    result = {"success": True, "exit_code": 5}
+    await ws._apply_sandbox_status(
+        ws.config(), result,
+        f"TALA_SANDBOX: access-denied path={path}\n",
+        None, tool="run_python",
+    )
+    assert result["success"] is False
+    assert result["sandbox"] == "access-denied"
+    assert path in result["error"]
+    assert any(e["tool"] == "sandbox_access_denied" for e in _audit(a))
+
+
 def test_set_workspace_rejects_bad_paths_and_keeps_the_old_one(fresh, tmp_path):
     good = tmp_path / "Good"
     assert ws.set_workspace(str(good))["success"]
