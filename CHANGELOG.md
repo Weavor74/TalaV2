@@ -11,6 +11,19 @@ download site inherits them.
 ## [Unreleased]
 
 ### Added
+- Tala's complete natal chart (`python/astrology/natal.py`): born 1977-07-20,
+  5:00 pm, Clearwater, Florida (17:00 EDT = 21:00 UT). Adds the Ascendant and
+  Midheaven, Placidus houses, signs, essential dignity, retrogrades, chart
+  ruler, day/night sect, element and modality balance and natal aspects, and
+  shows the summary in the `astro.transits` RPC. Replaces the 12:00 UT
+  placeholder hour, which made houses and angles impossible. Every
+  date-only persona config now resolves through one `birth_for` helper, so her
+  chart no longer depends on which code path read it; a configured
+  `birth_hour` of 0 is now honoured instead of becoming noon. The new hour
+  changes the engine's label for 112 of the 522 corpus stories, so those
+  stories' anchor datetimes were moved (median 2 days) to dates where her real
+  chart computes the emotion each already declares; turn text and labels are
+  untouched. Groundwork for chart-and-memory-driven topic stance.
 - US-origin local model stack with per-machine **inference profiles**
   (`kagura`, `nano`; `python/inference/profiles.json`, `docs/inference-profiles.md`).
   Main chat and tools are gpt-oss-20b Heretic on llama.cpp (harmony format,

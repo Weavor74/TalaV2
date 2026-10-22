@@ -150,7 +150,19 @@ class Birthdate:
 #: ``handle_astro_transits``. Those are entirely different charts, so whether the
 #: DB was reachable silently decided which emotional life she had. Import this
 #: rather than re-declaring a date.
-TALA_NATAL = Birthdate(year=1977, month=7, day=20, hour=12.0)
+#:
+#: Born 1977-07-20, 5:00 pm, Clearwater, Florida. Florida observed daylight time
+#: that summer, so 17:00 EDT (UTC-4) = 21:00 UT; Clearwater is 27.9659 N,
+#: 82.8001 W (longitude east-positive, the swisseph convention). The birth hour
+#: used to be a 12:00 UT placeholder with no place, which made houses and angles
+#: impossible; see natal.py for the full chart built from this. Moving the hour
+#: changed the engine's label for 112 of the 522 corpus stories; their anchor
+#: datetimes were moved (text and labels untouched) to dates where this chart
+#: computes the label each story already declares.
+TALA_BIRTH_PLACE = "Clearwater, Florida, USA"
+TALA_NATAL = Birthdate(
+    year=1977, month=7, day=20, hour=21.0, latitude=27.9659, longitude=-82.8001,
+)
 
 
 @dataclass(frozen=True, slots=True)

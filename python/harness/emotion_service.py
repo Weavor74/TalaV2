@@ -106,16 +106,13 @@ def _inertia_factor(previous: dict[str, Any] | None, now: datetime) -> float:
     return round(math.exp(-elapsed / INERTIA_TAU_SECONDS), 6)
 
 
-def _parse_birthdate(raw: str, hour: float = 12.0):
-    from python.astrology.ephemeris import Birthdate
+def _parse_birthdate(raw: str, hour: float | None = None):
+    """A configured birthdate as a chart. Tala's own date with no hour of its
+    own resolves to her complete birth data (time and place); any other date
+    keeps the noon-UT default."""
+    from python.astrology.natal import birth_for
 
-    parts = str(raw or "").strip().split("-")
-    if len(parts) != 3:
-        return None
-    try:
-        return Birthdate(int(parts[0]), int(parts[1]), int(parts[2]), float(hour))
-    except (TypeError, ValueError):
-        return None
+    return birth_for(raw, hour)
 
 
 async def _resolve_primary_birthdate():
@@ -141,7 +138,7 @@ async def _resolve_primary_birthdate():
             cfg = cfg or {}
             parsed = _parse_birthdate(
                 cfg.get("primary_agent_birthdate", ""),
-                cfg.get("primary_agent_birth_hour", 12.0) or 12.0,
+                cfg.get("primary_agent_birth_hour"),
             )
             if parsed:
                 return parsed, "primary-identity"
@@ -171,7 +168,7 @@ async def _resolve_birthdate(agent_id: str | None):
                 if isinstance(cfg, str):
                     cfg = json.loads(cfg)
                 parsed = _parse_birthdate(
-                    (cfg or {}).get("birthdate", ""), (cfg or {}).get("birth_hour", 12.0) or 12.0
+                    (cfg or {}).get("birthdate", ""), (cfg or {}).get("birth_hour")
                 )
                 if parsed:
                     return parsed, "agent-config"

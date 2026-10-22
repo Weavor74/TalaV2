@@ -68,6 +68,7 @@ from python.harness.provider_selection import (
     tier_sort_providers as _tier_sort_providers,  # noqa: F401 — re-exported for tests
 )
 from python.inference import external_engine as _engine_cfg
+from python.astrology.natal import birth_for, chart_summary
 from python.inference import router as _router
 from python.inference.vram_arbiter import prepare_for as _vram_prepare_for
 from python.harness.openai_tool_roundtrip import (
@@ -1678,13 +1679,14 @@ async def handle_inference_generate(
                     cfg = json.loads(cfg)
                 birth_str = cfg.get("birthdate", "")
                 if birth_str:
-                    from python.astrology.ephemeris import EphemerisEngine, Birthdate
+                    from python.astrology.ephemeris import EphemerisEngine
                     from python.astrology.style_cap import StyleModulator
                     from datetime import datetime, timezone
                 
                     # Compute transits
-                    dt = datetime.strptime(birth_str, "%Y-%m-%d")
-                    birth = Birthdate(year=dt.year, month=dt.month, day=dt.day, hour=12.0)
+                    birth = birth_for(birth_str)
+                    if birth is None:
+                        raise ValueError(f"unreadable birthdate {birth_str!r}")
                     engine = EphemerisEngine()
                     transits = engine.compute_transits(birth, datetime.now(timezone.utc))
                 
@@ -3979,8 +3981,7 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
             raw = str(raw or "").strip()
             if not raw:
                 return None
-            dt = datetime.strptime(raw, "%Y-%m-%d")
-            return Birthdate(year=dt.year, month=dt.month, day=dt.day, hour=12.0)
+            return birth_for(raw)
 
         def _parse_target_time(raw: str) -> datetime:
             raw = str(raw or "").strip()
@@ -4064,6 +4065,7 @@ async def handle_astro_transits(params: dict[str, Any], req_id: Any) -> str:
             "target_time": target_time.isoformat(),
             "is_predictive": target_time > datetime.now(timezone.utc),
             "transits": serialized,
+            "natal_chart": chart_summary(birth),  # None unless a birth place makes houses possible
         })
     except Exception as exc:
         logger.exception("astro.transits error")
@@ -4075,7 +4077,6 @@ async def handle_astro_synastry(params: dict[str, Any], req_id: Any) -> str:
     ``astro.synastry`` — Compare user-profile astro against active-agent astro.
     """
     try:
-        from datetime import datetime
         from python.astrology.ephemeris import Birthdate
         from python.astrology.synastry import SynastryEngine
 
@@ -4083,8 +4084,7 @@ async def handle_astro_synastry(params: dict[str, Any], req_id: Any) -> str:
             raw = str(raw or "").strip()
             if not raw:
                 return None
-            dt = datetime.strptime(raw, "%Y-%m-%d")
-            return Birthdate(year=dt.year, month=dt.month, day=dt.day, hour=12.0)
+            return birth_for(raw)
 
         user_birth = None
         user_source = "missing"
