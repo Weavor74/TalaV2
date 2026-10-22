@@ -67,6 +67,9 @@ from python.harness.provider_selection import (
     skip_provider_attempt,
     tier_sort_providers as _tier_sort_providers,  # noqa: F401 — re-exported for tests
 )
+from python.inference import external_engine as _engine_cfg
+from python.inference import router as _router
+from python.inference.vram_arbiter import prepare_for as _vram_prepare_for
 from python.harness.openai_tool_roundtrip import (
     accumulate_streamed_tool_calls as _accumulate_streamed_tool_calls,
     is_thought_signature_error,
@@ -532,7 +535,7 @@ _TOOL_CALL_RE = re.compile(
 _CLOSED_THINKING_RE = re.compile(r'<thinking>.*?</thinking>', re.DOTALL | re.IGNORECASE)
 _OPEN_THINKING_RE = re.compile(r'<thinking>', re.IGNORECASE)
 
-# Reasoning models (qwen3, DeepHermes-R1, deepseek-r1, etc.) emit their private
+# Reasoning models (DeepHermes-R1 and similar) emit their private
 # reasoning in <think>...</think>, but the entire harness convention is built on
 # <thinking>...</thinking>. Without this normalization their chain-of-thought
 # leaks into the visible reply AND any <call:tool/> tag they emit gets buried in
@@ -1206,16 +1209,15 @@ def _swap_xml_protocol_for_native(
     return out, removed
 
 
-_QWEN_TOOL_CALL_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
+_TOOL_CALL_TAG_RE = re.compile(r"<tool_call>\s*(\{.*?\})\s*</tool_call>", re.S)
 
 
 def _parse_chat_template_tool_calls(text: str) -> list[dict[str, Any]]:
     """
     Extract ``<tool_call>{...}</tool_call>`` blocks into OpenAI-shaped tool calls.
 
-    This is the reply format Qwen2.5-Instruct's bundled chat template asks for
-    when it is given `tools`, and the embedded engine is the only provider that
-    speaks it. Normalising here means the same _tool_calls_to_call_tags used for
+    This is the reply format many chat templates ask for when they are given
+    `tools`, and the embedded engine is the only provider that speaks it. Normalising here means the same _tool_calls_to_call_tags used for
     Ollama and the /v1 providers renders it, so the embedded path joins the same
     protocol-agnostic dispatch as everything else rather than growing its own.
 
@@ -1224,7 +1226,7 @@ def _parse_chat_template_tool_calls(text: str) -> list[dict[str, Any]]:
     downstream.
     """
     calls = []
-    for raw in _QWEN_TOOL_CALL_RE.findall(text or ""):
+    for raw in _TOOL_CALL_TAG_RE.findall(text or ""):
         try:
             obj = json.loads(raw)
         except Exception:
@@ -2214,6 +2216,7 @@ async def handle_inference_generate(
                         max_injected_nodes = 2 if chat_mode in ("rp", "hybrid") else 5
                         nodes_to_inject = top_active[:max_injected_nodes]
                         
+                        from python.inference.lora_trainer import IMPLEMENTED as _lora_implemented
                         from python.inference.lora_trainer import queue_lora_training
                         # (asyncio is imported at module scope; a local import
                         # here made `asyncio` a function-local name, so any use
@@ -2259,7 +2262,7 @@ async def handle_inference_generate(
                             out_path = str(Path(nodes_dir) / f"{primary.node_id}_lora" / "adapter_model.safetensors")
                             if Path(out_path).exists():
                                 best_lora_path = out_path
-                            elif combined:
+                            elif combined and _lora_implemented:
                                 asyncio.create_task(
                                     queue_lora_training(primary.node_id, combined, out_path)
                                 )
@@ -2736,6 +2739,10 @@ async def handle_inference_generate(
     providers = _route.providers
     request_provider = _route.request_provider
     forced_provider = _route.forced_provider
+    # With a profile in force the chain is the profile's roles (vision when an
+    # image is attached, main, fallback). An explicit choice is never overridden.
+    _profile = _engine_cfg.profile()
+    providers = _router.apply(_route, _profile, messages)
     if request_provider:
         logger.info(
             "Request-selected provider active for session %s: '%s' (Preferred First)",
@@ -2802,6 +2809,7 @@ async def handle_inference_generate(
                 f"Attempting generation with provider '{p_name}' ({p_type})",
                 {"session_id": session_id, "provider_id": provider["id"]}
             )
+            await _vram_prepare_for(provider, _profile)
 
             try:
                 if p_type == "embedded":
@@ -2819,11 +2827,12 @@ async def handle_inference_generate(
                     # tokens of tag documentation it could not act on and no tool
                     # definitions at all -- it was the one provider that could not
                     # call a tool.
-                    embedded_messages = messages
+                    _emsgs = _router.messages_for(provider, messages)
+                    embedded_messages = _emsgs
                     embedded_tools = None
                     if native_tool_specs:
                         _swapped, _removed = _swap_xml_protocol_for_native(
-                            messages, xml_tool_protocol
+                            _emsgs, xml_tool_protocol
                         )
                         if _removed:
                             embedded_messages = _swapped
@@ -2844,7 +2853,7 @@ async def handle_inference_generate(
                                 p_name,
                             )
                             embedded_messages = _narrow_xml_protocol_for_budget(
-                                messages, xml_tool_protocol, dyn_desc, dyn_tools,
+                                _emsgs, xml_tool_protocol, dyn_desc, dyn_tools,
                                 dyn_native_specs, tool_index, p_type, p_config,
                                 p_name, sticky_tools, use_compact,
                             )
@@ -2872,7 +2881,7 @@ async def handle_inference_generate(
                         if _tmpl_calls:
                             _tags = _tool_calls_to_call_tags(_tmpl_calls)
                             if _tags:
-                                generated_text = _QWEN_TOOL_CALL_RE.sub("", generated_text).strip()
+                                generated_text = _TOOL_CALL_TAG_RE.sub("", generated_text).strip()
                                 generated_text = f"{generated_text}\n{_tags}".strip()
 
                 elif p_type in ("local", "remote"):
@@ -2929,17 +2938,9 @@ async def handle_inference_generate(
                     if "kimi" in model_lower or "moonshot" in model_lower or (endpoint and ("kimi" in endpoint.lower() or "moonshot" in endpoint.lower())):
                         actual_temp = 1.0
 
-                    # Qwen3 (including abliterated builds) emits <think>...</think>
-                    # reasoning by default. On this small local model that reasoning
-                    # both leaks into the visible reply and buries the <call:tool/>
-                    # tag so it never fires. Qwen3's documented soft-switch /no_think
-                    # disables reasoning generation entirely — cleaner, faster, and
-                    # more reliable tool-calling. Scoped to qwen3 so nothing else is
-                    # affected; the <think>->:<thinking> normalizer still covers any
-                    # model that does emit tagged reasoning.
-                    payload_messages = messages
-                    if "qwen3" in model_lower:
-                        payload_messages = messages + [{"role": "system", "content": "/no_think"}]
+                    # Only a provider that can see images is handed one; a
+                    # text-only model gets the text plus a note.
+                    payload_messages = _router.messages_for(provider, messages)
 
                     url = f"{_normalize_endpoint_url(endpoint)}/chat/completions"
                     payload = {
@@ -2985,6 +2986,9 @@ async def handle_inference_generate(
                         # calls go through it instead.
                         _native_base = _normalize_endpoint_url(endpoint).replace("/v1", "").rstrip("/")
                         url = f"{_native_base}/api/chat"
+                        # /api/chat takes images as a separate base64 field, not as
+                        # an OpenAI content array.
+                        payload_messages = _router.to_ollama_native_messages(payload_messages)
                         payload = {
                             "model": model,
                             "messages": payload_messages,
@@ -2995,20 +2999,18 @@ async def handle_inference_generate(
                                 "num_predict": adjusted_max_tokens,
                             },
                         }
-                        # Note: qwen3's thinking is deliberately NOT disabled
-                        # here (no `"think": False`). On the native endpoint the
-                        # reasoning arrives structurally in message.thinking —
-                        # wrapped into <thinking> tags below, which the renderer
-                        # shows as a collapsed, expandable section — so it can't
-                        # bury a tool tag or leak into the visible reply, and
-                        # Steven likes being able to expand and read it.
-                        #
-                        # The /no_think system message added above still rides
-                        # along on payload_messages, though, and it does disable
-                        # reasoning. It is removed further down whenever native
-                        # tools are attached, since its only justification was
-                        # protecting the XML tag. A qwen3 model that reports no
-                        # tool capability keeps it.
+                        # How long the model stays resident after this turn; the
+                        # profile sets it so 6 GB of VRAM can be handed to the
+                        # next model.
+                        _keep = p_config.get("keep_alive")
+                        if _keep not in (None, ""):
+                            payload["keep_alive"] = int(_keep) if str(_keep).isdigit() else _keep
+                        # Reasoning is deliberately NOT disabled here (no
+                        # `"think": False`). On the native endpoint it arrives
+                        # structurally in message.thinking, wrapped into <thinking>
+                        # tags below, which the renderer shows as a collapsed,
+                        # expandable section -- it cannot bury a tool tag or leak
+                        # into the visible reply.
 
                     _native_model_capabilities: list[str] = []
                     if p_type == "local" and p_config.get("engine", "ollama") == "ollama":
@@ -3139,19 +3141,7 @@ async def handle_inference_generate(
                                     p_name, sticky_tools, use_compact,
                                 )
                             else:
-                                # Drop the /no_think soft-switch added above. Its
-                                # stated reason is that qwen3's reasoning "buries the
-                                # <call:tool/> tag so it never fires" -- a property of
-                                # the XML protocol, which is not in use here. Native
-                                # tool_calls are a structured field and cannot be
-                                # buried by reasoning text. Leaving it would suppress
-                                # the thinking that the native branch's own comment
-                                # says it preserves, and that the renderer shows as an
-                                # expandable section.
-                                payload["messages"] = [
-                                    m for m in _swapped
-                                    if not (m.get("role") == "system" and m.get("content") == "/no_think")
-                                ]
+                                payload["messages"] = _swapped
                                 payload["tools"] = _select_tools_for_turn(
                                     native_tool_specs, payload["messages"], tool_index,
                                     p_type, p_config, p_name, sticky_tools,
@@ -6630,7 +6620,8 @@ async def _generate_reply(
             pinned_id=str(os.environ.get("TALA_PIN_PROVIDER") or "").strip(),
             pin_strict=os.environ.get("TALA_PIN_STRICT") == "1",
         )
-        for provider in _reply_route.providers:
+        _reply_profile = _engine_cfg.profile()
+        for provider in _router.apply(_reply_route, _reply_profile, inference_messages):
             if skip_provider_attempt(
                 provider, _reply_route.forced_provider, _reply_route.request_provider,
             ):
@@ -6650,6 +6641,7 @@ async def _generate_reply(
 
             logger.info("inference: attempting generation with provider '%s' (%s)", p_name, p_type)
             tried_providers.append((p_name, p_type))
+            await _vram_prepare_for(provider, _reply_profile)
 
             try:
                 if p_type == "embedded":
@@ -9805,7 +9797,8 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
         pinned_id=pinned_id,
         pin_strict=os.environ.get("TALA_PIN_STRICT") == "1",
     )
-    providers = _research_route.providers
+    _research_profile = _engine_cfg.profile()
+    providers = _router.apply(_research_route, _research_profile, messages)
     forced_provider = _research_route.forced_provider
     request_provider = _research_route.request_provider
 
@@ -9815,6 +9808,7 @@ async def execute_llm_generation(prompt: str, system_prompt: str = "") -> str:
         p_type = provider["type"]
         p_name = provider["name"]
         p_config = provider["config"] or {}
+        await _vram_prepare_for(provider, _research_profile)
 
         try:
             if p_type == "embedded":

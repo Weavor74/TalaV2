@@ -28,7 +28,7 @@ def adjust_max_tokens_for_provider(
     # Word-bounded pattern matching for o1/o3 to avoid false matches
     is_reasoning_model = (
         re.search(r'\b(o1|o3)\b', model_lower) or
-        any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "deepseek", "thought", "thinking"))
+        any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "gpt-oss", "thought", "thinking"))
     )
     
     # Provider-specific max_tokens override

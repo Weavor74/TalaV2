@@ -208,13 +208,13 @@ async def test_tot_mode_switching():
     # 2. Test auto-detection mapping
     with patch.dict(os.environ, {"TALA_TOT_MODE": "auto"}):
         # Mock DB returning a 7B model
-        mock_row = {"config": json.dumps({"model": "Qwen/Qwen2.5-7B-Instruct-AWQ"})}
+        mock_row = {"config": json.dumps({"model": "meta-llama/Llama-3.1-8B-Instruct"})}
         with patch("python.harness.db.fetchrow", return_value=mock_row):
             mode = await get_tot_mode()
             assert mode == "fast"
 
         # Mock DB returning a tiny 0.5B model
-        mock_row_tiny = {"config": json.dumps({"model": "Qwen/Qwen2.5-0.5B-Instruct"})}
+        mock_row_tiny = {"config": json.dumps({"model": "meta-llama/Llama-3.2-1B-Instruct"})}
         with patch("python.harness.db.fetchrow", return_value=mock_row_tiny):
             mode = await get_tot_mode()
             assert mode == "programmatic"

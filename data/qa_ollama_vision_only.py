@@ -17,7 +17,7 @@ async def main():
     size = Image.open(path).size
     shot = {'data': base64.b64encode(path.read_bytes()).decode(), 'width': size[0], 'height': size[1], 'windows': []}
     async with httpx.AsyncClient(timeout=180) as client:
-        result = await _decide(client, 'http://localhost:11434', 'qwen2.5vl:3b', 'Read the visible application title and report it as evidence. This is a read-only inspection; choose done if readable or blocked if not. Do not click or type.', shot, [], cpu_only=True)
+        result = await _decide(client, 'http://localhost:11434', 'gemma3:4b', 'Read the visible application title and report it as evidence. This is a read-only inspection; choose done if readable or blocked if not. Do not click or type.', shot, [], cpu_only=True)
         print(result.model_dump_json(), flush=True)
         Path('data/qa-ollama-vision-result.json').write_text(result.model_dump_json(), encoding='utf-8')
 

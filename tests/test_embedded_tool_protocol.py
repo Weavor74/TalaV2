@@ -1,7 +1,7 @@
 """
 The embedded engine's tool-call protocol, and the single-engine status shape.
 
-`<tool_call>{...}</tool_call>` is Qwen's own chat-template convention for tool
+`<tool_call>{...}</tool_call>` is a common chat-template convention for tool
 calls; the harness normalises it to `<call:name attr="v" />` so the turn loop
 can dispatch without knowing which provider produced the text. That parsing is
 provider-agnostic and unchanged by which engine renders the template -- it

@@ -20,10 +20,10 @@ def test_thinking_model_detection():
         ("gemini-3.8-flash", True),
         ("gemini-2.0-flash-thinking", True),
         ("gemma4-it", True),
-        ("deepseek-r1", True),
+        ("gpt-oss:20b", True),
         ("o1-preview", True),
         ("o3-mini", True),
-        ("qwen-thinking-1.5b", True),
+        ("llama-thinking-1b", True),
         ("llama3.2:3b", False),
         ("gpt-4o", False),
         ("claude-3-5-sonnet", False),
@@ -32,7 +32,7 @@ def test_thinking_model_detection():
     for model, should_bump in test_cases:
         model_lower = model.lower()
         is_reasoning = any(k in model_lower for k in (
-            "gemma4", "gemini", "reasoning", "deepseek", "thought", "thinking", "o1", "o3"
+            "gemma4", "gemini", "reasoning", "gpt-oss", "thought", "thinking", "o1", "o3"
         ))
         assert is_reasoning == should_bump, f"{model} detection failed"
     

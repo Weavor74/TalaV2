@@ -43,7 +43,7 @@ test('CPU-only box keeps embedded wording and session pin', async () => {
   assert.equal(sandbox.localStorage.getItem('tala.chat.provider_id'), 'embedded-builtin');
 });
 
-test('GPU box steers away from CPU Qwen session pin', async () => {
+test('GPU box steers away from embedded CPU session pin', async () => {
   const { sandbox, els } = load(true);
   const mgr = { _modelPicker: { value: 'embedded-builtin' }, activeProvider: () => null };
   await sandbox.inferenceProbeGpuAndApply(mgr);

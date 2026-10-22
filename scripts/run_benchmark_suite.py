@@ -46,14 +46,14 @@ asked for. They disagree more often than anyone expects, and the run says so.
 
 USAGE
     python scripts/run_benchmark_suite.py                  # run the suite (~30 min, live model)
-    python scripts/run_benchmark_suite.py --label qwen3-4b # name the configuration
+    python scripts/run_benchmark_suite.py --label llama3.2-3b # name the configuration
     python scripts/run_benchmark_suite.py --junit out.xml  # score an existing JUnit report
     python scripts/run_benchmark_suite.py --compare        # show the delta against the last run
     python scripts/run_benchmark_suite.py --no-write       # score and print, record nothing
 
     # one score per engine
     python scripts/run_benchmark_suite.py --engine embedded-builtin
-    python scripts/run_benchmark_suite.py --engine ollama-huihui_ai-qwen3-abliterated-4b
+    python scripts/run_benchmark_suite.py --engine ollama-llama3-2-3b
 """
 from __future__ import annotations
 

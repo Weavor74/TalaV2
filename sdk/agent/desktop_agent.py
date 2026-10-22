@@ -334,12 +334,12 @@ def _native_supported():
     return sys.platform == "win32"
 
 
-@register_tool(name="desktop_run", description="Windows-only: perform a complete native computer-use task with a LOCAL Ollama vision model. On other platforms use desktop_observe and desktop_action instead. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user's objective. model is an installed Ollama vision model; default qwen2.5vl:3b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.")
-async def desktop_run(task: str, model: str = "qwen2.5vl:3b", endpoint: str = "http://localhost:11434", max_steps: int = 20, cpu_only: bool = False, success_text: str = ''):
+@register_tool(name="desktop_run", description="Windows-only: perform a complete native computer-use task with a LOCAL Ollama vision model. On other platforms use desktop_observe and desktop_action instead. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user's objective. model is an installed Ollama vision model; default gemma3:4b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.")
+async def desktop_run(task: str, model: str = "gemma3:4b", endpoint: str = "http://localhost:11434", max_steps: int = 20, cpu_only: bool = False, success_text: str = ''):
     """NAME
            desktop_run - execute a task using local vision and native actions
     SYNOPSIS
-           desktop_run(task, model='qwen2.5vl:3b', endpoint='http://localhost:11434', max_steps=20, cpu_only=False)
+           desktop_run(task, model='gemma3:4b', endpoint='http://localhost:11434', max_steps=20, cpu_only=False)
     DESCRIPTION
            Supports primary-monitor desktop applications. Sends no screenshots
            to cloud providers. Bounds execution to 20 minutes and 40 actions.

@@ -58,7 +58,7 @@ Each is now an error, a warning naming the thing that failed, or a status that r
 **Known and unclosed:**
 - Messaging channels remain at 1 adapter (Telegram) against OpenClaw's 25+. Manager, schema and hot-reload all work, so each platform is additive.
 - Swarm and P2P are still unverified end to end — `p2p_sessions` is empty and no test exercises a fleet task.
-- The trained adapter cannot reach the model that serves chat: it is fitted to Qwen2.5-0.5B, chat runs the 4B under Ollama, and adapter and base must match. Ollama also cannot swap adapters per request. The procedure is documented in `nodes/system-ollama-adapter-deployment.html`; nobody has walked it.
+- The trained adapter cannot reach the model that serves chat: it was fitted to a small base model that is not the one chat runs under Ollama, and adapter and base must match. Ollama also cannot swap adapters per request. The procedure is documented in `nodes/system-ollama-adapter-deployment.html`; nobody has walked it.
 - `torch` installed as `2.13.0+cpu`, so training leaves the RTX 3050 idle.
 - Six `python/tala_engine.egg-info/*` files are tracked but are build output; they should be ignored and untracked.
 - Three zero-byte files named after tools (`research.search,`, `research.crawl_and_summarize`, `no`) were deleted, but the code path that creates them was not found. They will return if it is still live.

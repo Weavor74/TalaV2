@@ -10,6 +10,25 @@ download site inherits them.
 
 ## [Unreleased]
 
+### Added
+- US-origin local model stack with per-machine **inference profiles**
+  (`kagura`, `nano`; `python/inference/profiles.json`, `docs/inference-profiles.md`).
+  Main chat and tools are gpt-oss-20b Heretic on llama.cpp (harmony format,
+  native `tool_calls`, reasoning effort medium for tool turns and low for
+  chat, reasoning never shown); Llama 3.1 8B abliterated is the Ollama
+  fallback and `gemma3:4b` (`num_ctx` 8192) is vision. A per-turn router picks
+  vision for an image, main otherwise, fallback on error or timeout, and a VRAM
+  arbiter keeps one big model on the 6 GB GPU at a time. Paths default to D:;
+  `TALA_PROFILE` / `python -m python.inference.profiles use <name>` switch.
+  No cloud provider is in an automatic chain unless a profile sets `allow_remote`.
+
+### Removed
+- Every non-US-origin base-model reference outside the ledger, historical
+  benchmark records and the migration that retires them, including the old
+  0.5B LoRA adapter and the old vision default (now `gemma3:4b`).
+- LoRA is labelled **not implemented** (`lora.implemented = false` in the
+  engine status API); Tala no longer queues training jobs that cannot succeed.
+
 ### Removed
 - The electron-builder distribution format (`npm run pack`/`package:*`, the
   `build` section in package.json, the CI packaging smoke on its output).

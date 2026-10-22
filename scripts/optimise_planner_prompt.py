@@ -250,7 +250,7 @@ async def main_async(args) -> int:
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--engine", default="ollama-huihui_ai-qwen3-abliterated-4b",
+    parser.add_argument("--engine", default="ollama-llama3-2-3b",
                         help="provider to evaluate against; every run in a round uses the same one")
     parser.add_argument("--variants", type=int, default=6,
                         help="candidates to propose; about six fits an overnight window")

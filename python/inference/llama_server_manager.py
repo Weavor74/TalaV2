@@ -70,6 +70,7 @@ from typing import Any
 import httpx
 
 from python.inference import external_engine as _ext
+from python.inference import harmony as _harmony
 
 logger = logging.getLogger(__name__)
 
@@ -88,9 +89,9 @@ BINARIES_MANIFEST_URL = "https://talacore.app/llama_binaries.json"
 #: Default model: a single GGUF file, not a full HF snapshot -- llama.cpp
 #: needs one file, not the safetensors/tokenizer set transformers used.
 #:
-#: Llama 3.2 3B Instruct (Meta, US-origin) since 2026-10: the project rule is
-#: no non-US base models, which retired the Qwen2.5-1.5B default. 1B is the
-#: low-RAM option (TALA_MODEL_SIZE=1b) and TALA_MODEL_PATH loads any local
+#: Llama 3.2 3B Instruct (Meta, US-origin): the project rule is US-origin base
+#: models only. A profile (python/inference/profiles.py) replaces this with its
+#: own main model, e.g. gpt-oss-20b on Kagura. 1B is the low-RAM option (TALA_MODEL_SIZE=1b) and TALA_MODEL_PATH loads any local
 #: GGUF -- see python/inference/external_engine.py.
 #:
 #: History, kept for the size reasoning: 1.5B, not 0.5B: measured directly against Jev-mode structured decisions
@@ -206,7 +207,7 @@ def check_model_cached() -> bool:
     try:
         from huggingface_hub import try_to_load_from_cache
 
-        path = try_to_load_from_cache(*_ext.default_model())
+        path = try_to_load_from_cache(*_ext.default_model(), cache_dir=_ext.hf_cache_dir())
         return isinstance(path, str)
     except Exception as exc:
         logger.debug("llama_server_manager: model cache check failed: %s", exc)
@@ -220,7 +221,7 @@ def _model_path() -> Path | None:
     try:
         from huggingface_hub import try_to_load_from_cache
 
-        path = try_to_load_from_cache(*_ext.default_model())
+        path = try_to_load_from_cache(*_ext.default_model(), cache_dir=_ext.hf_cache_dir())
         return Path(path) if isinstance(path, str) else None
     except Exception:
         return None
@@ -429,6 +430,7 @@ def _download_task(main_loop: asyncio.AbstractEventLoop | None) -> None:
                 repo_id=repo_id,
                 filename=filename,
                 tqdm_class=DBProgressTracker,
+                cache_dir=_ext.hf_cache_dir(),
             )
 
         _set_status("ready", progress=100.0)
@@ -487,7 +489,25 @@ def _free_port() -> int:
         return s.getsockname()[1]
 
 
-async def _wait_healthy(base_url: str, timeout_s: float = _HEALTH_POLL_TIMEOUT_S) -> bool:
+def _choose_port() -> int:
+    """The profile's fixed port when it is free, otherwise any free port."""
+    wanted = _ext.server_port()
+    if wanted:
+        import socket
+
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", wanted))
+                return wanted
+            except OSError:
+                logger.warning(
+                    "llama_server_manager: configured port %d is busy; using a free port.", wanted,
+                )
+    return _free_port()
+
+
+async def _wait_healthy(base_url: str, timeout_s: float | None = None) -> bool:
+    timeout_s = timeout_s or _ext.startup_timeout() or _HEALTH_POLL_TIMEOUT_S
     deadline = asyncio.get_running_loop().time() + timeout_s
     async with httpx.AsyncClient(timeout=3.0) as client:
         while asyncio.get_running_loop().time() < deadline:
@@ -520,7 +540,7 @@ async def _spawn(variant: str) -> _ServerHandle | None:
     if not exe.exists() or model is None:
         return None
 
-    port = _free_port()
+    port = _choose_port()
     args = [
         str(exe), "-m", str(model),
         "--port", str(port),
@@ -532,6 +552,7 @@ async def _spawn(variant: str) -> _ServerHandle | None:
     # llama-server refuses to start on an unknown flag.
     if variant != EXTERNAL or _ext.external_is_fork():
         args[-1:-1] = ["--decision-seqs", str(DECISION_SEQS)]
+    args.extend(_ext.server_extra_args())
     logger.info("llama_server_manager: starting %s variant on port %d", variant, port)
     proc = await asyncio.create_subprocess_exec(
         *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
@@ -623,6 +644,29 @@ async def shutdown() -> None:
         await lifecycle.shutdown_all()
 
 
+async def stop_server() -> None:
+    """Stop only this module's llama-server, leaving every other registered
+    process alone (shutdown() goes through the whole registry). Clearing
+    ``_server`` first is what stops _supervise() from restarting it."""
+    from sdk.gateway import lifecycle
+
+    global _server
+    async with _server_lock:
+        handle = _server
+        _server = None
+    if handle is None or handle.proc.returncode is not None:
+        return
+    lifecycle.unregister_process(handle.proc.pid)
+    try:
+        handle.proc.terminate()
+        await asyncio.wait_for(handle.proc.wait(), timeout=10.0)
+    except (ProcessLookupError, asyncio.TimeoutError):
+        try:
+            handle.proc.kill()
+        except ProcessLookupError:
+            pass
+
+
 def active_variant() -> str | None:
     """Which GPU/CPU variant is currently serving, or None if not running."""
     return _server.variant if _server is not None else None
@@ -644,13 +688,11 @@ async def generate_stream(
 ) -> AsyncIterator[str]:
     """Stream a completion from the local llama-server, one turn at a time."""
     if lora_path:
-        # llama-server supports LoRA adapters, but wiring runtime hot-swap is
-        # out of scope for this engine swap -- see the plan's "engine swap
-        # only" decision. Every other local/remote provider already warns and
-        # drops the adapter the same way (server.py, ~line 2999).
+        # LoRA is NOT implemented: nothing trains an adapter (lora_trainer.py is
+        # a stub) and this engine never loads one. Say so rather than pretend.
         logger.warning(
-            "llama_server_manager: LoRA adapter %s requested but not yet "
-            "supported by the embedded llama.cpp engine; ignoring.", lora_path,
+            "llama_server_manager: LoRA adapter %s requested, but LoRA is not "
+            "implemented; the adapter is ignored.", lora_path,
         )
 
     handle = await _ensure_running()
@@ -663,6 +705,17 @@ async def generate_stream(
         "temperature": temperature,
         "stream": True,
     }
+    # Reasoning models (gpt-oss) spend completion tokens thinking before the
+    # visible reply, so the budget grows with the effort; the reasoning itself
+    # is never yielded (reasoning_content is simply not read below).
+    profile = _ext.profile()
+    effort = profile.reasoning_effort(has_tools=bool(tools)) if profile else None
+    if effort:
+        payload["chat_template_kwargs"] = {"reasoning_effort": effort}
+        payload["max_tokens"] = max_tokens + profile.token_budget(effort)
+    harmony_on = bool(profile and profile.main.harmony)
+    buffering = False
+    raw_chunks: list[str] = []
     if tools:
         payload["tools"] = tools
         if tool_choice:
@@ -694,13 +747,26 @@ async def generate_stream(
                 delta = obj.get("choices", [{}])[0].get("delta", {})
                 chunk = delta.get("content")
                 if chunk:
-                    yield chunk
+                    if buffering or (harmony_on and _harmony.has_raw_markers(chunk)):
+                        # Raw harmony markers reached the text stream: hold it
+                        # back and sort it out once the turn is complete.
+                        buffering = True
+                        raw_chunks.append(chunk)
+                    else:
+                        yield chunk
                 for tc in delta.get("tool_calls") or []:
                     slot = tool_calls_by_index.setdefault(tc.get("index", 0), {"name": "", "arguments": ""})
                     fn = tc.get("function") or {}
                     if fn.get("name"):
                         slot["name"] = fn["name"]
                     slot["arguments"] += fn.get("arguments") or ""
+
+    if buffering:
+        visible, harmony_calls = _harmony.split_harmony("".join(raw_chunks))
+        if visible:
+            yield visible
+        for call in harmony_calls:
+            tool_calls_by_index[len(tool_calls_by_index)] = call
 
     if tool_calls_by_index:
         # No content was streamed for a tool call (confirmed against the real
@@ -714,8 +780,10 @@ async def generate_stream(
         # (it's built to accept either shape) -- pass the accumulated raw
         # JSON string straight through rather than parsing it twice.
         calls = [
-            {"function": {"name": slot["name"], "arguments": slot["arguments"]}}
-            for slot in tool_calls_by_index.values()
+            {"function": call}
+            for call in _harmony.normalize_tool_calls(
+                [{"function": slot} for slot in tool_calls_by_index.values()]
+            )
         ]
         tag = _tool_calls_to_call_tags(calls)
         if tag:

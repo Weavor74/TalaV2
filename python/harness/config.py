@@ -180,7 +180,7 @@ def load_config() -> Config:
         ),
         VLLM_HOST=_env("VLLM_HOST", default="127.0.0.1"),
         VLLM_PORT=int(_env("VLLM_PORT", default="8000")),
-        VLLM_MODEL=_env("VLLM_MODEL", default="mistralai/Mistral-7B-Instruct-v0.3"),
+        VLLM_MODEL=_env("VLLM_MODEL", default="meta-llama/Llama-3.2-3B-Instruct"),
         VLLM_TENSOR_PARALLEL_SIZE=int(
             _env("VLLM_TENSOR_PARALLEL_SIZE", default="1")
         ),

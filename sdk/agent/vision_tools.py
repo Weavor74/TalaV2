@@ -28,8 +28,8 @@ log = logging.getLogger(__name__)
 
 _VISION_MODEL_HINTS = (
     "llava", "vision", "-vl", "vl-", "gemini", "gpt-4o", "gpt-4.1", "gpt-5",
-    "pixtral", "moondream", "minicpm", "kimi", "claude", "internvl",
-    "gemma-3", "gemma3", "qwen2-vl", "qwen2.5-vl", "o3", "o4",
+    "moondream", "minicpm", "kimi", "claude", "internvl",
+    "gemma-3", "gemma3", "granite3.2-vision", "llama3.2-vision", "o3", "o4",
 )
 
 
@@ -39,7 +39,7 @@ async def _provider_is_vision_capable(provider: dict[str, Any]) -> bool:
 
     Prefers Ollama's own /api/show capabilities report wherever it's
     reachable, over guessing from the model name. A name hint only
-    recognizes models whose name happens to signal vision (qwen2.5vl,
+    recognizes models whose name happens to signal vision (gemma3,
     llava, ...) and silently excludes anything else -- including a locally
     fine-tuned/renamed model (e.g. "muse-glimmer") that IS vision-capable per
     Ollama but matches no entry in _VISION_MODEL_HINTS. Falls back to the

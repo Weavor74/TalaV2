@@ -175,19 +175,16 @@ def test_a_400_with_tools_attached_falls_back_for_any_provider():
     assert '_retry["messages"] = payload_messages' in source
 
 
-def test_no_think_is_dropped_when_native_tools_are_attached():
-    """/no_think is added for qwen3 because reasoning text can bury an XML tag.
-    Native tool_calls are a structured field and cannot be buried, so the switch
-    loses its justification -- and leaving it on suppresses the thinking the
-    renderer shows as an expandable section."""
+def test_no_no_think_message_is_ever_added():
+    """The harness once injected a "/no_think" system message for one reasoning
+    model family. That behaviour is gone: reasoning text is shown to the user as
+    an expandable section and must never be suppressed, and native tool_calls
+    are a structured field that reasoning cannot bury. No "/no_think" message may
+    be added or filtered anywhere in the request path."""
     source = Path("python/harness/server.py").read_text(encoding="utf-8")
 
-    # Anchored on `payload["tools"] =` rather than on the exact expression
-    # assigned, which has already changed once (tool selection now wraps it).
-    assert 'm.get("content") == "/no_think"' in source
-    attach = source.index('payload["tools"] =')
-    drop = source.index('m.get("content") == "/no_think"')
-    assert drop < attach, "/no_think must be filtered out before tools are attached"
+    assert "/no_think" not in source
+    assert "no_think" not in source
 
 
 # --- request side: schema translation ---------------------------------------

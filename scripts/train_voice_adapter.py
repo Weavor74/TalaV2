@@ -45,12 +45,12 @@ REPO_ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO_ROOT))
 
 DEFAULT_CORPUS = REPO_ROOT / "data" / "training_corpus"
-DEFAULT_OUTPUT = REPO_ROOT / "nodes" / "corpus-tala-training-stories_lora"
+DEFAULT_OUTPUT = REPO_ROOT / "lora-generations" / "voice-adapter"
 
 # Llama 3.2 1B Instruct (Meta, US-origin) -- same family as the embedded
 # engine's default GGUF (Llama 3.2 3B), small enough to train on CPU. The
 # unsloth mirror is the ungated copy of meta-llama/Llama-3.2-1B-Instruct.
-# Project rule: no non-US base models (Qwen/DeepSeek/Mistral).
+# Project rule: US-origin base models only.
 DEFAULT_BASE_MODEL = "unsloth/Llama-3.2-1B-Instruct"
 
 # Attributes are pulled from the captured tag rather than matched in sequence:

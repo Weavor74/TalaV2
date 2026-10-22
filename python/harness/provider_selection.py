@@ -100,7 +100,7 @@ def skip_provider_attempt(
     `provider_id` put the requested provider first in the chain and then let
     this skip drop it, so naming a provider whose cached status was "offline"
     silently produced an answer from a different model. Every desktop-control
-    run aimed at Gemini was served by a local qwen instead, and the reply
+    run aimed at Gemini was served by a local model instead, and the reply
     looked like an ordinary success -- I reported one of those to Steven as a
     Gemini result before reading the log and finding otherwise.
 

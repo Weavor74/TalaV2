@@ -24,7 +24,7 @@ auto): builtin when its binary is present, else Ollama when it answers, else
 an external llama-server, else builtin (which triggers the download where a
 build exists).
 
-Models (all US-origin; Steven's rule -- no Qwen/DeepSeek/Mistral bases):
+Models (US-origin bases only: Meta Llama, OpenAI gpt-oss, Google Gemma):
 ``TALA_MODEL_PATH`` points at any local GGUF; otherwise ``TALA_MODEL_SIZE``
 picks Llama 3.2 3B (default) or 1B (low-RAM boards).
 """
@@ -36,6 +36,8 @@ import platform
 import shutil
 import sys
 from pathlib import Path
+
+from python.inference import profiles as _profiles
 
 ENGINES = ("auto", "builtin", "external", "ollama")
 
@@ -54,8 +56,16 @@ def _model_size() -> str:
     return size if size in MODEL_CHOICES else DEFAULT_MODEL_SIZE
 
 
+def profile() -> _profiles.Profile | None:
+    """The inference profile in force (kagura, nano, ...), or None for legacy env-driven setup."""
+    return _profiles.active()
+
+
 def default_model() -> tuple[str, str]:
     """(hf_repo, filename) of the GGUF the built-in/external server loads."""
+    active = profile()
+    if active is not None and active.main.hf_repo and active.main.hf_file:
+        return active.main.hf_repo, active.main.hf_file
     return MODEL_CHOICES[_model_size()]
 
 
@@ -68,13 +78,17 @@ def context_size() -> int:
     raw = os.environ.get("TALA_LLAMA_CTX", "").strip()
     if raw.isdigit() and int(raw) >= 512:
         return int(raw)
+    active = profile()
+    if active is not None:
+        return active.main.ctx
     return 4096 if _model_size() == "1b" else 16384
 
 
 def explicit_model_path() -> Path | None:
     raw = os.environ.get("TALA_MODEL_PATH", "").strip()
     if not raw:
-        return None
+        active = profile()
+        return active.main.model_path if active is not None and active.main.model_path.is_file() else None
     path = Path(raw).expanduser()
     return path if path.is_file() else None
 
@@ -85,13 +99,50 @@ def external_binary() -> Path | None:
     if raw:
         path = Path(raw).expanduser()
         return path if path.is_file() else None
+    active = profile()
+    if active is not None and active.main.server_bin.is_file():
+        return active.main.server_bin
     found = shutil.which("llama-server")
     return Path(found) if found else None
 
 
 def external_is_fork() -> bool:
     """Whether the external binary is the parallel-decision fork."""
-    return os.environ.get("TALA_LLAMA_SERVER_FORK", "").strip() in ("1", "true", "yes")
+    raw = os.environ.get("TALA_LLAMA_SERVER_FORK", "").strip()
+    if raw:
+        return raw in ("1", "true", "yes")
+    active = profile()
+    return bool(active and active.main.fork)
+
+
+def server_port() -> int:
+    """Fixed llama-server port from the profile, or 0 to take any free one."""
+    active = profile()
+    return active.main.port if active is not None else 0
+
+
+def server_extra_args() -> list[str]:
+    """Profile flags appended to the llama-server command (``-ngl``, ``--n-cpu-moe``...)."""
+    active = profile()
+    return list(active.main.args) if active is not None else []
+
+
+def startup_timeout() -> float | None:
+    """Seconds to wait for llama-server's /health, or None for the module default."""
+    active = profile()
+    return active.main.startup_timeout_s if active is not None else None
+
+
+def hf_cache_dir() -> str | None:
+    """Where Hugging Face downloads land (D: on Kagura), or None for the library default.
+
+    An HF_HOME / HF_HUB_CACHE the user already set wins (None: the library
+    honours it itself); otherwise the profile's directory, so downloads never
+    fall back to the C: profile default."""
+    if os.environ.get("HF_HUB_CACHE", "").strip() or os.environ.get("HF_HOME", "").strip():
+        return None
+    active = profile()
+    return str(active.hf_cache_dir) if active is not None and active.hf_cache_dir else None
 
 
 def builtin_build_published() -> bool:
@@ -122,8 +173,14 @@ def _ollama_running(timeout: float = 1.5) -> bool:
 
 
 def requested_engine() -> str:
-    engine = os.environ.get("TALA_ENGINE", "auto").strip().lower()
-    return engine if engine in ENGINES else "auto"
+    raw = os.environ.get("TALA_ENGINE", "").strip().lower()
+    if raw in ENGINES:
+        return raw
+    # A profile names its own llama-server, so that is the engine.
+    active = profile()
+    if active is not None and active.main.server_bin.is_file():
+        return "external"
+    return "auto"
 
 
 def _resolve_engine(builtin_present: bool, ollama_up: bool | None = None) -> str:
@@ -155,4 +212,5 @@ def summary(builtin_present: bool) -> dict:
         "model_size": _model_size(),
         "model": "/".join(default_model()),
         "model_path": str(explicit_model_path() or "") or None,
+        "profile": _profiles.describe(),
     }

@@ -1,7 +1,12 @@
 """
 lora_trainer.py - Background JIT LoRA Training Queue
 
-Manages the background training of LoRA adapters from HTML-NN semantic memory.
+*** NOT IMPLEMENTED. ***  No LoRA adapter is trained, and no inference path
+loads one: this module is a stub that says so (``IMPLEMENTED = False``).
+Neither the embedded llama-server nor Ollama applies an adapter, and
+``queue_lora_training`` raises ``LoraTrainingUnavailable`` rather than
+pretending. The server therefore does not queue jobs while ``IMPLEMENTED`` is
+False, and the engine status API reports ``lora.implemented = false``.
 """
 
 import asyncio
@@ -10,6 +15,12 @@ import threading
 from typing import Any
 
 logger = logging.getLogger("tala.inference.lora")
+
+#: Flip only when training AND loading an adapter both genuinely work.
+IMPLEMENTED = False
+STATUS_NOTE = (
+    "LoRA is not implemented: nothing trains an adapter and no engine loads one."
+)
 
 _training_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 _trainer_task: asyncio.Task[None] | None = None
@@ -92,7 +103,7 @@ def _perform_training_sync(job: dict[str, Any]) -> None:
         # top of it either way.
         #
         # 1. Convert semantic_memory to a HuggingFace Dataset
-        # 2. Load the base model (unsloth/Llama-3.2-1B-Instruct, the ungated Meta Llama 3.2 1B -- US-origin only; no Qwen/DeepSeek/Mistral bases)
+        # 2. Load the base model (unsloth/Llama-3.2-1B-Instruct, the ungated Meta Llama 3.2 1B -- US-origin bases only)
         # 3. LoraConfig(r=8, lora_alpha=16)
         # 4. Train, then model.save_pretrained(output_path)
         raise LoraTrainingUnavailable(

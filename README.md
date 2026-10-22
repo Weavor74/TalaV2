@@ -75,6 +75,35 @@ on the target via the bundled install scripts):
 - Publish it: `scripts/upload_vps.ps1`
 - Prove it: `scripts/verify_release_upgrade.ps1 -BaselineZip <previous zip>`
 
+## Local model stack (US-origin only)
+
+Inference is local-first and uses US-origin models only (Meta Llama, OpenAI
+gpt-oss, Google Gemma); no cloud provider is enabled by default. A **profile**
+pins the stack for a machine. On the Windows dev PC (`kagura`: RTX 3050 6 GB):
+
+| Role | Model | Served by |
+|---|---|---|
+| Main chat + tools | gpt-oss-20b Heretic `MXFP4_MOE` | `llama-server` (llama.cpp CUDA build) |
+| Fallback | Llama 3.1 8B abliterated `Q4_K_M` | Ollama |
+| Vision | `gemma3:4b` at `num_ctx` 8192 | Ollama |
+
+The router picks vision for an image turn, main otherwise, and falls back on an
+error or timeout. The 6 GB GPU holds one big model at a time, so the stack
+swaps them (Ollama `keep_alive`, `llama-server` stop/start). Everything lives
+on D: (`OLLAMA_MODELS=D:\ollama\models`).
+
+```powershell
+.\scripts\kagura-stack.ps1 -Check     # what is present
+.\scripts\kagura-stack.ps1            # pull/fetch what is missing, then start Tala
+
+python -m python.inference.profiles list         # profiles
+python -m python.inference.profiles use nano     # switch (or set TALA_PROFILE)
+```
+
+Setup steps, the exact `llama-server` command, the Ollama pulls, `num_ctx`, the
+profile config and how to switch are in [docs/inference-profiles.md](docs/inference-profiles.md).
+LoRA is **not implemented** (the engine status API reports it).
+
 ## Web UI
 
 The Electron renderer also runs in a browser. It is the same `renderer/`
