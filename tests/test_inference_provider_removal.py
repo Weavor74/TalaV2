@@ -86,7 +86,7 @@ async def test_a_dropped_provider_is_tombstoned(monkeypatch):
     from python.harness.provider_rpc import handle_inference_save_providers
 
     conn = _FakeConn([_row("ollama-llama3-2-3b", {"model": "llama3.2:3b"}),
-                       _row("embedded-builtin", {"model": "qwen"})])
+                       _row("embedded-builtin", {"model": "llama"})])
     monkeypatch.setattr(db, "get_pool", lambda: _FakePool(conn))
 
     # Only embedded-builtin is kept -- the Ollama one was removed by the user.
@@ -129,7 +129,7 @@ async def test_nothing_is_tombstoned_when_nothing_is_removed(monkeypatch):
     from python.harness import db
     from python.harness.provider_rpc import handle_inference_save_providers
 
-    conn = _FakeConn([_row("embedded-builtin", {"model": "qwen"})])
+    conn = _FakeConn([_row("embedded-builtin", {"model": "llama"})])
     monkeypatch.setattr(db, "get_pool", lambda: _FakePool(conn))
 
     await handle_inference_save_providers(

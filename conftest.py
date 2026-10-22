@@ -24,6 +24,11 @@ import pytest
 # the mode itself.
 os.environ.setdefault("TALA_LEASE_MODE", "open")
 
+# The inference profile (python/inference/profiles.py) auto-selects `kagura` on
+# a machine that has its llama-server. The suite asserts the profile-less
+# defaults, so pin it off unless a test sets a profile itself.
+os.environ.setdefault("TALA_PROFILE", "legacy")
+
 # --- database isolation ------------------------------------------------------
 #
 # The suite wrote into the running application's Postgres. Its fixtures create

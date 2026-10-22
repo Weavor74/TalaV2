@@ -16,6 +16,9 @@ pip package -- see llama_server_manager.py's module docstring for why
 import logging
 from typing import Any, Dict, List
 
+from python.inference import lora_trainer as _lora
+from python.inference import profiles as _profiles
+
 logger = logging.getLogger(__name__)
 
 ENGINE_ID = "llamacpp"
@@ -82,6 +85,8 @@ def get_status(engine_id: str = ENGINE_ID) -> Dict[str, Any]:
         "binary_version": BINARY_VERSION,
         "available_variants": available_variants(),
         "active_variant": active_variant(),
+        "profile": _profiles.describe(),
+        "lora": {"implemented": _lora.IMPLEMENTED, "note": _lora.STATUS_NOTE},
     }
 
 

@@ -150,7 +150,7 @@ def _provider(monkeypatch, kind, name="model"):
 @pytest.mark.asyncio
 async def test_a_local_model_reads_freely(vault, doc, monkeypatch):
     """The entire point of "things the local LLM could reference"."""
-    _provider(monkeypatch, "local", "qwen3")
+    _provider(monkeypatch, "local", "llama3")
     await vault.assert_may_read(doc)
 
 

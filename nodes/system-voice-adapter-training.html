@@ -52,7 +52,7 @@
       <dt>Execution Authority</dt>
       <dd><code>0.00</code></dd>
       <dt>Memory Description</dt>
-      <dd>How Tala's LoRA adapters are trained on her own story corpus, what they are for, and exactly which parts of the pipeline are real.</dd>
+      <dd>How a LoRA voice adapter can be trained on Tala's story corpus, what it is for, and the fact that LoRA is not implemented or used in this stack.</dd>
       <dt>Created</dt>
       <dd><time datetime="2026-08-15T15:05:00Z">2026-08-15</time></dd>
     </dl>
@@ -75,28 +75,28 @@
       <li><code>--train</code> tokenises at max length 512, applies <code>LoraConfig(r=8, lora_alpha=16, dropout=0.05)</code> targeting <code>q_proj</code> and <code>v_proj</code> only, and trains with batch size 1 and gradient accumulation 4 at learning rate 2e-4.</li>
     </ul>
     <p>Attention projections alone are targeted because voice lives in how attention is distributed, and a narrow target keeps the adapter small enough to be worth swapping per turn.</p>
-    <p>The default base model is <code>Qwen/Qwen2.5-0.5B-Instruct</code>, because it is already in the HuggingFace cache and is the embedded provider's model. The chat model, <code>huihui_ai/qwen3-abliterated:4b</code>, is served by Ollama as GGUF and has no local HuggingFace weights, so it cannot be trained against without downloading them.</p>
+    <p>The default base model is <code>unsloth/Llama-3.2-1B-Instruct</code>, the ungated mirror of Meta's Llama 3.2 1B Instruct: US-origin (the project rule is US-origin base models only) and small enough to train on CPU. The chat stack serves gpt-oss-20b, Llama 3.1/3.2 and gemma3:4b through llama.cpp and Ollama as GGUF, so an adapter trained on this 1B base does not match any of the models that actually answer.</p>
 
     <h3>What is real and what is not</h3>
-    <p><strong>No adapter has ever affected a token of Tala's output.</strong> Stated plainly because the system used to claim otherwise.</p>
+    <p><strong>LoRA is not implemented in this stack, and no adapter has ever affected a token of Tala's output.</strong> Stated plainly because the system used to claim otherwise.</p>
     <ul>
-      <li><code>python/inference/lora_trainer.py</code> never trained anything. Without peft it wrote the ASCII string <code>DUMMY_LORA_WEIGHTS_FOR_&lt;node_id&gt;</code> to a <code>.safetensors</code> path; with peft it executed a bare <code>pass</code>. The queue then logged "Successfully trained LoRA" over both. Every adapter file in the repository is 37&ndash;51 bytes and was produced this way. It now raises <code>LoraTrainingUnavailable</code> instead of reporting success.</li>
-      <li>Adapter <em>selection</em> is wired: the injected node's adapter becomes <code>best_lora_path</code>, so node weights already decide which adapter should apply.</li>
-      <li>Adapter <em>application</em> reaches only the embedded transformers provider, where <code>peft</code> attaches it. Ollama's API takes no adapter parameter and neither do the remote providers, so on the provider actually serving chat the selection is discarded.</li>
+      <li><code>python/inference/lora_trainer.py</code> never trained anything. Without peft it wrote the ASCII string <code>DUMMY_LORA_WEIGHTS_FOR_&lt;node_id&gt;</code> to a <code>.safetensors</code> path; with peft it executed a bare <code>pass</code>. The queue then logged "Successfully trained LoRA" over both. It now raises <code>LoraTrainingUnavailable</code> instead of reporting success.</li>
+      <li>The one real adapter ever produced, fitted to a non-US-origin base model, was deleted from the repository by decision. It is not replaced: no adapter is shipped, selected for serving, or applied by any provider in the current stack.</li>
+      <li><code>scripts/train_voice_adapter.py</code> remains as an offline experiment tool. Its output goes to <code>lora-generations/voice-adapter</code>, which is gitignored, so a trained adapter is never committed or mistaken for part of the product.</li>
     </ul>
 
     <h3>What would make it real</h3>
     <ol>
       <li>Install the training libraries: <code>peft</code>, <code>trl</code>, <code>transformers</code>, <code>accelerate</code>. All install on Windows, unlike vLLM.</li>
       <li>Grow the corpus. At the time of writing it yields <strong>25 turns, roughly 2,000 tokens</strong> &mdash; enough to prove the pipeline, far too thin for an adapter worth keeping. <code>scripts/generate_stories.py</code> produces more.</li>
-      <li>Decide where the adapter is applied. Per-turn swapping works only on the embedded path. Ollama can bake an adapter into a named model variant through a Modelfile <code>ADAPTER</code> directive, which suits a small number of persona adapters but not one per node.</li>
+      <li>Train against a base that is the model actually serving chat, and decide where the adapter is applied. Ollama can bake an adapter into a named model variant through a Modelfile <code>ADAPTER</code> directive, which suits a small number of persona adapters but not one per node. Until then, treat any adapter as unused.</li>
     </ol>
 
     <h3>Common wrong answers</h3>
     <ul>
-      <li>Adapters are <em>not</em> currently trained; every file on disk is a placeholder.</li>
+      <li>Adapters are <em>not</em> used: none is trained, shipped or applied in this stack, and the old adapter was removed.</li>
       <li>Training does <em>not</em> teach facts, and should not be used to.</li>
-      <li>Node weights are <em>not</em> unrelated to adapters &mdash; they select which adapter applies. See <code>system-html-nn-activation-weights</code>.</li>
+      <li>Node weights do not currently select an adapter that anything applies; see <code>system-html-nn-activation-weights</code> for what they do drive.</li>
     </ul>
   </section>
 
@@ -111,7 +111,7 @@
 
   <script type="application/json" id="node-state">{
   "title": "Voice Adapter Training",
-  "description": "Training Tala's LoRA adapters on her own story corpus, for voice and behaviour rather than knowledge.",
+  "description": "An offline experiment for training a LoRA voice adapter on Tala's story corpus; LoRA is not implemented or used in the running stack.",
   "tags": [
     "lora",
     "training",
@@ -127,7 +127,7 @@
     "corpus": "data/training_corpus",
     "speaker_filter": "tala",
     "emotional_state_prefix_preserved": true,
-    "default_base_model": "Qwen/Qwen2.5-0.5B-Instruct",
+    "default_base_model": "unsloth/Llama-3.2-1B-Instruct",
     "lora_rank": 8,
     "lora_alpha": 16,
     "target_modules": [
@@ -135,17 +135,16 @@
       "v_proj"
     ],
     "max_sequence_length": 512,
+    "lora_implemented_in_stack": false,
     "adapters_currently_trained": false,
-    "adapter_selection_wired": true,
-    "adapter_applied_on_providers": [
-      "embedded"
-    ]
+    "adapter_output_dir": "lora-generations/voice-adapter",
+    "adapter_applied_on_providers": []
   },
   "metadata": {
     "author": "tala-system",
     "schema": "neural-node/v2",
     "source_of_truth": "scripts/train_voice_adapter.py",
-    "known_gap": "peft/trl are not installed and the corpus yields only ~25 turns, so no adapter has been trained; adapter application does not reach the Ollama provider that serves chat",
+    "known_gap": "LoRA is not implemented or used in this stack: the only adapter ever produced (non-US-origin base) was removed, the corpus yields only ~25 turns, and no provider applies an adapter",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

@@ -74,7 +74,7 @@ def test_max_tokens_robust_logic():
         ("gpt-4o-mini", "remote", 4096, "remote non-thinking should still get 4096"),
         ("pro1-turbo", "remote", 4096, "pro1 shouldn't false-match o1"),
         ("gemini-3.8-flash", "remote", 4096, "gemini remote should get 4096"),
-        ("deepseek-r1", "local", 2048, "local thinking should get 2048"),
+        ("gpt-oss:20b", "local", 2048, "local thinking should get 2048"),
         ("llama3.2:3b", "local", 512, "local non-thinking uses default"),
     ]
     
@@ -84,7 +84,7 @@ def test_max_tokens_robust_logic():
         # Word-bounded o1/o3 matching
         is_reasoning_model = (
             re.search(r'\b(o1|o3)\b', model_lower) or
-            any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "deepseek", "thought", "thinking"))
+            any(k in model_lower for k in ("gemma4", "gemini", "reasoning", "gpt-oss", "thought", "thinking"))
         )
         
         base_max_tokens = 512

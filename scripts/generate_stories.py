@@ -321,7 +321,7 @@ def main() -> int:
     ap.add_argument("--count", type=int, default=5)
     ap.add_argument("--hours", type=float, default=None,
                     help="run for this many hours instead of a fixed count")
-    ap.add_argument("--model", default="huihui_ai/qwen3-abliterated:8b")
+    ap.add_argument("--model", default="hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M")
     ap.add_argument("--timeout", type=int, default=900)
     ap.add_argument("--turns", type=int, default=5)
     ap.add_argument("--seed", type=int, default=None)

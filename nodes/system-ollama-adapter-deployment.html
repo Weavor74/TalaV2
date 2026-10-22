@@ -52,7 +52,7 @@
       <dt>Execution Authority</dt>
       <dd><code>0.00</code></dd>
       <dt>Memory Description</dt>
-      <dd>Why a trained adapter does not reach the model that serves chat, and the procedure for making it reach one.</dd>
+      <dd>Why LoRA is not implemented or used in this stack, and the reference procedure for baking an adapter into an Ollama model if one is ever trained.</dd>
       <dt>Created</dt>
       <dd><time datetime="2026-08-15T15:40:00Z">2026-08-15</time></dd>
     </dl>
@@ -61,8 +61,8 @@
   <section id="semantic-memory">
     <h2>Semantic Memory</h2>
 
-    <p><strong>The provider that serves Tala's chat cannot load a LoRA adapter at runtime.</strong> Adapter selection works &mdash; the injected node's adapter becomes <code>best_lora_path</code> &mdash; but Ollama's API has no adapter parameter, and neither do the remote services. Only the embedded transformers provider can attach one, through <code>peft</code>, and that is the fallback engine rather than the model that answers.</p>
-    <p>This used to happen silently. The harness now logs a warning naming the adapter it selected and could not apply, so the gap is visible in the moment rather than inferred months later.</p>
+    <p><strong>LoRA is not implemented or used in this stack.</strong> No adapter is shipped, selected for serving, or applied: Ollama's API has no adapter parameter, neither do the remote services, and the previous adapter (fitted to a non-US-origin base model) was removed from the repository by decision. What follows is the procedure that <em>would</em> apply if an adapter were ever trained against a base that actually serves chat; treat it as a reference, not as a working feature.</p>
+    <p>This used to fail silently. The harness logs a warning naming any adapter it selected and could not apply, so the gap is visible in the moment rather than inferred months later.</p>
 
     <h3>Why per-turn swapping is not available here</h3>
     <p>Ollama loads a model once and serves it. There is no request-level adapter field, so an adapter has to be part of the model the server already has. That makes swapping an adapter per recalled node impossible on this provider &mdash; and it is a reasonable constraint to design around rather than fight, because a voice adapter is a persona-level thing, not a per-document thing. One adapter per persona is the right granularity anyway.</p>
@@ -73,17 +73,17 @@
       <li><strong>Convert to GGUF.</strong> Ollama consumes GGUF, not safetensors. llama.cpp ships <code>convert_lora_to_gguf.py</code> for exactly this:
         <br><code>python convert_lora_to_gguf.py --base &lt;base-model-dir&gt; --outfile tala-voice.gguf &lt;adapter-dir&gt;</code></li>
       <li><strong>Write a Modelfile</strong> naming the base model and the adapter:
-        <br><code>FROM huihui_ai/qwen3-abliterated:4b</code>
+        <br><code>FROM llama3.2:3b</code>
         <br><code>ADAPTER ./tala-voice.gguf</code></li>
       <li><strong>Create the variant.</strong> <code>ollama create tala-voice -f Modelfile</code></li>
       <li><strong>Point the provider at it.</strong> Set the local provider's model to <code>tala-voice</code> in Settings. Nothing else in the harness changes; adapter selection keeps running and keeps being informational on this path.</li>
     </ol>
 
     <h3>The constraint that decides the base model</h3>
-    <p>The adapter and the model it is baked into must share the same base. The corpus trainer defaults to <code>Qwen/Qwen2.5-0.5B-Instruct</code>, because those weights are already in the HuggingFace cache. The chat model is <code>huihui_ai/qwen3-abliterated:4b</code>, served as GGUF with no local HuggingFace weights. <strong>An adapter trained on the 0.5B cannot be baked into the 4B.</strong> Training for the chat model means fetching its HuggingFace weights first and passing <code>--base</code>.</p>
+    <p>The adapter and the model it is baked into must share the same base. The corpus trainer defaults to <code>unsloth/Llama-3.2-1B-Instruct</code> (Meta, US-origin; the project rule is US-origin base models only). The chat stack serves gpt-oss-20b, Llama 3.1/3.2 and gemma3:4b as GGUF with no local HuggingFace weights. <strong>An adapter trained on the 1B base cannot be baked into any of those.</strong> Training for a chat model means fetching its HuggingFace weights first and passing <code>--base</code>. Trainer output goes to the gitignored <code>lora-generations/voice-adapter</code>, never into <code>nodes/</code>.</p>
 
     <h3>Hardware</h3>
-    <p>The card is an RTX 3050 with 6GB. A rank-8 adapter on a 0.5B trains comfortably, and on CPU as well, only slower. A 4B needs 4-bit loading and gradient checkpointing to fit, and the installed torch build is CPU-only (<code>2.13.0+cpu</code>), so CUDA requires reinstalling torch from the matching index before the training extra &mdash; installing it after will fight the resolved CPU build.</p>
+    <p>The card is an RTX 3050 with 6GB. A rank-8 adapter on a 1B trains comfortably, and on CPU as well, only slower. A 3B or larger needs 4-bit loading and gradient checkpointing to fit, and the installed torch build is CPU-only (<code>2.13.0+cpu</code>), so CUDA requires reinstalling torch from the matching index before the training extra &mdash; installing it after will fight the resolved CPU build.</p>
 
     <h3>What to expect</h3>
     <ul>
@@ -114,7 +114,7 @@
   ],
   "config": {
     "runtime_adapter_swapping_supported": {
-      "embedded": true,
+      "embedded": false,
       "ollama": false,
       "remote": false
     },
@@ -122,15 +122,22 @@
     "adapter_format_required_by_ollama": "gguf",
     "conversion_tool": "llama.cpp convert_lora_to_gguf.py",
     "base_model_must_match_adapter": true,
-    "trainer_default_base": "Qwen/Qwen2.5-0.5B-Instruct",
-    "chat_model": "huihui_ai/qwen3-abliterated:4b",
+    "trainer_default_base": "unsloth/Llama-3.2-1B-Instruct",
+    "chat_models": [
+      "gpt-oss-20b",
+      "llama3.1",
+      "llama3.2",
+      "gemma3:4b"
+    ],
+    "lora_implemented_in_stack": false,
+    "adapter_output_dir": "lora-generations/voice-adapter",
     "installed_torch_build": "2.13.0+cpu"
   },
   "metadata": {
     "author": "tala-system",
     "schema": "neural-node/v2",
     "source_of_truth": "python/harness/server.py adapter selection; Ollama Modelfile ADAPTER",
-    "known_gap": "an adapter trained on the 0.5B cannot be baked into the 4B chat model; training for chat requires fetching its HuggingFace weights",
+    "known_gap": "LoRA is not implemented or used in this stack and the old adapter was removed; an adapter trained on the 1B base cannot be baked into the chat models, and training for chat requires fetching their HuggingFace weights",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

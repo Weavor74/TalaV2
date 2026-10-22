@@ -99,3 +99,6 @@ data/emergency_halt.json
 # Claude Code session data (worktrees, local settings)
 .claude/
 data/workstation.json
+
+# Local adapter/GGUF outputs of manual LoRA experiments (LoRA is not implemented in the stack)
+/lora-generations/

@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="desktop_run"
   data-source-files="sdk/agent/desktop_agent.py"
-  data-source-fingerprint="sha256:22E511983CF9E6CD3412BD05E16777479242A2AF079B21FF0D31A9AADF2F1D6E"
-  data-source-digest="sha256:09EBB823FBE269658B6D09E66FC9C13407D3D0339DEF6D082005ECE2DAE69C6D"
+  data-source-fingerprint="sha256:5B0DD73985D1505334BB1130F07A0E40AB01263CD2AE3F858CE937B7313E441B"
+  data-source-digest="sha256:6419055D43B52FB22C4080780B5B422161DD434D641A7A9D1283F9CF87CF506C"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-14T09:55:48Z"
+  data-generated-at="2026-10-22T18:06:29Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;desktop_run&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Windows-only: perform a complete native computer-use task with a LOCAL Ollama vision model. On other platforms use desktop_observe and desktop_action instead. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user&#x27;s objective. model is an installed Ollama vision model; default qwen2.5vl:3b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;desktop_run(task*, model, endpoint, max_steps, cpu_only, success_text)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;task&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;model&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;endpoint&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;max_steps&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cpu_only&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;success_text&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Supports primary-monitor desktop applications. Sends no screenshots to cloud providers. Bounds execution to 20 minutes and 40 actions. Completion is model-assessed visual evidence, not an OS assertion. cpu_only=True avoids GPU contention by requesting num_gpu=0. success_text requires a literal final result in blind screen transcription.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.desktop_agent&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;desktop_run&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Windows-only: perform a complete native computer-use task with a LOCAL Ollama vision model. On other platforms use desktop_observe and desktop_action instead. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user&#x27;s objective. model is an installed Ollama vision model; default gemma3:4b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;desktop_run(task*, model, endpoint, max_steps, cpu_only, success_text)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;task&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;model&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;endpoint&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;max_steps&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;cpu_only&lt;/code&gt; (boolean, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;success_text&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Supports primary-monitor desktop applications. Sends no screenshots to cloud providers. Bounds execution to 20 minutes and 40 actions. Completion is model-assessed visual evidence, not an OS assertion. cpu_only=True avoids GPU contention by requesting num_gpu=0. success_text requires a literal final result in blind screen transcription.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.desktop_agent&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-14T09:55:48Z",
+    "created_or_updated": "2026-10-22T18:06:29Z",
     "schema": "neural-node/v2",
     "doc_target": "desktop_run",
-    "source_fingerprint": "sha256:22E511983CF9E6CD3412BD05E16777479242A2AF079B21FF0D31A9AADF2F1D6E",
+    "source_fingerprint": "sha256:5B0DD73985D1505334BB1130F07A0E40AB01263CD2AE3F858CE937B7313E441B",
     "source_files": [
       "sdk/agent/desktop_agent.py"
     ],
-    "source_digest": "sha256:09EBB823FBE269658B6D09E66FC9C13407D3D0339DEF6D082005ECE2DAE69C6D",
+    "source_digest": "sha256:6419055D43B52FB22C4080780B5B422161DD434D641A7A9D1283F9CF87CF506C",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "desktop_run",
-    "description": "Windows-only: perform a complete native computer-use task with a LOCAL Ollama vision model. On other platforms use desktop_observe and desktop_action instead. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user's objective. model is an installed Ollama vision model; default qwen2.5vl:3b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.",
+    "description": "Windows-only: perform a complete native computer-use task with a LOCAL Ollama vision model. On other platforms use desktop_observe and desktop_action instead. Owns the screenshot/action/verification loop: prefer this over manually chaining desktop_observe and desktop_action. task is the user's objective. model is an installed Ollama vision model; default gemma3:4b. No cloud fallback. Returns actual step results and visual completion evidence, or an honest failure. desktop_stop and emergency halt stop execution.",
     "signature": "desktop_run(task*, model, endpoint, max_steps, cpu_only, success_text)",
     "schema": {
       "type": "object",

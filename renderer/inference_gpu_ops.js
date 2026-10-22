@@ -65,7 +65,7 @@ function inferenceMaybeClearCpuEmbeddedSessionPin(mgr) {
   if (typeof AgentChat !== 'undefined') AgentChat._providerId = '';
   if (mgr._modelPicker) mgr._modelPicker.value = '';
   if (typeof IPCLog !== 'undefined' && IPCLog.append) {
-    IPCLog.append('info', 'GPU present: cleared session pin to embedded CPU Qwen (use Local/Remote or Auto).');
+    IPCLog.append('info', 'GPU present: cleared session pin to embedded engine (use Local/Remote or Auto).');
   }
 }
 

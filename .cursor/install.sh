@@ -60,12 +60,13 @@ echo "== [5/6] Project dependencies + schema (scripts/first_run.py) =="
 uv run --python 3.11 python scripts/first_run.py
 
 echo "== [6/6] Pre-warm embedded inference model (non-fatal) =="
-# The harness lazily downloads Qwen/Qwen2.5-0.5B-Instruct (~1GB) for local
-# inference on first start. Caching it now bakes it into the snapshot so fresh
-# agents start instantly and work offline. Failure here is non-fatal.
+# The harness lazily downloads bartowski/Llama-3.2-3B-Instruct-GGUF
+# (Llama-3.2-3B-Instruct-Q4_K_M.gguf, ~2GB) for local inference on first start.
+# Caching it now bakes it into the snapshot so fresh agents start instantly and
+# work offline. Failure here is non-fatal.
 uv run --python 3.11 python - <<'PY' || echo "  - model pre-warm skipped (will download at first harness start)"
-from huggingface_hub import snapshot_download
-snapshot_download("Qwen/Qwen2.5-0.5B-Instruct")
+from huggingface_hub import hf_hub_download
+hf_hub_download("bartowski/Llama-3.2-3B-Instruct-GGUF", "Llama-3.2-3B-Instruct-Q4_K_M.gguf")
 print("  - embedded model cached")
 PY
 

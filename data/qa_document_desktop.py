@@ -11,7 +11,7 @@ from sdk.agent.documentation_nodes import create_documentation_node
 description = '''NAME
 desktop_run - native desktop tasks with local Ollama vision
 SYNOPSIS
-desktop_run(task, model="qwen2.5vl:3b", endpoint="http://localhost:11434", max_steps=20)
+desktop_run(task, model="gemma3:4b", endpoint="http://localhost:11434", max_steps=20)
 DESCRIPTION
 Each iteration sends a fresh screenshot directly to Ollama /api/chat with a JSON action schema. The controller owns observation tokens, validates one action, checks foreground focus, dispatches input, and observes again. The model does not need native tool-call support. No cloud fallback; the endpoint must be loopback and the installed model must advertise vision capability.
 Supports click, double click, right click, move, drag from current pointer, scroll, Windows Unicode typing, hotkeys, window focus, and waiting. Primary monitor only; elevated and secure desktops are unsupported. Input shares the user's mouse and keyboard and requires an uninterrupted desktop session.

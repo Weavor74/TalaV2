@@ -40,7 +40,7 @@ def finished(result):
     print(json.dumps(result), flush=True)
     root.destroy()
 def work():
-    params = dict(task='In the Tala Desktop QA window enter TALA-482 into the input field, click Verify, and confirm the visible PASS: TALA-482 result. Do not interact with other applications.', model=sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else 'qwen2.5vl:3b', max_steps=8, cpu_only=True, success_text='PASS: TALA-482')
+    params = dict(task='In the Tala Desktop QA window enter TALA-482 into the input field, click Verify, and confirm the visible PASS: TALA-482 result. Do not interact with other applications.', model=sys.argv[1] if len(sys.argv) > 1 and not sys.argv[1].startswith('--') else 'gemma3:4b', max_steps=8, cpu_only=True, success_text='PASS: TALA-482')
     async def run():
         if '--rpc' not in sys.argv:
             return await desktop_agent.desktop_run(**params)

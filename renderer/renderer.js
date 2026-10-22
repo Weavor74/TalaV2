@@ -1506,7 +1506,7 @@ const InferenceManager = {
       id: 'embedded-builtin',
       type: 'embedded',
       name: 'Tala Embedded Engine',
-      model: 'Qwen/Qwen2.5-1.5B-Instruct-GGUF',
+      model: 'bartowski/Llama-3.2-3B-Instruct-GGUF',
       status: 'unknown',
       locked: true,
     }
@@ -1854,7 +1854,7 @@ const InferenceManager = {
 
   providerModelLabel(provider) {
     const config = provider.config || {};
-    const model = provider.model || config.model || (provider.type === 'embedded' ? 'Qwen/Qwen2.5-1.5B-Instruct-GGUF' : '');
+    const model = provider.model || config.model || (provider.type === 'embedded' ? 'bartowski/Llama-3.2-3B-Instruct-GGUF' : '');
     const endpoint = provider.endpoint || config.endpoint || '';
     const service = provider.service || config.service || provider.engine || config.engine || provider.type;
     return [model, service, endpoint].filter(Boolean).join(' · ') || 'No model configured';
@@ -2127,7 +2127,7 @@ const InferenceManager = {
           </div>
           <div class="form-field-group">
             <label class="form-field-label" for="prov-model">Model</label>
-            <input class="form-field-input" id="prov-model" type="text" value="Qwen/Qwen2.5-1.5B-Instruct-GGUF" readonly />
+            <input class="form-field-input" id="prov-model" type="text" value="bartowski/Llama-3.2-3B-Instruct-GGUF" readonly />
           </div>
         </div>`;
       }
@@ -2239,7 +2239,7 @@ const InferenceManager = {
     provider.name = name;
 
     if (type === 'embedded') {
-      provider.model  = qs('#prov-model')?.value || 'Qwen/Qwen2.5-1.5B-Instruct-GGUF';
+      provider.model  = qs('#prov-model')?.value || 'bartowski/Llama-3.2-3B-Instruct-GGUF';
       provider.locked = true;
       provider.status = 'online';
     } else if (type === 'local') {

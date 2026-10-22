@@ -316,9 +316,9 @@ async def get_tot_mode() -> str:
             model_name = str(cfg.get("model", "")).lower()
             
             # Check for very small models or local names
-            if any(term in model_name for term in ("0.5b", "1b", "1.5b", "3b", "gemma-2-2b", "gemma2b", "qwen2.5-0.5b", "qwen2.5-1.5b", "phi-3", "phi3")):
+            if any(term in model_name for term in ("0.5b", "1b", "1.5b", "3b", "gemma-2-2b", "gemma2b", "phi-3", "phi3")):
                 return "programmatic"
-            elif any(term in model_name for term in ("7b", "8b", "llama3", "llama3.1", "llama3.2", "mistral", "qwen", "local")):
+            elif any(term in model_name for term in ("7b", "8b", "llama3", "llama3.1", "llama3.2", "gpt-oss", "local")):
                 return "fast"
     except Exception as e:
         log.warning("ToT auto-detection failed: %s", e)

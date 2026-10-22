@@ -94,7 +94,7 @@ def ensure_env() -> None:
                 "INFERENCE_MODE=local",
                 "VLLM_HOST=127.0.0.1",
                 "VLLM_PORT=8000",
-                "VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.3",
+                "VLLM_MODEL=meta-llama/Llama-3.2-3B-Instruct",
                 "WS_HOST=127.0.0.1",
                 "WS_PORT=8765",
                 f"VAULT_PATH={vault_path}",

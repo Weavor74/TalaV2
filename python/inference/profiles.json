@@ -1,0 +1,62 @@
+{
+  "kagura": {
+    "description": "Kagura: RTX 3050 6 GB, 128 GB RAM, Ryzen 5800X (Windows). Main chat and tools are gpt-oss-20b Heretic on a CUDA llama.cpp build; Llama 3.1 8B abliterated (fallback) and gemma3:4b (vision) are served by Ollama. Everything lives on D:.",
+    "main": {
+      "label": "gpt-oss-20b-heretic",
+      "server_bin": "{tools_dir}/llama-cuda-copy/llama-server.exe",
+      "model_path": "{models_dir}/gguf/gpt-oss-20b-heretic.MXFP4_MOE.gguf",
+      "hf_repo": "mradermacher/gpt-oss-20b-heretic-GGUF",
+      "hf_file": "gpt-oss-20b-heretic.MXFP4_MOE.gguf",
+      "port": 8089,
+      "ctx": 4096,
+      "args": ["-ngl", "99", "--n-cpu-moe", "16"],
+      "fork": false,
+      "harmony": true,
+      "startup_timeout_s": 240
+    },
+    "reasoning": {"chat": "low", "tools": "medium"},
+    "reasoning_token_budget": {"low": 512, "medium": 2048, "high": 4096},
+    "fallback": {
+      "model": "hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M",
+      "num_ctx": 8192,
+      "keep_alive": "0"
+    },
+    "vision": {
+      "model": "gemma3:4b",
+      "num_ctx": 8192,
+      "keep_alive": "2m"
+    },
+    "ollama_url": "http://localhost:11434",
+    "allow_remote": false,
+    "vram": {"total_mb": 6144, "exclusive": true},
+    "hf_cache_dir": "{models_dir}/hf-cache"
+  },
+  "nano": {
+    "description": "Jetson Nano 4 GB (Linux/ARM). One Llama 3.2 3B on llama.cpp, stock llama3.2:3b in Ollama as the fallback, no vision. Swap in an abliterated 3B GGUF by pointing main.model_path at it.",
+    "main": {
+      "label": "llama-3.2-3b",
+      "server_bin": "{tools_dir}/llama.cpp/build/bin/llama-server",
+      "model_path": "{models_dir}/gguf/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+      "hf_file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "port": 8089,
+      "ctx": 4096,
+      "args": ["-ngl", "99"],
+      "fork": false,
+      "harmony": false,
+      "startup_timeout_s": 240
+    },
+    "reasoning": {"chat": "off", "tools": "off"},
+    "reasoning_token_budget": {"low": 0, "medium": 0, "high": 0},
+    "fallback": {
+      "model": "llama3.2:3b",
+      "num_ctx": 4096,
+      "keep_alive": "0"
+    },
+    "vision": null,
+    "ollama_url": "http://localhost:11434",
+    "allow_remote": false,
+    "vram": {"total_mb": 4096, "exclusive": true},
+    "hf_cache_dir": "{models_dir}/hf-cache"
+  }
+}

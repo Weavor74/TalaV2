@@ -260,7 +260,7 @@ GOOGLE_API_KEY=AIza...
 INFERENCE_MODE=local
 VLLM_HOST=127.0.0.1
 VLLM_PORT=8000
-VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+VLLM_MODEL=meta-llama/Llama-3.2-3B-Instruct
 ```
 
 ### Full `.env` Reference
@@ -277,7 +277,7 @@ INFERENCE_MODE=local             # local | openai | gemini
 # vLLM (only used when INFERENCE_MODE=local)
 VLLM_HOST=127.0.0.1
 VLLM_PORT=8000
-VLLM_MODEL=mistralai/Mistral-7B-Instruct-v0.3
+VLLM_MODEL=meta-llama/Llama-3.2-3B-Instruct
 VLLM_TENSOR_PARALLEL_SIZE=1     # Number of GPUs for tensor parallelism
 
 # ── WebSocket Harness ─────────────────────────────────────────────────────────

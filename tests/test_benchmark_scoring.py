@@ -110,7 +110,7 @@ def test_semantic_memory_states_the_score_and_configuration():
             rbs.CaseResult("test_logic_bug", True, 10.0),
             rbs.CaseResult("test_multi_file_edits", False, 300.0, "gave up after 15 steps"),
         ],
-        label="qwen3-abliterated:4b",
+        label="llama3.2:3b",
         git_sha="abc1234",
         started_at="2026-08-28T12:00:00+00:00",
     )
@@ -118,7 +118,7 @@ def test_semantic_memory_states_the_score_and_configuration():
 
     assert "1 of 2" in prose
     assert "0.50" in prose
-    assert "qwen3-abliterated:4b" in prose
+    assert "llama3.2:3b" in prose
     assert "abc1234" in prose
     assert "test_multi_file_edits" in prose
     assert "gave up after 15 steps" in prose
@@ -176,11 +176,11 @@ def test_a_pinned_run_that_fell_back_warns_and_names_the_other_engine():
     run = rbs.SuiteRun(
         cases=[rbs.CaseResult("test_a", True, 1.0)],
         engine_requested="embedded-builtin",
-        providers_observed=["embedded-builtin", "ollama-qwen3-4b"],
-        models_observed=["Qwen/Qwen2.5-0.5B-Instruct", "huihui_ai/qwen3-abliterated:4b"],
+        providers_observed=["embedded-builtin", "ollama-llama3.2-3b"],
+        models_observed=["meta-llama/Llama-3.2-1B-Instruct", "llama3.2:3b"],
     )
     warning = run.attribution_warning()
-    assert "ollama-qwen3-4b" in warning
+    assert "ollama-llama3.2-3b" in warning
     assert "not attributable" in warning
 
 
@@ -189,7 +189,7 @@ def test_a_clean_pinned_run_does_not_warn():
         cases=[rbs.CaseResult("test_a", True, 1.0)],
         engine_requested="embedded-builtin",
         providers_observed=["embedded-builtin"],
-        models_observed=["Qwen/Qwen2.5-0.5B-Instruct"],
+        models_observed=["meta-llama/Llama-3.2-1B-Instruct"],
     )
     assert run.attribution_warning() == ""
 
@@ -199,12 +199,12 @@ def test_the_node_prose_states_what_served_not_what_was_asked_for():
         cases=[rbs.CaseResult("test_a", True, 1.0)],
         label="claimed-engine",
         engine_requested="embedded-builtin",
-        providers_observed=["ollama-qwen3-4b"],
-        models_observed=["huihui_ai/qwen3-abliterated:4b"],
+        providers_observed=["ollama-llama3.2-3b"],
+        models_observed=["llama3.2:3b"],
         started_at="2026-08-29T09:00:00+00:00",
     )
     prose = rbs._render_semantic_memory(run)
-    assert "Actually served by: huihui_ai/qwen3-abliterated:4b" in prose
+    assert "Actually served by: llama3.2:3b" in prose
     assert "ATTRIBUTION WARNING" in prose
 
 
@@ -228,7 +228,7 @@ def test_an_unattributable_run_is_never_used_as_a_baseline(tmp_path, monkeypatch
         label="good", git_sha="beef", started_at="2026-08-29T10:00:00",
         engine_requested="embedded-builtin",
         providers_observed=["embedded-builtin"],
-        models_observed=["Qwen/Qwen2.5-0.5B-Instruct"],
+        models_observed=["meta-llama/Llama-3.2-1B-Instruct"],
     ))
 
     runs = rbs.load_previous_runs()

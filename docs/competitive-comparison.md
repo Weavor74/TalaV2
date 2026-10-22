@@ -34,7 +34,7 @@ mesh built *on top of* that ledger, autonomous **skill distillation** with a
 Workflow, **Teams**), deterministic **crews** and emergent **swarms**, MCP +
 `agentskills.io` SKILL.md interop, messaging adapters (Telegram, Discord),
 persistent‑browser research, deep governance, and BYO inference across seven
-providers (Ollama, vLLM, OpenAI, Anthropic, Gemini, DeepSeek, Kimi) plus an
+providers (Ollama, vLLM, OpenAI, Anthropic, Gemini, Kimi) plus an
 embedded local model.
 
 **Hermes Agent (Nous Research).** Open‑source, self‑improving agent framework.
