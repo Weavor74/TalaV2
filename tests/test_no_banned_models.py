@@ -18,12 +18,6 @@ import pytest
 REPO = Path(__file__).resolve().parents[1]
 BANNED = re.compile(r"qwen|deepseek|mistral", re.IGNORECASE)
 
-#: Known gap, not an exemption: the assistant that wrote this change cannot read
-#: or edit .env* files, so `.env.example`'s VLLM_MODEL line still needs the
-#: owner to set it to meta-llama/Llama-3.2-3B-Instruct (config.py already
-#: defaults to that). Delete this entry once that line is changed.
-PENDING_OWNER_EDIT = (".env.example",)
-
 #: The tracked synthetic story corpus records which model wrote each story in its
 #: `created_by` provenance line. That is a true record, and rewriting it would
 #: falsify the data's origin, so only that one line is allowed to name a model.
@@ -53,7 +47,7 @@ def _tracked_files() -> list[str]:
 def test_no_banned_model_names_in_tracked_files():
     offenders: list[str] = []
     for rel in _tracked_files():
-        if rel.startswith(ALLOWED_PREFIXES) or rel in PENDING_OWNER_EDIT:
+        if rel.startswith(ALLOWED_PREFIXES):
             continue
         path = REPO / rel
         if not path.is_file() or path.stat().st_size > 2_000_000:
