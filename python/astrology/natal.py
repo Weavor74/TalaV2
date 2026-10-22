@@ -240,12 +240,19 @@ def chart_summary(birth: eph.Birthdate) -> dict | None:
         return None
 
 
-def birth_for(date_text: str, hour: float | None = None) -> eph.Birthdate | None:
+def birth_for(
+    date_text: str,
+    hour: float | None = None,
+    latitude: float | None = None,
+    longitude: float | None = None,
+) -> eph.Birthdate | None:
     """The chart for a configured ``YYYY-MM-DD`` (and optional UT hour).
 
-    A persona that names Tala's birth date and no hour of its own gets her
-    complete birth data (time and place) rather than a noon placeholder; every
-    other date keeps the legacy noon-UT default, so other agents are unchanged.
+    A persona that names Tala's birth date and no hour of its own (or her own
+    hour) gets her complete birth data (time and place) rather than a noon
+    placeholder. A configured place (latitude and longitude) is kept, which
+    is what makes houses possible. Every other date keeps the legacy noon-UT
+    default, so other agents are unchanged.
     """
     parts = str(date_text or "").strip().split("-")
     if len(parts) != 3:
@@ -255,18 +262,23 @@ def birth_for(date_text: str, hour: float | None = None) -> eph.Birthdate | None
         datetime(y, m, d)
     except (TypeError, ValueError):
         return None
-    given = _hour_or_none(hour)
+    given = _number_or_none(hour)
+    lat, lon = _number_or_none(latitude), _number_or_none(longitude)
+    if lat is not None and lon is not None:
+        return eph.Birthdate(y, m, d, given if given is not None else 12.0, lat, lon)
     tala = eph.TALA_NATAL
-    if given is None and (y, m, d) == (tala.year, tala.month, tala.day):
+    if (y, m, d) == (tala.year, tala.month, tala.day) and given in (None, tala.hour):
         return tala
     return eph.Birthdate(y, m, d, given if given is not None else 12.0)
 
 
-def _hour_or_none(value: object) -> float | None:
-    """A configured UT hour, or None when nothing usable was given.
+def _number_or_none(value: object) -> float | None:
+    """A configured number (UT hour, latitude, longitude), or None when nothing
+    usable was given.
 
-    Only None/"" mean "unset": 0.0 is a real hour (midnight UT). The old
-    ``hour or 12.0`` pattern silently turned a configured midnight into noon.
+    Only None/"" mean "unset": 0.0 is a real value (midnight UT, the equator,
+    the prime meridian). The old ``hour or 12.0`` pattern silently turned a
+    configured midnight into noon.
     """
     if value is None or value == "":
         return None

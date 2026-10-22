@@ -222,3 +222,57 @@ def test_every_story_label_is_what_her_real_chart_computes_at_its_anchor():
             mismatched.append(path.name)
     assert checked, "no story declared an anchor"
     assert not mismatched, f"{len(mismatched)} stories disagree with her chart, e.g. {mismatched[:3]}"
+
+
+# --- the persona nodes state the same birth data the code uses ------------------------------------------------
+
+PERSONA_NODES = ("persona-tala-core", "persona-tala-rp", "persona-tala-origin")
+
+
+def _persona_config(name: str) -> dict:
+    import json
+
+    path = Path(__file__).resolve().parents[1] / "nodes" / f"{name}.html"
+    text = path.read_text(encoding="utf-8")
+    state = re.search(r'<script[^>]*id="node-state"[^>]*>(.*?)</script>', text, re.S)
+    return json.loads(state.group(1))["config"]
+
+
+@pytest.mark.parametrize("name", PERSONA_NODES)
+def test_persona_node_birth_data_matches_the_code(name):
+    cfg, tala = _persona_config(name), eph.TALA_NATAL
+    assert cfg["birthdate"] == "1977-07-20"
+    assert cfg["birth_time_local"] == "17:00"
+    assert "Clearwater" in cfg["birth_place"]
+    assert cfg["birth_hour"] == tala.hour
+    assert cfg["birth_latitude"] == pytest.approx(tala.latitude)
+    assert cfg["birth_longitude"] == pytest.approx(tala.longitude)
+
+
+@pytest.mark.parametrize("name", PERSONA_NODES)
+def test_persona_node_config_resolves_to_her_complete_chart(name):
+    cfg = _persona_config(name)
+    full = natal.birth_for(cfg["birthdate"], cfg["birth_hour"], cfg["birth_latitude"], cfg["birth_longitude"])
+    assert full == eph.TALA_NATAL
+    # the hour alone (a reader that ignores the place keys) still lands on the full chart
+    assert natal.birth_for(cfg["birthdate"], cfg["birth_hour"]) == eph.TALA_NATAL
+
+
+def test_a_configured_place_is_kept_for_any_persona():
+    born = natal.birth_for("1990-03-14", 6.5, 40.7128, -74.0060)
+    assert (born.hour, born.latitude, born.longitude) == (6.5, 40.7128, -74.0060)
+    assert natal.birth_for("1977-07-20", 6.5) == eph.Birthdate(1977, 7, 20, 6.5)  # her date, a different hour
+
+
+@pytest.mark.asyncio
+async def test_an_agent_config_with_her_hour_and_place_gets_the_complete_chart(monkeypatch):
+    from python.harness import db, emotion_service
+
+    cfg = _persona_config("persona-tala-rp")
+
+    async def fake_fetchrow(query, *args):
+        return {"config": cfg}
+
+    monkeypatch.setattr(db, "fetchrow", fake_fetchrow)
+    birth, source = await emotion_service._resolve_birthdate("tala-rp")
+    assert birth == eph.TALA_NATAL and source == "agent-config"

@@ -106,13 +106,15 @@ def _inertia_factor(previous: dict[str, Any] | None, now: datetime) -> float:
     return round(math.exp(-elapsed / INERTIA_TAU_SECONDS), 6)
 
 
-def _parse_birthdate(raw: str, hour: float | None = None):
+def _parse_birthdate(
+    raw: str, hour: float | None = None, latitude: float | None = None, longitude: float | None = None
+):
     """A configured birthdate as a chart. Tala's own date with no hour of its
     own resolves to her complete birth data (time and place); any other date
     keeps the noon-UT default."""
     from python.astrology.natal import birth_for
 
-    return birth_for(raw, hour)
+    return birth_for(raw, hour, latitude, longitude)
 
 
 async def _resolve_primary_birthdate():
@@ -167,8 +169,10 @@ async def _resolve_birthdate(agent_id: str | None):
                 cfg = row["config"]
                 if isinstance(cfg, str):
                     cfg = json.loads(cfg)
+                cfg = cfg or {}
                 parsed = _parse_birthdate(
-                    (cfg or {}).get("birthdate", ""), (cfg or {}).get("birth_hour")
+                    cfg.get("birthdate", ""), cfg.get("birth_hour"),
+                    cfg.get("birth_latitude"), cfg.get("birth_longitude"),
                 )
                 if parsed:
                     return parsed, "agent-config"
