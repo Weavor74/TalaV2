@@ -404,6 +404,23 @@ class Block {
   }
 }
 
+/**
+ * Starting fresh overwrites chain.json, so a chain that is being rejected is
+ * copied aside first. A load bug or a bad edit must cost a restart, never the
+ * only copy of the ledger.
+ */
+function setAsideRejectedChain(reason) {
+  try {
+    if (!fs.existsSync(CHAIN_FILE)) return;
+    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
+    const target = `${CHAIN_FILE}.invalid-${stamp}`;
+    fs.copyFileSync(CHAIN_FILE, target);
+    console.error(`[Chain] Kept the rejected chain (${reason}) at ${target}`);
+  } catch (err) {
+    console.error(`[Chain] Could not keep the rejected chain: ${err.message}`);
+  }
+}
+
 class Blockchain {
   constructor() {
     this.chain = [];
@@ -419,8 +436,12 @@ class Blockchain {
         const data = fs.readFileSync(CHAIN_FILE, 'utf8');
         const parsed = JSON.parse(data);
         this.chain = parsed.map(b => {
+          // signature and public_key are part of the JSON a block hashes, so they
+          // must survive the round trip or any signed transaction changes its
+          // block's hash and the whole chain fails validation on reload.
           const txs = b.transactions.map(t => new Transaction(
-            t.id, t.type, t.hash, t.creator, t.counterparty, t.timestamp, t.document ?? null, t.metadata ?? null
+            t.id, t.type, t.hash, t.creator, t.counterparty, t.timestamp, t.document ?? null, t.metadata ?? null,
+            t.signature ?? null, t.public_key ?? null
           ));
           const block = new Block(b.index, b.previousHash, b.timestamp, txs, b.nonce, b.signature, b.public_key);
           block.hash = b.hash;
@@ -428,7 +449,8 @@ class Blockchain {
         });
         console.log(`[Chain] Loaded ${this.chain.length} blocks from file: ${CHAIN_FILE}`);
         if (!this.isValid()) {
-          console.error('[Chain] Loaded chain is invalid. Starting fresh...');
+          console.error(`[Chain] Loaded chain is invalid (${this.invalidReason}). Starting fresh...`);
+          setAsideRejectedChain('failed validation');
           this.chain = [this.createGenesisBlock()];
           this.walletBalances.clear();
           this.saveChain();
@@ -442,6 +464,7 @@ class Blockchain {
       }
     } catch (err) {
       console.error(`[Chain] Error loading chain from file: ${err.message}`);
+      setAsideRejectedChain('could not be read');
       this.chain = [this.createGenesisBlock()];
       this.saveChain();
     }

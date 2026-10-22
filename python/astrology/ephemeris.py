@@ -25,7 +25,11 @@ try:
     swe.set_ephe_path('.')
     SWISSEPH_AVAILABLE = True
 except ImportError:
-    logger.warning("pyswisseph not installed. Falling back to deterministic ephemeris approximation.")
+    logger.error(
+        "pyswisseph not installed: falling back to a crude ephemeris approximation. Emotion labels "
+        "derived from it do not reflect her chart (up to ~170 degrees wrong for Mercury and Venus). "
+        "Fix: uv pip install pyswisseph"
+    )
 
 
 def ephemeris_source() -> str:

@@ -38,6 +38,7 @@ from __future__ import annotations
 import json
 import logging
 import math
+import time
 from datetime import UTC, datetime
 from pathlib import Path
 from typing import Any
@@ -51,6 +52,32 @@ INERTIA_TAU_SECONDS = 6 * 60 * 60
 
 #: Above this, the remembered emotion keeps naming the state.
 INERTIA_CARRY_THRESHOLD = 0.5
+
+#: How often the degraded-ephemeris alarm repeats: loud, not a flood.
+_DEGRADED_ALARM_INTERVAL_S = 600.0
+_last_degraded_alarm: float | None = None
+
+
+def _alarm_if_degraded(source: str) -> bool:
+    """True when positions came from the approximation fallback; says so as an ERROR.
+
+    The fallback is wrong by up to ~170 degrees for Mercury and Venus and
+    disagrees with Swiss Ephemeris on essentially every date, so the mood it
+    yields is not a reading of her chart. It stays usable (a missing mood must
+    not cost the reply), but nobody should have to infer that from a payload.
+    """
+    global _last_degraded_alarm
+    if source == "swisseph":
+        return False
+    now = time.monotonic()
+    if _last_degraded_alarm is None or now - _last_degraded_alarm >= _DEGRADED_ALARM_INTERVAL_S:
+        _last_degraded_alarm = now
+        log.error(
+            "EMOTION ENGINE DEGRADED: pyswisseph is not available, so planetary positions come "
+            "from a crude approximation (up to ~170 degrees wrong for Mercury and Venus). Her "
+            "emotional state is NOT derived from her chart right now. Fix: uv pip install pyswisseph"
+        )
+    return True
 
 
 def _state_path() -> Path:
@@ -250,6 +277,9 @@ async def get_emotional_state(
         # disagrees with swisseph on essentially every date, so anything that
         # persists this label downstream stays auditable after the fact.
         payload["ephemeris_source"] = ephemeris_source()
+        payload["degraded"] = _alarm_if_degraded(payload["ephemeris_source"])
+        # What the sky says right now, before any carry-over below.
+        payload["engine_emotion"] = payload.get("primary_emotion")
 
         # Climate: a permanent relational disposition, never the user's DOB.
         user_chart, relational_source = await _resolve_user_birthdate()
@@ -272,6 +302,11 @@ async def get_emotional_state(
         ):
             payload["primary_emotion"] = previous["primary_emotion"]
             payload["carried_over"] = True
+            # The carried label keeps the time of the reading it came from. Saving
+            # it with a fresh computed_at renewed the window on every turn, so at
+            # any cadence under ~4.2 h the mood never changed again.
+            payload["computed_at"] = previous["computed_at"]
+            payload["read_at"] = now.isoformat()
 
         _save_current(payload)
         return {"emotional_state": payload}

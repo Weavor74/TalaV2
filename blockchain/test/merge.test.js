@@ -60,7 +60,7 @@ function blockHash(block) {
 }
 
 /** Build a signed chain whose genesis matches the server's own. */
-function chainFrom(genesis, tails) {
+function chainFrom(genesis, tails, key = KEY) {
   const chain = [genesis];
   let previous = genesis.hash;
   for (const [offset, transactions] of tails.entries()) {
@@ -73,8 +73,8 @@ function chainFrom(genesis, tails) {
     };
     block.hash = blockHash(block);
     block.signature = crypto.sign(null, Buffer.from(block.hash),
-                                  KEY.privateKey).toString('hex');
-    block.public_key = KEY.publicKey.export({ type: 'spki', format: 'pem' });
+                                  key.privateKey).toString('hex');
+    block.public_key = key.publicKey.export({ type: 'spki', format: 'pem' });
     previous = block.hash;
     chain.push(block);
   }
@@ -803,4 +803,62 @@ test('revocations are readable without the admin secret', async () => {
   // A revocation only its holder's friends can read is not a revocation.
   const response = await fetch(`${BASE}/chain/revocations`);
   assert.equal(response.status, 200);
+});
+
+// ── reload ───────────────────────────────────────────
+
+/**
+ * loadChain rebuilt every transaction without its `signature` and
+ * `public_key`. Both are part of the JSON a block hashes, so any signed
+ * transaction (a peer's submission, a payment) changed its block's hash on
+ * reload; the chain then failed its own validity check and was replaced with
+ * a genesis-only chain on disk. Nothing signed is on the live chain yet, so
+ * it was latent -- the first one followed by a restart would have wiped it.
+ */
+/** A signer admitted for this test alone: earlier tests retire the shared KEY. */
+async function freshSigner() {
+  const key = crypto.generateKeyPairSync('ed25519');
+  const response = await fetch(`${BASE}/chain/authorities`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', 'x-tala-chain-secret': adminSecret },
+    body: JSON.stringify({ public_key: key.publicKey.export({ type: 'spki', format: 'pem' }),
+                           label: 'a reload test signer' }),
+  });
+  assert.equal(response.status, 200);
+  return key;
+}
+
+test('a signed transaction survives a restart instead of wiping the chain', async () => {
+  const key = await freshSigner();
+  const { body: ours } = await get('/chain/blocks');
+  const signed = transaction('signed-1', {
+    signature: 'ab'.repeat(32),
+    public_key: 'cd'.repeat(32),
+  });
+
+  await reset(chainFrom(ours[0], [[transaction('plain-1')], [signed]], key));
+
+  const { body: blocks } = await get('/chain/blocks');
+  assert.equal(blocks.length, 3, 'the chain was reset to genesis on reload');
+  assert.equal(blocks[2].transactions[0].signature, signed.signature);
+  assert.equal(blocks[2].transactions[0].public_key, signed.public_key);
+  const { body: status } = await get('/chain/status');
+  assert.equal(status.isValid, true);
+});
+
+test('a chain that really is invalid is set aside, not destroyed', async () => {
+  const key = await freshSigner();
+  const { body: ours } = await get('/chain/blocks');
+  const tampered = chainFrom(ours[0], [[transaction('keep-me-1')], [transaction('keep-me-2')]], key);
+  tampered[1].transactions[0].creator = '@someone-else';   // contents no longer match the hash
+
+  await reset(tampered);
+
+  const { body: blocks } = await get('/chain/blocks');
+  assert.equal(blocks.length, 1, 'an invalid chain must not be served');
+  const kept = fs.readdirSync(dataDir).filter(name => name.startsWith('chain.json.invalid-'));
+  assert.equal(kept.length, 1, 'the rejected chain was not preserved for recovery');
+  const preserved = JSON.parse(fs.readFileSync(path.join(dataDir, kept[0]), 'utf8'));
+  assert.equal(preserved.length, 3);
+  assert.equal(preserved[1].transactions[0].creator, '@someone-else');
 });

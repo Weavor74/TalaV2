@@ -10,6 +10,23 @@ download site inherits them.
 
 ## [Unreleased]
 
+### Fixed
+- The chain node no longer wipes its ledger on restart once a signed
+  transaction is on it: `loadChain` dropped each transaction's `signature` and
+  `public_key`, which are part of the hashed block JSON, so the reloaded chain
+  failed validation and was replaced with genesis only. A chain that is
+  rejected on load is now copied to `chain.json.invalid-<time>` before the
+  reset instead of being overwritten.
+- Tala's mood no longer freezes. The emotional carry-over re-saved the carried
+  label with a fresh timestamp, renewing its own 4.2 h window on every turn, so
+  at any cadence under that the label never changed again (386 of 480 hourly
+  turns were stale in simulation). A carry now keeps the time of the reading
+  it came from, and the payload reports `engine_emotion` alongside it.
+- A missing pyswisseph is now loud on the live mood path: an ERROR (repeating
+  every 10 minutes, and at import) and `degraded: true` in the emotional state,
+  instead of silently serving moods from an approximation that is wrong by up
+  to ~170 degrees for Mercury and Venus.
+
 ### Added
 - Tala's complete natal chart (`python/astrology/natal.py`): born 1977-07-20,
   5:00 pm, Clearwater, Florida (17:00 EDT = 21:00 UT). Adds the Ascendant and
