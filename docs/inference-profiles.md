@@ -127,8 +127,31 @@ setx HF_HOME "D:\models\hf-cache"   # or keep a Hugging Face cache you already h
 Tala starts `llama-server` itself, equivalent to:
 
 ```powershell
-D:\tools\llama-cuda-copy\llama-server.exe -m D:\models\gguf\gpt-oss-20b-heretic.MXFP4_MOE.gguf --jinja -c 4096 -ngl 99 --n-cpu-moe 16 --port 8089
+D:\tools\llama-cuda-copy\llama-server.exe -m D:\models\gguf\gpt-oss-20b-heretic.MXFP4_MOE.gguf --jinja -c 16384 -ngl 99 --n-cpu-moe 20 --port 8089
 ```
+
+### Why `-c 16384` and `--n-cpu-moe 20`
+
+Tala's own prompt (persona, retrieved nodes, self-knowledge, the topic-stance line) is about 4,300
+tokens before the conversation starts, and real turns reach ~11k. At `-c 4096` the server rejected
+it with HTTP 400 ("exceeds the available context size") and the router fell back to Ollama, so the 20B
+could not serve a single roleplay turn. 16,384 holds a real turn with room for history.
+
+A bigger window costs memory, so the number of MoE expert layers kept on the CPU goes up from 16 to 20.
+Measured on Kagura (RTX 3050 6 GB, `llama-server` alone, `--n-cpu-moe 20`):
+
+| `-c` | VRAM added | decode | prompt processing |
+|---|---|---|---|
+| 4096 | 3,255 MB | 20.1 tok/s | 388 tok/s (2.2k-token prompt) |
+| **16384** | **3,576 MB** | **19.6 tok/s** | 622 tok/s (8.5k-token prompt) |
+| 32768 | 3,828 MB | 17.9 tok/s | 226 tok/s (16.9k-token prompt) |
+
+The cache costs about 20 KB per token. 32768 fits, but prompt processing slows sharply on very long
+prompts (about 75 s for 17k tokens), so 16384 is the default. Every added expert layer on the GPU costs
+roughly 0.5 GB (the earlier `--n-cpu-moe 16` at `-c 4096` was ~5.5 GB). Raising the window without
+raising `--n-cpu-moe` would leave almost no room beside the Windows desktop on a 6 GB card, and a failed
+load drops Tala to the fallback model. To trade the other way (more GPU layers, smaller window), change
+`ctx` and `args` in the profile, or override them in `<user data>/inference-profiles.json`, and re-measure.
 
 ## LoRA
 

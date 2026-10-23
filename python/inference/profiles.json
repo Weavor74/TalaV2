@@ -8,8 +8,8 @@
       "hf_repo": "mradermacher/gpt-oss-20b-heretic-GGUF",
       "hf_file": "gpt-oss-20b-heretic.MXFP4_MOE.gguf",
       "port": 8089,
-      "ctx": 4096,
-      "args": ["-ngl", "99", "--n-cpu-moe", "16"],
+      "ctx": 16384,
+      "args": ["-ngl", "99", "--n-cpu-moe", "20"],
       "fork": false,
       "harmony": true,
       "startup_timeout_s": 240
