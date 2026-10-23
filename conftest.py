@@ -180,6 +180,42 @@ def _isolate_user_data() -> None:
 _isolate_user_data()
 
 
+# Nothing the suite does may reach the real chain node.
+#
+# The block above moved the data directory but left the chain endpoint alone.
+# The document key follows TALA_USER_DATA, while the node's URL and admin
+# secret do not, so every test that anchored through an unstubbed caller
+# (about 40 sites reach canonicalize_and_anchor) encrypted under a throwaway
+# key minted in its sandbox and posted the result to the live node. 4,126 of
+# the live chain's 7,966 encrypted documents are exactly that: sealed under
+# keys that were deleted with their sandboxes, none of them ever readable.
+#
+# Pointing the endpoint at a port nothing listens on, and the node's data
+# directory at the sandbox, closes every one of those doors at once: the post
+# is refused before it leaves the machine and no admin secret is found to send.
+# Tests that need a node start their own on a free port and set both variables
+# for it. Set TALA_ALLOW_LIVE_CHAIN=1 to deliberately let the suite talk to the
+# real node.
+def _isolate_chain_endpoint() -> None:
+    if os.environ.get("TALA_ALLOW_LIVE_CHAIN") == "1":
+        return
+
+    import socket
+
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        dead_port = probe.getsockname()[1]
+
+    os.environ["TALA_CHAIN_BIND_HOST"] = "127.0.0.1"
+    os.environ["TALA_CHAIN_BIND_PORT"] = str(dead_port)
+    os.environ.pop("TALA_CHAIN_PORT", None)
+    os.environ.pop("TALA_CHAIN_ADMIN_SECRET", None)
+    os.environ["TALA_CHAIN_DATA_DIR"] = str(Path(os.environ["TALA_USER_DATA"]) / "blockchain" / "data")
+
+
+_isolate_chain_endpoint()
+
+
 @pytest.fixture(autouse=True)
 def isolate_documentation_anchoring(monkeypatch):
     """Document tests must not submit their temporary nodes to the live chain.

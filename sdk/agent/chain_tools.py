@@ -34,7 +34,7 @@ import urllib.request
 from pathlib import Path
 from typing import Any
 
-from sdk.agent.ghost_persistence import local_chain_base_url
+from sdk.agent.ghost_persistence import local_chain_base_url, local_chain_data_dir
 from sdk.agent.tools import register_tool
 
 #: The node recomputes full validity on every /chain/status call (about 1.6 s
@@ -229,16 +229,8 @@ async def chain_read(tx_id: str) -> dict[str, Any]:
 
 
 def _chain_dir() -> Path:
-    """Where the node keeps chain.json -- the same order the admin-secret reader uses."""
-    import os
-
-    candidates = []
-    if os.environ.get("TALA_CHAIN_DATA_DIR"):
-        candidates.append(Path(os.environ["TALA_CHAIN_DATA_DIR"]).resolve())
-    if os.environ.get("TALA_USER_DATA"):
-        candidates.append(Path(os.environ["TALA_USER_DATA"]).resolve() / "blockchain" / "data")
-    candidates.append(Path(__file__).resolve().parents[2] / "blockchain" / "data")
-    return next((c for c in candidates if (c / "chain.json").is_file()), candidates[-1])
+    """Where the node keeps chain.json -- the resolver the admin-secret reader and anchoring share."""
+    return local_chain_data_dir()
 
 
 def _verify_file(chain_file: Path) -> dict[str, Any]:

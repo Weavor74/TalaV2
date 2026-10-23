@@ -47,6 +47,46 @@ function chainAdminHeaders(dataRoot) {
   return secret ? { 'x-tala-chain-secret': secret } : {};
 }
 
+const DOCUMENT_MARK = Buffer.from('"ciphertext"');
+
+/** Does the local chain already carry an encrypted document? Streams chain.json; stops at the first. */
+function chainHoldsDocuments(dataRoot) {
+  let fd;
+  try {
+    fd = fs.openSync(path.join(chainDataDir(dataRoot), 'chain.json'), 'r');
+    const chunk = Buffer.alloc(1 << 20);
+    let tail = Buffer.alloc(0);
+    for (;;) {
+      const n = fs.readSync(fd, chunk, 0, chunk.length, null);
+      if (n === 0) return false;
+      if (Buffer.concat([tail, chunk.subarray(0, n)]).includes(DOCUMENT_MARK)) return true;
+      tail = Buffer.from(chunk.subarray(Math.max(0, n - DOCUMENT_MARK.length), n));
+    }
+  } catch {
+    return false;
+  } finally {
+    if (fd !== undefined) fs.closeSync(fd);
+  }
+}
+
+/**
+ * Called before minting a document key. A missing key beside a chain that
+ * already holds sealed documents means the original is lost or this process
+ * is pointed at the wrong data directory; a replacement would seal every new
+ * document under a key nothing else has. TALA_ALLOW_NEW_CHAIN_KEY=1 is the
+ * deliberate way to start over.
+ */
+function assertMayMintDocumentKey(dataRoot, keyPath) {
+  if (process.env.TALA_ALLOW_NEW_CHAIN_KEY === '1' || !chainHoldsDocuments(dataRoot)) return;
+  const err = new Error(
+    `No document key at ${keyPath}, but the chain at ${chainDataDir(dataRoot)} already holds encrypted ` +
+    'documents. Restore the original key, or set TALA_ALLOW_NEW_CHAIN_KEY=1 to deliberately start a new ' +
+    'one (older documents will stay unreadable).'
+  );
+  err.code = 'CHAIN_KEY_MISSING';
+  throw err;
+}
+
 /**
  * POST one transaction (a JSON string) to the local node. Never rejects: an
  * anchor must not break the file write it describes, but a refusal is logged
@@ -78,4 +118,7 @@ function postTransaction(dataRoot, body) {
   });
 }
 
-module.exports = { chainHost, chainPort, chainDataDir, chainAdminHeaders, postTransaction };
+module.exports = {
+  chainHost, chainPort, chainDataDir, chainAdminHeaders,
+  chainHoldsDocuments, assertMayMintDocumentKey, postTransaction,
+};

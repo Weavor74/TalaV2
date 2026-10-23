@@ -15,6 +15,33 @@ from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 logger = logging.getLogger(__name__)
 
 _CHAIN_DOCUMENT_KEY_FILE = "blockchain_document_key.bin"
+_DOCUMENT_MARK = b'"ciphertext"'
+
+
+class ChainKeyMissingError(RuntimeError):
+    """The document key is missing but the chain already holds documents sealed under one.
+
+    Minting a replacement would encrypt new documents under a key nothing
+    else has, and every one of them would be unreadable the moment this
+    process's data directory went away. That is how 4,126 of the live
+    chain's 7,966 documents became undecryptable.
+    """
+
+
+def _chain_holds_documents() -> bool:
+    """Does the local chain already carry an encrypted document? Streams the file; stops at the first."""
+    from sdk.agent.ghost_persistence import local_chain_data_dir
+
+    try:
+        with open(local_chain_data_dir() / "chain.json", "rb") as handle:
+            tail = b""
+            while chunk := handle.read(1 << 20):
+                if _DOCUMENT_MARK in tail + chunk:
+                    return True
+                tail = chunk[-len(_DOCUMENT_MARK):]
+    except OSError:
+        return False
+    return False
 
 
 def _key_path() -> Path:
@@ -44,6 +71,13 @@ def _load_or_create_document_key() -> bytes:
             raise ValueError(f"Invalid blockchain document key length at {path}")
         return key
 
+    if os.environ.get("TALA_ALLOW_NEW_CHAIN_KEY") != "1" and _chain_holds_documents():
+        raise ChainKeyMissingError(
+            f"No document key at {path}, but the chain at {_chain_data_dir_label()} already holds "
+            "encrypted documents. Restore the original key, or set TALA_ALLOW_NEW_CHAIN_KEY=1 to "
+            "deliberately start a new one (older documents will stay unreadable)."
+        )
+
     key = os.urandom(32)
     path.parent.mkdir(parents=True, exist_ok=True)
     path.write_bytes(key)
@@ -52,6 +86,12 @@ def _load_or_create_document_key() -> bytes:
     except OSError:
         pass
     return key
+
+
+def _chain_data_dir_label() -> str:
+    from sdk.agent.ghost_persistence import local_chain_data_dir
+
+    return str(local_chain_data_dir())
 
 
 def _encrypt_document(document: dict, associated_data: str) -> dict:
@@ -151,6 +191,9 @@ def canonicalize_and_anchor(node_id: str, content_html: str, state_data: dict, a
                         break
             except Exception:
                 pass
+    except ChainKeyMissingError as exc:
+        raw_response = str(exc)
+        logger.warning("Not anchoring node '%s': %s", node_id, exc)
     except Exception as exc:
         raw_response = str(exc)
         logger.debug("Failed to anchor node '%s' on blockchain: %s", node_id, exc)
