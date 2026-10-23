@@ -26,7 +26,32 @@ once:
 """
 from __future__ import annotations
 
+import json
+
 import pytest
+
+
+@pytest.fixture(autouse=True)
+def throwaway_chain_identity(tmp_path, monkeypatch):
+    """Sign with a keypair made for the test, never the node's own.
+
+    skill_signing reads ``poa_keys.json`` from the node's data directory. These
+    tests used to find the real node's there -- its signing private key -- and
+    sign with it. The suite's chain directory is a sandbox now, and a test that
+    needs an identity should mint one.
+    """
+    from cryptography.hazmat.primitives import serialization
+    from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
+
+    private = Ed25519PrivateKey.generate()
+    (tmp_path / "poa_keys.json").write_text(json.dumps({
+        "privateKey": private.private_bytes(
+            serialization.Encoding.PEM, serialization.PrivateFormat.PKCS8,
+            serialization.NoEncryption()).decode("ascii"),
+        "publicKey": private.public_key().public_bytes(
+            serialization.Encoding.PEM, serialization.PublicFormat.SubjectPublicKeyInfo).decode("ascii"),
+    }), encoding="utf-8")
+    monkeypatch.setenv("TALA_CHAIN_DATA_DIR", str(tmp_path))
 
 # ── UI-078: the gate sees through the prefix ─────────────────────────────────
 

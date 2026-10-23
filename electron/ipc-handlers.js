@@ -33,7 +33,7 @@ const path = require('node:path');
 const fs   = require('node:fs/promises');
 const fssync = require('node:fs');
 const { app, ipcMain } = require('electron');
-const { postTransaction } = require('./chain_endpoint');
+const { postTransaction, assertMayMintDocumentKey } = require('./chain_endpoint');
 
 /* ──────────────────────────────────────────────────────────────────
    Constants / config
@@ -85,6 +85,7 @@ async function loadOrCreateChainDocumentKey(userData) {
     if (err.code !== 'ENOENT') throw err;
   }
 
+  assertMayMintDocumentKey(userData, keyPath);
   const key = crypto.randomBytes(32);
   await fs.mkdir(path.dirname(keyPath), { recursive: true });
   await fs.writeFile(keyPath, key, { mode: 0o600 });
@@ -397,7 +398,8 @@ function registerHandlers({ isNetworkIsolated } = {}) {
 
         postTransaction(userData, txData);
       } catch (err) {
-        // ignore errors so file write succeeds regardless
+        // The file write succeeds regardless; a refused key is worth saying out loud.
+        if (err && err.code === 'CHAIN_KEY_MISSING') console.warn(`[chain] not anchoring: ${err.message}`);
       }
     }
 

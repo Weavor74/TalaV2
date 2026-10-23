@@ -116,15 +116,7 @@ async def restore_from_ghost(task_id: str) -> dict[str, Any] | None:
 
 def _restore_from_local_file(task_id: str) -> dict[str, Any] | None:
     """Read chain.json directly (fully local and fast). None if not present."""
-    user_data = os.environ.get("TALA_USER_DATA")
-    if user_data:
-        data_dir = Path(user_data) / "blockchain" / "data"
-    else:
-        # Walk up from this file to find blockchain/data
-        repo_root = Path(__file__).resolve().parent.parent.parent
-        data_dir = repo_root / "blockchain" / "data"
-
-    chain_file = data_dir / "chain.json"
+    chain_file = local_chain_data_dir() / "chain.json"
     if not chain_file.exists():
         log.info("GhostPersistence: no local chain.json at %s; will try the node over HTTP", chain_file)
         return None
@@ -250,6 +242,26 @@ def local_chain_base_url() -> str:
     return f"http://{host}:{port}"
 
 
+def local_chain_data_dir() -> Path:
+    """The directory the local node keeps chain.json and admin_secret.txt in.
+
+    TALA_CHAIN_DATA_DIR is the variable app.js itself reads, so when it is set
+    it is the answer -- there is no second place to look. Otherwise the
+    user-data root's node wins if it has one, else the checkout's.
+    """
+    pinned = os.environ.get("TALA_CHAIN_DATA_DIR", "")
+    if pinned:
+        return Path(pinned).resolve()
+    candidates = []
+    user_data = os.environ.get("TALA_USER_DATA", "")
+    if user_data:
+        candidates.append(Path(user_data).resolve() / "blockchain" / "data")
+    candidates.append(Path(__file__).resolve().parents[2] / "blockchain" / "data")
+    return next((c for c in candidates
+                 if any((c / name).is_file() for name in ("chain.json", "admin_secret.txt"))),
+                candidates[-1])
+
+
 def _local_chain_admin_headers() -> dict[str, str]:
     """
     Admin secret for the LOCAL blockchain node only (blockchain/data/admin_secret.txt,
@@ -259,27 +271,16 @@ def _local_chain_admin_headers() -> dict[str, str]:
     """
     secret = os.environ.get("TALA_CHAIN_ADMIN_SECRET", "")
     if not secret:
-        # Read the secret from wherever the node actually keeps it. app.js
-        # resolves its data dir as TALA_CHAIN_DATA_DIR, else relative to its
-        # own location -- which on a portable install is the user-data root.
-        # Reading only the repo path meant a node running against any other
-        # directory minted one secret while this helper read another, and
-        # every local submission 401'd.
-        candidates = []
-        data_dir = os.environ.get("TALA_CHAIN_DATA_DIR", "")
-        if data_dir:
-            candidates.append(Path(data_dir).resolve())
-        user_data = os.environ.get("TALA_USER_DATA", "")
-        if user_data:
-            candidates.append(Path(user_data).resolve() / "blockchain" / "data")
-        candidates.append(Path(__file__).resolve().parents[2] / "blockchain" / "data")
-        for base in candidates:
-            try:
-                secret = (base / "admin_secret.txt").read_text(encoding="utf-8").strip()
-            except OSError:
-                continue
-            if secret:
-                break
+        # Read the secret from the one directory the node keeps it in. Reading
+        # only the repo path meant a node running against any other directory
+        # minted one secret while this helper read another, and every local
+        # submission 401'd. Falling back across directories is the opposite
+        # fault: a caller pinned to its own node would authenticate to the
+        # real one with the real secret.
+        try:
+            secret = (local_chain_data_dir() / "admin_secret.txt").read_text(encoding="utf-8").strip()
+        except OSError:
+            secret = ""
     return {"X-Tala-Chain-Secret": secret} if secret else {}
 
 def _get_remote_status() -> dict[str, Any]:

@@ -2,6 +2,7 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
+import os
 import shutil
 import socket
 import subprocess
@@ -13,47 +14,36 @@ import pytest
 from python.harness.db import init_pool, close_pool
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-CHAIN_URL = "http://127.0.0.1:8332/chain/status"
-
-
-def _chain_is_up() -> bool:
-    try:
-        with urllib.request.urlopen(CHAIN_URL, timeout=2) as resp:
-            return resp.status == 200
-    except Exception:
-        return False
+def _free_port() -> int:
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        return probe.getsockname()[1]
 
 
 @pytest.fixture
 def ghost_chain_node(tmp_path, monkeypatch):
     """
-    Ensure a Ghost Blockchain node is reachable on 127.0.0.1:8332 for the
-    duration of the test.
+    Start a Ghost Blockchain node of this test's own, on a free port, over a
+    fresh chain in tmp_path, and point the Python client at it.
 
-    This test used to require the real app's chain node to already be
-    running — on a dev box running only pytest it never was, so the test
-    was permanently red ("unanchored"). app.js is dependency-free and
-    resolves its data dir relative to its own location, so when no node is
-    up we start an isolated copy in tmp_path with a fresh chain and tear it
-    down afterwards. TALA_USER_DATA is pinned to tmp_path in that case so
-    restore_from_ghost reads the same isolated chain the node writes.
-
-    If a live node is already up (the running Tala app), it is used as-is —
-    that is this test's original, intended integration mode.
+    This used to adopt the real app's node whenever one was up on 8332. That
+    was the leak: the test's TALA_USER_DATA sandbox minted its own document key
+    and the thought-state it committed was sealed under it and written to the
+    live chain, where it can never be opened. The test now never touches a node
+    it did not start.
     """
-    if _chain_is_up():
-        yield "live"
-        return
-
     if shutil.which("node") is None:
-        pytest.skip("node.js unavailable and no chain node running on 8332")
+        pytest.skip("node.js unavailable")
 
-    # The Python client hardcodes 127.0.0.1:8332, so the port must be free
-    # (we only get here when nothing answered /chain/status; a non-chain
-    # process squatting the port would still collide).
-    with socket.socket() as probe:
-        if probe.connect_ex(("127.0.0.1", 8332)) == 0:
-            pytest.skip("port 8332 occupied by something that is not a chain node")
+    port = _free_port()
+    chain_url = f"http://127.0.0.1:{port}/chain/status"
+
+    def _chain_is_up() -> bool:
+        try:
+            with urllib.request.urlopen(chain_url, timeout=2) as resp:
+                return resp.status == 200
+        except Exception:
+            return False
 
     src_dir = tmp_path / "blockchain" / "src"
     data_dir = tmp_path / "blockchain" / "data"
@@ -64,11 +54,14 @@ def ghost_chain_node(tmp_path, monkeypatch):
         shutil.copy2(module, src_dir / module.name)
 
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    monkeypatch.setenv("TALA_CHAIN_BIND_PORT", str(port))
+    monkeypatch.setenv("TALA_CHAIN_DATA_DIR", str(data_dir))
 
     # stdin must be a held-open pipe: app.js watches its parent pipe (for
     # Electron child management) and exits the moment stdin closes.
     proc = subprocess.Popen(
         ["node", str(src_dir / "app.js")],
+        env={**os.environ},
         stdin=subprocess.PIPE,
         stdout=subprocess.PIPE,
         stderr=subprocess.STDOUT,
@@ -83,7 +76,7 @@ def ghost_chain_node(tmp_path, monkeypatch):
                 break
             time.sleep(0.25)
         else:
-            pytest.fail("isolated chain node never became reachable on 8332")
+            pytest.fail(f"isolated chain node never became reachable on {port}")
 
         yield "isolated"
     finally:

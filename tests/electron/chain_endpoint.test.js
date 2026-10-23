@@ -17,12 +17,14 @@ const {
   chainPort,
   chainDataDir,
   chainAdminHeaders,
+  chainHoldsDocuments,
+  assertMayMintDocumentKey,
   postTransaction,
 } = require('../../electron/chain_endpoint.js');
 
 const VARS = [
   'TALA_CHAIN_BIND_HOST', 'TALA_CHAIN_BIND_PORT', 'TALA_CHAIN_PORT',
-  'TALA_CHAIN_DATA_DIR', 'TALA_CHAIN_ADMIN_SECRET',
+  'TALA_CHAIN_DATA_DIR', 'TALA_CHAIN_ADMIN_SECRET', 'TALA_ALLOW_NEW_CHAIN_KEY',
 ];
 
 describe('chain endpoint', () => {
@@ -79,6 +81,54 @@ describe('chain endpoint', () => {
 
   test('no secret yet means no header, not a crash', () => {
     expect(chainAdminHeaders(root)).toEqual({});
+  });
+
+  describe('document key fail-closed', () => {
+    function chainWith(documents) {
+      const dir = path.join(root, 'blockchain', 'data');
+      fs.mkdirSync(dir, { recursive: true });
+      const txs = documents
+        ? [{ id: 'node-x', document: { encrypted: true, ciphertext: 'AAAA' } }]
+        : [{ id: 'plain' }];
+      fs.writeFileSync(path.join(dir, 'chain.json'), JSON.stringify([{ index: 1, transactions: txs }]));
+    }
+
+    test('sees documents on the chain, and their absence', () => {
+      expect(chainHoldsDocuments(root)).toBe(false); // no chain at all
+      chainWith(false);
+      expect(chainHoldsDocuments(root)).toBe(false);
+      chainWith(true);
+      expect(chainHoldsDocuments(root)).toBe(true);
+    });
+
+    test('finds a document that straddles a read boundary', () => {
+      const dir = path.join(root, 'blockchain', 'data');
+      fs.mkdirSync(dir, { recursive: true });
+      // push the marker across the 1 MiB chunk edge
+      const pad = ' '.repeat((1 << 20) - 5);
+      fs.writeFileSync(path.join(dir, 'chain.json'), `${pad}{"ciphertext":"AAAA"}`);
+      expect(chainHoldsDocuments(root)).toBe(true);
+    });
+
+    test('a replacement key is refused beside existing documents', () => {
+      chainWith(true);
+      expect(() => assertMayMintDocumentKey(root, '/some/key.bin')).toThrow(/already holds encrypted documents/);
+      try { assertMayMintDocumentKey(root, '/some/key.bin'); } catch (err) { expect(err.code).toBe('CHAIN_KEY_MISSING'); }
+    });
+
+    test('the first key is allowed on an empty chain, and deliberate rotation on a full one', () => {
+      chainWith(false);
+      expect(() => assertMayMintDocumentKey(root, '/some/key.bin')).not.toThrow();
+      chainWith(true);
+      process.env.TALA_ALLOW_NEW_CHAIN_KEY = '1';
+      expect(() => assertMayMintDocumentKey(root, '/some/key.bin')).not.toThrow();
+    });
+
+    test('follows TALA_CHAIN_DATA_DIR, the directory the node reads', () => {
+      chainWith(true);
+      process.env.TALA_CHAIN_DATA_DIR = path.join(root, 'elsewhere');
+      expect(chainHoldsDocuments(root)).toBe(false);
+    });
   });
 
   describe('postTransaction', () => {
