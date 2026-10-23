@@ -36,10 +36,27 @@ def test_both_required_profiles_exist():
     assert {"kagura", "nano"} <= set(profiles.available())
 
 
+def test_the_main_context_holds_a_real_turn():
+    """A live turn's assembled prompt (persona, retrieved nodes, self-knowledge, stance) measured
+    4,261 tokens. With ``-c 4096`` llama-server answered HTTP 400 "exceeds the available context
+    size", so the 20B could not serve one roleplay turn and the router fell back to Ollama. Tala's
+    own prompt is ~4.3k before the conversation starts and real ones reach ~11k."""
+    assert profiles.get("kagura").main.ctx >= 8192
+
+
+def test_the_documented_server_command_matches_the_profile():
+    from pathlib import Path
+
+    p = profiles.get("kagura")
+    docs = (Path(__file__).resolve().parents[1] / "docs" / "inference-profiles.md").read_text(encoding="utf-8")
+    assert f"-c {p.main.ctx} " in docs, "docs/inference-profiles.md shows a different context size"
+    assert f"--n-cpu-moe {p.main.args[p.main.args.index('--n-cpu-moe') + 1]} " in docs
+
+
 def test_kagura_pins_the_specified_stack():
     p = profiles.get("kagura")
-    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "16")
-    assert p.main.ctx == 4096
+    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "20")
+    assert p.main.ctx == 16384
     assert p.main.harmony is True
     assert p.main.hf_repo == "mradermacher/gpt-oss-20b-heretic-GGUF"
     assert "MXFP4_MOE" in p.main.hf_file
@@ -132,7 +149,7 @@ def test_user_override_is_deep_merged(monkeypatch, tmp_path):
     monkeypatch.setenv("TALA_PROFILES_FILE", str(override))
     p = profiles.get("kagura")
     assert p.main.port == 9123
-    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "16")  # untouched siblings survive
+    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "20")  # untouched siblings survive
     assert p.vision.num_ctx == 4096 and p.vision.model == "gemma3:4b"
 
 
@@ -154,9 +171,9 @@ def test_profile_drives_the_engine_settings(monkeypatch, tmp_path):
     monkeypatch.setenv("TALA_PROFILE", "kagura")
     assert ext.external_binary() == exe
     assert ext.explicit_model_path() == gguf
-    assert ext.context_size() == 4096
+    assert ext.context_size() == 16384
     assert ext.requested_engine() == "external"
-    assert ext.server_extra_args() == ["-ngl", "99", "--n-cpu-moe", "16"]
+    assert ext.server_extra_args() == ["-ngl", "99", "--n-cpu-moe", "20"]
     assert ext.hf_cache_dir() == str(tmp_path / "models" / "hf-cache")
     assert "gpt-oss" in ext.default_model()[0]
 
@@ -216,10 +233,10 @@ def test_the_llama_server_command_carries_the_profile_flags(monkeypatch, tmp_pat
     argv = seen[-1]
     assert argv[0] == str(exe) and argv[argv.index("-m") + 1] == str(gguf)
     assert argv[argv.index("--port") + 1] == str(free)
-    assert argv[argv.index("--ctx-size") + 1] == "4096"
+    assert argv[argv.index("--ctx-size") + 1] == "16384"
     assert "--jinja" in argv
     assert argv[argv.index("-ngl") + 1] == "99"
-    assert argv[argv.index("--n-cpu-moe") + 1] == "16"
+    assert argv[argv.index("--n-cpu-moe") + 1] == "20"
     assert "--decision-seqs" not in argv  # stock build, not the fork
 
 
