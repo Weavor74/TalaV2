@@ -4859,6 +4859,7 @@ from sdk.agent import decision_tools  # noqa: E402,F401  (registers make_structu
 from sdk.agent import agent_authoring  # noqa: E402,F401
 from sdk.agent import desktop_control  # noqa: E402,F401
 from sdk.agent import desktop_agent  # noqa: E402,F401
+from sdk.agent import chain_tools  # noqa: E402,F401  (chain_status/recent/read/verify)
 
 # Registers analyze_screen / generate_image, and provides _analyze_screen_image
 # to desktop_control. Moved out of this file to stay under the size ratchet;

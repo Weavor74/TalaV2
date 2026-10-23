@@ -375,7 +375,7 @@ def test_the_proof_prefix_matches_the_node_server():
     """Domain separation only works if both sides use the same domain."""
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parents[1] / "blockchain" / "src" / "app.js"
+    source = (Path(__file__).resolve().parents[1] / "blockchain" / "src" / "identity.js"
               ).read_text(encoding="utf-8")
     assert f"const POP_PREFIX = '{chain_keys.POP_PREFIX}'" in source
 

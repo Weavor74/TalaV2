@@ -154,8 +154,7 @@ def _restore_from_node_http(task_id: str) -> dict[str, Any] | None:
     when the local chain.json lives elsewhere. GET /chain/tx/:id returns
     ``{"transaction": {...}}`` including the (encrypted) document.
     """
-    port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
-    url = f"http://127.0.0.1:{port}/chain/tx/ghost_commit_{task_id}"
+    url = f"{local_chain_base_url()}/chain/tx/ghost_commit_{task_id}"
     try:
         with urllib.request.urlopen(url, timeout=5) as response:
             payload = json.loads(response.read().decode("utf-8"))
@@ -187,7 +186,7 @@ def _get_local_status() -> dict[str, Any]:
            Hits the local status endpoint.
     """
     try:
-        url = "http://127.0.0.1:8332/chain/status"
+        url = f"{local_chain_base_url()}/chain/status"
         with urllib.request.urlopen(url, timeout=5) as response:
             return json.loads(response.read().decode("utf-8"))
     except Exception as exc:
@@ -226,6 +225,29 @@ def _post_json(url: str, payload: dict, extra_headers: dict[str, str] | None = N
     )
     with urllib.request.urlopen(req, context=ctx, timeout=10) as response:
         return json.loads(response.read().decode("utf-8"))
+
+
+def local_chain_host_port() -> tuple[str, int]:
+    """Where the local chain node listens: the same variables blockchain/src/app.js reads.
+
+    A wildcard bind address is a place to listen, not to connect to, so it
+    maps to loopback. Every caller used to write 127.0.0.1:8332 into itself,
+    so a portable install that moved the port silently lost its anchoring.
+    """
+    host = os.environ.get("TALA_CHAIN_BIND_HOST") or "127.0.0.1"
+    if host in ("0.0.0.0", "::"):
+        host = "127.0.0.1"
+    raw = os.environ.get("TALA_CHAIN_BIND_PORT") or os.environ.get("TALA_CHAIN_PORT") or "8332"
+    try:
+        port = int(raw)
+    except ValueError:
+        port = 8332
+    return host, port
+
+
+def local_chain_base_url() -> str:
+    host, port = local_chain_host_port()
+    return f"http://{host}:{port}"
 
 
 def _local_chain_admin_headers() -> dict[str, str]:

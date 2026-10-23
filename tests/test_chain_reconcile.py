@@ -441,7 +441,7 @@ def test_the_fingerprint_matches_the_node_implementation():
     import re
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parents[1] / "blockchain" / "src" / "app.js"
+    source = (Path(__file__).resolve().parents[1] / "blockchain" / "src" / "identity.js"
               ).read_text(encoding="utf-8")
     body = re.search(r"function keyFingerprint\(publicKeyPem\) \{(.*?)\n\}",
                      source, re.S)

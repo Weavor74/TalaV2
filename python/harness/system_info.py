@@ -225,11 +225,12 @@ async def collect_system_info() -> dict[str, Any]:
         "postgresql":  "online" if pg_server != "not connected" else "offline",
         "blockchain":  "unknown",  # Blockchain node is external; check via its port
     }
-    # Quick TCP ping to blockchain node port 8332
+    # Quick TCP ping to the blockchain node (default port 8332, TALA_CHAIN_BIND_PORT)
     try:
         import asyncio as _asyncio
+        from sdk.agent.ghost_persistence import local_chain_host_port
         _r, _w = await _asyncio.wait_for(
-            _asyncio.open_connection("127.0.0.1", 8332), timeout=1.0
+            _asyncio.open_connection(*local_chain_host_port()), timeout=1.0
         )
         _w.close()
         services["blockchain"] = "online"

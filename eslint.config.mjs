@@ -75,9 +75,13 @@ export default [
     },
   },
   {
+    // 1822 -> 1400 (2026-10-22): the leaf parts moved out to blockchain/src/*.js
+    // (fs_util, request_limits, identity, chain_model, authority_set,
+    // peer_directory). scripts/upload_vps.ps1 ships every file in that directory.
+    // Down only.
     files: ['blockchain/src/app.js'],
     rules: {
-      'max-lines': ['error', { max: 1822, skipBlankLines: false, skipComments: false }],
+      'max-lines': ['error', { max: 1400, skipBlankLines: false, skipComments: false }],
     },
   },
 ];

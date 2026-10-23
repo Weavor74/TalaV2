@@ -59,7 +59,9 @@ def ghost_chain_node(tmp_path, monkeypatch):
     data_dir = tmp_path / "blockchain" / "data"
     src_dir.mkdir(parents=True)
     data_dir.mkdir(parents=True)
-    shutil.copy2(REPO_ROOT / "blockchain" / "src" / "app.js", src_dir / "app.js")
+    # The node is app.js plus its sibling modules; copying app.js alone dies on require().
+    for module in (REPO_ROOT / "blockchain" / "src").glob("*.js"):
+        shutil.copy2(module, src_dir / module.name)
 
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
 

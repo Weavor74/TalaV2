@@ -145,7 +145,7 @@ def test_the_message_matches_the_node_server():
     forged one on one of them and they disagree about which keys are usable."""
     from pathlib import Path
 
-    source = (Path(__file__).resolve().parents[1] / "blockchain" / "src" / "app.js"
+    source = (Path(__file__).resolve().parents[1] / "blockchain" / "src" / "identity.js"
               ).read_text(encoding="utf-8")
     assert f"const REVOCATION_PREFIX = '{chain_verify.REVOCATION_PREFIX}'" in source
     assert "${REVOCATION_PREFIX}${fingerprint}:${revokedAt}" in source

@@ -361,10 +361,49 @@ def index_sync(chain: str, tx_id: str, kind: str, counterparty: str = "",
 async def ghost_endpoint() -> str:
     """The local chain node. Loopback by default, and configurable only so a
     portable install can move its port -- never so Ghost points off-machine."""
-    import os
-    host = os.environ.get("TALA_CHAIN_BIND_HOST", "127.0.0.1")
-    port = os.environ.get("TALA_CHAIN_BIND_PORT", "8332")
-    return f"http://{host}:{port}"
+    from sdk.agent.ghost_persistence import local_chain_base_url
+    return local_chain_base_url()
+
+
+def _wire(transaction: dict[str, Any]) -> dict[str, Any]:
+    """
+    The transaction as the chain node accepts it.
+
+    POST /chain/tx refuses a body without ``id``, ``type``, ``hash``,
+    ``creator`` and a non-empty ``counterparty`` (blockchain/src/app.js), and
+    record()/flush() sent no hash or creator at all, so every write through
+    them was a 400 and only the DB index row survived. ``hash`` is the SHA-256
+    of the transaction's own content, so it is the same on every retry;
+    ``counterparty`` falls back to the ledger itself, which is what anchor.py
+    already writes for activity with nobody on the other end. The node stamps
+    its own time, so when it actually happened travels in the metadata.
+    """
+    import hashlib
+
+    if not transaction.get("id") or not transaction.get("type"):
+        raise ValueError("a chain transaction needs an id and a type")
+    content = {key: transaction.get(key) for key in
+               ("id", "type", "counterparty", "document_ref", "metadata", "timestamp")}
+    digest = transaction.get("hash") or hashlib.sha256(
+        json.dumps(content, sort_keys=True, separators=(",", ":"), default=str).encode("utf-8")
+    ).hexdigest()
+    metadata = dict(transaction.get("metadata") or {})
+    if transaction.get("document_ref"):
+        metadata.setdefault("document_ref", transaction["document_ref"])
+    if transaction.get("timestamp"):
+        metadata.setdefault("occurred_at", transaction["timestamp"])
+    wired = {
+        "id": transaction["id"],
+        "type": transaction["type"],
+        "hash": digest,
+        "creator": transaction.get("creator") or "tala-harness",
+        "counterparty": transaction.get("counterparty") or "blockchain-ledger",
+        "metadata": metadata,
+    }
+    for key in ("signature", "public_key", "document"):
+        if transaction.get(key):
+            wired[key] = transaction[key]
+    return wired
 
 
 async def _submit(transaction: dict[str, Any]) -> dict[str, Any]:
@@ -404,6 +443,11 @@ async def _post(endpoint: str, transaction: dict[str, Any],
             # connection it exists to govern.
             return {"written": False, "error": f"guardrails unavailable: {exc}"}
 
+    try:
+        transaction = _wire(transaction)
+    except ValueError as exc:
+        return {"written": False, "error": str(exc)}
+
     # /chain/tx refuses anonymous submissions. Which credential fits depends
     # on where the node is: the Ghost node on loopback trusts the local admin
     # secret file (never sent off-machine); the shared chain is remote, so
@@ -427,6 +471,7 @@ async def _post(endpoint: str, transaction: dict[str, Any],
             _sig = _key.sign(str(transaction.get("hash") or "").encode("utf-8")).hex()
             transaction = {
                 **transaction,
+                "creator": _wallet.get_wallet_address(),
                 "signature": _sig,
                 "public_key": _wallet.get_wallet_address(),
             }

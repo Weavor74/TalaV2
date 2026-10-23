@@ -11,6 +11,27 @@ download site inherits them.
 ## [Unreleased]
 
 ### Fixed
+- Chain writes now land. `chains.record`/`flush` sent no `hash` or `creator`
+  (and often an empty `counterparty`), so the node answered every one with a
+  400 while the DB index row still said `written`; they now send a
+  node-valid transaction (content hash, creator, `blockchain-ledger` as the
+  counterparty fallback, the time it happened in the metadata). A transaction
+  with no id or type comes back as an error instead of raising.
+- Everything that talked to the local chain node hardcoded `127.0.0.1:8332`
+  (anchoring, ghost persistence, the settings and persona anchors, the status
+  dot, the contracts router, Electron). They now follow
+  `TALA_CHAIN_BIND_HOST`/`TALA_CHAIN_BIND_PORT` like the node does, through
+  one helper (`sdk/agent/ghost_persistence.local_chain_base_url`) and
+  `electron/chain_endpoint.js`. Still tied to 8332: the renderer's chain viewer
+  and the CSP in `index.html`/`main.js`, which would need to move together.
+- Electron's Neural Node anchors (`file:write`/`file:delete`) sent no admin
+  secret, so the node refused each with a 401 that was swallowed. They now
+  send it, and a refusal is logged.
+- CI lint was red on main: the previous chain fix grew `blockchain/src/app.js`
+  past its line cap (1845 > 1822). The node is now split into modules and the
+  cap lowered to 1400 (see Changed).
+- `GET /chain/tx/:id` could not read ids containing `:` or `.` (for example
+  `peer-directory:<wallet>`); they matched no route and returned 404.
 - The chain node no longer wipes its ledger on restart once a signed
   transaction is on it: `loadChain` dropped each transaction's `signature` and
   `public_key`, which are part of the hashed block JSON, so the reloaded chain
@@ -27,7 +48,23 @@ download site inherits them.
   instead of silently serving moods from an approximation that is wrong by up
   to ~170 degrees for Mercury and Venus.
 
+### Changed
+- The chain node is split into modules under `blockchain/src/` (`fs_util`,
+  `request_limits`, `identity`, `chain_model`, `authority_set`,
+  `peer_directory`); `app.js` went from 1845 to 1400 lines. `AuthoritySet` and
+  `PeerDirectory` now take their data file and the ledger as arguments instead
+  of reading globals. **`scripts/upload_vps.ps1` now ships every file in
+  `blockchain/src/`** (syntax-checking each first) -- deploying `app.js` alone
+  would leave a node that dies on its first `require`.
+- `GET /chain/blocks?limit=N` returns only the newest N blocks (max 500); with
+  no limit it still returns the whole chain.
+
 ### Added
+- Read-only chain tools Tala can call: `chain_status`, `chain_recent`,
+  `chain_read` and `chain_verify` (`sdk/agent/chain_tools.py`). They report
+  node health, the newest blocks, one transaction by id, and an independent
+  re-verification of the ledger file; a node that is down is an answer, not an
+  exception, and no document body is ever returned.
 - Tala's complete natal chart (`python/astrology/natal.py`): born 1977-07-20,
   5:00 pm, Clearwater, Florida (17:00 EDT = 21:00 UT). Adds the Ascendant and
   Midheaven, Placidus houses, signs, essential dignity, retrogrades, chart

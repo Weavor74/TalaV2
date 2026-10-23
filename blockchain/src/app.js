@@ -19,6 +19,14 @@ const crypto = require('crypto');
 const fs = require('fs');
 const path = require('path');
 
+// The node is one process but not one file: these hold the parts with no shared state.
+const { readJsonFile, writeJsonFile, writeSecretFile, restrictPermissions } = require('./fs_util');
+const { txRateLimited, readRequestBody } = require('./request_limits');
+const { POP_PREFIX, REVOCATION_PREFIX, revocationMessage, keyFingerprint, sha256Hex } = require('./identity');
+const { Transaction, Block } = require('./chain_model');
+const { AuthoritySet } = require('./authority_set');
+const { PeerDirectory } = require('./peer_directory');
+
 const BIND_HOST = process.env.TALA_CHAIN_BIND_HOST || '127.0.0.1';
 const PORT = Number(process.env.TALA_CHAIN_BIND_PORT || process.env.TALA_CHAIN_PORT || 8332);
 // Overridable so the chain can be exercised against a scratch directory
@@ -36,85 +44,6 @@ const ADMIN_SECRET_FILE = path.join(DATA_DIR, 'admin_secret.txt');
 // Ensure data directory exists
 if (!fs.existsSync(DATA_DIR)) {
   fs.mkdirSync(DATA_DIR, { recursive: true });
-}
-
-function readJsonFile(filePath, fallback) {
-  try {
-    if (!fs.existsSync(filePath)) {
-      return fallback;
-    }
-    return JSON.parse(fs.readFileSync(filePath, 'utf8'));
-  } catch {
-    return fallback;
-  }
-}
-
-function writeJsonFile(filePath, payload) {
-  fs.writeFileSync(filePath, JSON.stringify(payload, null, 2), 'utf8');
-}
-
-// Secrets are written owner-only, never at the umask default (commonly 644 —
-// world-readable). chmod is best-effort: Windows ACLs do not speak POSIX
-// modes, and a failed tighten must not stop the chain from starting.
-function writeSecretFile(filePath, contents) {
-  fs.writeFileSync(filePath, contents, { encoding: 'utf8', mode: 0o600 });
-  restrictPermissions(filePath);
-}
-
-// Self-heals files created by earlier versions that relied on the umask.
-function restrictPermissions(filePath) {
-  try {
-    fs.chmodSync(filePath, 0o600);
-  } catch { /* best effort; Windows ACLs differ */ }
-}
-
-// Sliding-window per-IP limiter for non-admin transaction submission. The
-// mempool mines instantly, so every accepted tx costs disk and a block; an
-// internet-reachable node needs a ceiling per stranger.
-const txSubmissionHits = new Map();
-const TX_RATE_LIMIT = 30;
-const TX_RATE_WINDOW_MS = 60 * 1000;
-
-function txRateLimited(ip) {
-  const now = Date.now();
-  const hits = (txSubmissionHits.get(ip) || []).filter(t => now - t < TX_RATE_WINDOW_MS);
-  if (hits.length >= TX_RATE_LIMIT) {
-    txSubmissionHits.set(ip, hits);
-    return true;
-  }
-  hits.push(now);
-  txSubmissionHits.set(ip, hits);
-  // Keep the map from growing one entry per strange IP forever.
-  if (txSubmissionHits.size > 10000) {
-    for (const [key, times] of txSubmissionHits) {
-      if (!times.some(t => now - t < TX_RATE_WINDOW_MS)) txSubmissionHits.delete(key);
-    }
-  }
-  return false;
-}
-
-function sha256Hex(value) {
-  return crypto.createHash('sha256').update(String(value)).digest('hex');
-}
-
-// Default cap is 1MB. The old blanket 100MB limit was a memory-DoS lever on
-// an internet-reachable node: anonymous callers could hold open concurrent
-// 100MB bodies. Routes that legitimately carry more (chain reconcile, which
-// ships a full chain and is admin-gated BEFORE the body is read) pass their
-// own cap.
-function readRequestBody(req, maxBytes = 1024 * 1024) {
-  return new Promise((resolve, reject) => {
-    let body = '';
-    req.on('data', chunk => {
-      body += chunk;
-      if (body.length > maxBytes) {
-        reject(new Error('Request body too large'));
-        req.destroy();
-      }
-    });
-    req.on('end', () => resolve(body));
-    req.on('error', reject);
-  });
 }
 
 let poaPrivateKey = '';
@@ -137,177 +66,11 @@ if (fs.existsSync(KEYS_FILE)) {
   console.log('[Tala Chain] Generated new Ed25519 PoA key pair.');
 }
 
-// ---------------------------------------------------------------------------
-// Who may sign a block
-// ---------------------------------------------------------------------------
-//
-// Verifying a signature against the public key the block itself carries proves
-// only that the block is internally consistent -- anyone can generate a key,
-// sign with it, and produce a block that verifies. That is no bar at all on a
-// chain other people write to, so signatures are checked against an explicit
-// set of permitted signers.
-//
-// The set is seeded with this node's own key and nothing else. Additions are
-// deliberate, admin-gated, and made by the owner: on a chain whose whole point
-// is recording what happened between parties, who may write is exactly the
-// decision that should not have a default.
-
-// Domain separation for proof-of-possession signatures. Anything signed with
-// this prefix cannot be mistaken for a block signature, which is made over a
-// bare 64-character hex hash. See POST /chain/prove.
-const POP_PREFIX = 'tala-proof-of-possession:v1:';
-
-// Domain separation for revocations, for the same reason and with the same
-// force: a revocation signature must never be mistakable for a block
-// signature, which is made over a bare 64-character hex hash.
-const REVOCATION_PREFIX = 'tala-key-revocation:v1:';
-
-// The message a key signs to retire itself. Both sides must build it
-// identically or a valid revocation reads as a forged one.
-function revocationMessage(fingerprint, revokedAt) {
-  return `${REVOCATION_PREFIX}${fingerprint}:${revokedAt}`;
-}
-
-function keyFingerprint(publicKeyPem) {
-  // Whitespace-insensitive, so a PEM that has been through JSON, a text field
-  // or a different line ending still resolves to the same signer.
-  const normalised = String(publicKeyPem || '').replace(/\s+/g, '');
-  return crypto.createHash('sha256').update(normalised).digest('hex').slice(0, 16);
-}
-
-class AuthoritySet {
-  constructor() {
-    this.authorities = [];
-    this.load();
-  }
-
-  load() {
-    try {
-      if (fs.existsSync(AUTHORITIES_FILE)) {
-        const payload = JSON.parse(fs.readFileSync(AUTHORITIES_FILE, 'utf8'));
-        this.authorities = Array.isArray(payload.authorities) ? payload.authorities : [];
-      }
-    } catch (err) {
-      // Refusing to start would be worse than starting closed: an unreadable
-      // file leaves the set empty, and an empty set trusts nobody, which the
-      // seeding below then corrects with this node's own key.
-      console.error(`[Authorities] Could not read ${AUTHORITIES_FILE}: ${err.message}`);
-      this.authorities = [];
-    }
-    this.seedSelf();
-  }
-
-  // This node signs its own blocks, so it must be able to verify them. Without
-  // this a fresh install would reject every block it had just written.
-  seedSelf() {
-    if (!poaPublicKey) return;
-    if (this.has(poaPublicKey)) return;
-    this.authorities.push({
-      public_key: poaPublicKey,
-      fingerprint: keyFingerprint(poaPublicKey),
-      label: 'this node',
-      added_at: new Date().toISOString(),
-      added_by: 'bootstrap',
-    });
-    this.save();
-    console.log(`[Authorities] Seeded with this node's own key (${keyFingerprint(poaPublicKey)}).`);
-  }
-
-  save() {
-    try {
-      fs.writeFileSync(AUTHORITIES_FILE,
-        JSON.stringify({ version: 1, authorities: this.authorities }, null, 2), 'utf8');
-    } catch (err) {
-      console.error(`[Authorities] Could not save: ${err.message}`);
-    }
-  }
-
-  has(publicKeyPem) {
-    const print = keyFingerprint(publicKeyPem);
-    return this.authorities.some(entry => entry.fingerprint === print);
-  }
-
-  list() {
-    // The public keys are not secret, but they are not needed for a listing
-    // either; the fingerprint is what an operator works with.
-    return this.authorities.map(entry => ({
-      fingerprint: entry.fingerprint,
-      label: entry.label || '',
-      added_at: entry.added_at || '',
-      added_by: entry.added_by || '',
-      is_self: entry.fingerprint === keyFingerprint(poaPublicKey),
-    }));
-  }
-
-  add(publicKeyPem, label = '') {
-    const pem = String(publicKeyPem || '').trim();
-    if (!pem) throw new Error('A public key is required');
-
-    // Only a key that can actually verify a signature is any use, and a
-    // malformed one accepted now becomes a block rejected later for reasons
-    // nobody can trace back to here.
-    try {
-      crypto.createPublicKey(pem);
-    } catch (err) {
-      throw new Error(`Not a usable public key: ${err.message}`);
-    }
-
-    // Admitting a key that has retired itself would be admitting one whose
-    // holder has said not to trust it. Refused rather than accepted-and-ignored,
-    // so the list never claims a signer that nothing would accept.
-    //
-    // Guarded because the authority set is constructed before the ledger is,
-    // and `talaLedger` is a const: reaching it too early throws rather than
-    // reading as undefined. Nothing calls add() that early today, and this
-    // stops that staying true by luck.
-    let retired = false;
-    try {
-      retired = talaLedger.revocations().has(keyFingerprint(pem));
-    } catch (err) {
-      retired = false;
-    }
-    if (retired) {
-      const error = new Error('That key has retired itself and cannot be admitted');
-      error.conflict = true;
-      throw error;
-    }
-    if (this.has(pem)) {
-      return { added: false, fingerprint: keyFingerprint(pem), reason: 'already an authority' };
-    }
-
-    this.authorities.push({
-      public_key: pem,
-      fingerprint: keyFingerprint(pem),
-      label: String(label || ''),
-      added_at: new Date().toISOString(),
-      added_by: 'admin',
-    });
-    this.save();
-    console.log(`[Authorities] Added ${keyFingerprint(pem)}${label ? ` (${label})` : ''}.`);
-    return { added: true, fingerprint: keyFingerprint(pem) };
-  }
-
-  remove(fingerprint) {
-    const print = String(fingerprint || '').trim();
-    if (print === keyFingerprint(poaPublicKey)) {
-      // Removing it would leave the node unable to verify the blocks it signs
-      // itself, so the whole chain would stop validating on the next check.
-      const error = new Error("This node's own key cannot be removed");
-      error.conflict = true;
-      throw error;
-    }
-    const before = this.authorities.length;
-    this.authorities = this.authorities.filter(entry => entry.fingerprint !== print);
-    if (this.authorities.length === before) {
-      return { removed: false, reason: 'not an authority' };
-    }
-    this.save();
-    console.log(`[Authorities] Removed ${print}.`);
-    return { removed: true, fingerprint: print };
-  }
-}
-
-const authoritySet = new AuthoritySet();
+const authoritySet = new AuthoritySet({
+  file: AUTHORITIES_FILE,
+  ownPublicKey: poaPublicKey,
+  getLedger: () => talaLedger,
+});
 
 // Local admin secret — required on every state-mutating administrative route
 // (chain reconcile, treasury mint). Auto-generated on first run and persisted
@@ -342,83 +105,13 @@ function requireAdminSecret(req, res) {
 // Blockchain Classes
 // ---------------------------------------------------------------------------
 
-class Transaction {
-  constructor(id, type, hash, creator, counterparty, timestamp = Date.now(), document = null, metadata = null, signature = null, public_key = null) {
-    this.id = id; // Contract UUID
-    this.type = type; // "contract", "payment", etc.
-    this.hash = hash; // SHA-256 payload hash
-    this.creator = creator;
-    this.counterparty = counterparty;
-    this.timestamp = timestamp;
-    this.document = document;
-    this.metadata = metadata;
-    this.signature = signature;
-    this.public_key = public_key;
-  }
-
-  calculateHash() {
-    const documentData = this.document === null || this.document === undefined
-      ? ''
-      : JSON.stringify(this.document);
-    const metadataData = this.metadata === null || this.metadata === undefined
-      ? ''
-      : JSON.stringify(this.metadata);
-    return crypto
-      .createHash('sha256')
-      .update(this.id + this.type + this.hash + this.creator + this.counterparty + this.timestamp + documentData + metadataData)
-      .digest('hex');
-  }
-}
-
-class Block {
-  constructor(index, previousHash, timestamp, transactions, nonce = 0, signature = null, public_key = null) {
-    this.index = index;
-    this.previousHash = previousHash;
-    this.timestamp = timestamp;
-    this.transactions = transactions;
-    this.nonce = nonce;
-    this.hash = this.calculateHash();
-    this.signature = signature;
-    this.public_key = public_key;
-  }
-
-  calculateHash() {
-    const txData = JSON.stringify(this.transactions);
-    return crypto
-      .createHash('sha256')
-      .update(this.index + this.previousHash + this.timestamp + txData + this.nonce)
-      .digest('hex');
-  }
-
-  mineBlock(difficulty = 1) {
-    const target = Array(difficulty + 1).join('0');
-    while (this.hash.substring(0, difficulty) !== target) {
-      this.nonce++;
-      this.hash = this.calculateHash();
-    }
-  }
-
-  signBlock(privateKeyPem, publicKeyPem) {
-    this.public_key = publicKeyPem;
-    this.signature = crypto.sign(null, Buffer.from(this.hash), privateKeyPem).toString('hex');
-  }
-}
-
-/**
- * Starting fresh overwrites chain.json, so a chain that is being rejected is
- * copied aside first. A load bug or a bad edit must cost a restart, never the
- * only copy of the ledger.
- */
+// Starting fresh overwrites chain.json, so a rejected chain is copied aside first.
 function setAsideRejectedChain(reason) {
   try {
-    if (!fs.existsSync(CHAIN_FILE)) return;
-    const stamp = new Date().toISOString().replace(/[:.]/g, '-');
-    const target = `${CHAIN_FILE}.invalid-${stamp}`;
+    const target = `${CHAIN_FILE}.invalid-${new Date().toISOString().replace(/[:.]/g, '-')}`;
     fs.copyFileSync(CHAIN_FILE, target);
     console.error(`[Chain] Kept the rejected chain (${reason}) at ${target}`);
-  } catch (err) {
-    console.error(`[Chain] Could not keep the rejected chain: ${err.message}`);
-  }
+  } catch (err) { console.error(`[Chain] Could not keep the rejected chain: ${err.message}`); }
 }
 
 class Blockchain {
@@ -436,9 +129,7 @@ class Blockchain {
         const data = fs.readFileSync(CHAIN_FILE, 'utf8');
         const parsed = JSON.parse(data);
         this.chain = parsed.map(b => {
-          // signature and public_key are part of the JSON a block hashes, so they
-          // must survive the round trip or any signed transaction changes its
-          // block's hash and the whole chain fails validation on reload.
+          // signature/public_key are hashed with the block; dropping them fails validation on reload.
           const txs = b.transactions.map(t => new Transaction(
             t.id, t.type, t.hash, t.creator, t.counterparty, t.timestamp, t.document ?? null, t.metadata ?? null,
             t.signature ?? null, t.public_key ?? null
@@ -935,149 +626,9 @@ class Blockchain {
   }
 }
 
-class PeerDirectory {
-  constructor() {
-    const payload = readJsonFile(PEERS_FILE, { version: 1, peers: [] });
-    this.peers = Array.isArray(payload.peers) ? payload.peers : [];
-  }
-
-  save() {
-    writeJsonFile(PEERS_FILE, {
-      version: 1,
-      peers: this.peers,
-    });
-  }
-
-  normalizePeer(peer, existing = null) {
-    const now = new Date().toISOString();
-    const username = String(peer.username || '').trim();
-    const walletAddress = String(peer.wallet_address || peer.wallet || '').trim();
-    const endpointUrl = String(peer.endpoint_url || peer.endpoint || '').trim();
-
-    if (!username) {
-      throw new Error('Peer username is required');
-    }
-    if (!walletAddress) {
-      throw new Error('Peer wallet_address is required');
-    }
-    if (!endpointUrl) {
-      throw new Error('Peer endpoint_url is required');
-    }
-
-    return {
-      username,
-      wallet_address: walletAddress,
-      endpoint_url: endpointUrl,
-      network: String(peer.network || peer.network_name || 'tala').trim() || 'tala',
-      status: String(peer.status || existing?.status || 'online').trim() || 'online',
-      discoverable: peer.discoverable === undefined ? true : Boolean(peer.discoverable),
-      // The key this peer says it signs blocks with. Advertised, not trusted:
-      // a directory entry is a claim by whoever wrote it, and admitting a
-      // signer is a decision the receiving owner makes deliberately.
-      signing_key: String(peer.signing_key || existing?.signing_key || '').trim(),
-      capabilities: Array.isArray(peer.capabilities) ? peer.capabilities : [],
-      metadata: peer.metadata && typeof peer.metadata === 'object' ? peer.metadata : {},
-      last_seen: peer.last_seen || existing?.last_seen || now,
-      created_at: existing?.created_at || now,
-      updated_at: now,
-    };
-  }
-
-  find(identifier) {
-    const needle = String(identifier || '').trim();
-    if (!needle) {
-      return null;
-    }
-    return this.peers.find(peer => peer.username === needle || peer.wallet_address === needle) || null;
-  }
-
-  list(filters = {}) {
-    let peers = [...this.peers];
-    if (filters.discoverable !== undefined) {
-      peers = peers.filter(peer => peer.discoverable === filters.discoverable);
-    }
-    if (filters.network) {
-      peers = peers.filter(peer => peer.network === filters.network);
-    }
-    if (filters.username) {
-      const username = String(filters.username).trim();
-      peers = peers.filter(peer => peer.username === username);
-    }
-    if (filters.wallet_address) {
-      const walletAddress = String(filters.wallet_address).trim();
-      peers = peers.filter(peer => peer.wallet_address === walletAddress);
-    }
-    if (filters.onlineOnly) {
-      peers = peers.filter(peer => peer.status === 'online');
-    }
-    return peers.sort((a, b) => String(b.updated_at).localeCompare(String(a.updated_at)));
-  }
-
-  register(peer, { anchor = true } = {}) {
-    const existing = this.find(peer.username) || this.find(peer.wallet_address);
-    const normalized = this.normalizePeer(peer, existing);
-    if (existing) {
-      const index = this.peers.findIndex(item => item.username === existing.username || item.wallet_address === existing.wallet_address);
-      if (index >= 0) {
-        this.peers[index] = normalized;
-      } else {
-        this.peers.push(normalized);
-      }
-    } else {
-      this.peers.push(normalized);
-    }
-    this.save();
-
-    if (anchor) {
-      try {
-        const directoryHash = sha256Hex(JSON.stringify(normalized));
-        const anchorTx = new Transaction(
-          `peer-directory:${normalized.wallet_address}`,
-          existing ? 'peer-directory-update' : 'peer-directory-register',
-          directoryHash,
-          normalized.username,
-          'vps-discovery',
-          Date.now(),
-          null,
-          {
-            directory_entry: normalized,
-          }
-        );
-        talaLedger.addTransaction(anchorTx);
-      } catch (err) {
-        console.warn(`[Tala Chain] Failed to anchor peer directory update for ${normalized.username}: ${err.message}`);
-      }
-    }
-
-    return normalized;
-  }
-
-  heartbeat(identifier, patch = {}) {
-    const existing = this.find(identifier);
-    if (!existing) {
-      return null;
-    }
-    const updated = this.normalizePeer({
-      ...existing,
-      ...patch,
-      username: existing.username,
-      wallet_address: existing.wallet_address,
-      endpoint_url: patch.endpoint_url || existing.endpoint_url,
-      status: patch.status || 'online',
-      last_seen: new Date().toISOString(),
-    }, existing);
-    const index = this.peers.findIndex(item => item.username === existing.username || item.wallet_address === existing.wallet_address);
-    if (index >= 0) {
-      this.peers[index] = updated;
-      this.save();
-    }
-    return updated;
-  }
-}
-
 // Instantiate Global Ledger
 const talaLedger = new Blockchain();
-const peerDirectory = new PeerDirectory();
+const peerDirectory = new PeerDirectory({ file: PEERS_FILE, getLedger: () => talaLedger });
 
 // ---------------------------------------------------------------------------
 // HTTP Server / RPC Router
@@ -1309,8 +860,11 @@ const server = http.createServer((req, res) => {
 
   // Route: GET /chain/blocks
   if (url.pathname === '/chain/blocks' && req.method === 'GET') {
+    // ?limit=N returns only the newest N blocks (max 500); without it, the whole chain, as sync needs.
+    const limit = Number.parseInt(url.searchParams.get('limit') || '', 10);
+    const blocks = limit > 0 ? talaLedger.chain.slice(-Math.min(limit, 500)) : talaLedger.chain;
     res.writeHead(200, { 'Content-Type': 'application/json' });
-    res.end(JSON.stringify(talaLedger.chain));
+    res.end(JSON.stringify(blocks));
     return;
   }
 
@@ -1802,9 +1356,10 @@ const server = http.createServer((req, res) => {
   }
 
   // Route: GET /chain/tx/:id
-  const txMatch = url.pathname.match(/^\/chain\/tx\/([a-zA-Z0-9_-]+)$/);
+  const txMatch = url.pathname.match(/^\/chain\/tx\/([a-zA-Z0-9_.:%-]+)$/);
   if (txMatch && req.method === 'GET') {
-    const txId = txMatch[1];
+    let txId = txMatch[1];  // ids such as peer-directory:<wallet> carry : and . (percent-encoded in a URL)
+    try { txId = decodeURIComponent(txId); } catch { /* keep the raw text */ }
     const result = talaLedger.findTransactionById(txId);
     
     if (!result) {

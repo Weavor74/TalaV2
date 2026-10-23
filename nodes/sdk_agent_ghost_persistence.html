@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="sdk.agent.ghost_persistence"
   data-source-files="sdk/agent/ghost_persistence.py"
-  data-source-fingerprint="sha256:EE36B19EEE3B41579790B919EF6ACF0AD0C893FF7FD6AC8DA7A9FC6886AE3D18"
-  data-source-digest="sha256:606A490060D65E67144A83EF7B520352A3BDDCF1D4D03F5D3443BF13DA2D53B8"
+  data-source-fingerprint="sha256:F60C3EA9D2C25CCB694127BA8038E8DF09975AA5DEDF16DAAF63A6B64A08A89B"
+  data-source-digest="sha256:39E8CAEC5779D73C684D0A2437BAE37E2A6D90FF6FBC1C2DBD90D1EF188BF68E"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-25T20:15:28Z"
+  data-generated-at="2026-10-23T00:00:06Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -40,7 +40,7 @@
   <section id="semantic-memory">
     <p>Offline-first thought-state persistence for agent loops</p>
     <p>It lives at sdk/agent/ghost_persistence.py within the agent SDK.</p>
-    <p>Functions it exposes: commit_to_ghost() — Commit agent thought-state to the local Ghost Blockchain; restore_from_ghost() — Restore agent thought-state from local Ghost Blockchain; pre_flight_reconciliation() — bring the shared chain up to date before a run; check_hash() — a cheap health check on the local chain.</p>
+    <p>Functions it exposes: commit_to_ghost() — Commit agent thought-state to the local Ghost Blockchain; restore_from_ghost() — Restore agent thought-state from local Ghost Blockchain; local_chain_host_port() — Where the local chain node listens: the same variables blockchain/src/app.js reads.; local_chain_base_url(); pre_flight_reconciliation() — bring the shared chain up to date before a run; check_hash() — a cheap health check on the local chain.</p>
   </section>
 
   <section id="source-evidence">
@@ -104,14 +104,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-25T20:15:28Z",
+    "created_or_updated": "2026-10-23T00:00:06Z",
     "schema": "neural-node/v2",
     "doc_target": "sdk.agent.ghost_persistence",
-    "source_fingerprint": "sha256:EE36B19EEE3B41579790B919EF6ACF0AD0C893FF7FD6AC8DA7A9FC6886AE3D18",
+    "source_fingerprint": "sha256:F60C3EA9D2C25CCB694127BA8038E8DF09975AA5DEDF16DAAF63A6B64A08A89B",
     "source_files": [
       "sdk/agent/ghost_persistence.py"
     ],
-    "source_digest": "sha256:606A490060D65E67144A83EF7B520352A3BDDCF1D4D03F5D3443BF13DA2D53B8",
+    "source_digest": "sha256:39E8CAEC5779D73C684D0A2437BAE37E2A6D90FF6FBC1C2DBD90D1EF188BF68E",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],

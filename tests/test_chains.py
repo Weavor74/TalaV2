@@ -366,7 +366,7 @@ async def test_the_local_node_is_not_gated_by_the_guard(monkeypatch):
     monkeypatch.setattr(chains, "ghost_endpoint", endpoint)
 
     # reaches the POST rather than the guard; the connection itself fails
-    result = await chains._post("http://127.0.0.1:8332", {"id": "t"}, guard=False)
+    result = await chains._post("http://127.0.0.1:8332", {"id": "t", "type": "probe"}, guard=False)
     assert result["written"] is False
     assert "guardrails" not in result["error"]
 

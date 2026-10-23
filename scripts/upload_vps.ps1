@@ -28,12 +28,26 @@ foreach ($f in ($bundles + @('download.html', 'version.json'))) {
     gcloud compute scp (Join-Path $pub $f) "${vm}:$f" --zone=$zone
     if ($LASTEXITCODE -ne 0) { throw "scp of $f failed; nothing has gone live." }
 }
-gcloud compute scp (Join-Path $repo 'blockchain\src\app.js') "${vm}:app.js" --zone=$zone
-if ($LASTEXITCODE -ne 0) { throw "scp of app.js failed; nothing has gone live." }
+# The chain node is app.js PLUS its sibling modules (blockchain/src/*.js). Shipping
+# app.js alone leaves a node that dies on its first require(), so every .js file in
+# the directory goes, and each is syntax-checked here first (a dead node must not go live).
+$nodeFiles = Get-ChildItem (Join-Path $repo 'blockchain\src') -Filter *.js
+if (-not ($nodeFiles | Where-Object Name -eq 'app.js')) { throw 'blockchain/src/app.js is missing; nothing has gone live.' }
+if (Get-Command node -ErrorAction SilentlyContinue) {
+    foreach ($f in $nodeFiles) {
+        node --check $f.FullName
+        if ($LASTEXITCODE -ne 0) { throw "$($f.Name) does not parse; nothing has gone live." }
+    }
+}
+foreach ($f in $nodeFiles) {
+    gcloud compute scp $f.FullName "${vm}:$($f.Name)" --zone=$zone
+    if ($LASTEXITCODE -ne 0) { throw "scp of $($f.Name) failed; nothing has gone live." }
+}
+$nodeHome = ($nodeFiles | ForEach-Object { "~/$($_.Name)" }) -join ' '
 
 # --- Go live: bundles, site page, server code. NOT version.json yet.
-gcloud compute ssh $vm --zone=$zone --command="sudo cp ~/tala-windows.zip ~/tala-macos.zip ~/tala-linux.zip ~/download.html /var/www/talacore/ && sudo mv ~/tala-windows.zip ~/tala-macos.zip ~/tala-linux.zip ~/download.html /opt/tala/blockchain/public/ && sudo mv ~/app.js /opt/tala/blockchain/src/app.js && sudo systemctl restart tala-vps.service"
-if ($LASTEXITCODE -ne 0) { throw 'remote install of bundles/app.js failed; version.json was NOT updated.' }
+gcloud compute ssh $vm --zone=$zone --command="sudo cp ~/tala-windows.zip ~/tala-macos.zip ~/tala-linux.zip ~/download.html /var/www/talacore/ && sudo mv ~/tala-windows.zip ~/tala-macos.zip ~/tala-linux.zip ~/download.html /opt/tala/blockchain/public/ && sudo mv $nodeHome /opt/tala/blockchain/src/ && sudo systemctl restart tala-vps.service"
+if ($LASTEXITCODE -ne 0) { throw 'remote install of bundles/node files failed; version.json was NOT updated.' }
 
 # --- Verify each bundle from the public URL, byte-for-byte, before
 # --- advertising it. A mismatch here means a client would download something

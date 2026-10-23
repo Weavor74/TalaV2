@@ -131,8 +131,10 @@ def canonicalize_and_anchor(node_id: str, content_html: str, state_data: dict, a
         except Exception:
             logger.debug("could not attach the local chain admin secret", exc_info=True)
 
+        from sdk.agent.ghost_persistence import local_chain_base_url
+
         req = urllib.request.Request(
-            "http://127.0.0.1:8332/chain/tx",
+            f"{local_chain_base_url()}/chain/tx",
             data=tx_data,
             headers=headers,
             method="POST"

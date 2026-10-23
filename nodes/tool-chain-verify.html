@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: chain_verify</title>
+</head>
+<body>
+<article
+  data-node-id="tool-chain-verify"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="chain_verify"
+  data-source-files="sdk/agent/chain_tools.py"
+  data-source-fingerprint="sha256:A98AFE95C5EC873236946F37E9568ED72FF9B4D604083D89979C39FBAA278752"
+  data-source-digest="sha256:BEA41233E794D6382984F942C4F7CFEC2F5499C569809E306FE4C756106F5002"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-22T23:56:00Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: chain_verify</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;chain_verify&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Independently re-verify your whole local blockchain from its file: every block&#x27;s hash, the links between blocks, every signature, and that each signer is a permitted authority. Reports whether it is valid and lists any problems. Slower than chain_status; read-only.&lt;/p&gt;&lt;p&gt;It takes no arguments: &lt;code&gt;chain_verify()&lt;/code&gt;.&lt;/p&gt;&lt;p&gt;Reads ``chain.json`` directly and runs the same verifier the shared-chain import uses, so it agrees with the node only if the ledger genuinely is sound. Reports ``valid``, ``height``, signed and unsigned block counts and up to 20 problems. Refuses a file over 256 MB rather than loading it.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.chain_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/chain_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-chain-verify"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "chain_verify"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: chain_verify",
+  "description": "Program documentation for chain_verify.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "chain_verify"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-22T23:56:00Z",
+    "schema": "neural-node/v2",
+    "doc_target": "chain_verify",
+    "source_fingerprint": "sha256:A98AFE95C5EC873236946F37E9568ED72FF9B4D604083D89979C39FBAA278752",
+    "source_files": [
+      "sdk/agent/chain_tools.py"
+    ],
+    "source_digest": "sha256:BEA41233E794D6382984F942C4F7CFEC2F5499C569809E306FE4C756106F5002",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "chain_verify",
+    "description": "Independently re-verify your whole local blockchain from its file: every block's hash, the links between blocks, every signature, and that each signer is a permitted authority. Reports whether it is valid and lists any problems. Slower than chain_status; read-only.",
+    "signature": "chain_verify()",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "module": "sdk.agent.chain_tools",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

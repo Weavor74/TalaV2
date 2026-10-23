@@ -46,6 +46,7 @@ const fs      = require('node:fs');
 const { spawn, spawnSync }  = require('node:child_process');
 const { registerHandlers } = require('./ipc-handlers');
 const { rpcTimeoutMs } = require('./rpc_policy');
+const { chainPort } = require('./chain_endpoint');
 const { initBlockchain, spawnBlockchain, stopBlockchain } = require('./blockchain-process');
 const { ensureWsToken: ensureWsTokenFile, ensureWebUiToken: ensureWebUiTokenFile } = require('./token_files');
 const {
@@ -989,7 +990,7 @@ function killProcessOnPort(port) {
 app.whenReady().then(() => {
   // Clear any stale processes holding our ports
   killProcessOnPort(8765);
-  killProcessOnPort(8332);
+  killProcessOnPort(chainPort());
 
   // Initialise persistent store
   initStore();

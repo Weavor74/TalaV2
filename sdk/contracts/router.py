@@ -60,7 +60,9 @@ logger = logging.getLogger(__name__)
 #: Base URL of the Tala custom Node.js blockchain RPC node.
 #: Override via ``TALA_CHAIN_RPC_URL`` environment variable for staging/prod.
 import os as _os
-CHAIN_RPC_URL: str = _os.environ.get("TALA_CHAIN_RPC_URL", "http://127.0.0.1:8332")
+CHAIN_RPC_URL: str = _os.environ.get("TALA_CHAIN_RPC_URL") or (
+    f"http://127.0.0.1:{_os.environ.get('TALA_CHAIN_BIND_PORT') or 8332}"
+)
 
 #: Timeout in seconds for all chain RPC calls.  If the node does not respond
 #: within this window, the router falls back to PostgreSQL-only mode.

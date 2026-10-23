@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: chain_recent</title>
+</head>
+<body>
+<article
+  data-node-id="tool-chain-recent"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="chain_recent"
+  data-source-files="sdk/agent/chain_tools.py"
+  data-source-fingerprint="sha256:52C93BFFFA7880C34D8E90A2719157540A06FA7CDA0B52B6D87A070CCAB2ED9F"
+  data-source-digest="sha256:BEA41233E794D6382984F942C4F7CFEC2F5499C569809E306FE4C756106F5002"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-22T23:55:58Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: chain_recent</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;chain_recent&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. List the newest blocks on your local blockchain (default 10, at most 50): each block&#x27;s index, time, signer, and its transactions (id, type, creator, whether it carries a document). Never returns document contents. Read-only.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;chain_recent(limit)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;limit&lt;/code&gt; (integer, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;``limit`` is clamped to 1..50. Returns the newest blocks, oldest first, as summaries. Document bodies are never included.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.chain_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/chain_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-chain-recent"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "chain_recent"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: chain_recent",
+  "description": "Program documentation for chain_recent.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "chain_recent"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-22T23:55:58Z",
+    "schema": "neural-node/v2",
+    "doc_target": "chain_recent",
+    "source_fingerprint": "sha256:52C93BFFFA7880C34D8E90A2719157540A06FA7CDA0B52B6D87A070CCAB2ED9F",
+    "source_files": [
+      "sdk/agent/chain_tools.py"
+    ],
+    "source_digest": "sha256:BEA41233E794D6382984F942C4F7CFEC2F5499C569809E306FE4C756106F5002",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "chain_recent",
+    "description": "List the newest blocks on your local blockchain (default 10, at most 50): each block's index, time, signer, and its transactions (id, type, creator, whether it carries a document). Never returns document contents. Read-only.",
+    "signature": "chain_recent(limit)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "limit": {
+          "type": "integer"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.chain_tools",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

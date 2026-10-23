@@ -33,6 +33,7 @@ const path = require('node:path');
 const fs   = require('node:fs/promises');
 const fssync = require('node:fs');
 const { app, ipcMain } = require('electron');
+const { postTransaction } = require('./chain_endpoint');
 
 /* ──────────────────────────────────────────────────────────────────
    Constants / config
@@ -372,7 +373,6 @@ function registerHandlers({ isNetworkIsolated } = {}) {
         const crypto = require('crypto');
         const hash = crypto.createHash('sha256').update(data).digest('hex');
         const slug = path.basename(filePath, '.html');
-        const http = require('http');
         const document = await encryptChainDocument(userData, {
           document_type: 'html-nn',
           encoding,
@@ -395,21 +395,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
           }
         });
 
-        const req = http.request({
-          hostname: '127.0.0.1',
-          port: 8332,
-          path: '/chain/tx',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(txData)
-          }
-        }, (res) => {
-          res.on('data', () => {});
-        });
-        req.on('error', () => { /* fallback if offline */ });
-        req.write(txData);
-        req.end();
+        postTransaction(userData, txData);
       } catch (err) {
         // ignore errors so file write succeeds regardless
       }
@@ -443,7 +429,6 @@ function registerHandlers({ isNetworkIsolated } = {}) {
     if (isNodesHtmlPath(filePath)) {
       try {
         const slug = path.basename(filePath, '.html');
-        const http = require('http');
 
         const txData = JSON.stringify({
           id: `node-${slug}`,
@@ -453,21 +438,7 @@ function registerHandlers({ isNetworkIsolated } = {}) {
           counterparty: 'blockchain-ledger'
         });
 
-        const req = http.request({
-          hostname: '127.0.0.1',
-          port: 8332,
-          path: '/chain/tx',
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Content-Length': Buffer.byteLength(txData)
-          }
-        }, (res) => {
-          res.on('data', () => {});
-        });
-        req.on('error', () => { /* fallback if offline */ });
-        req.write(txData);
-        req.end();
+        postTransaction(userData, txData);
       } catch (err) {
         // ignore
       }

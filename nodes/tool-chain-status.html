@@ -1,0 +1,134 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: chain_status</title>
+</head>
+<body>
+<article
+  data-node-id="tool-chain-status"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="chain_status"
+  data-source-files="sdk/agent/chain_tools.py"
+  data-source-fingerprint="sha256:AEDAA8B925188042D6F96476BC87F719FD2CC517743EEB36ADBD3C87F99721A0"
+  data-source-digest="sha256:BEA41233E794D6382984F942C4F7CFEC2F5499C569809E306FE4C756106F5002"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-22T23:55:59Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: chain_status</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;chain_status&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Check the health of your local blockchain node: whether it is reachable, its block height, whether the whole chain validates, and its newest block. Read-only.&lt;/p&gt;&lt;p&gt;It takes no arguments: &lt;code&gt;chain_status()&lt;/code&gt;.&lt;/p&gt;&lt;p&gt;Asks the node for its status. Reports ``reachable``, ``height``, ``is_valid`` (the node&#x27;s own full recheck), ``latest_block_hash`` (first 12 characters), ``pending_transactions`` and ``peer_count``. A node that is down returns ``reachable: False`` with a hint; it never raises.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.chain_tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/chain_tools.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-chain-status"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "chain_status"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: chain_status",
+  "description": "Program documentation for chain_status.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "chain_status"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-22T23:55:59Z",
+    "schema": "neural-node/v2",
+    "doc_target": "chain_status",
+    "source_fingerprint": "sha256:AEDAA8B925188042D6F96476BC87F719FD2CC517743EEB36ADBD3C87F99721A0",
+    "source_files": [
+      "sdk/agent/chain_tools.py"
+    ],
+    "source_digest": "sha256:BEA41233E794D6382984F942C4F7CFEC2F5499C569809E306FE4C756106F5002",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "chain_status",
+    "description": "Check the health of your local blockchain node: whether it is reachable, its block height, whether the whole chain validates, and its newest block. Read-only.",
+    "signature": "chain_status()",
+    "schema": {
+      "type": "object",
+      "properties": {},
+      "required": []
+    },
+    "module": "sdk.agent.chain_tools",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>
