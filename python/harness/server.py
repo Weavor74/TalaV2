@@ -115,7 +115,9 @@ from python.harness.heartbeat_rpc import (
     handle_heartbeat_list, handle_heartbeat_reload, handle_heartbeat_update,
 )
 from python.harness.health_rpc import handle_harness_health
-from python.harness.inference_policy import adjust_max_tokens_for_provider, model_id_matches
+from python.harness.inference_policy import adjust_max_tokens_for_provider
+from python.harness.provider_policy import refusal as provider_refusal
+from python.harness.provider_probe import probe_remote_provider
 from python.harness.inference_helpers import strip_tool_tags_if_no_tools, notify_inference_fallback
 from python.harness.long_job_loop import attach_long_job, report_long_job_turn, run_reply_tool_rounds
 from python.harness.workstation_rpc import WORKSTATION_RPC_HANDLERS
@@ -14929,8 +14931,10 @@ async def _auto_detect_and_verify_providers() -> None:
         p_type = p["type"]
         p_config = p["config"] or {}
         new_status = "offline"
-        
-        if p_type == "local":
+        _blocked = provider_refusal(p)
+        if _blocked:
+            logger.info("Provider '%s' is not verified: %s", p["name"], _blocked)
+        elif p_type == "local":
             engine = p_config.get("engine", "ollama")
             endpoint = p_config.get("endpoint", "")
             model = p_config.get("model", "")
@@ -14991,53 +14995,7 @@ async def _auto_detect_and_verify_providers() -> None:
                         new_status = "offline"
                         
         elif p_type == "remote":
-            # Was: a non-empty apiKey string meant ONLINE, with no request made
-            # at all (UI-046). An expired key, a revoked key, a typo, a wrong
-            # endpoint, a suspended account or no network connection all
-            # rendered the same green dot. The local branch two lines up does
-            # this properly -- it asks the endpoint and checks the configured
-            # model is in the answer -- so this now meets the same standard.
-            api_key = p_config.get("apiKey", "") or p_config.get("api_key", "")
-            endpoint = p_config.get("endpoint", "")
-            model = p_config.get("model", "")
-
-            if not api_key:
-                new_status = "offline"
-            elif not endpoint:
-                new_status = "offline"
-                logger.error("Provider %s (%s) has an API key but no endpoint. Configure it in Settings → Inference.", p["id"], p.get("name", "Unnamed"))
-            elif endpoint in cached_openai_models:
-                models = cached_openai_models[endpoint]
-                new_status = (
-                    "online"
-                    if models is not None and (not model or model in models)
-                    else "offline"
-                )
-            else:
-                try:
-                    ep_url = _normalize_endpoint_url(endpoint)
-                    headers = {"Authorization": f"Bearer {api_key}"}
-                    async with httpx.AsyncClient(timeout=10.0) as client:
-                        resp = await client.get(f"{ep_url}/models", headers=headers)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        raw_ids = [m.get("id") for m in data.get("data", [])]
-                        models = raw_ids
-                        cached_openai_models[endpoint] = models
-                        model_found = model_id_matches(models, model) if model else True
-                        if model_found:
-                            new_status = "online"
-                        else:
-                            new_status = "offline"
-                            logger.warning("Provider %s does not list model %r (available: %s).", p["id"], model, ", ".join(models[:5]))
-                    else:
-                        cached_openai_models[endpoint] = None
-                        new_status = "offline"
-                        logger.warning("Provider %s returned HTTP %d when verifying its key.", p["id"], resp.status_code)
-                except Exception as exc:
-                    cached_openai_models[endpoint] = None
-                    new_status = "offline"
-                    logger.warning("Provider %s could not be reached: %s", p["id"], exc)
+            new_status = await probe_remote_provider(p, p_config, cached_openai_models, _normalize_endpoint_url)
         if p["status"] != new_status:
             await db.execute(
                 "UPDATE inference_providers SET status = $1, updated_at = NOW() WHERE id = $2",

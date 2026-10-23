@@ -153,6 +153,30 @@ raising `--n-cpu-moe` would leave almost no room beside the Windows desktop on a
 load drops Tala to the fallback model. To trade the other way (more GPU layers, smaller window), change
 `ctx` and `args` in the profile, or override them in `<user data>/inference-profiles.json`, and re-measure.
 
+## Provider policy: local and US-origin only
+
+Tala uses local, US-origin models. `python/harness/provider_policy.py` enforces that on every provider, whatever
+rows the database holds:
+
+* **A model from a non-US lab is never used, even if you name it.** Qwen (and derivatives named "gwen"),
+  DeepSeek, Mistral/Mixtral, Kimi/Moonshot, Zhipu, Baichuan, InternLM, Hunyuan, MiniMax and Ernie. The marker is
+  looked for in the provider's name, id, model, service and endpoint, so a custom endpoint on a banned host is
+  caught as well as a banned model name.
+* **A remote provider is used only when remote is allowed:** the active profile sets `allow_remote`, or
+  `TALA_ALLOW_REMOTE_PROVIDERS=1` is set, or you name that provider (selecting it in the UI, or `provider_id`).
+  Left on automatic, remote providers are not part of the fallback chain.
+* **A refused provider is neither tried nor probed.** `skip_provider_attempt` asks the policy before every
+  generation attempt (all three generation loops go through it), and the start-up verification pass asks it before
+  every probe. That pass used to send `GET <endpoint>/models` with the stored API key to every remote provider on
+  every launch; a refused provider is now reported offline and nothing is sent.
+
+The policy stops stale rows being used; it does not delete them. A provider row left over from before (for example
+a Kimi or Qwen entry in an older database) shows as offline and is never called. Remove it in Settings -> Inference
+when you like.
+
+To allow a remote provider deliberately, set `"allow_remote": true` on the profile (see the profile fields above)
+or `TALA_ALLOW_REMOTE_PROVIDERS=1`. That never re-enables a non-US model.
+
 ## LoRA
 
 LoRA is **not implemented**. Nothing trains an adapter (`lora_trainer.py` is a

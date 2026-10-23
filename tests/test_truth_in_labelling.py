@@ -113,10 +113,12 @@ def test_all_measured_and_all_good_is_the_only_route_to_healthy():
 def test_a_remote_provider_is_probed_not_assumed():
     """An expired key, a revoked key, a typo, a wrong endpoint, a suspended
     account and no network all used to render the same green dot."""
-    src = Path("python/harness/server.py").read_text(encoding="utf-8")
-    block = src.split('elif p_type == "remote":', 1)[1].split("if p[\"status\"]", 1)[0]
+    # The probe lives in provider_probe.py (it moved out of server.py so the provider policy can gate it);
+    # the start-up pass must delegate to it rather than assume.
+    block = Path("python/harness/provider_probe.py").read_text(encoding="utf-8")
+    assert "probe_remote_provider(" in Path("python/harness/server.py").read_text(encoding="utf-8")
 
-    assert "httpx" in block or "cached_openai_models" in block, "no request is made"
+    assert "httpx" in block or "cached_models" in block, "no request is made"
     assert "/models" in block
     assert "Authorization" in block, "the key is not actually presented"
     # and a non-200 must be a failure, not a fall-through
@@ -124,8 +126,7 @@ def test_a_remote_provider_is_probed_not_assumed():
 
 
 def test_a_remote_provider_without_an_endpoint_is_offline():
-    src = Path("python/harness/server.py").read_text(encoding="utf-8")
-    block = src.split('elif p_type == "remote":', 1)[1].split("if p[\"status\"]", 1)[0]
+    block = Path("python/harness/provider_probe.py").read_text(encoding="utf-8")
     assert "not endpoint" in block
 
 
