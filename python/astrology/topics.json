@@ -1,0 +1,582 @@
+{
+  "version": 1,
+  "about": "Planet-to-topic table for the topic-stance layer (python/astrology/stance.py). Data, not code: tune it here. 'significators' are the transiting planets that move a topic (weight 1.0 each unless a [name, weight] pair is given); 'houses' are the natal houses that make a natal planet matter more for that topic; 'keywords' are matched as whole words (a trailing s/es/ed/ing is allowed); 'description' is what the optional embedding layer compares against. No topic uses house 1.",
+  "receiver_weights": {
+    "Sun": 1.0,
+    "Moon": 1.0,
+    "Venus": 0.9,
+    "Mars": 0.6,
+    "Mercury": 0.5,
+    "Jupiter": 0.2,
+    "Saturn": 0.2,
+    "Uranus": 0.1,
+    "Neptune": 0.1,
+    "Pluto": 0.1
+  },
+  "conjunction_nature": {
+    "Sun": 0.3,
+    "Moon": 0.1,
+    "Mercury": 0.0,
+    "Venus": 0.6,
+    "Mars": -0.5,
+    "Jupiter": 0.6,
+    "Saturn": -0.5,
+    "Uranus": -0.3,
+    "Neptune": -0.2,
+    "Pluto": -0.5
+  },
+  "topics": {
+    "war": {
+      "significators": [
+        "Mars"
+      ],
+      "houses": [
+        7,
+        8
+      ],
+      "phrase": "talk of war",
+      "keywords": [
+        "war",
+        "warfare",
+        "battle",
+        "battlefield",
+        "invasion",
+        "invade",
+        "military",
+        "soldier",
+        "troop",
+        "weapon",
+        "bomb",
+        "armed forces"
+      ],
+      "description": "war, armed conflict between nations or groups, military force, invasion, soldiers and weapons"
+    },
+    "conflict": {
+      "significators": [
+        "Mars"
+      ],
+      "houses": [
+        7
+      ],
+      "phrase": "conflict and confrontation",
+      "keywords": [
+        "conflict",
+        "fight",
+        "fighting",
+        "argument",
+        "quarrel",
+        "feud",
+        "dispute",
+        "confrontation",
+        "hostility"
+      ],
+      "description": "personal or social conflict, fighting, arguments, quarrels, disputes and confrontation"
+    },
+    "competition": {
+      "significators": [
+        "Mars"
+      ],
+      "houses": [
+        5,
+        7
+      ],
+      "phrase": "competition",
+      "keywords": [
+        "competition",
+        "compete",
+        "competitor",
+        "rival",
+        "rivalry",
+        "contest"
+      ],
+      "description": "competition, rivalry, contests, trying to beat others, winning and losing"
+    },
+    "sport": {
+      "significators": [
+        "Mars"
+      ],
+      "houses": [
+        5,
+        6
+      ],
+      "phrase": "sport",
+      "keywords": [
+        "sport",
+        "football",
+        "soccer",
+        "baseball",
+        "basketball",
+        "athlete",
+        "athletic",
+        "tournament",
+        "workout"
+      ],
+      "description": "sport, athletics, physical games and training, teams and tournaments"
+    },
+    "love": {
+      "significators": [
+        "Venus"
+      ],
+      "houses": [
+        5,
+        7
+      ],
+      "phrase": "love and romance",
+      "keywords": [
+        "love",
+        "romance",
+        "romantic",
+        "crush",
+        "dating",
+        "affection",
+        "sweetheart"
+      ],
+      "description": "love, romance, attraction, dating, affection and romantic relationships"
+    },
+    "art": {
+      "significators": [
+        "Venus"
+      ],
+      "houses": [
+        5
+      ],
+      "phrase": "art",
+      "keywords": [
+        "art",
+        "painting",
+        "painter",
+        "sculpture",
+        "gallery",
+        "artist",
+        "artistic",
+        "drawing"
+      ],
+      "description": "art, painting, sculpture, creative expression and galleries"
+    },
+    "money": {
+      "significators": [
+        "Venus"
+      ],
+      "houses": [
+        2,
+        8
+      ],
+      "phrase": "money matters",
+      "keywords": [
+        "money",
+        "cash",
+        "wealth",
+        "income",
+        "salary",
+        "budget",
+        "invest",
+        "investment",
+        "debt",
+        "afford"
+      ],
+      "description": "money, wealth, income, spending, saving, investing and debt"
+    },
+    "beauty": {
+      "significators": [
+        "Venus"
+      ],
+      "houses": [
+        2,
+        5
+      ],
+      "phrase": "beauty",
+      "keywords": [
+        "beauty",
+        "beautiful",
+        "gorgeous",
+        "aesthetic",
+        "elegant"
+      ],
+      "description": "beauty, aesthetics, grace, elegance and what is pleasing to look at"
+    },
+    "work": {
+      "significators": [
+        "Saturn"
+      ],
+      "houses": [
+        6,
+        10
+      ],
+      "phrase": "work",
+      "keywords": [
+        "work",
+        "job",
+        "career",
+        "employment",
+        "boss",
+        "office",
+        "profession"
+      ],
+      "description": "work, jobs, careers, employment, bosses and professional life"
+    },
+    "duty": {
+      "significators": [
+        "Saturn"
+      ],
+      "houses": [
+        6,
+        10
+      ],
+      "phrase": "duty and obligation",
+      "keywords": [
+        "duty",
+        "obligation",
+        "responsibility",
+        "commitment",
+        "burden"
+      ],
+      "description": "duty, obligation, responsibility, commitments and what one is bound to do"
+    },
+    "limits": {
+      "significators": [
+        "Saturn"
+      ],
+      "houses": [
+        4,
+        10
+      ],
+      "phrase": "limits and restriction",
+      "keywords": [
+        "limit",
+        "boundary",
+        "boundaries",
+        "restriction",
+        "restrict",
+        "constraint",
+        "discipline"
+      ],
+      "description": "limits, boundaries, restrictions, constraints and discipline"
+    },
+    "death": {
+      "significators": [
+        "Saturn"
+      ],
+      "houses": [
+        8
+      ],
+      "phrase": "death and endings",
+      "keywords": [
+        "death",
+        "die",
+        "died",
+        "dies",
+        "dying",
+        "dead",
+        "funeral",
+        "grief",
+        "mortality",
+        "mourning"
+      ],
+      "description": "death, dying, mortality, grief, funerals and endings"
+    },
+    "religion": {
+      "significators": [
+        "Jupiter"
+      ],
+      "houses": [
+        9,
+        12
+      ],
+      "phrase": "religion and faith",
+      "keywords": [
+        "religion",
+        "religious",
+        "god",
+        "church",
+        "faith",
+        "prayer",
+        "scripture",
+        "bible",
+        "pray"
+      ],
+      "description": "religion, God, faith, prayer, churches and scripture"
+    },
+    "law": {
+      "significators": [
+        "Jupiter"
+      ],
+      "houses": [
+        9,
+        10
+      ],
+      "phrase": "law and justice",
+      "keywords": [
+        "law",
+        "legal",
+        "court",
+        "judge",
+        "lawyer",
+        "justice",
+        "legislation",
+        "lawsuit"
+      ],
+      "description": "law, courts, justice, legislation, lawyers and legal rules"
+    },
+    "travel": {
+      "significators": [
+        "Jupiter"
+      ],
+      "houses": [
+        3,
+        9
+      ],
+      "phrase": "travel",
+      "keywords": [
+        "travel",
+        "trip",
+        "journey",
+        "vacation",
+        "abroad",
+        "airport"
+      ],
+      "description": "travel, journeys, trips, vacations and foreign places"
+    },
+    "growth": {
+      "significators": [
+        "Jupiter"
+      ],
+      "houses": [
+        9,
+        11
+      ],
+      "phrase": "growth and expansion",
+      "keywords": [
+        "growth",
+        "grow",
+        "improve",
+        "improvement",
+        "expansion",
+        "progress",
+        "flourish"
+      ],
+      "description": "growth, expansion, improvement, progress and flourishing"
+    },
+    "tech": {
+      "significators": [
+        "Mercury",
+        "Uranus"
+      ],
+      "houses": [
+        3,
+        11
+      ],
+      "phrase": "technology",
+      "keywords": [
+        "tech",
+        "technology",
+        "software",
+        "hardware",
+        "computer",
+        "computing",
+        "programming",
+        "gadget"
+      ],
+      "description": "technology, computers, software, hardware, programming and gadgets"
+    },
+    "writing": {
+      "significators": [
+        "Mercury"
+      ],
+      "houses": [
+        3
+      ],
+      "phrase": "writing",
+      "keywords": [
+        "writing",
+        "write",
+        "essay",
+        "novel",
+        "poem",
+        "poetry",
+        "author",
+        "journal"
+      ],
+      "description": "writing, essays, novels, poetry, authors and putting words on a page"
+    },
+    "trade": {
+      "significators": [
+        "Mercury"
+      ],
+      "houses": [
+        2,
+        3,
+        7
+      ],
+      "phrase": "trade and commerce",
+      "keywords": [
+        "trade",
+        "trading",
+        "trader",
+        "commerce",
+        "merchant",
+        "barter",
+        "negotiation",
+        "negotiate"
+      ],
+      "description": "trade, commerce, merchants, bartering and negotiation"
+    },
+    "home": {
+      "significators": [
+        "Moon"
+      ],
+      "houses": [
+        4
+      ],
+      "phrase": "home",
+      "keywords": [
+        "home",
+        "house",
+        "apartment",
+        "household",
+        "residence"
+      ],
+      "description": "home, house, household and the place one lives"
+    },
+    "family": {
+      "significators": [
+        "Moon"
+      ],
+      "houses": [
+        4
+      ],
+      "phrase": "family",
+      "keywords": [
+        "family",
+        "mother",
+        "father",
+        "parent",
+        "sibling",
+        "brother",
+        "sister",
+        "child",
+        "children",
+        "relatives"
+      ],
+      "description": "family, parents, siblings, children and relatives"
+    },
+    "emotions": {
+      "significators": [
+        "Moon"
+      ],
+      "houses": [
+        4,
+        12
+      ],
+      "phrase": "emotional matters",
+      "keywords": [
+        "emotion",
+        "emotional",
+        "feelings",
+        "mood",
+        "sadness",
+        "anxiety"
+      ],
+      "description": "emotions, feelings, moods, sadness and anxiety"
+    },
+    "spirituality": {
+      "significators": [
+        "Neptune"
+      ],
+      "houses": [
+        9,
+        12
+      ],
+      "phrase": "spirituality",
+      "keywords": [
+        "spiritual",
+        "spirituality",
+        "soul",
+        "meditation",
+        "meditate",
+        "mystic",
+        "mystical",
+        "enlightenment"
+      ],
+      "description": "spirituality, the soul, meditation, mysticism and enlightenment"
+    },
+    "illusion": {
+      "significators": [
+        "Neptune"
+      ],
+      "houses": [
+        12
+      ],
+      "phrase": "illusion and fantasy",
+      "keywords": [
+        "illusion",
+        "delusion",
+        "fantasy",
+        "deception",
+        "mirage",
+        "pretend"
+      ],
+      "description": "illusion, delusion, fantasy, deception and things that are not what they seem"
+    },
+    "revolution": {
+      "significators": [
+        "Uranus"
+      ],
+      "houses": [
+        8,
+        11
+      ],
+      "phrase": "revolution and upheaval",
+      "keywords": [
+        "revolution",
+        "revolt",
+        "uprising",
+        "rebellion",
+        "protest",
+        "riot",
+        "coup",
+        "upheaval",
+        "overthrow"
+      ],
+      "description": "revolution, rebellion, uprisings, protest and overthrowing the established order"
+    },
+    "power": {
+      "significators": [
+        "Pluto"
+      ],
+      "houses": [
+        8,
+        10
+      ],
+      "phrase": "power and control",
+      "keywords": [
+        "power",
+        "powerful",
+        "dominance",
+        "tyranny",
+        "regime",
+        "dictator",
+        "empire"
+      ],
+      "description": "power, control, dominance, tyranny, regimes and who rules"
+    },
+    "crisis": {
+      "significators": [
+        "Pluto"
+      ],
+      "houses": [
+        8,
+        12
+      ],
+      "phrase": "crisis",
+      "keywords": [
+        "crisis",
+        "emergency",
+        "disaster",
+        "catastrophe",
+        "collapse",
+        "panic"
+      ],
+      "description": "crisis, emergency, disaster, catastrophe and collapse"
+    }
+  }
+}

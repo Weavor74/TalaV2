@@ -211,6 +211,11 @@ async def _resolve_birthdate(agent_id: str | None):
     return await _resolve_primary_birthdate()
 
 
+async def resolve_agent_birthdate(agent_id: str | None):
+    """The acting agent's chart, without the provenance label (see ``_resolve_birthdate``)."""
+    return (await _resolve_birthdate(agent_id))[0]
+
+
 async def _resolve_user_birthdate():
     """
     The user's chart from their profile, for the relational baseline.
@@ -262,7 +267,9 @@ async def get_emotional_state(
     from python.astrology.emotion import emotion_vs_person, emotion_vs_time
     from python.astrology.ephemeris import ephemeris_source
 
-    now = when or datetime.now(UTC)
+    from python.astrology.clock import astro_now
+
+    now = when or astro_now()
     try:
         birthdate, birth_source = await _resolve_birthdate(agent_id)
 
@@ -280,6 +287,15 @@ async def get_emotional_state(
         payload["degraded"] = _alarm_if_degraded(payload["ephemeris_source"])
         # What the sky says right now, before any carry-over below.
         payload["engine_emotion"] = payload.get("primary_emotion")
+
+        # Her stance on subjects, from the same sky. A failure here costs the
+        # payload its stance, never her mood.
+        try:
+            from python.astrology import stance as _stance
+
+            payload["topic_stance"] = _stance.payload_for(birthdate, now)
+        except Exception as exc:
+            log.warning("emotion_service: topic stance unavailable (%s)", exc)
 
         # Climate: a permanent relational disposition, never the user's DOB.
         user_chart, relational_source = await _resolve_user_birthdate()

@@ -80,6 +80,7 @@ from python.harness.openai_tool_roundtrip import (
 )
 from python.harness.rpc_occupancy import occupancy as _rpc_occupancy
 from python.harness.rpc_occupancy import run_rpc_handler
+from python.harness.astro_rpc import handle_astro_topic_stance
 from python.harness.provider_rpc import (
     handle_inference_detect_local_providers,
     handle_inference_get_embedded_status,
@@ -2362,6 +2363,9 @@ async def handle_inference_generate(
                             "=== PEER HTML NEURAL NODE CONTEXT ===\n" + "\n\n".join(peer_context_parts)
                         )
 
+                    from python.harness.topic_stance import stance_context_block
+                    if stance_block := await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion):
+                        system_context_additions.append(stance_block)
                     if system_context_additions:
                         if active_system_prompt:
                             active_system_prompt = active_system_prompt + "\n\n" + "\n\n".join(system_context_additions)
@@ -14145,6 +14149,7 @@ _HANDLERS: dict[str, Any] = {
     "identity.save_user_profile": handle_identity_save_user_profile,
     "astro.transits":     handle_astro_transits,
     "astro.synastry":     handle_astro_synastry,
+    "astro.topic_stance": handle_astro_topic_stance,
     "graph.query_activations": handle_graph_query_activations,
     "agent.get_agents":   handle_agent_get_agents,
     "agent.save_agent":   handle_agent_save_agent,

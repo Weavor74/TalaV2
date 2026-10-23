@@ -364,6 +364,27 @@ go to PostgreSQL; `mem0` is recall-only.
 uv pip install -e .[mem0]
 ```
 
+### Astrology (mood and topic stance)
+
+Her mood and her stance on topics come from a real Swiss Ephemeris. Without it she has
+no mood label and no stance (there is no approximation), and the chart tests skip.
+
+```bash
+uv pip install -e .[astrology]
+```
+
+On Kagura keep uv's cache off C: (`$env:UV_CACHE_DIR = "D:\caches\uv"`); `scripts\kagura-stack.ps1`
+installs it for you. Topic detection can also use a small local embedding model for messages with no
+keyword match; it runs on the CPU through Ollama and is optional:
+
+```powershell
+$env:OLLAMA_MODELS = "D:\ollama\models"
+ollama pull nomic-embed-text      # ~270 MB, US-origin; set TALA_TOPIC_EMBEDDINGS=0 to switch the layer off
+```
+
+How the stance is computed, how to inspect it (`astro.topic_stance`) and how to pin the sky for a
+demonstration (`TALA_ASTRO_NOW`) are in [docs/astro-topic-stance.md](docs/astro-topic-stance.md).
+
 ### GPU Inference (torch + CUDA)
 
 The default install resolves CPU-only wheels for `torch`, which run the embedded

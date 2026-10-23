@@ -31,8 +31,12 @@ $LlamaServer = Join-Path $env:TALA_TOOLS_DIR "llama-cuda-copy\llama-server.exe"
 $Gguf        = Join-Path $env:TALA_MODELS_DIR "gguf\gpt-oss-20b-heretic.MXFP4_MOE.gguf"
 $OllamaModels = @(
     "gemma3:4b",
-    "hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M"
+    "hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M",
+    # Topic detection for messages with no keyword (CPU only, optional): docs/astro-topic-stance.md
+    "nomic-embed-text:latest"
 )
+if (-not $env:UV_CACHE_DIR -or $env:UV_CACHE_DIR -match '^[Cc]:') { $env:UV_CACHE_DIR = "D:\caches\uv" }
+$VenvPython = Join-Path $PSScriptRoot "..\.venv\Scripts\python.exe"
 
 function Test-Ollama {
     try { Invoke-RestMethod "http://localhost:11434/api/tags" -TimeoutSec 2 | Out-Null; $true } catch { $false }
@@ -53,6 +57,14 @@ $haveGguf   = Test-Path $Gguf
 Write-Host ("llama-server   : {0}  ({1})" -f $LlamaServer, $(if ($haveServer) { "found" } else { "MISSING" }))
 Write-Host ("gpt-oss GGUF   : {0}  ({1})" -f $Gguf, $(if ($haveGguf) { "found" } else { "missing" }))
 
+function Test-Swisseph {
+    if (-not (Test-Path $VenvPython)) { return $false }
+    & $VenvPython -c "import swisseph" 2>$null
+    return ($LASTEXITCODE -eq 0)
+}
+$haveSwe = Test-Swisseph
+Write-Host ("pyswisseph     : {0}" -f $(if ($haveSwe) { "present" } else { "MISSING (mood + topic stance need it)" }))
+
 $ollamaUp = Test-Ollama
 Write-Host ("Ollama         : {0}" -f $(if ($ollamaUp) { "running" } else { "not running" }))
 $installed = @()
@@ -65,6 +77,12 @@ if ($ollamaUp) {
 }
 
 if ($Check) { return }
+
+if (-not $haveSwe) {
+    Write-Host "Installing pyswisseph (UV_CACHE_DIR=$env:UV_CACHE_DIR) ..."
+    & uv pip install --python $VenvPython "pyswisseph>=2.10.3.2"
+    if ($LASTEXITCODE -ne 0) { throw "installing pyswisseph failed" }
+}
 
 if (-not $haveServer) {
     throw "llama-server not found at $LlamaServer. Put the CUDA llama.cpp build there (or set TALA_TOOLS_DIR)."
