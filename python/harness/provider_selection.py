@@ -12,6 +12,8 @@ import logging
 from dataclasses import dataclass, field
 from typing import Any
 
+from python.harness.provider_policy import refusal as provider_refusal
+
 logger = logging.getLogger(__name__)
 
 PROVIDER_TIER_RANK = {"remote": 0, "local": 1, "embedded": 2}
@@ -110,6 +112,14 @@ def skip_provider_attempt(
     on to the next one, which is the behaviour a caller naming a provider
     expects.
     """
+    # Policy before the offline rule: a refused provider is skipped even when it was named (non-US) or is
+    # remote and was not (see provider_policy). Three generation loops call this, so none can bypass it.
+    requested = any(p and provider["id"] == p["id"] for p in (request_provider, forced_provider))
+    blocked = provider_refusal(provider, requested=requested)
+    if blocked:
+        logger.info("Skipping provider '%s': %s", provider["name"], blocked)
+        return True
+
     if provider.get("status") != "offline":
         return False
 

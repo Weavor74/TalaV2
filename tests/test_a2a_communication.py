@@ -1,3 +1,4 @@
+import os
 import pytest
 import asyncio
 import sys
@@ -130,6 +131,9 @@ async def test_handle_p2p_receive_message_triggers_a2a(mock_handle_inbound, mock
 @patch("python.harness.db.fetchrow")
 @patch("httpx.AsyncClient")
 @patch("python.harness.server._send_a2a_message_helper")
+# This test is about the A2A reply flow, which it drives through a mocked *remote* provider. Remote providers are
+# off by default (provider_policy), so it opts in explicitly rather than testing the policy by accident.
+@patch.dict(os.environ, {"TALA_ALLOW_REMOTE_PROVIDERS": "1"})
 async def test_handle_inbound_a2a_success(mock_send_helper, mock_httpx, mock_fetchrow, mock_fetch):
     """
     NAME

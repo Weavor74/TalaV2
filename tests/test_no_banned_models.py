@@ -27,6 +27,8 @@ ALLOWED_PREFIXES = (
     "blockchain/data/",                    # hash-chained ledger: cannot be rewritten
     "nodes/benchmark-run-",                # historical measurement records
     "python/harness/db_ddl_extra.py",      # migration that must name Qwen to retire it
+    "python/harness/provider_policy.py",   # the runtime deny list has to spell what it denies
+    "tests/test_provider_policy.py",       # and so do the tests that prove it denies them
     "docs/reference/",                     # generated snapshots of older source
     "tests/test_no_banned_models.py",      # this file
     "tests/test_external_engine.py",       # asserts the names are absent
