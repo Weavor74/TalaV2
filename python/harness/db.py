@@ -34,6 +34,7 @@ from asyncpg import Pool, Record
 
 from .config import settings
 from .db_ddl_extra import _INFERENCE_PROVIDER_EXTRA_DDL
+from .db_guard import refuse_live_database_under_pytest
 
 logger = logging.getLogger(__name__)
 
@@ -1177,6 +1178,7 @@ async def init_pool() -> Pool:
         return _pool
 
     db_url = settings.DB_URL
+    refuse_live_database_under_pytest(db_url)
     logger.info("Connecting to PostgreSQL: %s", _redact_url(db_url))
 
     try:
