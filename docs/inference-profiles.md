@@ -158,10 +158,10 @@ load drops Tala to the fallback model. To trade the other way (more GPU layers, 
 Tala uses local, US-origin models. `python/harness/provider_policy.py` enforces that on every provider, whatever
 rows the database holds:
 
-* **A model from a non-US lab is never used, even if you name it.** Qwen (and derivatives named "gwen"),
-  DeepSeek, Mistral/Mixtral, Kimi/Moonshot, Zhipu, Baichuan, InternLM, Hunyuan, MiniMax and Ernie. The marker is
-  looked for in the provider's name, id, model, service and endpoint, so a custom endpoint on a banned host is
-  caught as well as a banned model name.
+* **A model from a non-US lab is never used, even if you name it.** The families are listed in
+  `provider_policy.NON_US`: every family this repository bans, plus other non-US labs such as Kimi/Moonshot. The
+  marker is looked for in the provider's name, id, model, service and endpoint, so a custom endpoint on a banned
+  host is caught as well as a banned model name.
 * **A remote provider is used only when remote is allowed:** the active profile sets `allow_remote`, or
   `TALA_ALLOW_REMOTE_PROVIDERS=1` is set, or you name that provider (selecting it in the UI, or `provider_id`).
   Left on automatic, remote providers are not part of the fallback chain.
@@ -171,7 +171,7 @@ rows the database holds:
   every launch; a refused provider is now reported offline and nothing is sent.
 
 The policy stops stale rows being used; it does not delete them. A provider row left over from before (for example
-a Kimi or Qwen entry in an older database) shows as offline and is never called. Remove it in Settings -> Inference
+an old entry for a model from a non-US lab) shows as offline and is never called. Remove it in Settings -> Inference
 when you like.
 
 To allow a remote provider deliberately, set `"allow_remote": true` on the profile (see the profile fields above)
