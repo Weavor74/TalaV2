@@ -531,6 +531,12 @@
                     <input type="checkbox" id="settings-lockdown-toggle" />
                     <span>LOCKDOWN</span>
                   </label>
+                  <label class="btn btn-ghost" id="btn-settings-learning" title="Let node weights learn from use and feedback, and run the nightly dream. Off means nodes are never rewritten by learning." style="display: inline-flex; gap: 6px; align-items: center; cursor: pointer;">
+                    <input type="checkbox" id="settings-learning-toggle" checked />
+                    <span>LEARNING</span>
+                  </label>
+                  <button class="btn btn-ghost" id="btn-settings-learning-reset" title="Admin: restore default weights on every node learning has touched.">RESET WEIGHTS</button>
+                  <span id="settings-learning-note" style="font-size: 0.68rem; color: var(--text-muted);"></span>
                 </div>
               </div>
               <div class="settings-scope-row">
@@ -3644,6 +3650,7 @@
   <script src="health_ops.js"></script>
   <script src="inference_gpu_ops.js"></script>
   <script src="lora_status.js"></script>
+  <script src="learning_feedback.js"></script>
   <script src="gateway_status_ops.js"></script>
   <script src="plugins_ops.js"></script>
   <script src="workspace_settings.js"></script>

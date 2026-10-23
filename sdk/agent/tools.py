@@ -3635,7 +3635,13 @@ async def adjust_behavioral_weights(node_path: str, feedback: str) -> str:
     p = Path(node_path)
     if not p.exists():
         raise FileNotFoundError(f"HTML-NN node file not found: {node_path}")
-        
+
+    # One write path: nodes carrying the weight attributes retrieval reads are handled by node_learning.
+    from sdk.agent import node_learning
+    handled = node_learning.apply_text_feedback(p, feedback)
+    if handled is not None:
+        return handled
+
     content = p.read_text(encoding="utf-8")
     
     metadata_m = re.search(r'<script[^>]*id="node-metadata"[^>]*>(.*?)</script>', content, re.DOTALL)
@@ -4357,6 +4363,12 @@ async def search_conversations(query: str, limit: int = 10) -> dict[str, Any]:
 async def write_memory(content: str, topic: str = "user-preference") -> dict[str, Any]:
     from sdk.agent.memory_tools import write_memory as _impl
     return await _impl(content, topic)
+
+
+@register_tool(name="reset_node_weights", description="Admin: forget what node learning has done, restoring default weights on learned nodes. Needs confirm=true.")
+async def reset_node_weights(node_ids: list[str] | None = None, confirm: bool = False) -> dict[str, Any]:
+    from sdk.agent.learning_tools import reset_node_weights as _impl
+    return await _impl(node_ids, confirm)
 
 
 @register_tool(

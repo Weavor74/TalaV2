@@ -98,6 +98,7 @@ _FILE_EDIT_PATTERNS: tuple[re.Pattern[str], ...] = tuple(
         r"^generate_detailed_neural_node$",
         r"^update_neural_node$",
         r"^compile_lora_adapter$",
+        r"^(write_memory|reset_node_weights)$",
         r"^import_skill_md$",
         r"^export_skill_md$",
     )
