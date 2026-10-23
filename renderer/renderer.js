@@ -1641,6 +1641,7 @@ const InferenceManager = {
           <div>
             <div style="font-weight: 500;">${engine.name}</div>
             <div style="font-size: 12px; color: var(--text-2);">${engine.description}</div>
+            ${window.loraStatusNote ? window.loraStatusNote(engine) : ''}
           </div>
           <div>${actionBtn}</div>
         </div>

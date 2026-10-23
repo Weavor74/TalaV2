@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="compile_lora_adapter"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:C3237528BFBA96BC64C62893D8F579DDC0C0C20506B3E50881E2110AA0227336"
-  data-source-digest="sha256:07F4B17E0CF81FFB03E409AA8748B5CAB75521DCC807A4AFBAD297AADC17D839"
+  data-source-fingerprint="sha256:802E5514E00A63D5EC823B5E8D8C157DC6D13151F53AACE7FE04B4C7E49CC3C1"
+  data-source-digest="sha256:EBB2DB03E7760426B90A9059F7BCF8D802FCC74E8FAFAB3C07D9A25460D7CD8E"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:42:35Z"
+  data-generated-at="2026-10-23T03:40:13Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;compile_lora_adapter&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Compile active updates into a safetensors binary and serialize into an HTML-NN node payload.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;compile_lora_adapter(node_path*, task_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;task_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Compiles target layer schemas, rank metadata, model hashes, and Base64 weights, and writes them to the specified HTML-NN file path.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;compile_lora_adapter&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. NOT IMPLEMENTED. Compiling a LoRA adapter into a node does nothing: no adapter is trained and no inference engine loads one, so this always refuses and writes nothing.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;compile_lora_adapter(node_path*, task_id)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;node_path&lt;/code&gt; (string, required)&lt;/li&gt;&lt;li&gt;&lt;code&gt;task_id&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Raises ``LoraTrainingUnavailable`` and leaves the node untouched. This used to hash the node&#x27;s file name into 256 floats, wrap them in a safetensors header and write them into the node as ``lora-weights``, returning &quot;Successfully compiled&quot;. Nothing was trained and nothing loads an adapter, so each block was noise that was then validated, selected and broadcast as if it were a model. Callers that merely want to compile when it is real should use :func:`compile_adapter_if_implemented`.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:42:35Z",
+    "created_or_updated": "2026-10-23T03:40:13Z",
     "schema": "neural-node/v2",
     "doc_target": "compile_lora_adapter",
-    "source_fingerprint": "sha256:C3237528BFBA96BC64C62893D8F579DDC0C0C20506B3E50881E2110AA0227336",
+    "source_fingerprint": "sha256:802E5514E00A63D5EC823B5E8D8C157DC6D13151F53AACE7FE04B4C7E49CC3C1",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:07F4B17E0CF81FFB03E409AA8748B5CAB75521DCC807A4AFBAD297AADC17D839",
+    "source_digest": "sha256:EBB2DB03E7760426B90A9059F7BCF8D802FCC74E8FAFAB3C07D9A25460D7CD8E",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "compile_lora_adapter",
-    "description": "Compile active updates into a safetensors binary and serialize into an HTML-NN node payload.",
+    "description": "NOT IMPLEMENTED. Compiling a LoRA adapter into a node does nothing: no adapter is trained and no inference engine loads one, so this always refuses and writes nothing.",
     "signature": "compile_lora_adapter(node_path*, task_id)",
     "schema": {
       "type": "object",

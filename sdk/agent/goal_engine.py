@@ -1144,13 +1144,13 @@ class GoalEngine:
             node_path = node_paths.get("skill_node_path")
             learning_node_path = node_paths.get("learning_node_path")
 
-            # Trigger JIT LoRA weight compilation and HTML-NN serialization
+            # LoRA compile: skipped quietly while LoRA is not implemented (no per-goal failure noise)
             for p_val in (node_path, learning_node_path):
                 if p_val:
                     try:
-                        from sdk.agent.tools import compile_lora_adapter
-                        await compile_lora_adapter(p_val, task_id)
-                        log.info("GoalEngine: JIT LoRA weights compiled and serialized to %s", p_val)
+                        from sdk.agent.tools import compile_adapter_if_implemented
+                        if await compile_adapter_if_implemented(p_val, task_id):
+                            log.info("GoalEngine: JIT LoRA weights compiled and serialized to %s", p_val)
                     except Exception as compile_exc:
                         log.warning("GoalEngine: failed to compile and serialize LoRA weights: %s", compile_exc)
 
@@ -1493,8 +1493,8 @@ Note: I have implemented a 'Circuit-Breaker' to prevent this risk-increase from 
                         if is_break:
                             log.error("[ALERT] Catastrophic Failure simulated during Dream State on node %s: %s. Initiating Dream-Rollback.", node_id, break_reason)
                             node_file.write_text(old_content, encoding="utf-8")
-                            from sdk.agent.tools import compile_lora_adapter
-                            await compile_lora_adapter(str(node_file))
+                            from sdk.agent.tools import compile_adapter_if_implemented
+                            await compile_adapter_if_implemented(str(node_file))
                             
                             from sdk.agent.anchor import canonicalize_and_anchor
                             rollback_data = {

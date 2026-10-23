@@ -149,3 +149,43 @@ async def test_handle_vps_version_push_invalid_validation():
     res = json.loads(res_str)
     assert "error" in res
     assert "Validation failed" in res["error"]["message"]
+
+
+def _signed_params(content: str) -> dict:
+    node_hash = hashlib.sha256(content.encode("utf-8")).hexdigest()
+    sig = hmac.new(b"vps_shared_key_2026", node_hash.encode("utf-8"), hashlib.sha256).hexdigest()
+    return {"node_hash": node_hash, "signature": sig, "content_html": content}
+
+
+_METADATA = """<script type="application/ld+json" id="node-metadata">
+  {"semantic_tags": ["smoke"], "emotional_valence": {"joy": 1.0}, "relevance_weight": 0.9, "usage_count": 0}
+  </script>"""
+
+
+@pytest.mark.asyncio
+async def test_a_node_without_a_weights_block_is_accepted():
+    """LoRA is not implemented, so no node carries real weights. Requiring the
+    block would reject every node written since the fabricated ones stopped."""
+    content = f'<html><body><article data-node-id="skill-push_plain">{_METADATA}</article></body></html>'
+    with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"TALA_USER_DATA": tmpdir}):
+        res = json.loads(await handle_vps_version_push(_signed_params(content), req_id=1))
+        assert "error" not in res, res
+        assert (Path(tmpdir) / "nodes" / "skill-push_plain.html").exists()
+
+
+@pytest.mark.asyncio
+async def test_a_weights_block_that_is_present_must_still_be_well_formed():
+    content = (f'<html><body><article data-node-id="skill-push_bad">{_METADATA}'
+               '<script type="application/octet-stream" id="lora-weights">!!! not base64 !!!</script>'
+               '</article></body></html>')
+    with tempfile.TemporaryDirectory() as tmpdir, patch.dict(os.environ, {"TALA_USER_DATA": tmpdir}):
+        res = json.loads(await handle_vps_version_push(_signed_params(content), req_id=1))
+        assert "Validation failed" in res["error"]["message"]
+        assert not (Path(tmpdir) / "nodes" / "skill-push_bad.html").exists()
+
+
+@pytest.mark.asyncio
+async def test_metadata_is_still_required():
+    content = '<html><body><article data-node-id="skill-push_nometa"></article></body></html>'
+    res = json.loads(await handle_vps_version_push(_signed_params(content), req_id=1))
+    assert "Validation failed" in res["error"]["message"]
