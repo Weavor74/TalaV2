@@ -188,7 +188,11 @@ jobs:
         # CPU-only runner -- which exhausted the disk (No space left on device).
         run: |
           pip install torch --index-url https://download.pytorch.org/whl/cpu
-          pip install ".[test,transformers]"
+          # [astrology] is pyswisseph (small, prebuilt wheels on Linux/Windows/macOS). Without it
+          # every chart and topic-stance test skips -- 46 of the 82 tests in test_natal_chart.py,
+          # test_emotion_continuity.py and test_astro_emotion.py -- so CI would stay green without
+          # ever computing a chart.
+          pip install ".[test,transformers,astrology]"
 
       - name: Create isolated test database
         # conftest.py redirects the pytest suite onto a sibling "<db>_test"

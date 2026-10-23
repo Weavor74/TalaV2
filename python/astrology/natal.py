@@ -227,6 +227,16 @@ def _build_natal_chart(birth: eph.Birthdate) -> NatalChart:
     )
 
 
+def natal_chart(birth: eph.Birthdate) -> NatalChart:
+    """The complete chart for ``birth`` (cached).
+
+    Raises when there is no birth place or no real ephemeris: unlike
+    :func:`chart_summary` this is for callers that need the bodies themselves
+    (dignity, house) and must decide for themselves what a missing chart means.
+    """
+    return _build_natal_chart(birth)
+
+
 def chart_summary(birth: eph.Birthdate) -> dict | None:
     """The chart digest for ``birth``, or None when it has no birth place (no
     houses are possible) or the real ephemeris is unavailable. For status

@@ -215,6 +215,13 @@ def _isolate_chain_endpoint() -> None:
 
 _isolate_chain_endpoint()
 
+# The topic-stance layer embeds an unmatched message through Ollama when it can. No test may
+# reach a real Ollama by accident (a developer machine has one running); tests of the layer turn
+# it back on with a fake embedder.
+os.environ["TALA_TOPIC_EMBEDDINGS"] = "0"
+# And no ambient sky override: tests pin the astrology clock themselves.
+os.environ.pop("TALA_ASTRO_NOW", None)
+
 
 @pytest.fixture(autouse=True)
 def isolate_documentation_anchoring(monkeypatch):
