@@ -498,6 +498,15 @@ class HeartbeatScheduler:
         except Exception as exc:  # noqa: BLE001
             log.error("HeartbeatScheduler: failed to run reflection sweep: %s", exc)
 
+        # The nightly dream rides the tick too: gated on the hour, idleness, the learning switch and the halt.
+        try:
+            from sdk.agent.dreaming import dream_if_due
+            dreamt = await dream_if_due()
+            if dreamt is not None:
+                log.info("HeartbeatScheduler: dream — %s", dreamt.get("status"))
+        except Exception as exc:  # noqa: BLE001
+            log.error("HeartbeatScheduler: failed to run dream sweep: %s", exc)
+
         now = datetime.now(UTC)
         for job in self._jobs:
             if job.is_startup:

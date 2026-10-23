@@ -145,6 +145,9 @@ class NeuralNode:
     executable_code: str | None = None
     adapter: "AdapterPacket | None" = None
     lora_adapter: str | None = None
+    #: How many turns this node has been injected into, and when last (sdk/agent/node_learning.py writes both).
+    usage_count: int = 0
+    last_used: str | None = None
 
 
 
@@ -448,6 +451,12 @@ def _parse_tree(
         if m_type:
             memory_type = m_type.group(1).strip()
 
+    try:
+        usage_count = max(0, int(article.get("data-usage-count", "0").strip()))
+    except (ValueError, TypeError):
+        usage_count = 0
+    last_used = article.get("data-last-used", "").strip() or None
+
     return NeuralNode(
         node_id=node_id,
         node_type=node_type,
@@ -474,6 +483,8 @@ def _parse_tree(
         executable_code=executable_code,
         adapter=adapter,
         lora_adapter=lora_adapter,
+        usage_count=usage_count,
+        last_used=last_used,
     )
 
 

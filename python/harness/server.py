@@ -122,6 +122,7 @@ from python.harness.provider_probe import probe_remote_provider
 from python.harness.inference_helpers import strip_tool_tags_if_no_tools, notify_inference_fallback
 from python.harness.long_job_loop import attach_long_job, report_long_job_turn, run_reply_tool_rounds
 from python.harness.workstation_rpc import WORKSTATION_RPC_HANDLERS
+from python.harness.learning_rpc import LEARNING_RPC_HANDLERS
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
     handle_task_control, handle_task_create_worktree, handle_task_delete,
@@ -1377,6 +1378,14 @@ async def handle_inference_generate(
     # injected context around it -- should check this instead.
     raw_user_prompt = prompt
 
+    # An explicit "remember that ..." becomes a learning node now, so this same turn's retrieval can find it.
+    remembered = None
+    try:
+        from sdk.agent.memory_tools import remember_from_message
+        remembered = await remember_from_message(raw_user_prompt)
+    except Exception as exc:
+        logger.warning("remember_from_message failed: %s", exc)
+
     session_id: str = str(params.get("session_id", uuid.uuid4()))
 
     # Deterministic goal routing. A chat message that literally says
@@ -2313,6 +2322,12 @@ async def handle_inference_generate(
                             f"Injected neural context from nodes: {', '.join(injected_node_ids)} for session={session_id}",
                             {"session_id": session_id, "nodes": injected_node_ids, "scores": [s for _, s in nodes_to_inject]}
                         )
+                        # Being injected is a use: it raises the node's weight a little (bounded, logged, ledgered).
+                        try:
+                            from sdk.agent import node_learning
+                            node_learning.record_use(injected_node_ids, nodes_dir)
+                        except Exception as exc:
+                            logger.warning("node learning could not record a use: %s", exc)
 
                     peer_context_parts: list[str] = []
                     peer_ref_sources: list[str] = [prompt, active_system_prompt or ""]
@@ -3773,6 +3788,8 @@ async def handle_inference_generate(
         "balance_after": check.balance_after,
         "session_id": session_id,
         "fallback_notice": fallback_notice,
+        "injected_node_ids": injected_node_ids,
+        "remembered_node_id": (remembered or {}).get("node_id"),
     })
 
 
@@ -14404,6 +14421,7 @@ _HANDLERS: dict[str, Any] = {
     "p2p.webrtc_answer": handle_p2p_webrtc_answer,
     "p2p.encrypted_payload": handle_p2p_encrypted_payload,
     **WORKSTATION_RPC_HANDLERS,
+    **LEARNING_RPC_HANDLERS,
 }
 
 

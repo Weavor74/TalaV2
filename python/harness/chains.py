@@ -80,7 +80,7 @@ EXTERNAL_KINDS = frozenset({
 #: shared chain by a stray counterparty field.
 LOCAL_KINDS = frozenset({
     "node-create", "node-update", "node-delete", "thought-state",
-    "behavioral-learning", "non-critical-event", "mint",
+    "behavioral-learning", "non-critical-event", "mint", "node-weight-update",
 })
 
 #: Counterparty values that name no actual second party.

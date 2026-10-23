@@ -241,6 +241,45 @@ def index_nodes(nodes_dir: Path) -> None:
             logger.error(f"Failed to upsert nodes into ChromaDB: {exc}")
 
 
+def update_node_weights(
+    node_id: str,
+    path: str,
+    weight_relevance: float,
+    weight_confidence: float,
+    previous_mtime: float | None = None,
+) -> bool:
+    """
+    Change one node's weights in the index in place, without re-embedding it.
+
+    ``index_nodes`` re-embeds any file whose modification time changed. A weight change rewrites the file but not
+    what it says, so re-embedding it would be wasted work on every use and every piece of feedback. This updates the
+    metadata retrieval scores with, and marks the file as indexed -- but only if the index was up to date with the
+    file *before* the weight edit (``previous_mtime``), so a file that also changed in some other way is still
+    re-embedded on the next pass. A node that is not in the index yet needs nothing: the next ``index_nodes`` pass
+    reads the new weights from the file.
+    """
+    if not node_collection:
+        return False
+    try:
+        got = node_collection.get(ids=[node_id], include=["metadatas"])
+        if not got.get("ids") or not got.get("metadatas"):
+            return False
+        metadata = dict(got["metadatas"][0] or {})
+        metadata["weight_relevance"] = float(weight_relevance)
+        metadata["weight_confidence"] = float(weight_confidence)
+        node_collection.update(ids=[node_id], metadatas=[metadata])
+    except Exception as exc:
+        logger.warning("Could not update the index weights for %s: %s", node_id, exc)
+        return False
+    path_str = str(path)
+    if previous_mtime is not None and _INDEXED_MTIMES.get(path_str) == previous_mtime:
+        try:
+            _INDEXED_MTIMES[path_str] = Path(path).stat().st_mtime
+        except OSError:
+            pass
+    return True
+
+
 def retrieve_relevant_nodes(
     query: str,
     nodes_dir: Path,

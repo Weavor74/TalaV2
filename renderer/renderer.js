@@ -31,6 +31,7 @@ document.addEventListener('DOMContentLoaded', () => {
   initSafe('FileExplorer', () => FileExplorer.init());
   initSafe('SettingsDashboard', () => SettingsDashboard.init());
   initSafe('AgentChat', () => AgentChat.init());
+  initSafe('LearningSettings', () => LearningFeedback.initSettings(document, (method, params) => invoke('python:rpc', { method, params }), (text) => window.confirm(text)));
   initSafe('ConversationTabs', () => ConversationTabs.init());
   initSafe('PanelResizer', () => PanelResizer.init());
   initSafe('CommandBar', () => CommandBar.init());
@@ -6454,7 +6455,7 @@ const AgentChat = {
             this.appendMessage('agent', 'Tala', response.text);
           }
         } else {
-          this.appendMessage('agent', 'Tala', response.text);
+          this.appendMessage('agent', 'Tala', response.text, false, response.injected_node_ids);
           if (this.ttsEnabled()) {
             this.speakText(response.text);
           }
@@ -6492,7 +6493,7 @@ const AgentChat = {
   },
 
 
-  appendMessage(sender, name, content, isError = false) {
+  appendMessage(sender, name, content, isError = false, nodeIds = null) {
     if (!this._messages) return;
 
     const msgEl = document.createElement('div');
@@ -6542,6 +6543,11 @@ const AgentChat = {
     }
 
     msgEl.appendChild(body);
+    // Thumbs / "that's wrong" for the memories this reply was built from.
+    if (!isError && typeof LearningFeedback !== 'undefined') {
+      const bar = LearningFeedback.bar(document, nodeIds, (method, params) => invoke('python:rpc', { method, params }));
+      if (bar) msgEl.appendChild(bar);
+    }
     this._messages.appendChild(msgEl);
     this._messages.scrollTop = this._messages.scrollHeight;
   }
