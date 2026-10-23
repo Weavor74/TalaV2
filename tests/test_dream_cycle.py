@@ -113,7 +113,7 @@ async def test_dream_cycle_consolidation():
             
             data = json.loads(metadata_m.group(1).strip())
             assert data["emotional_valence"]["caution"] == 0.7  # 0.9 - 0.2
-            assert 'id="lora-weights"' in content
+            assert 'id="lora-weights"' not in content, "LoRA is not implemented; no weights block is fabricated"
             
             # Verify that the dream event is now appended to chain.json
             with open(chain_file, "r", encoding="utf-8") as f:

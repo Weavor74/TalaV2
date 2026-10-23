@@ -8250,22 +8250,17 @@ async def handle_vps_version_push(params: dict[str, Any], req_id: Any) -> str:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, "ACCESS_DENIED: Invalid digital signature.")
         
     # 2. In-memory dry-run validation (simulating diagnose_html_nn.py)
-    # Check that metadata and weight layers are present and valid
+    # Metadata is mandatory. A weights block is optional (LoRA is not implemented,
+    # so no node carries real weights) but must be well formed if one is present.
     metadata_m = re.search(r'<script[^>]*id="node-metadata"[^>]*>(.*?)</script>', content_html, re.DOTALL)
     weights_m = re.search(r'<script[^>]*id="lora-weights"[^>]*>(.*?)</script>', content_html, re.DOTALL)
-    
     validation_score = 0.0
-    
-    if metadata_m and weights_m:
+    if metadata_m:
         try:
             meta = json.loads(metadata_m.group(1).strip())
-            # Check mandatory fields
-            has_mandatory = all(k in meta for k in ("semantic_tags", "emotional_valence", "relevance_weight", "usage_count"))
-            if has_mandatory:
-                # Decodes base64 weights in memory
+            if all(k in meta for k in ("semantic_tags", "emotional_valence", "relevance_weight", "usage_count")):
                 import base64
-                weights_bytes = base64.b64decode(weights_m.group(1).strip())
-                if len(weights_bytes) > 16:
+                if not weights_m or len(base64.b64decode(weights_m.group(1).strip(), validate=True)) > 16:
                     validation_score = 100.0
         except Exception:
             pass

@@ -842,112 +842,71 @@ def _pi_sanitizer(data: dict) -> dict:
 
 @register_tool(
     name="compile_lora_adapter",
-    description="Compile active updates into a safetensors binary and serialize into an HTML-NN node payload.",
+    description=(
+        "NOT IMPLEMENTED. Compiling a LoRA adapter into a node does nothing: no adapter is trained and no "
+        "inference engine loads one, so this always refuses and writes nothing."
+    ),
 )
 async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> str:
     """
     NAME
-           compile_lora_adapter - Compile LoRA weights and serialize into HTML-NN
-           
+           compile_lora_adapter - NOT IMPLEMENTED; refuses rather than fabricate weights
+
     SYNOPSIS
-           result = await compile_lora_adapter(node_path, task_id)
-           
+           await compile_lora_adapter(node_path, task_id)
+
     DESCRIPTION
-           Compiles target layer schemas, rank metadata, model hashes, and Base64 weights,
-           and writes them to the specified HTML-NN file path.
+           Raises ``LoraTrainingUnavailable`` and leaves the node untouched.
+
+           This used to hash the node's file name into 256 floats, wrap them
+           in a safetensors header and write them into the node as
+           ``lora-weights``, returning "Successfully compiled". Nothing was
+           trained and nothing loads an adapter, so each block was noise that
+           was then validated, selected and broadcast as if it were a model.
+           Callers that merely want to compile when it is real should use
+           :func:`compile_adapter_if_implemented`.
     """
-    from pathlib import Path
     import json
-    import base64
-    import hashlib
-    import struct
     import re
-    
+    from pathlib import Path
+
+    from python.inference.lora_trainer import STATUS_NOTE, LoraTrainingUnavailable
+
     p = Path(node_path)
     if not p.exists():
         raise FileNotFoundError(f"HTML-NN node file not found: {node_path}")
-        
+
+    # The zero-leak guard stays: a SECURED node must never be encoded into
+    # weights, and that has to hold from the day an adapter is real, not after.
     content = p.read_text(encoding="utf-8")
-    
-    # Sanitization Check: Zero-Leak PII block
-    metadata_m = re.search(r'<script[^>]*id="node-metadata"[^>]*>(.*?)</script>', content, re.DOTALL)
-    if metadata_m:
+    for block_id in ("node-metadata", "node-state"):
+        block = re.search(rf'<script[^>]*id="{block_id}"[^>]*>(.*?)</script>', content, re.DOTALL)
+        if not block:
+            continue
         try:
-            meta = json.loads(metadata_m.group(1).strip())
-            _pi_sanitizer(meta)
-        except SecurityError:
-            raise
-        except Exception:
-            pass
-            
-    state_m = re.search(r'<script[^>]*id="node-state"[^>]*>(.*?)</script>', content, re.DOTALL)
-    if state_m:
-        try:
-            state = json.loads(state_m.group(1).strip())
-            _pi_sanitizer(state)
-        except SecurityError:
-            raise
-        except Exception:
-            pass
-        
-    target_layer = "q_proj,v_proj"
-    rank = 8
-    base_model_hash = "sha256:d8c63609effd0215a5436d84874e084f07a7c57a39dadeb0f6e998f290e8066e"
-    
-    seed_str = f"{p.name}:{task_id or ''}"
-    seed_hash = hashlib.sha256(seed_str.encode("utf-8")).digest()
-    
-    floats_A = [float((seed_hash[i % 32] + i) % 100) / 100.0 for i in range(128)]
-    floats_B = [float((seed_hash[(i + 5) % 32] + i) % 100) / 100.0 for i in range(128)]
-    
-    tensor_bytes_A = struct.pack(f"{len(floats_A)}f", *floats_A)
-    tensor_bytes_B = struct.pack(f"{len(floats_B)}f", *floats_B)
-    raw_tensors = tensor_bytes_A + tensor_bytes_B
-    
-    header = {
-        "__metadata__": {
-            "Target_Layer_Schema": target_layer,
-            "Rank": str(rank),
-            "Base_Model_Hash": base_model_hash
-        },
-        "lora_A": {
-            "dtype": "F32",
-            "shape": [8, 16],
-            "data_offsets": [0, 512]
-        },
-        "lora_B": {
-            "dtype": "F32",
-            "shape": [16, 8],
-            "data_offsets": [512, 1024]
-        }
-    }
-    
-    header_bytes = json.dumps(header, separators=(",", ":")).encode("utf-8")
-    pad_len = (8 - (len(header_bytes) % 8)) % 8
-    header_bytes += b" " * pad_len
-    
-    header_len_bytes = len(header_bytes).to_bytes(8, "little")
-    safetensors_bytes = header_len_bytes + header_bytes + raw_tensors
-    
-    b64_payload = base64.b64encode(safetensors_bytes).decode("ascii")
-    
-    content = p.read_text(encoding="utf-8")
-    weights_block = (
-        f'\n  <script type="application/octet-stream" id="lora-weights">\n{b64_payload}\n  </script>'
-    )
-    
-    if 'id="lora-weights"' in content:
-        content = re.sub(
-            r'<script[^>]*id="lora-weights"[^>]*>.*?</script>',
-            weights_block.strip(),
-            content,
-            flags=re.DOTALL
-        )
-    else:
-        content = content.replace("</article>", f"{weights_block}\n</article>")
-        
-    p.write_text(content, encoding="utf-8")
-    return f"Successfully compiled and serialized LoRA weights to {node_path}"
+            payload = json.loads(block.group(1).strip())
+        except ValueError:
+            continue
+        _pi_sanitizer(payload)
+
+    raise LoraTrainingUnavailable(f"{STATUS_NOTE} Nothing was written to {node_path}.")
+
+
+async def compile_adapter_if_implemented(node_path: str, task_id: str | None = None) -> bool:
+    """Compile an adapter into a node only when LoRA is real; report whether it did.
+
+    The goal engine, the dream cycle and behavioural-weight adjustment each ran
+    the compile as the last step of otherwise genuine work (a manifest change,
+    a rollback record). Skipping that step quietly, rather than logging a
+    failure on every goal, keeps the genuine work in place until LoRA exists.
+    """
+    from python.inference.lora_trainer import IMPLEMENTED
+
+    if not IMPLEMENTED:
+        log.debug("LoRA is not implemented; no adapter compiled for %s", node_path)
+        return False
+    await compile_lora_adapter(node_path, task_id)
+    return True
 
 
 @register_tool(
@@ -3732,7 +3691,7 @@ async def adjust_behavioral_weights(node_path: str, feedback: str) -> str:
     )
     p.write_text(content, encoding="utf-8")
     
-    await compile_lora_adapter(str(p))
+    await compile_adapter_if_implemented(str(p))
     
     from sdk.agent.anchor import canonicalize_and_anchor
     
