@@ -356,13 +356,14 @@ network; at run time nothing is downloaded):
 $env:UV_CACHE_DIR = "D:\caches\uv"; $env:TEMP = "D:\caches\tmp"; $env:TMP = "D:\caches\tmp"
 $env:HF_HOME = "D:\hf-cache"; $env:TALA_MODELS_DIR = "D:\models"
 uv pip install -e .[voice]
-python scripts\setup_voice.py          # Piper voice, whisper base.en, wake-word models -> D:\models\voice
+python scripts\setup_voice.py          # Kokoro voice, spaCy model, whisper base.en, wake-word models -> D:\models\voice
 python scripts\setup_voice.py --check  # shows what is present
 ```
 
-The script refuses any target on `C:`. Models land in `D:\models\voice\{piper,whisper,wakeword}`
-(about 250 MB). Speech recognition runs on the CPU so the GPU stays free for the language model.
-`piper-tts` is GPL-3.0-or-later; it is only used when a Piper voice is.
+The script refuses any target on `C:`. Models land in `D:\models\voice\{kokoro,whisper,wakeword}`
+(about 600 MB). Speech recognition and speech synthesis run on the CPU so the GPU stays free for the language model.
+The voice is Kokoro-82M (Apache-2.0) and nothing GPL ships with it. It is deliberately not `pip install kokoro`; see
+"Licensing" in `docs/local-voice.md`, which also says how to teach it a word it cannot pronounce.
 
 The microphone is captured by the app itself (Electron allows audio capture for its own window
 and nothing else), is off until you press the always-listen button, and the status bar shows a

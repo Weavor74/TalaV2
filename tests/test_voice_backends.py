@@ -3,7 +3,7 @@ Which text-to-speech backend runs, and the guarantee that no text leaves the mac
 
 Tala is local-only. edge-tts sends the text to Microsoft, so it is never in the chain by default -- not even when the
 package is installed and nothing else works -- and the provider-table TTS (an OpenAI-style endpoint with a key) is only
-used when its endpoint is on this machine. Piper is the default; the system voice is the offline fallback.
+used when its endpoint is on this machine. Kokoro is the default; the system voice is the offline fallback.
 """
 from __future__ import annotations
 
@@ -21,25 +21,25 @@ def userdata(tmp_path, monkeypatch):
     return tmp_path
 
 
-ALL = {"piper": True, "pyttsx3": True, "edge-tts": True}
+ALL = {"kokoro": True, "pyttsx3": True, "edge-tts": True}
 
 
-def test_piper_is_the_default_and_edge_tts_is_not_in_the_chain():
-    assert voice._select_backends(voice_settings.read(), ALL) == ["piper", "pyttsx3"]
+def test_kokoro_is_the_default_and_edge_tts_is_not_in_the_chain():
+    assert voice._select_backends(voice_settings.read(), ALL) == ["kokoro", "pyttsx3"]
 
 
 def test_edge_tts_is_never_chosen_by_default_even_when_it_is_all_that_is_installed():
-    assert voice._select_backends(voice_settings.read(), {"piper": False, "pyttsx3": False, "edge-tts": True}) == []
+    assert voice._select_backends(voice_settings.read(), {"kokoro": False, "pyttsx3": False, "edge-tts": True}) == []
 
 
 def test_edge_tts_is_only_ever_the_last_resort_and_only_when_enabled():
     chain = voice._select_backends({**voice_settings.read(), "allow_cloud_tts": True}, ALL)
-    assert chain == ["piper", "pyttsx3", "edge-tts"]
+    assert chain == ["kokoro", "pyttsx3", "edge-tts"]
 
 
 def test_enabling_cloud_tts_does_not_put_it_ahead_of_a_local_voice():
     chain = voice._select_backends({**voice_settings.read(), "allow_cloud_tts": True}, ALL)
-    assert chain.index("edge-tts") > chain.index("piper")
+    assert chain.index("edge-tts") > chain.index("kokoro")
 
 
 def test_cloud_tts_defaults_to_off():
@@ -47,7 +47,7 @@ def test_cloud_tts_defaults_to_off():
 
 
 def test_an_unavailable_backend_is_skipped():
-    assert voice._select_backends(voice_settings.read(), {"piper": False, "pyttsx3": True, "edge-tts": True}) == ["pyttsx3"]
+    assert voice._select_backends(voice_settings.read(), {"kokoro": False, "pyttsx3": True, "edge-tts": True}) == ["pyttsx3"]
 
 
 def run(coro):
@@ -62,10 +62,10 @@ def test_edge_tts_is_not_called_when_nothing_local_works(monkeypatch):
         return {"audio_base64": "x"}
 
     monkeypatch.setattr(voice, "_synthesize_edge", edge)
-    monkeypatch.setattr(voice, "_available", lambda: {"piper": False, "pyttsx3": False, "edge-tts": True})
+    monkeypatch.setattr(voice, "_available", lambda: {"kokoro": False, "pyttsx3": False, "edge-tts": True})
     result = run(voice.synthesize_speech("hello"))
     assert called == [] and "error" in result
-    assert "piper" in result["error"].lower(), "the error says how to get a local voice"
+    assert "kokoro" in result["error"].lower(), "the error says how to get a local voice"
 
 
 def test_edge_tts_is_called_once_the_user_has_turned_it_on(monkeypatch):
@@ -76,23 +76,23 @@ def test_edge_tts_is_called_once_the_user_has_turned_it_on(monkeypatch):
         return {"audio_base64": "x", "backend": "edge-tts"}
 
     monkeypatch.setattr(voice, "_synthesize_edge", edge)
-    monkeypatch.setattr(voice, "_available", lambda: {"piper": False, "pyttsx3": False, "edge-tts": True})
+    monkeypatch.setattr(voice, "_available", lambda: {"kokoro": False, "pyttsx3": False, "edge-tts": True})
     voice_settings.update({"allow_cloud_tts": True})
     assert run(voice.synthesize_speech("hello"))["backend"] == "edge-tts" and called == ["edge"]
 
 
-def test_piper_is_what_speaks_by_default(monkeypatch):
+def test_kokoro_is_what_speaks_by_default(monkeypatch):
     monkeypatch.setattr(voice, "_available", lambda: ALL)
 
-    async def piper(text, voice_name):
-        return {"audio_base64": "p", "mime_type": "audio/wav", "backend": "piper", "voice": voice_name}
+    async def kokoro(text, voice_name):
+        return {"audio_base64": "p", "mime_type": "audio/wav", "backend": "kokoro", "voice": voice_name}
 
     async def edge(text, voice_name):
         raise AssertionError("edge-tts must not run")
 
-    monkeypatch.setattr(voice, "_synthesize_piper", piper)
+    monkeypatch.setattr(voice, "_synthesize_kokoro", kokoro)
     monkeypatch.setattr(voice, "_synthesize_edge", edge)
-    assert run(voice.synthesize_speech("hello"))["backend"] == "piper"
+    assert run(voice.synthesize_speech("hello"))["backend"] == "kokoro"
 
 
 def test_a_failing_local_backend_falls_through_to_the_next_local_one(monkeypatch):
@@ -104,7 +104,7 @@ def test_a_failing_local_backend_falls_through_to_the_next_local_one(monkeypatch
     async def system(text, voice_name):
         return {"audio_base64": "s", "backend": "pyttsx3"}
 
-    monkeypatch.setattr(voice, "_synthesize_piper", broken)
+    monkeypatch.setattr(voice, "_synthesize_kokoro", broken)
     monkeypatch.setattr(voice, "_synthesize_pyttsx3", system)
     assert run(voice.synthesize_speech("hello"))["backend"] == "pyttsx3"
 
@@ -112,13 +112,13 @@ def test_a_failing_local_backend_falls_through_to_the_next_local_one(monkeypatch
 def test_listing_says_which_backends_leave_the_machine():
     listing = run(voice.list_backends())
     by_id = {b["id"]: b for b in listing["backends"]}
-    assert by_id["piper"]["offline"] is True and by_id["pyttsx3"]["offline"] is True
+    assert by_id["kokoro"]["offline"] is True and by_id["pyttsx3"]["offline"] is True
     assert by_id["edge-tts"]["offline"] is False and by_id["edge-tts"]["enabled"] is False
     assert "microsoft" in by_id["edge-tts"]["note"].lower() and "cloud" in by_id["edge-tts"]["note"].lower()
 
 
 def test_the_default_is_never_a_cloud_backend(monkeypatch):
-    monkeypatch.setattr(voice, "_available", lambda: {"piper": False, "pyttsx3": False, "edge-tts": True})
+    monkeypatch.setattr(voice, "_available", lambda: {"kokoro": False, "pyttsx3": False, "edge-tts": True})
     assert run(voice.list_backends())["default"] is None
 
 
@@ -143,7 +143,7 @@ def test_a_remote_tts_provider_is_refused_and_never_contacted(monkeypatch):
 
     contacted = []
     monkeypatch.setattr("python.harness.db.fetchrow", fetchrow)
-    monkeypatch.setattr(voice, "_available", lambda: {"piper": False, "pyttsx3": False, "edge-tts": False})
+    monkeypatch.setattr(voice, "_available", lambda: {"kokoro": False, "pyttsx3": False, "edge-tts": False})
     import httpx
 
     class Boom:
@@ -223,3 +223,14 @@ def test_the_setup_script_and_the_trainer_use_the_same_models_directory(monkeypa
     sys.modules["setup_voice_under_test"] = module
     spec.loader.exec_module(module)
     assert module.models_root() == voice_settings.models_dir()
+
+
+def test_an_unavailable_kokoro_says_why_in_the_backends_list(monkeypatch, tmp_path):
+    from python.harness import voice_kokoro
+
+    monkeypatch.setenv("TALA_MODELS_DIR", str(tmp_path))
+    monkeypatch.setattr(voice, "_available", lambda: {"kokoro": False, "pyttsx3": True, "edge-tts": False})
+    listing = run(voice.list_backends())
+    note = {b["id"]: b for b in listing["backends"]}["kokoro"]["note"]
+    assert note.startswith("Not available:") and "setup_voice.py" in note
+    assert voice_kokoro.missing_reason(voice_settings.read()["tts_voice"]) in note

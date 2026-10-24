@@ -5,13 +5,13 @@ python/harness/voice_stream.py -- speak a reply while it is still being written.
 websocket as the model produces text. For a voice turn (the request carries the ``voice_turn_id`` the harness issued),
 ``handle_inference_generate`` wraps that websocket in :class:`TapWs`. Every chunk is forwarded to the UI untouched and also
 fed to a :class:`~python.harness.voice_chunker.SentenceChunker`; each sentence the moment it completes is synthesised by
-Piper and pushed as a ``voice.audio_chunk`` notification, so the first sentence plays while the rest is generated.
+Kokoro and pushed as a ``voice.audio_chunk`` notification, so the first sentence plays while the rest is generated.
 
 Barge-in reaches back the other way: when the user talks over her, :meth:`TurnStream.cancel` marks the turn cancelled. The
 stream loop checks ``ws.voice_cancelled`` and stops reading, which closes the connection to the model so it stops
 generating, and no further audio is produced for that turn.
 
-Everything here is local: the text goes from the model to Piper in-process, and the audio goes to the UI on this machine.
+Everything here is local: the text goes from the model to Kokoro in-process, and the audio goes to the UI on this machine.
 """
 from __future__ import annotations
 

@@ -144,8 +144,8 @@ async def test_turn_done_needs_a_turn_id_and_a_bounded_text(rt):
 
 @pytest.mark.asyncio
 async def test_settings_round_trip_and_reach_the_runtime(rt):
-    changed = await call("voice.set_settings", {"settings": {"piper_voice": "en_US-ryan-medium", "wake_enabled": False}})
-    assert changed["result"]["piper_voice"] == "en_US-ryan-medium" and ("apply_settings",) in rt.calls
+    changed = await call("voice.set_settings", {"settings": {"tts_voice": "am_adam", "wake_enabled": False}})
+    assert changed["result"]["tts_voice"] == "am_adam" and ("apply_settings",) in rt.calls
     shown = await call("voice.get_settings", {})
     assert shown["result"]["settings"]["wake_enabled"] is False
     assert "allow_cloud_tts" in shown["result"]["settings"] and shown["result"]["settings"]["allow_cloud_tts"] is False

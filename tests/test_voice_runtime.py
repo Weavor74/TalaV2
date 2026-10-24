@@ -387,13 +387,13 @@ def test_the_end_of_an_utterance_is_half_a_second_of_silence():
 def test_warming_up_never_stops_listening_from_starting():
     async def go():
         r = Rig()
-        import python.harness.voice_piper as piper
+        import python.harness.voice_kokoro as kokoro
 
-        original = piper.module_present
-        piper.module_present = lambda: (_ for _ in ()).throw(RuntimeError("no piper"))
+        original = kokoro.module_present
+        kokoro.module_present = lambda: (_ for _ in ()).throw(RuntimeError("no kokoro"))
         try:
             r.rt._warm_up()  # must swallow the error
         finally:
-            piper.module_present = original
+            kokoro.module_present = original
 
     run(go())

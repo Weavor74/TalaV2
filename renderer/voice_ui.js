@@ -363,7 +363,7 @@ async function voiceInitSettings(doc, rpc, confirmFn) {
   const get = (id) => doc.getElementById(id);
   const wake = get('voice-wake-enabled');
   const phrase = get('voice-wake-phrase');
-  const voiceName = get('voice-piper-voice');
+  const voiceName = get('voice-tts-voice');
   const whisper = get('voice-whisper-model');
   const cloud = get('voice-cloud-tts');
   const note = get('voice-settings-note');
@@ -382,14 +382,14 @@ async function voiceInitSettings(doc, rpc, confirmFn) {
     const s = (loaded && loaded.settings) || {};
     if (wake) wake.checked = Boolean(s.wake_enabled);
     if (phrase && s.wake_phrase) phrase.value = s.wake_phrase;
-    if (voiceName && s.piper_voice) voiceName.value = s.piper_voice;
+    if (voiceName && s.tts_voice) voiceName.value = s.tts_voice;
     if (whisper && s.whisper_model) whisper.value = s.whisper_model;
     if (cloud) cloud.checked = Boolean(s.allow_cloud_tts);
   } catch (_) { /* leave the controls as rendered */ }
 
   if (wake) wake.addEventListener('change', () => save({ wake_enabled: wake.checked }));
   if (phrase) phrase.addEventListener('change', () => save({ wake_phrase: phrase.value }));
-  if (voiceName) voiceName.addEventListener('change', () => save({ piper_voice: voiceName.value }));
+  if (voiceName) voiceName.addEventListener('change', () => save({ tts_voice: voiceName.value }));
   if (whisper) whisper.addEventListener('change', () => save({ whisper_model: whisper.value }));
   if (cloud) {
     cloud.addEventListener('change', async () => {

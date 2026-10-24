@@ -13,21 +13,42 @@ harness ── openWakeWord ──┐
                                    │                                         voice.turn ─▶ UI sends the text to the model
                                    │                                                          (inference.generate, stream)
                                    ◀── barge-in: speech while she is thinking/speaking ──┐
-   sentence-chunked Piper ◀── streamed reply (voice_stream) ──▶ voice.audio_chunk ──▶ UI plays it, gapless
+   sentence-chunked Kokoro ◀── streamed reply (voice_stream) ──▶ voice.audio_chunk ──▶ UI plays it, gapless
 ```
 
 ## What runs where
 
 | piece | model / library | where | origin |
 |---|---|---|---|
-| speech (default) | Piper, `en_US-lessac-medium` (configurable), ONNX on the CPU | `D:\models\voice\piper` | Rhasspy / Open Home Foundation, US |
+| speech (default) | Kokoro-82M, voice `af_heart` (configurable), on the **CPU**, about 0.4x real time once warm | `D:\models\voice\kokoro` | hexgrad (no country stated); StyleTTS 2 architecture from academic authors; Apache-2.0 |
 | hearing | faster-whisper (CTranslate2), `base.en` int8 (0.7 s per utterance; `small.en` is 2.6 s), **CPU** so the 6 GB GPU stays for the language model | `D:\models\voice\whisper` | OpenAI Whisper weights, converted by SYSTRAN |
-| end of utterance | Silero VAD (ONNX, ships inside the pip package) | in the venv | Silero (Russia-based team); chosen explicitly, MIT, runs locally |
+| end of utterance | Silero VAD (ONNX, ships inside the pip package) | in the venv | Silero (Russia-based team); chosen explicitly, MIT, runs locally; **accepted again by Steven on 2026-10-24** under the rule that the US-origin requirement is on the model itself |
 | wake word | openWakeWord (ONNX) | `D:\models\voice\wakeword` | US |
 | microphone, playback | the Electron renderer (`getUserMedia`, WebAudio) | the app | — |
 
-`piper-tts` is **GPL-3.0-or-later**. It is an optional dependency (the `voice` extra) and is imported only when a Piper
-voice is used.
+### Licensing: why the voice is not `pip install kokoro`
+
+Kokoro's weights, the `kokoro` code and `misaki` (its text-to-phoneme library) are Apache-2.0. But `pip install kokoro` pulls in
+`phonemizer-fork` (GPL-3.0) and `espeakng-loader` (which bundles espeak-ng, GPL), and `kokoro/pipeline.py` imports them
+unconditionally, so even a build that never calls them is GPL. Piper had the same problem (`piper-tts` is GPL-3.0-or-later),
+which is why it was replaced. So:
+
+* the network is **vendored** in `python/harness/kokoro_model` (four Apache-2.0 files, licence text alongside, changes noted at
+  the top of each), loading from local files only;
+* English is phonemised by misaki's own dictionary with `fallback=None`, and the `voice` extra depends on `misaki` *without*
+  its `en` extra (that extra is what carries the two GPL packages);
+* `tests/test_voice_kokoro.py` fails if any file under `python/` or `sdk/` imports a GPL speech package, if the vendored
+  network does, or if the `voice` extra names one. Piper survives only in the `wakeword-training` extra, because
+  `scripts/train_wakeword.py` renders its training clips with Piper voices; that is a developer's tool, not the voice that ships.
+
+**The cost of no espeak fallback:** a word misaki's dictionary does not know is silent (it is logged once, with the word). The
+names that matter are built in (`Weavor`, `Starlancer`, `Kagura`; `Tala` is already known). For anything else, put the word and its
+phonemes (misaki's IPA, e.g. `"zorblax": "zˈɔɹblæks"`) in `D:\models\voice\kokoro\lexicon.json`; it is read when the voice first
+loads and its entries win over the built-in ones.
+
+**Origin:** the maintainer states no country and the training run is credited to a Discord user; the architecture is StyleTTS 2.
+Nothing ties the weights to a non-US company, but it has not been confirmed to be US-origin either. **Accepted by Steven on
+2026-10-24 on that basis**; the rule applies to the model itself, and this is the model he accepted.
 
 ## Setting up on Windows (everything on D:)
 
@@ -70,7 +91,7 @@ Settings → VOICE, stored in `<user data>/voice.json`:
 | `wake_phrase` | Hey Tala | |
 | `wake_model` | (auto) | explicit path wins; else `hey_tala.onnx` if trained; else the pretrained `hey jarvis` fallback |
 | `wake_threshold` | (auto) | the trained model's own measured threshold (0.8 for `hey_tala`), else 0.5; a number here is your explicit choice |
-| `piper_voice` | en_US-lessac-medium | any Piper voice installed on D: |
+| `tts_voice` | af_heart | any Kokoro voice installed on D: (`setup_voice.py --voice am_adam`) |
 | `whisper_model` | base.en | `small.en` is more accurate but about four times slower; `tiny.en` is faster |
 | `followup_seconds` | 6 | |
 | `allow_cloud_tts` | **off** | edge-tts: sends the text to Microsoft. Asks for confirmation to turn on; only ever tried after the local voices |
@@ -131,7 +152,7 @@ they are not installed. Jest: `tests/renderer/voice_ui.test.js`, `tests/electron
 ## Measured on Kagura (2026-10-23)
 
 A live smoke against the real harness with the real models: Silero, openWakeWord with the trained `hey_tala` model, faster-whisper
-`base.en`, Piper, and llama3.2:3b through Ollama (with a lean system prompt, see below). **Stood in:** the person (Windows' own
+`base.en`, Piper (the voice at the time; replaced by Kokoro on 2026-10-24, see "Licensing" above), and llama3.2:3b through Ollama (with a lean system prompt, see below). **Stood in:** the person (Windows' own
 TTS voices, which the wake model never trained on), the microphone and the speakers (a timer plays each sentence for its true
 duration). The microphone path through Electron, `getUserMedia` and the browser's echo cancellation was **not** exercised.
 
@@ -153,18 +174,23 @@ false rejects 0% clean, 2.5% at 10 dB SNR, 3.7% at 5 dB; false accepts 0 in 25 m
 25 minutes at a threshold of 0.5, which is why the threshold is measured, not assumed). **Twenty-five minutes with no events
 is thin evidence of a low false-accept rate, and all of it is synthetic speech.** See `hey_tala.metrics.json`.
 
+## Kokoro, measured (2026-10-24)
+
+On this CPU, with Kokoro warm: 0.39 to 0.46 seconds of compute per second of speech (a 94-character sentence, 5.9 s of audio,
+in 2.5 s), about 2 s for a short phrase on the first call, 27 s to load the first time. The same with and without the GPL packages
+present. `tests/test_voice_models.py` runs the real chain: what Kokoro says, faster-whisper hears.
+
 ## Known gaps
 
-* **The default chat prompt is heavy.** On the first message of a session the harness assembled a 25,013-token prompt for "what
-  time is it?" and the 3B model timed out reading it; the smoke therefore used `raw_prompt` with a short system prompt. In the
-  app a voice turn goes through the normal context assembly, which will dominate time-to-first-audio until voice turns get a
-  lean context. That is not built.
-* **About 2.3 s of every inference request was spent in the token gate** (`token_counter`, logged as `Token gate PASSED ...
-  elapsed=2.3 s` even for a 33-token prompt). That was on a smoke harness whose chain endpoint is deliberately closed, so it
-  is not established that it happens on a normal install.
+* **The model-facing prompt is lighter than the logs suggest, and voice turns are leaner still.** The "25k tokens" in the logs is
+  the token gate's count *before* the tool documentation is swapped for the provider's native tools; a local model is sent about
+  5 to 7k. Since 2026-10-24 a voice turn also skips the settings snapshot unless you ask about the system, sends 6 turns of
+  history instead of 10, and no retrieved node is longer than about 800 tokens (`python/harness/prompt_budget.py`).
+* The ~2.3 s per request once seen in the token gate was a down chain node: Windows takes about 2 s to refuse a loopback
+  connection and every turn records a payment. Fixed 2026-10-24 (a 0.5 s connect cap and a 15 s back-off in `chains.py`).
+* **A word Kokoro does not know is silent** (see "Licensing"). Add it to `lexicon.json`.
+* Kokoro has not been heard by a person here, only measured and transcribed back by faster-whisper; whether the voice suits Tala
+  is untested. (Its weights' unconfirmed origin was accepted on 2026-10-24.)
 * Microphone capture, echo cancellation on speakers, and playback have only been tested with fakes (Jest). Talking over her
   on speakers depends on the browser's echo cancellation working; headphones avoid the question.
 * The wake model has never heard a real person. If it misses you, use the pretrained fallback or lower `wake_threshold`.
-* `piper-tts` is GPL-3.0-or-later.
-* `uv.lock` does not match `pyproject.toml` (it did not before this change either; regenerating it rewrites about 2,900
-  lines), so the voice packages are in the `voice` extra but not in the lock file.

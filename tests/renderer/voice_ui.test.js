@@ -486,12 +486,12 @@ describe('controller', () => {
 });
 
 describe('settings', () => {
-  const IDS = ['voice-wake-enabled', 'voice-wake-phrase', 'voice-piper-voice', 'voice-whisper-model', 'voice-cloud-tts', 'voice-settings-note'];
+  const IDS = ['voice-wake-enabled', 'voice-wake-phrase', 'voice-tts-voice', 'voice-whisper-model', 'voice-cloud-tts', 'voice-settings-note'];
 
   function rig(confirmAnswer = true) {
     const env = makeEnv(async (m, p) => {
       if (m === 'voice.get_settings') {
-        return { settings: { wake_enabled: false, wake_phrase: 'Hey Tala', piper_voice: 'en_US-ryan-medium', whisper_model: 'base.en', allow_cloud_tts: false } };
+        return { settings: { wake_enabled: false, wake_phrase: 'Hey Tala', tts_voice: 'am_adam', whisper_model: 'base.en', allow_cloud_tts: false } };
       }
       if (m === 'voice.set_settings') {
         return p.settings.whisper_model === 'huge' ? { error: { message: 'whisper_model must be one of' } }
@@ -508,7 +508,7 @@ describe('settings', () => {
     const r = rig();
     await r.run();
     assert.equal(r.els['voice-wake-enabled'].checked, false);
-    assert.equal(r.els['voice-piper-voice'].value, 'en_US-ryan-medium');
+    assert.equal(r.els['voice-tts-voice'].value, 'am_adam');
     assert.equal(r.els['voice-whisper-model'].value, 'base.en');
     assert.equal(r.els['voice-cloud-tts'].checked, false);
   });
@@ -570,7 +570,7 @@ describe('wiring', () => {
   test('the page loads the script and has the controls', () => {
     assert.match(html, /<script src="voice_ui\.js"><\/script>/);
     for (const id of ['btn-chat-listen', 'voice-indicator', 'voice-indicator-text', 'voice-wake-enabled', 'voice-wake-phrase',
-      'voice-piper-voice', 'voice-whisper-model', 'voice-cloud-tts']) {
+      'voice-tts-voice', 'voice-whisper-model', 'voice-cloud-tts']) {
       assert.match(html, new RegExp(`id="${id}"`));
     }
   });

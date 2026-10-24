@@ -1,5 +1,5 @@
 """
-The real local models, end to end: Piper speaks, faster-whisper hears it, Silero finds the utterance, openWakeWord loads.
+The real local models, end to end: Kokoro speaks, faster-whisper hears it, Silero finds the utterance, openWakeWord loads.
 
 Everything else in the voice suite uses stand-ins so it runs anywhere. These run only where the models are installed on D:
 (scripts/setup_voice.py) and are skipped, with the reason, everywhere else -- including CI. They are what shows the wiring
@@ -15,7 +15,7 @@ from pathlib import Path
 import numpy as np
 import pytest
 
-from python.harness import voice_piper, voice_settings
+from python.harness import voice_kokoro, voice_settings
 from python.harness.voice_vad import SAMPLE_RATE, Segmenter
 
 
@@ -38,41 +38,42 @@ MODELS = Path(_ROOT) / "voice" if _ROOT else voice_settings.models_dir()
 def _models_where_they_are(monkeypatch):
     if _ROOT:
         monkeypatch.setenv("TALA_MODELS_DIR", _ROOT)
-VOICE = voice_settings.DEFAULTS["piper_voice"]
-HAVE_PIPER = _have("piper") and (MODELS / "piper" / f"{VOICE}.onnx").is_file() and (MODELS / "piper" / f"{VOICE}.onnx.json").is_file()
+VOICE = voice_settings.DEFAULTS["tts_voice"]
+HAVE_KOKORO = (voice_kokoro.module_present() and voice_kokoro._spacy_model_present()
+               and (MODELS / "kokoro" / "kokoro-v1_0.pth").is_file() and (MODELS / "kokoro" / "voices" / f"{VOICE}.pt").is_file())
 HAVE_WHISPER = _have("faster_whisper") and (MODELS / "whisper" / voice_settings.DEFAULTS["whisper_model"] / "model.bin").is_file()
 HAVE_VAD = _have("silero_vad")
 HAVE_WAKE = _have("openwakeword") and (MODELS / "wakeword" / "hey_jarvis_v0.1.onnx").is_file()
 
-needs_piper = pytest.mark.skipif(not HAVE_PIPER, reason=f"Piper voice {VOICE} is not installed (scripts/setup_voice.py)")
+needs_tts = pytest.mark.skipif(not HAVE_KOKORO, reason=f"Kokoro voice {VOICE} is not installed (scripts/setup_voice.py)")
 
 
 def speech_16k(text: str) -> np.ndarray:
-    wav, rate = voice_piper.synthesize_wav(text, VOICE)
+    wav, rate = voice_kokoro.synthesize_wav(text, VOICE)
     with wave.open(io.BytesIO(wav), "rb") as w:
         pcm = np.frombuffer(w.readframes(w.getnframes()), dtype=np.int16).astype(np.float32) / 32768.0
     n = int(len(pcm) * SAMPLE_RATE / rate)
     return np.interp(np.linspace(0, len(pcm) - 1, n), np.arange(len(pcm)), pcm).astype(np.float32)
 
 
-@needs_piper
-def test_piper_produces_a_playable_wav():
-    wav, rate = voice_piper.synthesize_wav("The time is five thirty.", VOICE)
+@needs_tts
+def test_kokoro_produces_a_playable_wav():
+    wav, rate = voice_kokoro.synthesize_wav("The time is five thirty.", VOICE)
     with wave.open(io.BytesIO(wav), "rb") as w:
         assert w.getnchannels() == 1 and w.getsampwidth() == 2 and w.getframerate() == rate
         assert w.getnframes() / rate > 1.0
 
 
-@needs_piper
+@needs_tts
 @pytest.mark.skipif(not HAVE_WHISPER, reason="faster-whisper base.en is not installed")
-def test_what_piper_says_faster_whisper_hears():
+def test_what_kokoro_says_faster_whisper_hears():
     from python.harness.voice_stt import SttEngine
 
     heard = SttEngine().transcribe(speech_16k("What time is it in the afternoon?")).lower()
     assert "time" in heard and "afternoon" in heard
 
 
-@needs_piper
+@needs_tts
 @pytest.mark.skipif(not HAVE_VAD, reason="silero-vad is not installed")
 def test_silero_finds_one_utterance_in_real_speech_and_ignores_the_silence():
     from python.harness.voice_vad import SileroVad
@@ -98,7 +99,7 @@ def test_the_wake_detector_loads_the_pretrained_model_and_stays_quiet_on_ordinar
     assert chosen is not None
     detector = WakeDetector.load(wake_dir, chosen, threshold=0.5)
     fired = False
-    if HAVE_PIPER:
+    if HAVE_KOKORO:
         audio = np.concatenate([np.zeros(SAMPLE_RATE), speech_16k("What is the capital of France? I would like some tea."),
                                 np.zeros(SAMPLE_RATE)])
         pcm = (np.clip(audio, -1, 1) * 32767).astype(np.int16)
