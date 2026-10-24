@@ -77,7 +77,7 @@ from python.inference import external_engine as _engine_cfg
 from python.astrology.natal import birth_for, chart_summary
 from python.inference import router as _router
 from python.inference import latency as _latency, vision as _vision
-from python.harness import peer_billing as _peer_billing, prompt_budget as _budget
+from python.harness import peer_billing as _peer_billing, prompt_budget as _budget, reply_text as _reply_text
 from python.inference.vram_arbiter import prepare_for as _vram_prepare_for
 from python.harness.openai_tool_roundtrip import (
     accumulate_streamed_tool_calls as _accumulate_streamed_tool_calls,
@@ -3745,9 +3745,8 @@ async def handle_inference_generate(
         )
 
     generated_text = validated_text
-    fallback_notice = "\n".join(fallback_notices)
-    if fallback_notice:
-        generated_text = f"{fallback_notice}\n\n{generated_text}".strip()
+    fallback_notice = "\n".join(fallback_notices)  # travels beside the reply (and as a toast); inside it, it would be read aloud
+    generated_text = _reply_text.strip_stray_calls(generated_text)
 
     try:
         from python.harness.memory import handle_memory_record_completed_turn

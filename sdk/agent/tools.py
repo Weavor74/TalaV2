@@ -16,6 +16,8 @@ import logging
 import os
 from typing import Any, Callable, TYPE_CHECKING, get_args, get_origin, get_type_hints
 
+from sdk.agent import tool_status
+
 if TYPE_CHECKING:
     from pathlib import Path
 
@@ -466,6 +468,7 @@ class ToolRegistry:
                 "error": f"Authorization required: execution of critical-risk tool {name} blocked.",
             }
 
+        announced = False  # whether the live status card was told this tool started
         try:
             # Dynamically map 'content' key to expected target parameter if missing
             sig = inspect.signature(func)
@@ -483,24 +486,8 @@ class ToolRegistry:
             filtered_args = _coerce_declared_numbers(sig, filtered_args)
 
             log.info("ToolRegistry: executing tool %r with filtered args %s", name, filtered_args)
-            try:
-                from sdk.agent.telemetry import LiveStatusReporter
-                import asyncio
-                name_lower = name.lower()
-                action_type = 'read_file' if ('read' in name_lower or 'explore' in name_lower) else ('write_file' if ('write' in name_lower or 'edit' in name_lower) else ('search_workspace' if ('search' in name_lower or 'query' in name_lower) else ('run_command' if 'command' in name_lower else 'thinking')))
-                target_val = str(filtered_args.get("query", filtered_args.get("path", filtered_args.get("file_path", filtered_args.get("command", list(filtered_args.values())[0] if filtered_args else "")))))
-                asyncio.create_task(LiveStatusReporter.broadcast_status(
-                    task_id="active_tool",
-                    phase=f"Executing {name}",
-                    status="in_progress",
-                    message=f"Executing tool {name}",
-                    details={
-                        "action_type": action_type,
-                        "target": target_val
-                    }
-                ))
-            except Exception:
-                pass
+            tool_status.started(name, filtered_args)  # the chat's live card; closed by finished() below
+            announced = True
 
             if inspect.iscoroutinefunction(func):
                 result = await func(**filtered_args)
@@ -546,6 +533,7 @@ class ToolRegistry:
             # The `output` is still returned in full either way, so a caller
             # that wants the detail keeps it; only the verdict changes.
             in_band_failure = isinstance(result, dict) and result.get("success") is False
+            tool_status.finished(name, ok=not in_band_failure, error=result.get("error") if in_band_failure else None)
             return {
                 "success": not in_band_failure,
                 "output": safe_result,
@@ -554,6 +542,8 @@ class ToolRegistry:
             }
         except Exception as exc:
             log.error("ToolRegistry: execution of %s failed: %s", name, exc)
+            if announced:
+                tool_status.finished(name, ok=False, error=str(exc))
             
             # Record failure metric
             node_path = tool_entry.get("node_path")
