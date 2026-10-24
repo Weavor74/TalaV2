@@ -246,3 +246,69 @@ async def test_resume_suspended_goals_skips_cleaned_up_goals():
         assert not ours, f"cleaned-up goals were still resumed: {ours}"
     finally:
         await close_pool()
+
+
+# --- the retry cap must hold however the resumed run behaves --------------------------------------------------------------
+#
+# 2026-10-24, the real app: one suspended task was re-launched every ~3 minutes and logged "attempt 2/5" each time, forever, each
+# resume spawning a fresh set of child tasks. The cap counts `state_transition -> blocked` events on the suspended row, but the
+# resume re-enters run_goal(description), which builds its OWN root (an id hashed from the text) -- so the suspended row was never
+# touched again, its count stayed at one, and the cap could not be reached.
+
+
+def _launches(mock_run_goal, goal_text):
+    return [c for c in mock_run_goal.await_args_list if c[0][0] == goal_text]
+
+
+@pytest.mark.asyncio
+async def test_a_resume_that_never_touches_the_suspended_row_still_stops_at_the_cap(caplog):
+    import logging
+
+    from sdk.agent.persistence import TaskEventStore
+
+    await init_pool()
+    try:
+        await _cleanup()
+        await _make_blocked_goal("test-resume-relaunch-goal", "Goal that needs relaunching")
+
+        with patch("sdk.agent.goal_engine.GoalEngine.run_goal", new_callable=AsyncMock) as mock_run_goal, \
+                caplog.at_level(logging.INFO, logger="sdk.agent.goal_resume"):
+            mock_run_goal.return_value = {"success": False}  # fails without ever re-blocking the row it was launched for
+            for _ in range(10):
+                await resume_suspended_goals(max_resume_attempts=5)
+                await asyncio.sleep(0.05)
+
+        assert len(_launches(mock_run_goal, "Goal that needs relaunching")) == 4  # attempts 2/5 .. 5/5, then no more
+        events = await TaskEventStore.fetch_events("test-resume-relaunch-goal")
+        kinds = [e["event_type"] for e in events]
+        assert kinds.count("resume_attempt") == 4
+        assert kinds.count("resume_exhausted") == 1, "the stop is recorded once, not on every tick"
+        assert caplog.text.count("stopped retrying") == 1 and "Goal that needs relaunching" in caplog.text
+    finally:
+        await _cleanup()
+        await close_pool()
+
+
+@pytest.mark.asyncio
+async def test_a_resume_that_re_blocks_its_own_row_is_not_counted_twice():
+    await init_pool()
+    try:
+        await _cleanup()
+        await _make_blocked_goal("test-resume-relaunch-goal", "Goal that needs relaunching")
+
+        async def reblock(*_args, **_kwargs):
+            # what a real resumed run of the SAME root does: back to in-progress, then suspended again
+            await BatchQueue.transition_task("test-resume-relaunch-goal", TaskStatus.BLOCKED, TaskStatus.IN_PROGRESS, reason="resumed")
+            await BatchQueue.transition_task("test-resume-relaunch-goal", TaskStatus.IN_PROGRESS, TaskStatus.BLOCKED,
+                                             reason="Suspended: budget exhausted")
+            return {"success": False}
+
+        with patch("sdk.agent.goal_engine.GoalEngine.run_goal", new=AsyncMock(side_effect=reblock)) as mock_run_goal:
+            for _ in range(10):
+                await resume_suspended_goals(max_resume_attempts=5)
+                await asyncio.sleep(0.05)
+
+        assert len(_launches(mock_run_goal, "Goal that needs relaunching")) == 4, "an attempt must count once, not once per kind of record"
+    finally:
+        await _cleanup()
+        await close_pool()

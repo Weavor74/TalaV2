@@ -73,6 +73,12 @@ scratch/
 emotion_state.json
 mcp_servers.json
 
+# Per-user learning state (when the nightly dream last ran, the weight-event journal) and voice settings: written to the
+# data root, which is the install directory on a USB install. Machine-local, not source.
+/learning.json
+/learning/
+/voice.json
+
 # Per-user runtime state: which chat mode is active. Machine-local, not shared.
 chat_mode.json
 
