@@ -134,7 +134,7 @@ def install_python_dependencies() -> None:
         # absent, after this function had reported both steps done.
         # Voice is optional (its models come separately: scripts/setup_voice.py),
         # so a failed install is non-fatal and the installer carries on.
-        print("  - Attempting to install voice features (local speech: faster-whisper, Piper, Silero, openWakeWord)...")
+        print("  - Attempting to install voice features (local speech: faster-whisper, Kokoro, Silero, openWakeWord)...")
         result = _run([uv, "sync", "--inexact", "--extra", "test", "--extra", "voice"], check=False)
         if result.returncode != 0:
             print(
@@ -150,7 +150,7 @@ def install_python_dependencies() -> None:
     _run([sys.executable, "-m", "venv", str(VENV_DIR)])
     _run([str(_venv_pip()), "install", "--upgrade", "pip"])
     _run([str(_venv_pip()), "install", "-e", ".[test]"])
-    print("  - Attempting to install voice features (local speech: faster-whisper, Piper, Silero, openWakeWord)...")
+    print("  - Attempting to install voice features (local speech: faster-whisper, Kokoro, Silero, openWakeWord)...")
     result = _run([str(_venv_pip()), "install", "-e", ".[voice]"], check=False)
     if result.returncode != 0:
         print(

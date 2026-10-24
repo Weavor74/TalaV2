@@ -10,8 +10,8 @@ keeps it working when the harness is headless or remote.
 
 Tala is local-only, so the chain is local by construction:
 
-1. **Piper** (default) — a small neural ONNX voice on the CPU. Voice files live
-   on D: (``scripts/setup_voice.py``); nothing is downloaded at run time.
+1. **Kokoro** (default) — a small neural voice (Apache-2.0) that runs faster than real time on the CPU. Its files live
+   on D: (``scripts/setup_voice.py``); nothing is downloaded at run time. See ``voice_kokoro.py`` for why it is vendored.
 2. **pyttsx3** — offline system voices (SAPI on Windows, NSSpeech on macOS,
    espeak on Linux). Always local.
 3. **edge-tts** — *only when the user has turned ``allow_cloud_tts`` on*, and
@@ -45,7 +45,7 @@ from pathlib import Path
 from typing import Any
 from urllib.parse import urlparse
 
-from python.harness import voice_piper, voice_settings
+from python.harness import voice_kokoro, voice_settings
 
 log = logging.getLogger(__name__)
 
@@ -79,7 +79,7 @@ def _tts_provider_allowed(endpoint: str) -> bool:
 def _available() -> dict[str, bool]:
     settings = voice_settings.read()
     return {
-        "piper": voice_piper.module_present() and voice_piper.installed(settings["piper_voice"]),
+        "kokoro": voice_kokoro.module_present() and voice_kokoro.installed(settings["tts_voice"]),
         "pyttsx3": _has_module("pyttsx3"),
         "edge-tts": _has_module("edge_tts"),
     }
@@ -87,7 +87,7 @@ def _available() -> dict[str, bool]:
 
 def _select_backends(settings: dict[str, Any], available: dict[str, bool]) -> list[str]:
     """The ordered backends to try. edge-tts appears only if the user enabled it, and always last."""
-    chain = [name for name in ("piper", "pyttsx3") if available.get(name)]
+    chain = [name for name in ("kokoro", "pyttsx3") if available.get(name)]
     if settings.get("allow_cloud_tts") and available.get("edge-tts"):
         chain.append("edge-tts")
     return chain
@@ -103,14 +103,18 @@ async def list_backends() -> dict[str, Any]:
     settings = voice_settings.read()
     available = _available()
     chain = _select_backends(settings, available)
+    kokoro_note = "Local neural voice on the CPU (Kokoro, Apache-2.0). Model files on D:; nothing leaves this machine."
+    if not available["kokoro"]:
+        reason = voice_kokoro.missing_reason(settings["tts_voice"]) or "the Python packages for Kokoro are missing (uv pip install -e .[voice])"
+        kokoro_note = f"Not available: {reason}."
     backends = [
         {
-            "id": "piper",
-            "name": f"Piper ({settings['piper_voice']})",
-            "available": available["piper"],
+            "id": "kokoro",
+            "name": f"Kokoro ({settings['tts_voice']})",
+            "available": available["kokoro"],
             "offline": True,
             "enabled": True,
-            "note": "Local neural voice on the CPU. Voice files on D:; nothing leaves this machine.",
+            "note": kokoro_note,
         },
         {
             "id": "pyttsx3",
@@ -136,13 +140,13 @@ async def list_backends() -> dict[str, Any]:
     }
 
 
-async def _synthesize_piper(text: str, voice: str | None) -> dict[str, Any]:
-    name = voice if voice and voice_piper.installed(voice) else voice_settings.read()["piper_voice"]
-    wav, _rate = await asyncio.to_thread(voice_piper.synthesize_wav, text, name)
+async def _synthesize_kokoro(text: str, voice: str | None) -> dict[str, Any]:
+    name = voice if voice and voice_kokoro.installed(voice) else voice_settings.read()["tts_voice"]
+    wav, _rate = await asyncio.to_thread(voice_kokoro.synthesize_wav, text, name)
     return {
         "audio_base64": base64.b64encode(wav).decode("ascii"),
         "mime_type": "audio/wav",
-        "backend": "piper",
+        "backend": "kokoro",
         "voice": name,
     }
 
@@ -268,7 +272,7 @@ async def synthesize_speech(
     if not clean:
         return {"error": "no text to speak"}
 
-    runners = {"piper": _synthesize_piper, "pyttsx3": _synthesize_pyttsx3, "edge-tts": _synthesize_edge}
+    runners = {"kokoro": _synthesize_kokoro, "pyttsx3": _synthesize_pyttsx3, "edge-tts": _synthesize_edge}
     attempts: list[tuple[str, Any]] = []
     if provider_id:
         attempts.append(("provider", lambda: _synthesize_provider(clean, provider_id, voice)))
@@ -278,7 +282,7 @@ async def synthesize_speech(
     if not attempts:
         return {
             "error": (
-                "no local TTS backend available — run scripts/setup_voice.py to install the Piper voice "
+                "no local TTS backend available — run scripts/setup_voice.py to install the Kokoro voice "
                 "(or install 'pyttsx3' for offline system voices); cloud TTS is off unless allow_cloud_tts is on"
             )
         }

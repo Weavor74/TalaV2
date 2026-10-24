@@ -1,0 +1,106 @@
+# Vendored from Kokoro (https://github.com/hexgrad/kokoro, v0.9.4), Apache License 2.0; see LICENSE in this directory.
+# Changes for Tala: relative imports; loads config and weights from local files only (no Hugging Face download at run
+# time, so the voice stays local and works offline); no loguru; the unused ONNX wrapper is removed.
+# The model architecture is StyleTTS 2 (https://github.com/yl4579/StyleTTS2, MIT).
+# Why vendored: `pip install kokoro` pulls phonemizer-fork (GPL-3.0) and espeakng-loader, and kokoro/pipeline.py imports
+# them unconditionally. The four model files need only torch, transformers and numpy.
+from __future__ import annotations
+
+import json
+import logging
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Optional
+
+import torch
+from transformers import AlbertConfig
+
+from .istftnet import Decoder
+from .modules import CustomAlbert, ProsodyPredictor, TextEncoder
+
+logger = logging.getLogger(__name__)
+
+
+class KModel(torch.nn.Module):
+    """
+    The Kokoro text-to-speech network: ``forward(phonemes, ref_s) -> audio`` (24 kHz float samples).
+
+    Language-blind. It stores the vocabulary that maps phoneme characters to input ids, so the caller only supplies a
+    phoneme string (from misaki) and a voice style row.
+    """
+
+    def __init__(self, config_path: str | Path, model_path: str | Path, disable_complex: bool = False):
+        super().__init__()
+        with open(config_path, "r", encoding="utf-8") as r:
+            config = json.load(r)
+        self.vocab = config["vocab"]
+        self.bert = CustomAlbert(AlbertConfig(vocab_size=config["n_token"], **config["plbert"]))
+        self.bert_encoder = torch.nn.Linear(self.bert.config.hidden_size, config["hidden_dim"])
+        self.context_length = self.bert.config.max_position_embeddings
+        self.predictor = ProsodyPredictor(
+            style_dim=config["style_dim"], d_hid=config["hidden_dim"],
+            nlayers=config["n_layer"], max_dur=config["max_dur"], dropout=config["dropout"],
+        )
+        self.text_encoder = TextEncoder(
+            channels=config["hidden_dim"], kernel_size=config["text_encoder_kernel_size"],
+            depth=config["n_layer"], n_symbols=config["n_token"],
+        )
+        self.decoder = Decoder(
+            dim_in=config["hidden_dim"], style_dim=config["style_dim"],
+            dim_out=config["n_mels"], disable_complex=disable_complex, **config["istftnet"],
+        )
+        for key, state_dict in torch.load(str(model_path), map_location="cpu", weights_only=True).items():
+            assert hasattr(self, key), key
+            try:
+                getattr(self, key).load_state_dict(state_dict)
+            except Exception:
+                logger.debug("Did not load %s from state_dict as saved; retrying without the DataParallel prefix", key)
+                state_dict = {k[7:]: v for k, v in state_dict.items()}
+                getattr(self, key).load_state_dict(state_dict, strict=False)
+
+    @property
+    def device(self):
+        return self.bert.device
+
+    @dataclass
+    class Output:
+        audio: torch.FloatTensor
+        pred_dur: Optional[torch.LongTensor] = None
+
+    @torch.no_grad()
+    def forward_with_tokens(
+        self, input_ids: torch.LongTensor, ref_s: torch.FloatTensor, speed: float = 1,
+    ) -> tuple[torch.FloatTensor, torch.LongTensor]:
+        input_lengths = torch.full((input_ids.shape[0],), input_ids.shape[-1], device=input_ids.device, dtype=torch.long)
+        text_mask = torch.arange(input_lengths.max()).unsqueeze(0).expand(input_lengths.shape[0], -1).type_as(input_lengths)
+        text_mask = torch.gt(text_mask + 1, input_lengths.unsqueeze(1)).to(self.device)
+        bert_dur = self.bert(input_ids, attention_mask=(~text_mask).int())
+        d_en = self.bert_encoder(bert_dur).transpose(-1, -2)
+        s = ref_s[:, 128:]
+        d = self.predictor.text_encoder(d_en, s, input_lengths, text_mask)
+        x, _ = self.predictor.lstm(d)
+        duration = self.predictor.duration_proj(x)
+        duration = torch.sigmoid(duration).sum(axis=-1) / speed
+        pred_dur = torch.round(duration).clamp(min=1).long().squeeze()
+        indices = torch.repeat_interleave(torch.arange(input_ids.shape[1], device=self.device), pred_dur)
+        pred_aln_trg = torch.zeros((input_ids.shape[1], indices.shape[0]), device=self.device)
+        pred_aln_trg[indices, torch.arange(indices.shape[0])] = 1
+        pred_aln_trg = pred_aln_trg.unsqueeze(0).to(self.device)
+        en = d.transpose(-1, -2) @ pred_aln_trg
+        F0_pred, N_pred = self.predictor.F0Ntrain(en, s)
+        t_en = self.text_encoder(input_ids, input_lengths, text_mask)
+        asr = t_en @ pred_aln_trg
+        audio = self.decoder(asr, F0_pred, N_pred, ref_s[:, :128]).squeeze()
+        return audio, pred_dur
+
+    def forward(
+        self, phonemes: str, ref_s: torch.FloatTensor, speed: float = 1, return_output: bool = False,
+    ) -> "KModel.Output | torch.FloatTensor":
+        input_ids = [i for i in map(self.vocab.get, phonemes) if i is not None]
+        assert len(input_ids) + 2 <= self.context_length, (len(input_ids) + 2, self.context_length)
+        input_ids = torch.LongTensor([[0, *input_ids, 0]]).to(self.device)
+        ref_s = ref_s.to(self.device)
+        audio, pred_dur = self.forward_with_tokens(input_ids, ref_s, speed)
+        audio = audio.squeeze().cpu()
+        pred_dur = pred_dur.cpu() if pred_dur is not None else None
+        return self.Output(audio=audio, pred_dur=pred_dur) if return_output else audio

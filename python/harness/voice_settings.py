@@ -23,7 +23,8 @@ log = logging.getLogger(__name__)
 
 DEFAULTS: dict[str, Any] = {
     "allow_cloud_tts": False,
-    "piper_voice": "en_US-lessac-medium",
+    #: A Kokoro voice id (af_heart, am_adam, ...); it must be installed by scripts/setup_voice.py.
+    "tts_voice": "af_heart",
     "whisper_model": "base.en",
     "wake_enabled": True,
     "wake_phrase": "Hey Tala",
@@ -37,7 +38,7 @@ DEFAULTS: dict[str, Any] = {
 
 #: What the UI may change. Anything else in the file is ignored rather than trusted.
 _TYPES: dict[str, type] = {
-    "allow_cloud_tts": bool, "piper_voice": str, "whisper_model": str, "wake_enabled": bool, "wake_phrase": str,
+    "allow_cloud_tts": bool, "tts_voice": str, "whisper_model": str, "wake_enabled": bool, "wake_phrase": str,
     "wake_model": str, "wake_threshold": float, "followup_seconds": float, "listen_on_start": bool,
 }
 _NULLABLE = frozenset({"wake_threshold"})

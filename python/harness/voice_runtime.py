@@ -9,7 +9,7 @@ streams 16 kHz PCM to ``voice.audio``. This module is everything behind that cal
                                                 |        |        |
                               faster-whisper  <-+        |        +-> cancel turn / stop playback
                               (partials, final)          +-> voice.turn -> the UI sends the text to the model
-                                                              voice.audio_chunk <- sentence-chunked Piper (voice_stream)
+                                                              voice.audio_chunk <- sentence-chunked Kokoro (voice_stream)
 
 Nothing leaves the machine: every model is loaded from D: with no download path, audio is held in memory only (the current
 utterance and a short pre-roll), and raw audio is written to disk only when ``TALA_VOICE_DEBUG_DIR`` is set -- on D:.
@@ -143,11 +143,11 @@ class VoiceRuntime:
     def _warm_up(self) -> None:
         """Pay the first-use costs now (loading the voice, the recogniser's first pass) rather than on the first turn."""
         try:
-            from python.harness import voice_piper
+            from python.harness import voice_kokoro
 
-            voice = voice_settings.read()["piper_voice"]
-            if voice_piper.module_present() and voice_piper.installed(voice):
-                voice_piper.synthesize_wav("Ready.", voice)
+            voice = voice_settings.read()["tts_voice"]
+            if voice_kokoro.module_present() and voice_kokoro.installed(voice):
+                voice_kokoro.synthesize_wav("Ready.", voice)
             self.stt.transcribe(np.zeros(SAMPLE_RATE, np.float32))
         except Exception as exc:  # warming is an optimisation; never a reason not to listen
             log.warning("voice: warm-up failed: %s", exc)
