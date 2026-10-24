@@ -161,3 +161,27 @@ async def test_output_redaction_and_validation():
             manager.validate_output("This response references OpenAI technology.")
         assert "Competitor reference to 'openai' is not allowed" in str(excinfo.value)
         mock_log.assert_called_once_with("output_competitor", {"competitor": "openai"})
+
+
+# --- a manager used as a bulk probe must not write to the audit trail --------------------------------------------
+
+
+def test_a_manager_built_with_audit_off_records_no_violation(monkeypatch):
+    """The training-corpus filter runs validate_output over hundreds of replies. Each rejection anchored a chain document and
+    wrote an agent_log row, which inflated the Guardrails panel's audit count with violations nobody committed."""
+    from python.harness import guardrails_manager as gm
+    from sdk.agent.exceptions import SafetyGuardrailViolation
+
+    recorded = []
+    monkeypatch.setattr(gm, "_log_violation_to_ledger", lambda kind, details: recorded.append(kind))
+    rules = {"custom_blocklist": True, "custom_blocklist_terms": ["forbidden-term"]}
+
+    quiet = gm.GuardrailsManager(category="custom", rules=rules, audit=False)
+    with pytest.raises(SafetyGuardrailViolation):
+        quiet.validate_output("this reply says forbidden-term out loud")
+    assert recorded == []
+
+    loud = gm.GuardrailsManager(category="custom", rules=rules)
+    with pytest.raises(SafetyGuardrailViolation):
+        loud.validate_output("this reply says forbidden-term out loud")
+    assert recorded == ["output_custom_blocklist"]
