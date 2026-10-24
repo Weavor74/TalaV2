@@ -6887,3 +6887,32 @@ button:focus:not(:focus-visible) {
   background: var(--bg-warning, #5a4a12);
   border-top-color: #d4a017;
 }
+
+/* ── Local voice ─────────────────────────────────────────────────────── */
+.voice-indicator {
+  color: var(--status-error, #e0463c);
+  font-weight: 600;
+}
+
+.voice-indicator[hidden] {
+  display: none;
+}
+
+.voice-dot {
+  display: inline-block;
+  width: 8px;
+  height: 8px;
+  margin-right: 6px;
+  border-radius: 50%;
+  background: currentColor;
+  animation: voice-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes voice-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.35; }
+}
+
+#btn-chat-listen.active {
+  color: var(--status-error, #e0463c);
+}

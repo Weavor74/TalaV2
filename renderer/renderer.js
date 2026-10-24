@@ -5356,6 +5356,17 @@ const AgentChat = {
       });
     }
 
+    // Local voice (voice_ui.js): wake word, streaming speech-to-text, spoken replies, barge-in.
+    if (typeof VoiceUI !== 'undefined') {
+      const rpc = (method, params) => invoke('python:rpc', { method, params });
+      this._voice = VoiceUI.createController({
+        doc: document, agentChat: this, rpc, confirmFn: (t) => window.confirm(t),
+        getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
+        AudioContext: window.AudioContext, AudioWorkletNode: window.AudioWorkletNode,
+      });
+      VoiceUI.initSettings(document, rpc, (t) => window.confirm(t));
+    }
+
     // Image attach + paste support
     this._pendingImages = [];
     const btnAttach = qs('#btn-chat-attach');
@@ -5512,6 +5523,10 @@ const AgentChat = {
         // Agent-initiated speech (speak_text tool) — play immediately
         if (method === 'voice.play' && params.audio_base64) {
           this.playAudio(params.audio_base64, params.mime_type || 'audio/mpeg');
+          return;
+        }
+        if (method.startsWith('voice.') && this._voice) {
+          this._voice.handleNotification(method, params);
           return;
         }
 
@@ -6317,34 +6332,14 @@ const AgentChat = {
   },
 
   async startVoiceCapture() {
-    if (this._recording) return;
-    this._recording = true;
-    const btn = this._btnMic;
-    const prevTitle = btn ? btn.title : '';
-    if (btn) {
-      btn.classList.add('active');
-      btn.title = 'Recording… (5s)';
-    }
-    IPCLog.append('info', 'Recording voice input (5s, local Whisper)...');
-    try {
-      const result = await invoke('python:rpc', { method: 'multimodal.transcribe_voice', params: { duration_seconds: 5 } });
-      if (result && result.text) {
-        this._textarea.value = (this._textarea.value ? this._textarea.value + ' ' : '') + result.text;
-        this._textarea.focus();
-        IPCLog.append('ok', `Transcribed: "${result.text}"`);
-      } else {
-        const errMsg = result && result.error ? result.error : 'No speech detected.';
-        this.appendMessage('agent', 'Tala', `Voice input failed: ${errMsg}`, true);
-      }
-    } catch (err) {
-      this.appendMessage('agent', 'Tala', `Voice input error: ${err.message || err}`, true);
-    } finally {
-      this._recording = false;
-      if (btn) {
-        btn.classList.remove('active');
-        btn.title = prevTitle;
-      }
-    }
+    // One utterance, ended by the speaker going quiet, transcribed locally into the input box (voice_ui.js).
+    if (this._voice) await this._voice.dictate();
+  },
+
+  /** A turn the voice loop heard: shown and answered like typed text, but streamed so she starts speaking early. */
+  sendVoiceTurn(text, turnId) {
+    this.appendMessage('user', 'You', text);
+    this.sendInferenceRequest(text, [], { voiceTurnId: turnId });
   },
 
   ttsEnabled() {
@@ -6396,7 +6391,7 @@ const AgentChat = {
     }
   },
 
-  async sendInferenceRequest(promptText, imagesBase64 = []) {
+  async sendInferenceRequest(promptText, imagesBase64 = [], opts = {}) {
     const loadingId = 'chat-loading-' + Date.now();
     const loadingBubble = document.createElement('div');
     loadingBubble.className = 'chat-message agent';
@@ -6421,6 +6416,7 @@ const AgentChat = {
       this._history = [];
     }
     const historyToSend = this._history.slice(-historyLimit);
+    let replyText = null;
 
     try {
       const isVision = imagesBase64 && imagesBase64.length > 0;
@@ -6435,7 +6431,8 @@ const AgentChat = {
           provider_id: effectiveProviderId,
           max_tokens: maxTokens,
           temperature: 0.7,
-          images: imagesBase64
+          images: imagesBase64,
+          ...(opts.voiceTurnId ? { stream: true, voice_turn_id: opts.voiceTurnId, max_tokens: 256 } : {})
         }
       });
 
@@ -6444,6 +6441,7 @@ const AgentChat = {
         this._messages.removeChild(currentLoading);
       }
 
+      replyText = response && response.text;
       if (response && response.text) {
         if (isResearchRefinement) {
           const updatedHtml = ResearchManager.extractHtmlNN(response.text);
@@ -6456,7 +6454,7 @@ const AgentChat = {
           }
         } else {
           this.appendMessage('agent', 'Tala', response.text, false, response.injected_node_ids);
-          if (this.ttsEnabled()) {
+          if (this.ttsEnabled() && !opts.voiceTurnId) {
             this.speakText(response.text);
           }
           if (!this._history) {
@@ -6488,7 +6486,12 @@ const AgentChat = {
       if (currentLoading) {
         this._messages.removeChild(currentLoading);
       }
-      this.appendMessage('agent', 'Tala', `Error: ${err.message ?? err}`, true);
+      // A voice turn she was talked over in is cancelled on purpose; that is not an error to show.
+      if (!(opts.voiceTurnId && String(err.message ?? err).includes('Turn cancelled'))) {
+        this.appendMessage('agent', 'Tala', `Error: ${err.message ?? err}`, true);
+      }
+    } finally {
+      if (opts.voiceTurnId && this._voice) this._voice.turnDone(opts.voiceTurnId, replyText);
     }
   },
 

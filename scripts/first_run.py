@@ -130,17 +130,17 @@ def install_python_dependencies() -> None:
         # next one would uninstall transformers. Each extra is meant to
         # accumulate and to fail independently, which is exactly what the
         # default pruning behaviour prevents. Observed on this install:
-        # transformers and accelerate present, openai-whisper and numba
+        # transformers and accelerate present, the voice packages
         # absent, after this function had reported both steps done.
-        # Voice deps require numba which is incompatible with Python >= 3.13.
-        # Treat as non-fatal so the installer does not abort on newer Pythons.
-        print("  - Attempting to install voice features (requires Python < 3.13)...")
+        # Voice is optional (its models come separately: scripts/setup_voice.py),
+        # so a failed install is non-fatal and the installer carries on.
+        print("  - Attempting to install voice features (local speech: faster-whisper, Piper, Silero, openWakeWord)...")
         result = _run([uv, "sync", "--inexact", "--extra", "test", "--extra", "voice"], check=False)
         if result.returncode != 0:
             print(
-                "  - Voice feature install failed (likely Python >= 3.13 / numba incompatibility).\n"
-                "  - Core Tala will work fine. To enable voice, use Python < 3.13 and run:\n"
-                "  -   uv pip install -e .[voice]"
+                "  - Voice feature install failed.\n"
+                "  - Core Tala will work fine. To enable voice later, run:\n"
+                "  -   uv pip install -e .[voice]   then   python scripts/setup_voice.py"
             )
         print("  - Attempting to install embedded engine (transformers)...")
         _run([uv, "sync", "--inexact", "--extra", "test", "--extra", "transformers"], check=False)
@@ -150,13 +150,13 @@ def install_python_dependencies() -> None:
     _run([sys.executable, "-m", "venv", str(VENV_DIR)])
     _run([str(_venv_pip()), "install", "--upgrade", "pip"])
     _run([str(_venv_pip()), "install", "-e", ".[test]"])
-    print("  - Attempting to install voice features (requires Python < 3.13)...")
+    print("  - Attempting to install voice features (local speech: faster-whisper, Piper, Silero, openWakeWord)...")
     result = _run([str(_venv_pip()), "install", "-e", ".[voice]"], check=False)
     if result.returncode != 0:
         print(
-            "  - Voice feature install failed (likely Python >= 3.13 / numba incompatibility).\n"
-            "  - Core Tala will work fine. To enable voice, use Python < 3.13 and run:\n"
-            "  -   pip install -e .[voice]"
+            "  - Voice feature install failed.\n"
+            "  - Core Tala will work fine. To enable voice later, run:\n"
+            "  -   pip install -e .[voice]   then   python scripts/setup_voice.py"
         )
     print("  - Attempting to install embedded engine (transformers)...")
     _run([str(_venv_pip()), "install", "-e", ".[transformers]"], check=False)
@@ -192,11 +192,11 @@ def ensure_ffmpeg() -> None:
     tries to use it and then failing as a bare WinError 2 / FileNotFoundError
     from inside a library, which reads as a bug rather than a missing tool.
 
-    Scope of the need, stated honestly: Tala's own STT path hands Whisper a
-    numpy array from sounddevice and needs no ffmpeg at all. It is required
-    the moment anything transcribes a *file* or a blob -- which is what
-    openai-whisper documents as a hard requirement -- so this provisions it
-    rather than waiting for the first such caller to discover it is missing.
+    Scope of the need, stated honestly: Tala's own STT path (faster-whisper)
+    hands the model a numpy array and decodes no file, so voice needs no
+    ffmpeg at all. It is still provisioned because anything else that handles
+    audio or video files expects it, rather than waiting for the first such
+    caller to discover it is missing.
 
     Installed at user scope only. A first-run script must never ask for
     elevation, so on Linux (where the package managers need root) this
