@@ -58,6 +58,7 @@ something this module or any running Tala instance does.
 from __future__ import annotations
 
 import asyncio
+import collections
 import json
 import logging
 import shutil
@@ -124,6 +125,8 @@ _RESTART_BASE_DELAY_S = 2.0
 _WATCHDOG_INTERVAL_S = 15.0
 _WATCHDOG_FAILURES = 3
 _TERMINATE_GRACE_S = 10.0
+#: How many of llama-server's last output lines are kept, to say what it was doing when it died.
+_OUTPUT_TAIL_LINES = 40
 
 #: Preference order when nothing pins a variant: best perf first, universal
 #: compatibility last.
@@ -482,6 +485,7 @@ class _ServerHandle:
         self.variant = variant
         self.base_url = f"http://127.0.0.1:{port}"
         self.restarts = 0
+        self.tail: collections.deque[str] = collections.deque(maxlen=_OUTPUT_TAIL_LINES)
 
 
 _server: _ServerHandle | None = None
@@ -532,13 +536,16 @@ async def _wait_healthy(base_url: str, timeout_s: float | None = None, proc: Any
     return False
 
 
-async def _pump_output(proc: asyncio.subprocess.Process, variant: str) -> None:
-    """Drain and log llama-server's stdout/stderr for the life of the process."""
+async def _pump_output(proc: asyncio.subprocess.Process, variant: str, tail: "collections.deque[str] | None" = None) -> None:
+    """Drain and log llama-server's stdout/stderr for the life of the process, keeping the last lines in ``tail``."""
     if proc.stdout is None:
         return
     try:
         async for line in proc.stdout:
-            logger.debug("llama-server[%s]: %s", variant, line.decode(errors="replace").rstrip())
+            text = line.decode(errors="replace").rstrip()
+            logger.debug("llama-server[%s]: %s", variant, text)
+            if tail is not None:
+                tail.append(text)
     except Exception:
         pass
 
@@ -572,9 +579,9 @@ async def _spawn(variant: str) -> _ServerHandle | None:
     # Must be drained or llama-server's own stdout write() blocks once the OS
     # pipe buffer fills (a few KB of startup logging is enough), which looks
     # exactly like a health-check timeout with no indication why.
-    asyncio.create_task(_pump_output(proc, variant))
-
     handle = _ServerHandle(proc, port, variant)
+    asyncio.create_task(_pump_output(proc, variant, handle.tail))
+
     if await _wait_healthy(handle.base_url, proc=proc):
         return handle
 
@@ -596,6 +603,11 @@ async def _supervise(handle: _ServerHandle) -> None:
     lifecycle.unregister_process(handle.proc.pid)
 
     global _server
+    if _server is handle:  # stop_server() clears this first, which is what marks a stop as intended
+        logger.error(
+            "llama_server_manager: %s on port %d exited unexpectedly (code %s); its last output:\n%s",
+            handle.variant, handle.port, handle.proc.returncode, "\n".join(handle.tail) or "(nothing was printed)",
+        )
     async with _server_lock:
         if _server is not handle:
             return  # already replaced by a newer server

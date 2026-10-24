@@ -118,6 +118,7 @@ def _write_journal(now: datetime, text: str) -> str | None:
         result = create_documentation_node(
             node_id=node_id, title=f"Dream journal {now.date().isoformat()}", doc_target="memory.dream-journal",
             semantic_memory=text, node_type="documentation", tags=["html-nn", "memory", "dream-journal"], stage=False,
+            purpose="record",  # what happened on a night, not a description of code: it answers to no source file
         )
         if result.get("path"):
             nl.seed_new_node(Path(result["path"]), relevance=JOURNAL_WEIGHT, confidence=JOURNAL_WEIGHT, now=now)

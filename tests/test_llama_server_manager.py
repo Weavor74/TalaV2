@@ -300,3 +300,65 @@ def test_a_server_that_exits_while_loading_fails_the_start_at_once():
     started = _time.perf_counter()
     assert asyncio.run(lsm._wait_healthy("http://127.0.0.1:1", timeout_s=30.0, proc=Dead())) is False
     assert _time.perf_counter() - started < 5.0
+
+
+# --- when the server dies, its last words are kept -------------------------------------------------------------------------------------------
+#
+# 2026-10-24, the real app: a streaming reply from the main model was cut with `ReadError` eight seconds in and the request fell
+# back to another model. llama-server's output was logged at debug level only, so what it said as it died was gone.
+
+
+class _Stdout:
+    def __init__(self, lines):
+        self.lines = [ln.encode() + b"\n" for ln in lines]
+
+    def __aiter__(self):
+        return self
+
+    async def __anext__(self):
+        if not self.lines:
+            raise StopAsyncIteration
+        return self.lines.pop(0)
+
+
+@pytest.mark.asyncio
+async def test_the_servers_last_output_lines_are_kept():
+    handle, proc = _handle()
+    proc.stdout = _Stdout([f"line {i}" for i in range(100)])
+    await lsm._pump_output(proc, lsm.EXTERNAL, handle.tail)
+    assert list(handle.tail)[0] == "line 60" and list(handle.tail)[-1] == "line 99"
+    assert len(handle.tail) == lsm._OUTPUT_TAIL_LINES
+
+
+@pytest.mark.asyncio
+async def test_an_unexpected_exit_is_logged_with_what_the_server_said(monkeypatch, caplog):
+    import logging
+
+    handle, proc = _handle()
+    proc.returncode = 3
+    handle.tail.extend(["load_tensors: offloaded 24/25 layers", "CUDA error: out of memory", "ggml_abort"])
+    monkeypatch.setattr(lsm, "_server", handle)
+    monkeypatch.setattr(lsm, "_RESTART_BASE_DELAY_S", 0.0)
+    started = []
+
+    async def fake_ensure(preferred=None):
+        started.append(preferred)
+
+    monkeypatch.setattr(lsm, "_ensure_running", fake_ensure)
+    with caplog.at_level(logging.ERROR, logger=lsm.logger.name):
+        await lsm._supervise(handle)
+    assert "exited unexpectedly" in caplog.text and "code 3" in caplog.text
+    assert "CUDA error: out of memory" in caplog.text and "ggml_abort" in caplog.text
+    assert started, "it is still restarted, as before"
+
+
+@pytest.mark.asyncio
+async def test_a_deliberate_stop_is_not_reported_as_a_crash(monkeypatch, caplog):
+    import logging
+
+    handle, proc = _handle()
+    proc.returncode = 1
+    monkeypatch.setattr(lsm, "_server", None)  # stop_server clears this first, which is what marks a stop as intended
+    with caplog.at_level(logging.ERROR, logger=lsm.logger.name):
+        await lsm._supervise(handle)
+    assert "exited unexpectedly" not in caplog.text

@@ -77,7 +77,7 @@ from python.inference import external_engine as _engine_cfg
 from python.astrology.natal import birth_for, chart_summary
 from python.inference import router as _router
 from python.inference import latency as _latency, vision as _vision
-from python.harness import prompt_budget as _budget
+from python.harness import peer_billing as _peer_billing, prompt_budget as _budget
 from python.inference.vram_arbiter import prepare_for as _vram_prepare_for
 from python.harness.openai_tool_roundtrip import (
     accumulate_streamed_tool_calls as _accumulate_streamed_tool_calls,
@@ -2631,10 +2631,7 @@ async def handle_inference_generate(
         token_gate_prompt = f"System: {active_system_prompt}\n{history_str}"
 
     # Resolve primary peer from prompt references to pay the data owner
-    primary_peer = None
-    peer_match = re.search(r'@([a-zA-Z0-9_-]+)', token_gate_prompt)
-    if peer_match:
-        primary_peer = f"@{peer_match.group(1)}"
+    primary_peer = await _peer_billing.known_peer(token_gate_prompt, _get_contact)  # a decorator or an email is not a peer
 
     # Token gate — raises InsufficientTokenBalanceError if broke (runs on combined prompt for accurate billing)
     try:

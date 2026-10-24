@@ -142,6 +142,24 @@ async def test_the_dream_decays_idle_nodes_and_writes_a_journal(world):
 
 
 @pytest.mark.asyncio
+async def test_the_journal_is_a_record_not_an_accountable_description(world):
+    """A journal says what happened on a night. Left to default it was stamped 'description', which makes it accountable to
+    source files it has none of: the live app's first dream wrote one and two repo invariants failed on it
+    (test_document_accountability, test_document_purpose)."""
+    outcome = await dreaming.run_dream(force=True, now=NOW)
+    html = (world["nodes"] / f"{outcome['journal_node_id']}.html").read_text(encoding="utf-8")
+    assert 'data-document-purpose="record"' in html
+
+
+@pytest.mark.asyncio
+async def test_a_journal_leaves_no_accountable_document_without_a_source(world):
+    from sdk.agent.documentation_nodes import documentation_staleness
+
+    await dreaming.run_dream(force=True, now=NOW)
+    assert documentation_staleness()["source_coverage"]["without_reference"] == 0
+
+
+@pytest.mark.asyncio
 async def test_the_journal_summarises_what_learning_did_since_the_last_dream(world):
     make_node(world["nodes"], "apples")
     nl.record_use(["apples"], world["nodes"], now=NOW - timedelta(hours=5))
