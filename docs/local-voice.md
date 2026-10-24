@@ -22,7 +22,7 @@ harness ── openWakeWord ──┐
 |---|---|---|---|
 | speech (default) | Kokoro-82M, voice `af_heart` (configurable), on the **CPU**, about 0.4x real time once warm | `D:\models\voice\kokoro` | hexgrad (no country stated); StyleTTS 2 architecture from academic authors; Apache-2.0 |
 | hearing | faster-whisper (CTranslate2), `base.en` int8 (0.7 s per utterance; `small.en` is 2.6 s), **CPU** so the 6 GB GPU stays for the language model | `D:\models\voice\whisper` | OpenAI Whisper weights, converted by SYSTRAN |
-| end of utterance | Silero VAD (ONNX, ships inside the pip package) | in the venv | Silero (Russia-based team); chosen explicitly, MIT, runs locally |
+| end of utterance | Silero VAD (ONNX, ships inside the pip package) | in the venv | Silero (Russia-based team); chosen explicitly, MIT, runs locally; **accepted again by Steven on 2026-10-24** under the rule that the US-origin requirement is on the model itself |
 | wake word | openWakeWord (ONNX) | `D:\models\voice\wakeword` | US |
 | microphone, playback | the Electron renderer (`getUserMedia`, WebAudio) | the app | — |
 
@@ -47,7 +47,8 @@ phonemes (misaki's IPA, e.g. `"zorblax": "zˈɔɹblæks"`) in `D:\models\voice\k
 loads and its entries win over the built-in ones.
 
 **Origin:** the maintainer states no country and the training run is credited to a Discord user; the architecture is StyleTTS 2.
-Nothing ties the weights to a non-US company, but it has not been confirmed to be US-origin either.
+Nothing ties the weights to a non-US company, but it has not been confirmed to be US-origin either. **Accepted by Steven on
+2026-10-24 on that basis**; the rule applies to the model itself, and this is the model he accepted.
 
 ## Setting up on Windows (everything on D:)
 
@@ -189,7 +190,7 @@ present. `tests/test_voice_models.py` runs the real chain: what Kokoro says, fas
   connection and every turn records a payment. Fixed 2026-10-24 (a 0.5 s connect cap and a 15 s back-off in `chains.py`).
 * **A word Kokoro does not know is silent** (see "Licensing"). Add it to `lexicon.json`.
 * Kokoro has not been heard by a person here, only measured and transcribed back by faster-whisper; whether the voice suits Tala
-  is untested, as is whether the weights' origin satisfies the US-origin rule.
+  is untested. (Its weights' unconfirmed origin was accepted on 2026-10-24.)
 * Microphone capture, echo cancellation on speakers, and playback have only been tested with fakes (Jest). Talking over her
   on speakers depends on the browser's echo cancellation working; headphones avoid the question.
 * The wake model has never heard a real person. If it misses you, use the pretrained fallback or lower `wake_threshold`.
