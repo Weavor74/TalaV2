@@ -26,6 +26,10 @@ prefix that python/harness/memory.py writes into RP conversation memory, and
 some carrying tool calls inline. Training on that surface form keeps voice,
 emotion and tool habit on one axis rather than three.
 
+Before reading the corpus it refreshes real-usage/ (Tala's own replies in the renderer's chat sessions) and learning-events/
+(the real HTML-NN lesson records) from the live database and nodes -- see sdk/agent/real_usage_corpus.py for what is kept and
+why. Pass --no-real-usage to train on what is already on disk.
+
 USAGE
     python scripts/train_voice_adapter.py --dry-run      # show the dataset, no torch needed
     python scripts/train_voice_adapter.py --train
@@ -233,11 +237,47 @@ def cmd_train(examples: list[dict[str, str]], base_model: str, output: Path,
     return 0
 
 
+def sync_real_usage() -> None:
+    """
+    Refresh data/training_corpus/real-usage and learning-events from Tala's real chats and lesson nodes, then say what was
+    kept and why the rest was not. Best effort: a database that is down costs the run its real-usage half and nothing else.
+    """
+    import asyncio
+
+    from python.harness import db
+    from sdk.agent import real_usage_corpus as ruc
+
+    async def run() -> tuple[dict, dict]:
+        try:
+            await db.init_pool()
+        except Exception as exc:
+            print(f"real-usage: database unavailable ({exc}); conversation turns not refreshed")
+        try:
+            return await ruc.sync_real_usage_corpus(), await ruc.sync_learning_events_corpus()
+        finally:
+            try:
+                await db.close_pool()
+            except Exception:
+                pass
+
+    chats, events = asyncio.run(run())
+    if chats.get("success"):
+        why = ", ".join(f"{n} {reason}" for reason, n in sorted(chats["excluded_by"].items(), key=lambda kv: -kv[1])) or "none"
+        print(f"real-usage: kept {chats['included']} of {chats['scanned']} chat replies (left out: {why})")
+    else:
+        print(f"real-usage: conversation turns not refreshed ({chats.get('error')})")
+    if events.get("success"):
+        print(f"real-usage: kept {events['included']} of {events['scanned']} learning-event records")
+    print()
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--corpus", default=str(DEFAULT_CORPUS))
     ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--base", default=DEFAULT_BASE_MODEL)
+    ap.add_argument("--no-real-usage", action="store_true",
+                    help="skip refreshing the real-usage and learning-event corpora from the live database and nodes")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--rank", type=int, default=8)
     group = ap.add_mutually_exclusive_group(required=True)
@@ -246,6 +286,8 @@ def main() -> int:
     args = ap.parse_args()
 
     corpus = Path(args.corpus)
+    if not args.no_real_usage and corpus.resolve() == DEFAULT_CORPUS.resolve():
+        sync_real_usage()  # only into the default corpus: the sync writes there, and a custom directory is the caller's own
     if not corpus.is_dir():
         print(f"Corpus directory not found: {corpus}")
         return 2
