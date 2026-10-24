@@ -76,6 +76,7 @@ from python.harness.provider_selection import (
 from python.inference import external_engine as _engine_cfg
 from python.astrology.natal import birth_for, chart_summary
 from python.inference import router as _router
+from python.inference import latency as _latency, vision as _vision
 from python.inference.vram_arbiter import prepare_for as _vram_prepare_for
 from python.harness.openai_tool_roundtrip import (
     accumulate_streamed_tool_calls as _accumulate_streamed_tool_calls,
@@ -1386,12 +1387,8 @@ async def handle_inference_generate(
     raw_user_prompt = prompt
 
     # An explicit "remember that ..." becomes a learning node now, so this same turn's retrieval can find it.
-    remembered = None
-    try:
-        from sdk.agent.memory_tools import remember_from_message
-        remembered = await remember_from_message(raw_user_prompt)
-    except Exception as exc:
-        logger.warning("remember_from_message failed: %s", exc)
+    from sdk.agent.memory_tools import remember_safely
+    remembered = await remember_safely(raw_user_prompt)
 
     session_id: str = str(params.get("session_id", uuid.uuid4()))
 
@@ -2402,8 +2399,8 @@ async def handle_inference_generate(
         # Dynamically load all 12 Harness Settings Panel Neural Nodes (Settings Tabs)
         system_settings_context = ""
         try:
-            from python.harness.settings_nn import update_all_settings_nodes
-            await update_all_settings_nodes()
+            from python.harness.settings_nn import refresh_in_background
+            refresh_in_background()  # not awaited: regenerating all 13 nodes here cost every turn 13 s
             from sdk.agent.parser import parse_file
             nodes_dir = resolve_active_nodes_dir()
 
@@ -2612,6 +2609,8 @@ async def handle_inference_generate(
             logger.warning("Could not assemble prompt using PromptAssembler: %s", exc)
 
         images = params.get("images", [])
+        if _caption := await _vision.caption_images(images, raw_user_prompt, _engine_cfg.profile()):  # the vision model has read it
+            prompt, images = f"{prompt}\n\n{_caption}", []  # so the main model answers, from its description, as a text turn
         if images and isinstance(images, list):
             content_list = [{"type": "text", "text": prompt}]
             for b64 in images:
@@ -3038,6 +3037,8 @@ async def handle_inference_generate(
                         _keep = p_config.get("keep_alive")
                         if _keep not in (None, ""):
                             payload["keep_alive"] = int(_keep) if str(_keep).isdigit() else _keep
+                        if p_config.get("num_gpu") is not None:  # 0 = CPU only: no VRAM taken, no GPU room needed
+                            payload["options"]["num_gpu"] = int(p_config["num_gpu"])
                         # Reasoning is deliberately NOT disabled here (no
                         # `"think": False`). On the native endpoint it arrives
                         # structurally in message.thinking, wrapped into <thinking>
@@ -3430,6 +3431,7 @@ async def handle_inference_generate(
                                 if response.status_code != 200:
                                     raise RuntimeError(f"HTTP Error {response.status_code}: {response.text}")
                             resp_json = response.json()
+                            _latency.note_ollama(resp_json)
                             if _use_native_ollama:
                                 # Native /api/chat shape: {"message": {"content",
                                 # "thinking"?, "tool_calls"?}, "done": true}
@@ -3801,6 +3803,7 @@ async def handle_inference_generate(
         "balance_after": check.balance_after,
         "session_id": session_id,
         "fallback_notice": fallback_notice,
+        "timing": _latency.take(),
         "injected_node_ids": injected_node_ids,
         "remembered_node_id": (remembered or {}).get("node_id"),
     })

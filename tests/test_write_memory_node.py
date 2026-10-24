@@ -9,7 +9,7 @@ Now:
 
 * ``write_memory`` (the model-initiated tool, lease-gated) writes an un-staged node, so the fact is recallable on the
   very next turn, seeded below the weight ceiling so use and feedback can move it;
-* ``remember_from_message`` is the deterministic path for an explicit "remember that ..." typed by the user: the harness
+* ``_remember_from_message`` is the deterministic path for an explicit "remember that ..." typed by the user: the harness
   saves that one fact itself, before the model answers, instead of hoping a small model chooses to call a tool;
 * neither stores anything that looks like a credential, a wallet key or a seed phrase.
 """
@@ -18,7 +18,7 @@ from __future__ import annotations
 import pytest
 
 from sdk.agent import node_learning as nl
-from sdk.agent.memory_tools import remember_from_message, write_memory
+from sdk.agent.memory_tools import _remember_from_message, write_memory
 from sdk.agent.parser import parse_file
 
 
@@ -110,7 +110,7 @@ async def test_empty_and_oversized_facts_are_refused(userdata, content):
     ("remember that I take my coffee black", "I take my coffee black"),
 ])
 async def test_an_explicit_remember_is_saved_before_the_model_answers(userdata, message, fact):
-    result = await remember_from_message(message)
+    result = await _remember_from_message(message)
     assert result is not None and result["success"] is True
     assert fact in parse_file(result["path"]).semantic_memory
 
@@ -129,12 +129,35 @@ async def test_an_explicit_remember_is_saved_before_the_model_answers(userdata, 
     None,
 ])
 async def test_only_an_explicit_command_counts(userdata, message):
-    assert await remember_from_message(message) is None
+    assert await _remember_from_message(message) is None
     assert list((userdata / "nodes").glob("*.html")) == []
 
 
 @pytest.mark.asyncio
 async def test_an_explicit_remember_of_a_secret_is_refused_not_ignored(userdata):
-    result = await remember_from_message("remember that my password is hunter2xyz")
+    result = await _remember_from_message("remember that my password is hunter2xyz")
     assert result is not None and result["success"] is False
     assert list((userdata / "nodes").glob("*.html")) == []
+
+
+@pytest.mark.asyncio
+async def test_remember_safely_never_lets_a_failure_reach_the_turn(monkeypatch):
+    """The server calls this before every turn; a problem saving a note must cost the note, not the reply."""
+    from sdk.agent import memory_tools
+
+    async def boom(message):
+        raise RuntimeError("disk full")
+
+    monkeypatch.setattr(memory_tools, "_remember_from_message", boom)
+    assert await memory_tools.remember_safely("remember that my cat is called Zorblax") is None
+
+
+@pytest.mark.asyncio
+async def test_remember_safely_passes_a_saved_note_through(monkeypatch):
+    from sdk.agent import memory_tools
+
+    async def saved(message):
+        return {"success": True, "node_id": "fact-x"}
+
+    monkeypatch.setattr(memory_tools, "_remember_from_message", saved)
+    assert (await memory_tools.remember_safely("remember that x"))["node_id"] == "fact-x"

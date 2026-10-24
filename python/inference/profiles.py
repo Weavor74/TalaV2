@@ -66,6 +66,12 @@ class OllamaRole:
     num_ctx: int
     keep_alive: str
     vision: bool = False
+    #: False pins the model to the CPU (Ollama ``num_gpu: 0``): it takes no VRAM, so it never displaces the main model.
+    gpu: bool = True
+
+    @property
+    def num_gpu(self) -> int | None:
+        return None if self.gpu else 0
 
 
 @dataclass(frozen=True)
@@ -114,6 +120,7 @@ class Profile:
             "reasoning": dict(self.reasoning),
             "fallback": self.fallback.model if self.fallback else None,
             "vision": self.vision.model if self.vision else None,
+            "vision_on_gpu": self.vision.gpu if self.vision else None,
             "ollama_url": self.ollama_url,
             "allow_remote": self.allow_remote,
             "vram": {"total_mb": self.vram_total_mb, "exclusive": self.vram_exclusive},
@@ -206,6 +213,7 @@ def _role(data: Any, *, vision: bool = False) -> OllamaRole | None:
         num_ctx=int(data.get("num_ctx", 8192)),
         keep_alive=str(data.get("keep_alive", "0")),
         vision=vision,
+        gpu=bool(data.get("gpu", True)),
     )
 
 

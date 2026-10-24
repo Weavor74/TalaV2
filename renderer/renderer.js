@@ -6442,6 +6442,7 @@ const AgentChat = {
       }
 
       replyText = response && response.text;
+      if (typeof LatencyStatus !== 'undefined') LatencyStatus.show(document, response && response.timing);
       if (response && response.text) {
         if (isResearchRefinement) {
           const updatedHtml = ResearchManager.extractHtmlNN(response.text);

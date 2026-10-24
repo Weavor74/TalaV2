@@ -1,6 +1,6 @@
 {
   "kagura": {
-    "description": "Kagura: RTX 3050 6 GB, 128 GB RAM, Ryzen 5800X (Windows). Main chat and tools are gpt-oss-20b Heretic on a CUDA llama.cpp build; Llama 3.1 8B abliterated (fallback) and gemma3:4b (vision) are served by Ollama. Everything lives on D:.",
+    "description": "Kagura: RTX 3050 6 GB, 128 GB RAM, Ryzen 5800X (Windows). Main chat and tools are gpt-oss-20b Heretic on a CUDA llama.cpp build; Llama 3.1 8B abliterated (fallback) is served by Ollama on the GPU; gemma3:4b (vision) runs on the CPU through Ollama so an image turn never displaces the main model. Everything lives on D:.",
     "main": {
       "label": "gpt-oss-20b-heretic",
       "server_bin": "{tools_dir}/llama-cuda-copy/llama-server.exe",
@@ -9,7 +9,7 @@
       "hf_file": "gpt-oss-20b-heretic.MXFP4_MOE.gguf",
       "port": 8089,
       "ctx": 16384,
-      "args": ["-ngl", "99", "--n-cpu-moe", "20"],
+      "args": ["-ngl", "99", "--n-cpu-moe", "22", "-ub", "4096", "-b", "4096"],
       "fork": false,
       "harmony": true,
       "startup_timeout_s": 240
@@ -24,7 +24,8 @@
     "vision": {
       "model": "gemma3:4b",
       "num_ctx": 8192,
-      "keep_alive": "2m"
+      "keep_alive": "30m",
+      "gpu": false
     },
     "ollama_url": "http://localhost:11434",
     "allow_remote": false,

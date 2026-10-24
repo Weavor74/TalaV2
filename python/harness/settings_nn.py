@@ -719,6 +719,37 @@ async def sync_settings_to_nodes():
 # Alias for backwards compatibility across harness and tools
 update_all_settings_nodes = sync_settings_to_nodes
 
+#: How often a turn may ask for the settings nodes to be refreshed. The nodes are written at startup and the settings RPCs update
+#: their own node on a change, so this is only a safety net; regenerating all thirteen on every turn cost 13 s of each reply, and at
+#: 30 s a background refresh still overlapped every second or third turn and slowed it by about 10 s.
+REFRESH_INTERVAL_S = 300.0
+_REFRESH: dict = {"last": None, "task": None}
+
+
+def refresh_in_background(min_interval_s: float = REFRESH_INTERVAL_S, now=None) -> None:
+    """Refresh every settings node without making the caller wait: at most once per interval, never two at once, failures logged."""
+    import asyncio
+    import time
+
+    clock = now or time.monotonic
+    task = _REFRESH["task"]
+    last = _REFRESH["last"]
+    if (task is not None and not task.done()) or (last is not None and clock() - last < min_interval_s):
+        return
+    try:
+        loop = asyncio.get_running_loop()
+    except RuntimeError:
+        return  # no event loop to run it on
+    _REFRESH["last"] = clock()
+
+    async def _run() -> None:
+        try:
+            await sync_settings_to_nodes()
+        except Exception as exc:
+            logger.warning("Background settings refresh failed: %s", exc)
+
+    _REFRESH["task"] = loop.create_task(_run())
+
 
 
 async def save_agent_persona_node(agent_id: str, name: str, role: str, config: dict):

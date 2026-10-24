@@ -51,11 +51,12 @@ def test_the_documented_server_command_matches_the_profile():
     docs = (Path(__file__).resolve().parents[1] / "docs" / "inference-profiles.md").read_text(encoding="utf-8")
     assert f"-c {p.main.ctx} " in docs, "docs/inference-profiles.md shows a different context size"
     assert f"--n-cpu-moe {p.main.args[p.main.args.index('--n-cpu-moe') + 1]} " in docs
+    assert f"-ub {p.main.args[p.main.args.index('-ub') + 1]} " in docs, "docs/inference-profiles.md does not show the micro-batch"
 
 
 def test_kagura_pins_the_specified_stack():
     p = profiles.get("kagura")
-    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "20")
+    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "22", "-ub", "4096", "-b", "4096")
     assert p.main.ctx == 16384
     assert p.main.harmony is True
     assert p.main.hf_repo == "mradermacher/gpt-oss-20b-heretic-GGUF"
@@ -64,6 +65,7 @@ def test_kagura_pins_the_specified_stack():
     assert "llama-cuda-copy" in p.main.server_bin.parts
     assert p.fallback.model == "hf.co/mlabonne/Meta-Llama-3.1-8B-Instruct-abliterated-GGUF:Q4_K_M"
     assert p.vision.model == "gemma3:4b" and p.vision.num_ctx == 8192 and p.vision.vision
+    assert p.vision.gpu is False and p.vision.num_gpu == 0, "vision runs on the CPU so an image turn never displaces the main model"
     assert p.allow_remote is False
     assert p.vram_exclusive is True
 
@@ -149,7 +151,7 @@ def test_user_override_is_deep_merged(monkeypatch, tmp_path):
     monkeypatch.setenv("TALA_PROFILES_FILE", str(override))
     p = profiles.get("kagura")
     assert p.main.port == 9123
-    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "20")  # untouched siblings survive
+    assert p.main.args == ("-ngl", "99", "--n-cpu-moe", "22", "-ub", "4096", "-b", "4096")  # untouched siblings survive
     assert p.vision.num_ctx == 4096 and p.vision.model == "gemma3:4b"
 
 
@@ -173,7 +175,7 @@ def test_profile_drives_the_engine_settings(monkeypatch, tmp_path):
     assert ext.explicit_model_path() == gguf
     assert ext.context_size() == 16384
     assert ext.requested_engine() == "external"
-    assert ext.server_extra_args() == ["-ngl", "99", "--n-cpu-moe", "20"]
+    assert ext.server_extra_args() == ["-ngl", "99", "--n-cpu-moe", "22", "-ub", "4096", "-b", "4096"]
     assert ext.hf_cache_dir() == str(tmp_path / "models" / "hf-cache")
     assert "gpt-oss" in ext.default_model()[0]
 
@@ -236,7 +238,8 @@ def test_the_llama_server_command_carries_the_profile_flags(monkeypatch, tmp_pat
     assert argv[argv.index("--ctx-size") + 1] == "16384"
     assert "--jinja" in argv
     assert argv[argv.index("-ngl") + 1] == "99"
-    assert argv[argv.index("--n-cpu-moe") + 1] == "20"
+    assert argv[argv.index("--n-cpu-moe") + 1] == "22"
+    assert argv[argv.index("-ub") + 1] == "4096" and argv[argv.index("-b") + 1] == "4096"
     assert "--decision-seqs" not in argv  # stock build, not the fork
 
 
@@ -259,3 +262,59 @@ def test_the_profile_is_part_of_the_status_surface(monkeypatch, tmp_path):
     assert summary["profile"]["active"]["name"] == "kagura"
     assert set(summary["profile"]["available"]) >= {"kagura", "nano"}
     assert sys.platform  # keep the import used on every platform
+
+
+# --- vision on the CPU ------------------------------------------------------------------------------------------------------------------
+
+
+def test_a_role_is_on_the_gpu_unless_the_profile_says_otherwise():
+    role = profiles._role({"model": "gemma3:4b"}, vision=True)
+    assert role.gpu is True and role.num_gpu is None
+
+
+def test_a_role_can_be_pinned_to_the_cpu():
+    role = profiles._role({"model": "gemma3:4b", "gpu": False}, vision=True)
+    assert role.gpu is False and role.num_gpu == 0
+
+
+def test_the_cpu_flag_survives_a_user_override(monkeypatch, tmp_path):
+    override = tmp_path / "profiles.json"
+    override.write_text(json.dumps({"kagura": {"vision": {"gpu": False, "keep_alive": "30m"}}}))
+    monkeypatch.setenv("TALA_PROFILES_FILE", str(override))
+    kagura = profiles.get("kagura")
+    assert kagura.vision.gpu is False and kagura.vision.keep_alive == "30m" and kagura.vision.model == "gemma3:4b"
+
+
+def test_the_summary_says_where_vision_runs():
+    assert "vision_on_gpu" in profiles.get("kagura").summary()
+
+
+# --- the measured settings (scripts/bench_kagura.py; results in docs/inference-profiles.md) ---------------------------------------------------
+
+
+def _flag(args, name):
+    return int(args[args.index(name) + 1])
+
+
+def test_the_main_model_uses_a_large_micro_batch():
+    """Prefill is the cost of a long prompt, and a micro-batch of 512 left it at 438 tok/s: 8k tokens took 19 s before the first
+    word. 4096 measured 1,092 tok/s (7.6 s) on the same card, decode unchanged."""
+    args = profiles.get("kagura").main.args
+    assert _flag(args, "-ub") >= 2048 and _flag(args, "-b") >= _flag(args, "-ub")
+
+
+def test_enough_experts_stay_on_the_cpu_to_leave_the_desktop_room():
+    """--n-cpu-moe 16 nearly filled the 6 GB card and fell off a cliff (51 s to first token, 6.6 to 16.5 tok/s); the desktop's own
+    VRAM use varied by gigabytes during the measurements. 20 and up left room, and 22 was the fastest of those."""
+    assert _flag(profiles.get("kagura").main.args, "--n-cpu-moe") >= 20
+
+
+def test_a_cpu_vision_model_stays_resident_between_image_turns():
+    """It lives in system memory (Kagura has 128 GB), so there is no reason to evict it after two minutes."""
+    vision = profiles.get("kagura").vision
+    assert vision.gpu is False and vision.keep_alive not in ("0", "2m")
+
+
+def test_nano_still_runs_vision_free_and_unchanged():
+    p = profiles.get("nano")
+    assert p.vision is None and "-ub" not in p.main.args

@@ -5,10 +5,13 @@ Kagura has 6 GB of VRAM. gpt-oss-20b (~5.5 GB with the MoE layers on CPU),
 Llama 3.1 8B (~5 GB) and gemma3:4b (~3.5 GB) cannot be resident together, so
 before a model is used everything else is moved off the GPU:
 
-* using the main llama-server  -> every loaded Ollama model is unloaded
-  (``keep_alive: 0``)
+* using the main llama-server  -> every loaded Ollama model that holds VRAM is
+  unloaded (``keep_alive: 0``); one running on the CPU is left alone
 * using an Ollama model        -> the llama-server is stopped, and any *other*
   loaded Ollama model is unloaded
+* using a CPU-only Ollama model (``num_gpu: 0``, e.g. vision on Kagura) -> nothing
+  at all: it takes no VRAM, so the main server stays up and an image turn no
+  longer costs the next text turn a restart
 
 ``plan()`` is a pure function from the current state to the actions needed, so
 the policy is testable without a GPU. ``VramArbiter`` runs a plan against
@@ -48,16 +51,23 @@ def plan(
     loaded_ollama: list[str],
     server_running: bool,
     exclusive: bool = True,
+    cpu_only: bool = False,
+    cpu_resident: set[str] | None = None,
 ) -> list[Action]:
     """Actions to take before ``using`` ("llama-server" or "ollama") runs.
 
-    ``model`` is the Ollama model about to be used; it is never unloaded.
+    ``model`` is the Ollama model about to be used; it is never unloaded. ``cpu_only`` says that model runs on the CPU, so
+    it needs no GPU room. ``cpu_resident`` names the loaded Ollama models known to be in system memory; they are not
+    unloaded for the main server, whose VRAM they do not use. Unknown (None) means unload as before.
     """
     if not exclusive:
         return []
     if using == SERVER:
-        return [Action("unload", m) for m in loaded_ollama]
+        keep = cpu_resident or set()
+        return [Action("unload", m) for m in loaded_ollama if m not in keep]
     if using == OLLAMA:
+        if cpu_only:
+            return []
         actions = [Action("unload", m) for m in loaded_ollama if m != model]
         if server_running:
             actions.append(Action("stop", SERVER))
@@ -74,15 +84,17 @@ class VramArbiter:
         ollama_unload: Callable[[str], Awaitable[None]],
         server_running: Callable[[], bool],
         server_stop: Callable[[], Awaitable[None]],
+        ollama_cpu_resident: Callable[[], Awaitable[set[str]]] | None = None,
     ) -> None:
         self.exclusive = exclusive
+        self._ollama_cpu_resident = ollama_cpu_resident
         self._ollama_loaded = ollama_loaded
         self._ollama_unload = ollama_unload
         self._server_running = server_running
         self._server_stop = server_stop
         self._lock: asyncio.Lock | None = None
 
-    async def prepare(self, using: str, model: str = "") -> list[Action]:
+    async def prepare(self, using: str, model: str = "", cpu_only: bool = False) -> list[Action]:
         """Make room for ``using``; returns the actions that were attempted."""
         if not self.exclusive:
             return []
@@ -94,9 +106,16 @@ class VramArbiter:
             except Exception as exc:
                 logger.debug("vram: could not list loaded Ollama models: %s", exc)
                 loaded = []
+            cpu_resident: set[str] | None = None
+            if using == SERVER and loaded and self._ollama_cpu_resident is not None:
+                try:
+                    cpu_resident = await self._ollama_cpu_resident()
+                except Exception as exc:
+                    logger.debug("vram: could not tell which Ollama models are on the CPU: %s", exc)
             actions = plan(
                 using=using, model=model, loaded_ollama=loaded,
                 server_running=self._server_running(), exclusive=self.exclusive,
+                cpu_only=cpu_only, cpu_resident=cpu_resident,
             )
             for action in actions:
                 try:
@@ -115,11 +134,18 @@ def _default_arbiter(profile: Profile) -> VramArbiter:
 
     base = profile.ollama_url
 
-    async def loaded() -> list[str]:
+    async def _ps() -> list[dict[str, Any]]:
         async with httpx.AsyncClient(timeout=3.0) as client:
             resp = await client.get(f"{base}/api/ps")
             resp.raise_for_status()
-            return [str(m.get("name") or m.get("model")) for m in resp.json().get("models", [])]
+            return list(resp.json().get("models", []))
+
+    async def loaded() -> list[str]:
+        return [str(m.get("name") or m.get("model")) for m in await _ps()]
+
+    async def _resident_on_cpu() -> set[str]:
+        # size_vram is 0 for a model held entirely in system memory; a model with no figure is not assumed to be on the CPU
+        return {str(m.get("name") or m.get("model")) for m in await _ps() if m.get("size_vram") == 0}
 
     async def unload(model: str) -> None:
         async with httpx.AsyncClient(timeout=10.0) as client:
@@ -132,6 +158,7 @@ def _default_arbiter(profile: Profile) -> VramArbiter:
         ollama_unload=unload,
         server_running=lambda: lsm.active_variant() is not None,
         server_stop=lsm.stop_server,
+        ollama_cpu_resident=_resident_on_cpu,
     )
 
 
@@ -150,4 +177,6 @@ async def prepare_for(provider: dict[str, Any], profile: Profile | None) -> list
     else:
         return []
     arbiter = _arbiters.setdefault(profile.name, _default_arbiter(profile))
+    if using == OLLAMA and (provider.get("config") or {}).get("num_gpu") == 0:
+        return await arbiter.prepare(using, model, cpu_only=True)
     return await arbiter.prepare(using, model)
