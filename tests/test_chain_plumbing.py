@@ -202,3 +202,69 @@ async def test_a_moved_port_is_followed_end_to_end(node):
     """The node is on a random port, not 8332 -- the old hardcoding would have missed it."""
     assert node["port"] != 8332
     assert await chains.ghost_endpoint() == node["base"]
+
+
+# --- a node that is down must not tax every turn -----------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_down_loopback_node_is_not_retried_on_every_post(monkeypatch):
+    """Windows takes ~2 s to refuse a loopback connect, and every turn records a payment: with no node
+    running that was a 2 s wait per turn. After a connect failure the next posts back off briefly."""
+    import httpx
+
+    attempts: list[object] = []
+
+    class Client:
+        def __init__(self, *a, timeout=None, **kw):
+            attempts.append(timeout)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **kw):
+            raise httpx.ConnectError("refused")
+
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    chains._node_down_until.clear()
+    endpoint = "http://127.0.0.1:59999"
+    first = await chains._post(endpoint, _tx(), guard=False)
+    second = await chains._post(endpoint, _tx(), guard=False)
+    assert first["written"] is False and second["written"] is False
+    assert len(attempts) == 1, "the second post must not try to connect again inside the back-off window"
+    assert "backing off" in second["error"]
+    assert attempts[0].connect <= 1.0, "a loopback connect never needs the 10 s default"
+
+    chains._node_down_until[endpoint] = 0.0  # window over
+    await chains._post(endpoint, _tx(), guard=False)
+    assert len(attempts) == 2
+    chains._node_down_until.clear()
+
+
+@pytest.mark.asyncio
+async def test_a_remote_chain_is_never_backed_off(monkeypatch):
+    import httpx
+
+    attempts: list[int] = []
+
+    class Client:
+        def __init__(self, *a, **kw):
+            attempts.append(1)
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, *a):
+            return False
+
+        async def post(self, *a, **kw):
+            raise httpx.ConnectError("unreachable")
+
+    monkeypatch.setattr(httpx, "AsyncClient", Client)
+    chains._node_down_until.clear()
+    for _ in range(2):
+        await chains._post("https://chain.example", _tx(signature="s" * 8), guard=False)
+    assert len(attempts) == 2

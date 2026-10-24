@@ -25,7 +25,7 @@ DEFAULT_BUDGET = 1500
 # file → the line count it had when the ratchet landed (2026-09-12). Down only.
 PINNED = {
     "python/harness/db.py": 1598,
-    "python/harness/server.py": 15866,
+    "python/harness/server.py": 15854,
     "sdk/agent/documentation_nodes.py": 1956,
     "sdk/agent/goal_engine.py": 1694,
     "sdk/agent/graph_engine.py": 1785,

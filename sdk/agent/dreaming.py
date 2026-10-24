@@ -91,7 +91,8 @@ def _journal_text(date: str, *, uses: int, positive: int, negative: int, nodes: 
                 f"{_plural(negative, 'piece', 'pieces')} of negative feedback")
     parts = [
         f"Dream journal for {date}.",
-        f"Since the last dream: {_plural(uses, 'use', 'uses')} of nodes in conversation, {feedback}.",
+        f"Since the last dream: {_plural(uses, 'use', 'uses')} raised a node's relevance (a use past the daily cap changes nothing, "
+        f"so it is not counted here), {feedback}.",
     ]
     if nodes:
         parts.append("Nodes involved: " + ", ".join(nodes[:10]) + (" and more." if len(nodes) > 10 else "."))

@@ -157,7 +157,8 @@ def server_source():
 def test_the_reply_carries_the_timing():
     src = server_source()
     tail = src[src.index('"fallback_notice": fallback_notice,'):][:400]
-    assert '"timing": _latency.take()' in tail
+    # the timing is _latency.take(), passed through the prompt-budget reconcile that adds the gate's estimate beside it
+    assert '"timing": _budget.reconcile(check.prompt_tokens, _latency.take(), session_id)' in tail
 
 
 def test_ollama_replies_are_noted_where_they_are_parsed():
