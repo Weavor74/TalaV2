@@ -236,6 +236,77 @@ def isolate_documentation_anchoring(monkeypatch):
     monkeypatch.setattr(documentation_nodes, "canonicalize_and_anchor", lambda **kwargs: None)
 
 
+# --- worktree isolation ------------------------------------------------------
+#
+# DAGExecutionEngine asks handle_task_create_worktree for a worktree whenever its root is the repo root and no path was
+# supplied, and that handler runs `git worktree add` against the repo itself. Most tests patch it; the ones that did not left
+# scratch/worktrees/<id> and a tala-task/<id> branch in the real checkout on every full run -- five of each, noticed on
+# 2026-10-24 when deleting them and watching them come back. Watching the directory is a listdir per test, where asking git
+# would cost ~30 ms each across thousands of tests.
+_WORKTREE_DIR = Path(__file__).resolve().parent / "scratch" / "worktrees"
+
+
+def _worktree_names(root: Path = _WORKTREE_DIR) -> set[str]:
+    try:
+        return set(os.listdir(root))
+    except OSError:
+        return set()
+
+
+def _remove_leaked_worktree(name: str, root: Path = _WORKTREE_DIR) -> None:
+    import subprocess
+
+    repo = root.parent.parent
+    for command in (["git", "worktree", "remove", "--force", str(root / name)],
+                    ["git", "worktree", "prune"],
+                    ["git", "branch", "-D", f"tala-task/{name}"]):
+        try:
+            subprocess.run(command, cwd=repo, capture_output=True, timeout=30)
+        except Exception:  # the failure below is what matters; a stuck cleanup must not hide it
+            pass
+
+
+def _check_worktrees(before: set[str], nodeid: str, root: Path = _WORKTREE_DIR) -> None:
+    """Remove any worktree the test left behind and fail it. What was there before the test is not its doing."""
+    leaked = sorted(_worktree_names(root) - before)
+    if not leaked:
+        return
+    for name in leaked:
+        _remove_leaked_worktree(name, root)
+    pytest.fail(
+        f"{nodeid} left git worktree(s) {leaked} under {root} (and tala-task/ branches). It reached the real "
+        "handle_task_create_worktree: patch python.harness.server.handle_task_create_worktree, or give the engine a "
+        "root_dir under tmp_path. They have been removed.",
+        pytrace=False,
+    )
+
+
+@pytest.fixture(scope="session")
+def _worktree_base(tmp_path_factory):
+    return tmp_path_factory.mktemp("worktree-base")
+
+
+@pytest.fixture(autouse=True)
+def isolate_task_worktree_base(monkeypatch, _worktree_base):
+    """Aim handle_task_create_worktree at a scratch directory instead of the checkout.
+
+    GoalEngine().run_goal() reaches it through DAGExecutionEngine with nothing in the test to patch, and it runs
+    `git worktree add` in task_rpc._ROOT_DIR -- the repo itself. Elsewhere that handler then fails on its database update
+    and the engine falls back to the root workspace, so the outcome is unchanged; only the worktree and the tala-task/
+    branch it had already created are no longer left behind in the real repository.
+    """
+    from python.harness import task_rpc
+
+    monkeypatch.setattr(task_rpc, "_ROOT_DIR", _worktree_base)
+
+
+@pytest.fixture(autouse=True)
+def no_worktree_leaks(request):
+    before = _worktree_names()
+    yield
+    _check_worktrees(before, request.node.nodeid)
+
+
 def pytest_configure(config: pytest.Config) -> None:
     # Stash the deselected count where the summary hook can reach it. pytest
     # reports deselection through the hook below rather than on the config.
