@@ -232,3 +232,30 @@ def test_profile_summary_is_json_friendly(kagura):
 
     json.dumps(kagura.summary())
     assert isinstance(types.SimpleNamespace(**kagura.summary()), types.SimpleNamespace)
+
+
+# --- vision on the CPU ------------------------------------------------------------------------------------------------------------------
+
+
+def test_a_cpu_vision_role_tells_ollama_to_use_no_gpu_layers(kagura):
+    cpu = dataclasses.replace(kagura, vision=dataclasses.replace(kagura.vision, gpu=False))
+    vision = router._build_chain([], cpu, images=True)[0]
+    assert vision["id"] == router.VISION_ID and vision["config"]["num_gpu"] == 0
+
+
+def test_a_gpu_vision_role_sends_no_num_gpu(kagura):
+    gpu = dataclasses.replace(kagura, vision=dataclasses.replace(kagura.vision, gpu=True))
+    vision = router._build_chain([], gpu, images=True)[0]
+    assert "num_gpu" not in vision["config"] or vision["config"]["num_gpu"] is None
+
+
+def test_cpu_vision_does_not_change_the_order_of_the_chain(kagura):
+    cpu = dataclasses.replace(kagura, vision=dataclasses.replace(kagura.vision, gpu=False))
+    gpu = dataclasses.replace(kagura, vision=dataclasses.replace(kagura.vision, gpu=True))
+    assert _ids(router._build_chain([], cpu, images=True)) == _ids(router._build_chain([], gpu, images=True))
+    assert _ids(router._build_chain([], cpu, images=False)) == ["embedded-builtin", "profile-fallback"]
+
+
+def test_a_text_turn_never_includes_the_vision_model_even_on_the_cpu(kagura):
+    cpu = dataclasses.replace(kagura, vision=dataclasses.replace(kagura.vision, gpu=False))
+    assert router.VISION_ID not in _ids(router._build_chain([], cpu, images=False))

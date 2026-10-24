@@ -5,8 +5,9 @@
 .DESCRIPTION
   Sets the D:-only environment, checks the pieces, pulls the Ollama models and
   fetches the gpt-oss GGUF if they are missing, then starts Tala. Tala itself
-  starts llama-server (main model) and talks to Ollama (fallback + vision) --
-  see docs/inference-profiles.md.
+  starts llama-server (main model) and talks to Ollama (fallback on the GPU, vision on the
+  CPU so an image turn never stops the main model) -- see docs/inference-profiles.md.
+  scripts/bench_kagura.py re-measures the main model's settings on this card.
 
   .\scripts\kagura-stack.ps1 -Check      # report what is present, change nothing
   .\scripts\kagura-stack.ps1             # pull/fetch anything missing, then start Tala

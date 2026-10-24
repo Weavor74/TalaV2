@@ -63,6 +63,7 @@ import logging
 import shutil
 import sys
 import threading
+import time
 from collections.abc import AsyncIterator
 from pathlib import Path
 from typing import Any
@@ -71,6 +72,7 @@ import httpx
 
 from python.inference import external_engine as _ext
 from python.inference import harmony as _harmony
+from python.inference import latency
 
 logger = logging.getLogger(__name__)
 
@@ -117,6 +119,11 @@ _HEALTH_POLL_INTERVAL_S = 0.5
 _HEALTH_POLL_TIMEOUT_S = 60.0
 _MAX_RESTARTS_PER_VARIANT = 3
 _RESTART_BASE_DELAY_S = 2.0
+#: A server that is alive but has stopped answering /health is stopped so _supervise() restarts it. One slow answer is not
+#: a failure (a long prompt can keep it busy); three in a row, fifteen seconds apart, is.
+_WATCHDOG_INTERVAL_S = 15.0
+_WATCHDOG_FAILURES = 3
+_TERMINATE_GRACE_S = 10.0
 
 #: Preference order when nothing pins a variant: best perf first, universal
 #: compatibility last.
@@ -609,6 +616,40 @@ async def _supervise(handle: _ServerHandle) -> None:
     await _ensure_running(preferred=chain[variant_idx])
 
 
+async def _health_ok(base_url: str, timeout: float = 5.0) -> bool:
+    """Whether the server answers its own health endpoint right now."""
+    try:
+        async with httpx.AsyncClient(timeout=timeout) as client:
+            resp = await client.get(f"{base_url}/health")
+            return resp.status_code == 200
+    except Exception:
+        return False
+
+
+async def _watchdog(handle: _ServerHandle) -> None:
+    """Keep the main model up without user action: a hung server is stopped, and _supervise() brings it back with backoff."""
+    failures = 0
+    while True:
+        await asyncio.sleep(_WATCHDOG_INTERVAL_S)
+        if _server is not handle or handle.proc.returncode is not None:
+            return  # replaced, stopped on purpose, or already exited (the supervisor has it)
+        if await _health_ok(handle.base_url):
+            failures = 0
+            continue
+        failures += 1
+        if failures >= _WATCHDOG_FAILURES:
+            logger.error(
+                "llama_server_manager: %s on port %d stopped answering /health %d times in a row; restarting it",
+                handle.variant, handle.port, failures,
+            )
+            handle.proc.terminate()
+            try:
+                await asyncio.wait_for(handle.proc.wait(), timeout=_TERMINATE_GRACE_S)
+            except asyncio.TimeoutError:
+                handle.proc.kill()
+            return
+
+
 async def _ensure_running(preferred: str | None = None) -> _ServerHandle:
     """Start the server if it is not already running and healthy; return the handle."""
     global _server
@@ -624,6 +665,7 @@ async def _ensure_running(preferred: str | None = None) -> _ServerHandle:
             if handle is not None:
                 _server = handle
                 asyncio.create_task(_supervise(handle))
+                asyncio.create_task(_watchdog(handle))
                 return handle
 
         raise RuntimeError(
@@ -727,6 +769,10 @@ async def generate_stream(
     # concatenated, not re-sent whole each time).
     tool_calls_by_index: dict[int, dict[str, Any]] = {}
 
+    requested_at = time.perf_counter()
+    first_token_at: float | None = None
+    server_timings: dict[str, Any] | None = None
+
     async with httpx.AsyncClient(timeout=None) as client:
         async with client.stream("POST", f"{handle.base_url}/v1/chat/completions", json=payload) as resp:
             if getattr(resp, "status_code", 200) >= 400:
@@ -744,7 +790,11 @@ async def generate_stream(
                     obj = json.loads(data)
                 except json.JSONDecodeError:
                     continue
+                if obj.get("timings"):
+                    server_timings = obj["timings"]  # llama-server sends these on the last chunk
                 delta = obj.get("choices", [{}])[0].get("delta", {})
+                if first_token_at is None and (delta.get("content") or delta.get("reasoning_content") or delta.get("tool_calls")):
+                    first_token_at = time.perf_counter()
                 chunk = delta.get("content")
                 if chunk:
                     if buffering or (harmony_on and _harmony.has_raw_markers(chunk)):
@@ -760,6 +810,13 @@ async def generate_stream(
                     if fn.get("name"):
                         slot["name"] = fn["name"]
                     slot["arguments"] += fn.get("arguments") or ""
+
+    timing = latency.from_llama_timings(
+        server_timings, None if first_token_at is None else first_token_at - requested_at,
+        model=profile.main.label if profile else None,
+    )
+    if timing:
+        latency.record(**timing)
 
     if buffering:
         visible, harmony_calls = _harmony.split_harmony("".join(raw_chunks))

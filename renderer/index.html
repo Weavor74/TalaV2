@@ -3410,6 +3410,10 @@
       <span class="voice-dot"></span>
       <span id="voice-indicator-text"></span>
     </div>
+    <!-- Speed of the last reply: tokens per second and time to first token -->
+    <div class="status-item" id="status-latency" hidden>
+      <span id="status-latency-text"></span>
+    </div>
     <!-- Connection status -->
     <div class="status-item" id="status-connection">
       <span class="status-dot status-unknown" id="status-dot-ws"></span>
@@ -3675,6 +3679,7 @@
   <script src="lora_status.js"></script>
   <script src="learning_feedback.js"></script>
   <script src="voice_ui.js"></script>
+  <script src="latency_status.js"></script>
   <script src="gateway_status_ops.js"></script>
   <script src="plugins_ops.js"></script>
   <script src="workspace_settings.js"></script>

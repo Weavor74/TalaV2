@@ -139,6 +139,10 @@ def _ollama_provider(role: OllamaRole, profile: Profile, *, provider_id: str, na
         "keep_alive": role.keep_alive,
         "vision": role.vision,
     })
+    if role.num_gpu is not None:
+        cfg["num_gpu"] = role.num_gpu  # CPU-only: no VRAM, so no GPU room has to be made for it
+    else:
+        cfg.pop("num_gpu", None)
     provider["config"] = cfg
     # status is a cached probe that goes stale (Ollama restarts, a model gets
     # pulled); a profile role must be tried, not skipped on yesterday's result.

@@ -370,6 +370,22 @@ red **MIC LIVE** indicator for exactly as long as it is on. Settings → VOICE c
 phrase, the voice and the recogniser size. Cloud speech (edge-tts, which sends text to
 Microsoft) exists but is **off by default** and needs an explicit confirmation to turn on.
 
+### Tuning the main model for your GPU (Kagura profile)
+
+The `kagura` profile is measured, not guessed: `scripts/bench_kagura.py` starts `llama-server` on its own port for each
+combination of context size, experts kept on the CPU, KV cache type and micro-batch, and records VRAM, time to first token,
+prefill and decode speed. Close games and anything else using the GPU first (it refuses to run with less than 4.5 GB free).
+Everything stays on D:.
+
+```powershell
+$env:TEMP = "D:\caches\tmp"; $env:TMP = $env:TEMP; $env:HF_HOME = "D:\hf-cache"
+.venv\Scripts\python scripts\bench_kagura.py --stage all --model D:\models\gguf\gpt-oss-20b-heretic.MXFP4_MOE.gguf
+```
+
+Results land in `D:\tala-audit\bench`; the numbers behind the shipped settings are in `docs/inference-profiles.md`. Images are
+described by `gemma3:4b` on the CPU through Ollama (`ollama pull gemma3:4b`, already in `kagura-stack.ps1`), so an image turn
+never stops the main model.
+
 ### Semantic Memory (Mem0)
 
 Tala can optionally use `mem0ai` as a read-only fuzzy-search cache for deep historical

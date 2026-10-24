@@ -6916,3 +6916,7 @@ button:focus:not(:focus-visible) {
 #btn-chat-listen.active {
   color: var(--status-error, #e0463c);
 }
+
+#status-latency[hidden] {
+  display: none;
+}

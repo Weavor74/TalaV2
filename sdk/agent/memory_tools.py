@@ -8,7 +8,7 @@ turn. Two doors lead here:
 
 * ``write_memory`` -- the tool the model may call. It is registered in tools.py and gated by the lease policy like every
   other tool that writes a file.
-* ``remember_from_message`` -- the harness itself, for a message that *starts with* an explicit "remember ...". The user
+* ``_remember_from_message`` -- the harness itself, for a message that *starts with* an explicit "remember ...". The user
   gave the instruction, so nothing waits on a small model choosing to call a tool; the same checks apply.
 
 Neither stores anything that looks like a credential, a wallet key or a seed phrase: a node is retrieval context and
@@ -20,9 +20,12 @@ so the tool failed on every call and the HTML-NN store never saw a fact.)
 from __future__ import annotations
 
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Any
+
+log = logging.getLogger(__name__)
 
 MAX_FACT_CHARS = 2000
 MIN_FACT_CHARS = 8
@@ -125,7 +128,7 @@ async def write_memory(content: str, topic: str = "user-preference") -> dict[str
         return {"success": False, "error": f"Could not write the node: {exc}"}
 
 
-async def remember_from_message(message: Any) -> dict[str, Any] | None:
+async def _remember_from_message(message: Any) -> dict[str, Any] | None:
     """If the user's message is an explicit "remember ...", save that fact now. None when it is not one."""
     found = (_EXPLICIT_REMEMBER.match(message)
              if isinstance(message, str) and len(message) <= MAX_MESSAGE_CHARS else None)
@@ -135,3 +138,12 @@ async def remember_from_message(message: Any) -> dict[str, Any] | None:
     if len(fact) < MIN_FACT_CHARS or fact.endswith("?"):
         return None
     return await write_memory(fact, "user-fact")
+
+
+async def remember_safely(message: Any) -> dict[str, Any] | None:
+    """``_remember_from_message`` for the turn pipeline: a failure to save a note costs the note, never the reply."""
+    try:
+        return await _remember_from_message(message)
+    except Exception as exc:
+        log.warning("_remember_from_message failed: %s", exc)
+        return None

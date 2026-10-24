@@ -149,7 +149,7 @@ def test_the_turn_pipeline_counts_a_use_when_nodes_are_injected():
 def test_an_explicit_remember_is_saved_before_retrieval_runs():
     server = read("python", "harness", "server.py")
     start = server.index("raw_user_prompt = prompt")
-    assert "remember_from_message(raw_user_prompt)" in server[start:start + 600]
+    assert "remember_safely(raw_user_prompt)" in server[start:start + 600]
     assert start < server.index("retrieve_relevant_nodes(retrieval_query")
 
 
