@@ -46,6 +46,7 @@ const fs      = require('node:fs');
 const { spawn, spawnSync }  = require('node:child_process');
 const { registerHandlers } = require('./ipc-handlers');
 const { rpcTimeoutMs } = require('./rpc_policy');
+const { installMediaPermissions } = require('./media_permissions');
 const { chainPort } = require('./chain_endpoint');
 const { initBlockchain, spawnBlockchain, stopBlockchain } = require('./blockchain-process');
 const { ensureWsToken: ensureWsTokenFile, ensureWebUiToken: ensureWebUiTokenFile } = require('./token_files');
@@ -996,10 +997,8 @@ app.whenReady().then(() => {
   initStore();
 
   // Apply session-level permissions (deny all except needed)
-  session.defaultSession.setPermissionRequestHandler((_webContents, _permission, callback) => {
-    // Deny all permission requests from the renderer (camera, mic, notifications, etc.)
-    callback(false);
-  });
+  // Deny every permission request except audio capture for our own window (voice; see media_permissions.js).
+  installMediaPermissions(session.defaultSession, () => mainWindow);
 
 
   setIsolationNotify(sendLogToRenderer);

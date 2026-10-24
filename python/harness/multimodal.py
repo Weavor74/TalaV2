@@ -1,8 +1,12 @@
 """
 multimodal.py — Tala Desktop-Native Multimodality
 =================================================
-Handles Screen Context (screenshots) and Voice Commands (local whisper)
+Handles Screen Context (screenshots) and a fixed-length voice capture (local faster-whisper)
 gracefully failing if TALA_HEADLESS is active.
+
+The conversational voice loop -- wake word, voice-activity detection, streaming transcripts, spoken replies and barge-in --
+is python/harness/voice_runtime.py; the renderer owns that microphone. ``transcribe_voice`` here is the older harness-side
+recorder, kept for callers that want one fixed-length capture, and it now uses the same local engine.
 """
 import base64
 import io
@@ -36,7 +40,6 @@ except Exception as exc:  # noqa: BLE001 - optional dep, degrade don't crash
     Image = None
 
 try:
-    import whisper
     import sounddevice as sd
     import numpy as np
 except Exception as exc:  # noqa: BLE001 - optional dep, degrade don't crash
@@ -44,12 +47,11 @@ except Exception as exc:  # noqa: BLE001 - optional dep, degrade don't crash
         "Voice dependencies unavailable (%s: %s); transcription disabled.",
         type(exc).__name__, exc,
     )
-    whisper = None
     sd = None
     np = None
 
-# We can cache the whisper model in memory once loaded
-_whisper_model = None
+# The recogniser is loaded once, on first use, from D: (python/harness/voice_stt.py)
+_stt = None
 
 
 async def get_screen_context() -> dict[str, Any]:
@@ -78,32 +80,30 @@ async def get_screen_context() -> dict[str, Any]:
 
 
 async def transcribe_voice(duration_seconds: int = 5) -> dict[str, Any]:
-    """Record audio for duration_seconds and transcribe using local whisper."""
-    global _whisper_model
+    """Record audio for duration_seconds and transcribe it locally with faster-whisper."""
+    global _stt
 
     if settings.IS_HEADLESS:
         return {"error": "Tala is running in embedded/headless mode and cannot access the Microphone."}
-    
-    if not whisper or not sd or not np:
-        return {"error": "Multimodal dependencies (openai-whisper, sounddevice, numpy) are not installed."}
+
+    if not sd or not np:
+        return {"error": "Voice dependencies (sounddevice, numpy) are not installed."}
 
     try:
-        # Load model lazily
-        if _whisper_model is None:
-            logger.info("Loading local Whisper model (tiny)...")
-            _whisper_model = whisper.load_model("tiny")
-        
-        fs = 16000  # Sample rate required by whisper
-        logger.info(f"Recording audio for {duration_seconds} seconds...")
-        recording = sd.rec(int(duration_seconds * fs), samplerate=fs, channels=1, dtype='float32')
+        import asyncio
+
+        from python.harness.voice_stt import SAMPLE_RATE, SttEngine
+
+        if _stt is None:
+            _stt = SttEngine()
+            await asyncio.to_thread(_stt.load)
+
+        logger.info("Recording audio for %s seconds...", duration_seconds)
+        recording = sd.rec(int(duration_seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="float32")
         sd.wait()
         logger.info("Recording finished. Transcribing...")
-        
-        # Whisper expects 1D array of float32
-        audio_data = np.squeeze(recording)
-        
-        result = _whisper_model.transcribe(audio_data, fp16=False)
-        text = result.get("text", "").strip()
+
+        text = await asyncio.to_thread(_stt.transcribe, np.squeeze(recording))
         return {"text": text}
     except Exception as e:
         logger.exception("Failed to transcribe voice")

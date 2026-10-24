@@ -54,6 +54,12 @@ _ROOT_DIR = str(Path(__file__).resolve().parent.parent.parent)
 if _ROOT_DIR not in sys.path:
     sys.path.insert(0, _ROOT_DIR)
 
+# Started as a script (Electron) or with -m, this file is `__main__`. Every `from python.harness.server import ...` elsewhere
+# (broadcast_notification, ...) would load a second copy of it with its own empty set of connections, and every broadcast
+# would reach nobody. Let the running module answer to its package name too.
+if __name__ == "__main__":
+    sys.modules.setdefault("python.harness.server", sys.modules[__name__])
+
 from python.harness.config import settings
 from python.harness import db
 from python.harness import vps_mode as vps_mode_module
@@ -123,6 +129,7 @@ from python.harness.inference_helpers import strip_tool_tags_if_no_tools, notify
 from python.harness.long_job_loop import attach_long_job, report_long_job_turn, run_reply_tool_rounds
 from python.harness.workstation_rpc import WORKSTATION_RPC_HANDLERS
 from python.harness.learning_rpc import LEARNING_RPC_HANDLERS
+from python.harness.voice_rpc import VOICE_RPC_HANDLERS
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
     handle_task_control, handle_task_create_worktree, handle_task_delete,
@@ -1387,6 +1394,9 @@ async def handle_inference_generate(
         logger.warning("remember_from_message failed: %s", exc)
 
     session_id: str = str(params.get("session_id", uuid.uuid4()))
+
+    from python.harness.voice_stream import tap_ws
+    ws = tap_ws(ws, params)  # a voice turn is spoken sentence by sentence as it streams; any other request is untouched
 
     # Deterministic goal routing. A chat message that literally says
     # "execute this goal: ..." states its intent outright — routing it must
@@ -3264,6 +3274,8 @@ async def handle_inference_generate(
                                         raise RuntimeError(f"HTTP Error {response.status_code}: {err_str}")
                                 else:
                                     async for line in response.aiter_lines():
+                                        if getattr(ws, "voice_cancelled", False):
+                                            break  # she was talked over: closing the stream makes the engine stop generating
                                         # Native Ollama /api/chat streams NDJSON: one
                                         # bare JSON object per line, no "data: " prefix,
                                         # chunk text under message.content and a `done`
@@ -3396,6 +3408,7 @@ async def handle_inference_generate(
                                         "params": {"chunk": f"\n{_tc_text}", "session_id": session_id},
                                     }))
                             generated_text = "".join(chunks)
+                            getattr(ws, "voice_flush", lambda: None)()
                         else:
                             response = await client.post(url, headers=headers, json=payload)
                             if response.status_code != 200:
@@ -14422,6 +14435,7 @@ _HANDLERS: dict[str, Any] = {
     "p2p.encrypted_payload": handle_p2p_encrypted_payload,
     **WORKSTATION_RPC_HANDLERS,
     **LEARNING_RPC_HANDLERS,
+    **VOICE_RPC_HANDLERS,
 }
 
 
@@ -14677,6 +14691,11 @@ async def _handle_connection(ws: ServerConnection, path: str = "") -> None:
                 return await handler(params, req_id)
 
             response = await run_rpc_handler(method, _invoke_handler)
+        except asyncio.CancelledError as exc:
+            if exc.args[:1] != ("voice-barge-in",):  # voice_stream.CANCEL_REASON
+                raise
+            asyncio.current_task().uncancel()  # she was talked over: answer the request rather than leave the UI waiting
+            response = _err(req_id, JsonRpcError.INTERNAL_ERROR, "Turn cancelled: the user spoke over the reply")
         except Exception as exc:  # noqa: BLE001
             logger.exception("Unhandled error in handler '%s'", method)
             # The traceback names file paths, line numbers and internals; that

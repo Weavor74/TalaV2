@@ -539,6 +539,19 @@
                   <span id="settings-learning-note" style="font-size: 0.68rem; color: var(--text-muted);"></span>
                 </div>
               </div>
+              <div class="settings-voice-row" id="settings-voice" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 0.72rem; margin: 8px 0;">
+                <strong>VOICE</strong>
+                <label style="display: inline-flex; gap: 4px; align-items: center;"><input type="checkbox" id="voice-wake-enabled" checked /> wake word</label>
+                <label style="display: inline-flex; gap: 4px; align-items: center;">phrase <input type="text" id="voice-wake-phrase" value="Hey Tala" size="12" maxlength="40" /></label>
+                <label style="display: inline-flex; gap: 4px; align-items: center;">voice <input type="text" id="voice-piper-voice" value="en_US-lessac-medium" size="20" maxlength="60" title="A Piper voice installed on D: by scripts/setup_voice.py" /></label>
+                <label style="display: inline-flex; gap: 4px; align-items: center;">hearing
+                  <select id="voice-whisper-model"><option value="base.en">base.en</option><option value="small.en">small.en (slower, more accurate)</option><option value="tiny.en">tiny.en</option></select>
+                </label>
+                <label style="display: inline-flex; gap: 4px; align-items: center; color: var(--status-error, #c0392b);" title="Cloud speech sends text to Microsoft. Off by default.">
+                  <input type="checkbox" id="voice-cloud-tts" /> cloud speech (sends text to Microsoft)
+                </label>
+                <span id="voice-settings-note" style="color: var(--text-muted);"></span>
+              </div>
               <div class="settings-scope-row">
                 <span class="scope-label">SCOPE:</span>
                 <div class="settings-scope-selector">
@@ -3373,10 +3386,15 @@
               <path d="M2 4a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V6a2 2 0 0 0-2-2h-1.172a2 2 0 0 1-1.414-.586l-.828-.828A2 2 0 0 0 9.172 2H6.828a2 2 0 0 0-1.414.586l-.828.828A2 2 0 0 1 3.172 4H2zm.5 2a.5.5 0 1 1 0-1 .5.5 0 0 1 0 1zm9 2.5a3.5 3.5 0 1 1-7 0 3.5 3.5 0 0 1 7 0z"/>
             </svg>
           </button>
-          <button class="chat-attach-btn" id="btn-chat-mic" title="Voice input (records 5s, transcribed locally with Whisper)">
+          <button class="chat-attach-btn" id="btn-chat-mic" title="Dictate one utterance: transcribed locally, ends when you stop talking">
             <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
               <path d="M8 11a3 3 0 0 0 3-3V4a3 3 0 0 0-6 0v4a3 3 0 0 0 3 3z"/>
               <path d="M12.5 8a.5.5 0 0 1 .5.5 5 5 0 0 1-4.5 4.975V15h2a.5.5 0 0 1 0 1h-5a.5.5 0 0 1 0-1h2v-1.525A5 5 0 0 1 3 8.5a.5.5 0 0 1 1 0 4 4 0 0 0 8 0 .5.5 0 0 1 .5-.5z"/>
+            </svg>
+          </button>
+          <button class="chat-attach-btn" id="btn-chat-listen" title="Always listen: say the wake phrase and talk (local; the microphone is on while this is lit)">
+            <svg viewBox="0 0 16 16" fill="currentColor" width="12" height="12">
+              <path d="M3 6a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-1 0v-3A.5.5 0 0 1 3 6zm2.5-2a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zM8 1.5a.5.5 0 0 1 .5.5v12a.5.5 0 0 1-1 0V2a.5.5 0 0 1 .5-.5zm2.5 2.5a.5.5 0 0 1 .5.5v7a.5.5 0 0 1-1 0v-7a.5.5 0 0 1 .5-.5zM13 6a.5.5 0 0 1 .5.5v3a.5.5 0 0 1-1 0v-3A.5.5 0 0 1 13 6z"/>
             </svg>
           </button>
           <textarea id="chat-textarea" placeholder="Ask Tala... (Paste images supported)" rows="1" spellcheck="false"></textarea>
@@ -3387,6 +3405,11 @@
 
   <!-- ── Status Bar ───────────────────────────────────────────── -->
   <footer id="status-bar" role="contentinfo" aria-label="Application status bar">
+    <!-- Microphone: visible for exactly as long as the microphone is on -->
+    <div class="status-item voice-indicator" id="voice-indicator" role="status" aria-live="polite" hidden>
+      <span class="voice-dot"></span>
+      <span id="voice-indicator-text"></span>
+    </div>
     <!-- Connection status -->
     <div class="status-item" id="status-connection">
       <span class="status-dot status-unknown" id="status-dot-ws"></span>
@@ -3651,6 +3674,7 @@
   <script src="inference_gpu_ops.js"></script>
   <script src="lora_status.js"></script>
   <script src="learning_feedback.js"></script>
+  <script src="voice_ui.js"></script>
   <script src="gateway_status_ops.js"></script>
   <script src="plugins_ops.js"></script>
   <script src="workspace_settings.js"></script>

@@ -57,6 +57,12 @@ $haveGguf   = Test-Path $Gguf
 Write-Host ("llama-server   : {0}  ({1})" -f $LlamaServer, $(if ($haveServer) { "found" } else { "MISSING" }))
 Write-Host ("gpt-oss GGUF   : {0}  ({1})" -f $Gguf, $(if ($haveGguf) { "found" } else { "missing" }))
 
+# Local voice (docs/local-voice.md): Piper, faster-whisper and the wake-word models live under $TALA_MODELS_DIR\voice, put
+# there once by scripts\setup_voice.py. At run time nothing is fetched and nothing leaves the machine.
+$VoiceDir  = Join-Path $env:TALA_MODELS_DIR "voice"
+$haveVoice = (Test-Path (Join-Path $VoiceDir "piper\en_US-lessac-medium.onnx")) -and (Test-Path (Join-Path $VoiceDir "whisper\base.en\model.bin"))
+Write-Host ("voice models   : {0}  ({1})" -f $VoiceDir, $(if ($haveVoice) { "found" } else { "missing: run  .venv\Scripts\python scripts\setup_voice.py" }))
+
 function Test-Swisseph {
     if (-not (Test-Path $VenvPython)) { return $false }
     & $VenvPython -c "import swisseph" 2>$null

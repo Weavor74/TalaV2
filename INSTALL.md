@@ -343,16 +343,32 @@ No tests found, exiting with code 0  ←  Jest
 
 ## 9. Optional Features
 
-### Voice Commands
+### Voice (fully local)
 
-Voice recognition requires Python **< 3.13** due to a `numba` restriction.
+Wake word, streaming speech-to-text with voice-activity detection, neural text-to-speech and
+barge-in all run on this machine. Nothing is sent to a cloud service. Full description:
+[docs/local-voice.md](docs/local-voice.md).
 
-```bash
+Install the packages, then fetch the models **once** (this is the only step that uses the
+network; at run time nothing is downloaded):
+
+```powershell
+$env:UV_CACHE_DIR = "D:\caches\uv"; $env:TEMP = "D:\caches\tmp"; $env:TMP = "D:\caches\tmp"
+$env:HF_HOME = "D:\hf-cache"; $env:TALA_MODELS_DIR = "D:\models"
 uv pip install -e .[voice]
+python scripts\setup_voice.py          # Piper voice, whisper base.en, wake-word models -> D:\models\voice
+python scripts\setup_voice.py --check  # shows what is present
 ```
 
-If you see a failure during installation mentioning `numba`, this is why. Voice is not
-required for Tala to function — all other features work on Python 3.13+.
+The script refuses any target on `C:`. Models land in `D:\models\voice\{piper,whisper,wakeword}`
+(about 250 MB). Speech recognition runs on the CPU so the GPU stays free for the language model.
+`piper-tts` is GPL-3.0-or-later; it is only used when a Piper voice is.
+
+The microphone is captured by the app itself (Electron allows audio capture for its own window
+and nothing else), is off until you press the always-listen button, and the status bar shows a
+red **MIC LIVE** indicator for exactly as long as it is on. Settings → VOICE changes the wake
+phrase, the voice and the recogniser size. Cloud speech (edge-tts, which sends text to
+Microsoft) exists but is **off by default** and needs an explicit confirmation to turn on.
 
 ### Semantic Memory (Mem0)
 
