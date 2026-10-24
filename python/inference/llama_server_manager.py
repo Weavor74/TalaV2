@@ -513,11 +513,15 @@ def _choose_port() -> int:
     return _free_port()
 
 
-async def _wait_healthy(base_url: str, timeout_s: float | None = None) -> bool:
+async def _wait_healthy(base_url: str, timeout_s: float | None = None, proc: Any = None) -> bool:
+    """Poll /health until it answers. Given the child, stop as soon as it has exited: a model llama-server cannot
+    load makes it quit within a second, and nothing will ever answer on that port."""
     timeout_s = timeout_s or _ext.startup_timeout() or _HEALTH_POLL_TIMEOUT_S
     deadline = asyncio.get_running_loop().time() + timeout_s
     async with httpx.AsyncClient(timeout=3.0) as client:
         while asyncio.get_running_loop().time() < deadline:
+            if proc is not None and proc.returncode is not None:
+                return False
             try:
                 resp = await client.get(f"{base_url}/health")
                 if resp.status_code == 200:
@@ -571,7 +575,7 @@ async def _spawn(variant: str) -> _ServerHandle | None:
     asyncio.create_task(_pump_output(proc, variant))
 
     handle = _ServerHandle(proc, port, variant)
-    if await _wait_healthy(handle.base_url):
+    if await _wait_healthy(handle.base_url, proc=proc):
         return handle
 
     logger.warning("llama_server_manager: %s variant did not become healthy in time", variant)

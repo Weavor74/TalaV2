@@ -148,7 +148,7 @@ async def test_the_journal_summarises_what_learning_did_since_the_last_dream(wor
     nl.apply_feedback(["apples"], "down", world["nodes"], reason="not what I meant", now=NOW - timedelta(hours=4))
     outcome = await dreaming.run_dream(force=True, now=NOW)
     text = parse_file(str(world["nodes"] / f"{outcome['journal_node_id']}.html")).semantic_memory
-    assert "1 use" in text and "1 piece of negative feedback" in text and "apples" in text
+    assert "1 use raised a node's relevance" in text and "1 piece of negative feedback" in text and "apples" in text
     assert outcome["uses"] == 1 and outcome["feedback"] == 1
 
 
@@ -301,3 +301,16 @@ async def test_the_real_idle_check_runs_on_a_fresh_engine(tmp_path, monkeypatch)
     monkeypatch.setattr("sdk.agent.goal_engine.GoalEngine.dream_cycle", legacy_cycle)
     outcome = await dreaming.dream_if_due(now=LOCAL_NIGHT)
     assert outcome is not None and outcome["status"] == "consolidated"
+
+
+@pytest.mark.asyncio
+async def test_the_journal_counts_what_changed_a_weight_not_every_use(world):
+    """Found by the live smoke: six uses of one node, the sixth capped by the daily limit (it changes nothing, so it is not logged).
+    The journal said "5 uses of nodes in conversation", which claimed more than it knew."""
+    make_node(world["nodes"], "apples")
+    for minute in range(7):
+        nl.record_use(["apples"], world["nodes"], now=NOW - timedelta(hours=3, minutes=minute))
+    outcome = await dreaming.run_dream(force=True, now=NOW)
+    text = parse_file(str(world["nodes"] / f"{outcome['journal_node_id']}.html")).semantic_memory
+    assert "5 uses raised a node's relevance" in text and "7 uses" not in text
+    assert "daily cap" in text, "and says what it leaves out"

@@ -77,6 +77,7 @@ from python.inference import external_engine as _engine_cfg
 from python.astrology.natal import birth_for, chart_summary
 from python.inference import router as _router
 from python.inference import latency as _latency, vision as _vision
+from python.harness import prompt_budget as _budget
 from python.inference.vram_arbiter import prepare_for as _vram_prepare_for
 from python.harness.openai_tool_roundtrip import (
     accumulate_streamed_tool_calls as _accumulate_streamed_tool_calls,
@@ -2315,7 +2316,7 @@ async def handle_inference_generate(
                                 injected_node_ids.append(node.node_id)
                                 context_parts.append(
                                     f"[Node ID: {node.node_id} (Type: {node.node_type}, Authority: {node.execution_authority:.2f}, Activation: {score:.2f})]\n"
-                                    f"Semantic Memory: {node.semantic_memory.strip()}"
+                                    f"Semantic Memory: {_budget.cap_memory(node.semantic_memory.strip())}"
                                 )
                             context_parts.append("=========================================")
 
@@ -2405,7 +2406,7 @@ async def handle_inference_generate(
             nodes_dir = resolve_active_nodes_dir()
 
             settings_snapshots = []
-            for node_id in ("settings-system", "settings-inference", "settings-runtime", "settings-agent"):
+            for node_id in _budget.settings_node_ids(raw_user_prompt, _budget.is_voice_turn(params)):
                 node_p = nodes_dir / f"{node_id}.html"
                 if not node_p.exists():
                     node_p = Path(_ROOT_DIR) / "nodes" / f"{node_id}.html"
@@ -2560,19 +2561,8 @@ async def handle_inference_generate(
         if active_system_prompt:
             messages.append({"role": "system", "content": active_system_prompt})
     
-        # Process history list if provided, keeping only the last 10 turns
-        # and truncating older massive turns to prevent context blowout in local models.
-        if isinstance(history, list):
-            recent_history = history[-10:]
-            for idx, msg in enumerate(recent_history):
-                role = "assistant" if msg.get("role") in ("agent", "assistant") else "user"
-                content = msg.get("content", "").strip()
-                # Truncate older large content (e.g. tool results) if it exceeds 4k chars,
-                # unless it is the most recent message in history.
-                if len(content) > 4000 and idx < len(recent_history) - 1:
-                    content = content[:4000] + "\n... [truncated for context limit preservation] ..."
-                if content:
-                    messages.append({"role": role, "content": content})
+        # Last 10 turns (6 for a spoken turn), older oversized ones cut: see prompt_budget.history_messages.
+        messages.extend(_budget.history_messages(history, _budget.is_voice_turn(params)))
 
         # Compile prompt with PromptAssembler
         try:
@@ -3803,7 +3793,7 @@ async def handle_inference_generate(
         "balance_after": check.balance_after,
         "session_id": session_id,
         "fallback_notice": fallback_notice,
-        "timing": _latency.take(),
+        "timing": _budget.reconcile(check.prompt_tokens, _latency.take(), session_id),
         "injected_node_ids": injected_node_ids,
         "remembered_node_id": (remembered or {}).get("node_id"),
     })

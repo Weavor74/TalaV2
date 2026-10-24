@@ -37,9 +37,12 @@ async def test_get_system_info_tool_reports_gpu():
     assert isinstance(gpu["devices"], list)
 
     if gpu["available"]:
-        assert gpu["backend"] == "cuda"
         assert len(gpu["devices"]) >= 1
+        # A CPU-only torch build (or none) leaves nvidia-smi as the source, which reports name and memory only.
+        assert gpu["backend"] in ("cuda", "nvidia-smi", "cpu", "torch not installed")
         for device in gpu["devices"]:
             assert device["name"]
+            if device.get("source") == "nvidia-smi":
+                continue
             assert device["total_vram_gb"] > 0
             assert "." in device["compute_capability"]

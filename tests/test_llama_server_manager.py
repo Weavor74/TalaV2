@@ -285,3 +285,18 @@ def test_a_generation_records_the_engines_own_timings():
 
     source = inspect.getsource(lsm.generate_stream)
     assert "latency.record(" in source and "timings" in source
+
+
+def test_a_server_that_exits_while_loading_fails_the_start_at_once():
+    """A model llama-server cannot load makes it exit within a second; the start must not then poll a dead
+    port for the whole startup timeout (60 s by default, and longer when TALA_LLAMA_STARTUP_TIMEOUT is set)."""
+    import time as _time
+
+    from python.inference import llama_server_manager as lsm
+
+    class Dead:
+        returncode = 1
+
+    started = _time.perf_counter()
+    assert asyncio.run(lsm._wait_healthy("http://127.0.0.1:1", timeout_s=30.0, proc=Dead())) is False
+    assert _time.perf_counter() - started < 5.0

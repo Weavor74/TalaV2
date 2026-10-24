@@ -65,7 +65,9 @@ def _count_nodes() -> tuple[int, dict[str, int]]:
     from collections import Counter
     from sdk.agent.documentation_nodes import resolve_active_nodes_dir
 
-    files = list(resolve_active_nodes_dir().glob("*.html"))
+    # settings-*.html are regenerated per machine and gitignored, so counting them makes the committed contract
+    # disagree with every checkout but the one that generated it.
+    files = [f for f in resolve_active_nodes_dir().glob("*.html") if not f.name.startswith("settings-")]
     families = Counter(f.stem.split("-")[0] for f in files)
     return len(files), dict(families.most_common(10))
 

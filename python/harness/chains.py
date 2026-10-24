@@ -39,6 +39,7 @@ from __future__ import annotations
 
 import json
 import logging
+import time
 import uuid
 from datetime import datetime, timezone
 from typing import Any
@@ -414,6 +415,13 @@ async def _submit(transaction: dict[str, Any]) -> dict[str, Any]:
     return await _post(endpoint, transaction, guard=True)
 
 
+# Loopback endpoints whose node refused or timed out a connect, mapped to when we may try again. Windows takes ~2 s to
+# refuse a closed loopback port and every turn records a payment, so with no node running each turn waited that long.
+_node_down_until: dict[str, float] = {}
+_NODE_DOWN_BACKOFF_S = 15.0
+_LOOPBACK_CONNECT_TIMEOUT_S = 0.5
+
+
 async def _post(endpoint: str, transaction: dict[str, Any],
                 guard: bool = True) -> dict[str, Any]:
     """
@@ -454,6 +462,7 @@ async def _post(endpoint: str, transaction: dict[str, Any],
     # the transaction must carry an ed25519 signature over its hash by this
     # install's wallet key.
     headers: dict[str, str] = {}
+    _loopback = False
     try:
         from urllib.parse import urlsplit
         import ipaddress as _ipaddress
@@ -480,8 +489,11 @@ async def _post(endpoint: str, transaction: dict[str, Any],
         # 401 rather than failing here, so the queue entry survives to retry.
         log.debug("could not attach chain credentials for %s: %s", endpoint, exc)
 
+    timeout = httpx.Timeout(10.0, connect=_LOOPBACK_CONNECT_TIMEOUT_S) if _loopback else httpx.Timeout(10.0)
+    if _loopback and _node_down_until.get(endpoint, 0.0) > time.monotonic():
+        return {"written": False, "error": "local chain node unreachable, backing off"}
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
+        async with httpx.AsyncClient(timeout=timeout) as client:
             response = await client.post(f"{endpoint.rstrip('/')}/chain/tx",
                                          json=transaction,
                                          headers=headers or None)
@@ -499,6 +511,8 @@ async def _post(endpoint: str, transaction: dict[str, Any],
                 break
         return {"written": True, "remote_id": remote}
     except Exception as exc:
+        if _loopback and isinstance(exc, (httpx.ConnectError, httpx.ConnectTimeout)):
+            _node_down_until[endpoint] = time.monotonic() + _NODE_DOWN_BACKOFF_S
         return {"written": False, "error": f"{type(exc).__name__}: {exc}"}
 
 
