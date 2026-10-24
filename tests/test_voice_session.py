@@ -255,3 +255,55 @@ def test_stopping_an_idle_session_does_nothing_audible(clock):
     s = make(clock)
     s.start()
     assert s.stop() == [] and s.state is State.OFF
+
+
+# --- conversation style: no wake phrase, so her own voice must not become the next utterance -------------------------------
+
+
+def converse(clock, **config):
+    """A session with no wake requirement, one turn into her reply."""
+    s = make(clock, wake_required=False, **config)
+    s.start()
+    s.on_speech_start()
+    s.on_speech_end()
+    s.on_transcript("what is the weather")
+    s.on_playback_started()
+    assert s.state is State.SPEAKING
+    return s
+
+
+def test_every_utterance_is_a_turn_in_conversation_style_and_the_mic_stays_open(clock):
+    s = converse(clock)
+    s.on_playback_ended()
+    clock.advance(5.0)  # a long pause; there is no follow-up window to expire
+    assert kinds(s.on_speech_start()) == [CAPTURE_START]
+
+
+def test_speech_in_the_instant_after_she_stops_is_her_own_echo(clock):
+    s = converse(clock)
+    s.on_playback_ended()
+    clock.advance(0.1)
+    assert s.on_speech_start() == [], "her own voice, still ringing in the room, is not a new question"
+    assert s.state is State.WAITING
+
+
+def test_speech_after_the_echo_guard_is_heard(clock):
+    s = converse(clock, echo_guard_s=0.5)
+    s.on_playback_ended()
+    clock.advance(0.6)
+    assert kinds(s.on_speech_start()) == [CAPTURE_START]
+
+
+def test_talking_over_her_still_interrupts_her(clock):
+    s = converse(clock)
+    assert kinds(s.on_speech_progress(400)) == [STOP_PLAYBACK, CANCEL_TURN, CAPTURE_START]
+
+
+def test_the_echo_guard_does_not_change_how_the_wake_word_flow_works(clock):
+    s = make(clock)  # wake required, as before
+    s.start()
+    run_to_thinking(s)
+    s.on_playback_started()
+    s.on_playback_ended()
+    clock.advance(0.1)
+    assert kinds(s.on_speech_start()) == [CAPTURE_START], "the follow-up window opens at once; unchanged"

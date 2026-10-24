@@ -68,8 +68,12 @@ time the models load from those files only; there is no download path in the har
 ## Using it
 
 * **Always listen** (the waveform button by the chat box): switches the microphone on. A red **MIC LIVE** indicator appears
-  in the status bar and stays for exactly as long as the microphone is on. Say the wake phrase, then talk. The indicator
-  says what it is doing: waiting for the phrase, listening, transcribing, thinking, speaking.
+  in the status bar and stays for exactly as long as the microphone is on. **By default this is a conversation: just talk.**
+  Each time you stop, what you said becomes a turn, she answers aloud, and the microphone stays open for your reply, with no
+  phrase to say. Turn on **require wake phrase** (the `wake_enabled` setting) if you would rather she answered only after
+  "Hey Tala". The indicator says what it is doing: just talk (or the phrase), listening, transcribing, thinking, speaking.
+* **On speakers she can hear herself.** The browser's echo cancellation removes most of her voice from the microphone and speech
+  in the 0.6 s after she stops is ignored as echo, but if she keeps interrupting herself, use headphones.
 * **Dictate** (the microphone button): one utterance, ended when you stop talking, transcribed into the input box. No wake
   word, no fixed five-second window.
 * After she finishes speaking you can answer without the wake word for a few seconds (**follow-up window**).
@@ -78,8 +82,9 @@ time the models load from those files only; there is no download path in the har
   `Esc` also stops her.
 * Partial transcripts appear in the input box as you speak.
 
-The wake word only gates. Speech that does not follow it is never transcribed, and what is held in memory is the current
-utterance and half a second before it.
+With the wake phrase required, it only gates: speech that does not follow it is never transcribed, and what is held in memory
+is the current utterance and half a second before it. In conversation style there is no gate, so anything said near the
+microphone (a television, another person) becomes a turn; that is the price of not saying the phrase.
 
 ## Settings
 
@@ -87,7 +92,7 @@ Settings → VOICE, stored in `<user data>/voice.json`:
 
 | setting | default | |
 |---|---|---|
-| `wake_enabled` | on | off = every utterance is a command while listening |
+| `wake_enabled` | **off** | off = conversation style: every utterance while listening is a turn. on = she answers only after the wake phrase |
 | `wake_phrase` | Hey Tala | |
 | `wake_model` | (auto) | explicit path wins; else `hey_tala.onnx` if trained; else the pretrained `hey jarvis` fallback |
 | `wake_threshold` | (auto) | the trained model's own measured threshold (0.8 for `hey_tala`), else 0.5; a number here is your explicit choice |

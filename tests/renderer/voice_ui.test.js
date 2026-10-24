@@ -323,6 +323,26 @@ describe('indicator text', () => {
     assert.match(text, /Hey Tala/);
   });
 
+  test('in conversation style it says to just talk, not to say a phrase', () => {
+    const { indicatorText } = load();
+    const text = indicatorText({ listening: true, state: 'waiting', mode: 'continuous', wake_enabled: false, listening_for: 'Hey Tala' });
+    assert.match(text, /MIC LIVE/);
+    assert.match(text, /just talk/i);
+    assert.doesNotMatch(text, /Hey Tala/);
+  });
+
+  test('with the wake phrase required it still names the phrase', () => {
+    const { indicatorText } = load();
+    assert.match(indicatorText({ listening: true, state: 'waiting', mode: 'continuous', wake_enabled: true, listening_for: 'Hey Tala' }), /Hey Tala/);
+  });
+
+  test('dictating is not described as waiting for a phrase', () => {
+    const { indicatorText } = load();
+    const text = indicatorText({ listening: true, state: 'waiting', mode: 'dictate', wake_enabled: false });
+    assert.match(text, /dictating/i);
+    assert.doesNotMatch(text, /just talk/i);
+  });
+
   test('every state keeps saying the mic is live', () => {
     const { indicatorText } = load();
     for (const state of ['waiting', 'capturing', 'transcribing', 'thinking', 'speaking']) {

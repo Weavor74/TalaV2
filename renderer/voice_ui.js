@@ -205,7 +205,7 @@ class VoicePlayback {
 }
 
 const VOICE_STATE_TEXT = {
-  waiting: (s) => `MIC LIVE — say “${s.listening_for || s.wake_phrase || 'Hey Tala'}”`,
+  waiting: (s) => (s.wake_enabled === false ? 'MIC LIVE — just talk' : `MIC LIVE — say “${s.listening_for || s.wake_phrase || 'Hey Tala'}”`),
   capturing: () => 'MIC LIVE — listening…',
   transcribing: () => 'MIC LIVE — transcribing…',
   thinking: () => 'MIC LIVE — thinking…',
@@ -214,9 +214,9 @@ const VOICE_STATE_TEXT = {
 
 function voiceIndicatorText(state) {
   if (!state || !state.listening) return '';
+  if (state.mode === 'dictate' && (state.state || 'waiting') === 'waiting') return 'MIC LIVE — dictating (speak now)';
   const make = VOICE_STATE_TEXT[state.state] || VOICE_STATE_TEXT.waiting;
-  const text = make(state);
-  return state.mode === 'dictate' ? text.replace('say “', 'dictating (').replace(/”$/, ')') : text;
+  return make(state);
 }
 
 /** Wire everything to the page. `env` carries the browser APIs so the logic stays testable. */

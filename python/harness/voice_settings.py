@@ -26,7 +26,8 @@ DEFAULTS: dict[str, Any] = {
     #: A Kokoro voice id (af_heart, am_adam, ...); it must be installed by scripts/setup_voice.py.
     "tts_voice": "af_heart",
     "whisper_model": "base.en",
-    "wake_enabled": True,
+    #: Off = conversation style: pressing the always-listen button means talk freely. On = she answers only after the phrase.
+    "wake_enabled": False,
     "wake_phrase": "Hey Tala",
     #: Empty means "pick the best model present": a trained phrase model if one exists, else the pretrained fallback.
     "wake_model": "",

@@ -82,6 +82,12 @@ def _voice_file(voice: str) -> Path | None:
     return _root() / "voices" / f"{voice}.pt" if _VOICE_NAME.match(voice or "") else None
 
 
+def model_installed() -> bool:
+    """The network's config and weights are on disk (a voice and the spaCy model are checked separately)."""
+    root = _root()
+    return (root / "config.json").is_file() and (root / "kokoro-v1_0.pth").is_file()
+
+
 def missing_reason(voice: str) -> str:
     """Why Kokoro cannot speak with ``voice`` right now, or an empty string when it can."""
     root = _root()

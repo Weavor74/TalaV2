@@ -58,9 +58,20 @@ class SttEngine:
         self._hint = hint
         self._lock = threading.Lock()
 
+    def _quiet_progress(self) -> None:
+        """tqdm starts a monitor thread the first time a bar is made, and faster-whisper makes one per transcription from a worker
+        thread; starting a thread while another is loading a DLL is what froze the harness (see voice_preload)."""
+        try:
+            import tqdm
+
+            tqdm.tqdm.monitor_interval = 0
+        except ImportError:
+            pass
+
     def load(self) -> None:
         if self._model is not None:
             return
+        self._quiet_progress()
         from python.harness import voice_settings
 
         name = voice_settings.read()["whisper_model"]

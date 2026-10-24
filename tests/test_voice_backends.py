@@ -234,3 +234,25 @@ def test_an_unavailable_kokoro_says_why_in_the_backends_list(monkeypatch, tmp_pa
     note = {b["id"]: b for b in listing["backends"]}["kokoro"]["note"]
     assert note.startswith("Not available:") and "setup_voice.py" in note
     assert voice_kokoro.missing_reason(voice_settings.read()["tts_voice"]) in note
+
+
+def test_listening_is_a_conversation_by_default_not_a_wake_word_gate(tmp_path, monkeypatch):
+    """Pressing the always-listen button means talk freely. Requiring "Hey Tala" is the opt-in."""
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    assert voice_settings.DEFAULTS["wake_enabled"] is False
+    assert voice_settings.read()["wake_enabled"] is False
+
+    from python.harness.voice_runtime import VoiceRuntime
+
+    async def notify(method, params):
+        return None
+
+    runtime = VoiceRuntime(notify)
+    assert runtime.session.config.wake_required is False
+    assert runtime.status()["wake_enabled"] is False
+
+
+def test_an_explicit_wake_setting_is_still_honoured(tmp_path, monkeypatch):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    voice_settings.update({"wake_enabled": True})
+    assert voice_settings.read()["wake_enabled"] is True

@@ -103,6 +103,7 @@ class WakeDetector:
         self._gate = gate
         self._pending = np.zeros(0, np.int16)
         self._clock = 0.0
+        self._peak = 0.0
 
     @classmethod
     def load(cls, wake_dir: Path, wake_model: WakeModel, threshold: float) -> "WakeDetector":
@@ -119,6 +120,11 @@ class WakeDetector:
     def threshold(self) -> float:
         return self._gate.threshold
 
+    def take_peak(self) -> float:
+        """The best score seen since this was last asked, then start over: what the listen meter reports."""
+        peak, self._peak = self._peak, 0.0
+        return peak
+
     def feed(self, chunk) -> bool:
         """Feed audio (int16 samples or PCM16 bytes). True if the wake word fired somewhere in this chunk."""
         data = np.frombuffer(chunk, dtype=np.int16) if isinstance(chunk, (bytes, bytearray, memoryview)) else np.asarray(chunk, np.int16)
@@ -132,6 +138,8 @@ class WakeDetector:
             except Exception as exc:  # the audio loop outlives any one model error
                 log.warning("voice: wake-word model error: %s", exc)
                 continue
-            if self._gate.update(max(scores.values()) if scores else 0.0, now=self._clock):
+            score = max(scores.values()) if scores else 0.0
+            self._peak = max(self._peak, score)
+            if self._gate.update(score, now=self._clock):
                 fired = True
         return fired

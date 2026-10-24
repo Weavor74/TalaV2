@@ -29,7 +29,7 @@ from typing import Any, Awaitable, Callable
 
 import numpy as np
 
-from python.harness import voice_settings
+from python.harness import voice_meter, voice_settings
 from python.harness.voice_session import (
     BEGIN_TURN, CANCEL_TURN, CAPTURE_START, STOP_PLAYBACK, TRANSCRIBE, TRANSCRIPT, State, VoiceConfig, VoiceSession,
 )
@@ -105,6 +105,8 @@ class VoiceRuntime:
         self._announced: State | None = None
         self._last_partial = 0.0
         self._partial_busy = False
+        self._meter = voice_meter.ListenMeter()
+        self._no_audio_watch: asyncio.Task | None = None
         self.timeline: dict[str, float] = {}
         self.last_latency: dict[str, float] = {}
         self._tasks: set[asyncio.Task] = set()
@@ -175,10 +177,27 @@ class VoiceRuntime:
         self.segmenter.reset()
         self.session.start(mode)
         self._woke_capture = False
+        self._meter.reset(self._clock())
+        self._watch_for_silence()
         await self._announce(force=True)
         return self.status()
 
+    def _watch_for_silence(self) -> None:
+        """One warning if listening is on and not a single chunk of audio arrives: the microphone is blocked or absent."""
+        if self._no_audio_watch is not None:
+            self._no_audio_watch.cancel()
+
+        async def watch() -> None:
+            await asyncio.sleep(voice_meter.NO_AUDIO_AFTER_S)
+            if self.session.state is not State.OFF and not self._meter.total_chunks:
+                voice_meter.warn_no_audio()
+
+        self._no_audio_watch = asyncio.ensure_future(watch())
+
     async def stop(self) -> dict[str, Any]:
+        if self._no_audio_watch is not None:
+            self._no_audio_watch.cancel()
+            self._no_audio_watch = None
         actions = self.session.stop()
         await self._apply(actions)
         if self.segmenter:
@@ -220,6 +239,8 @@ class VoiceRuntime:
                     and self.session.state is State.WAITING and self.wake.feed(pcm))
         for event in self.segmenter.feed(pcm):
             await self._on_segment(event)
+        self._meter.add(pcm, self.segmenter.in_speech, self.wake.take_peak() if hasattr(self.wake, "take_peak") else None,
+                        getattr(self.wake, "threshold", None), self._clock())
         if woke:
             await self._on_wake()
         await self._apply(self.session.tick(), forced_audio=True)
