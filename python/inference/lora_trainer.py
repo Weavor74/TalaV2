@@ -1,12 +1,14 @@
 """
-lora_trainer.py - Background JIT LoRA Training Queue
+lora_trainer.py - the old per-node, per-turn LoRA training queue. SUPERSEDED, and deliberately off.
 
-*** NOT IMPLEMENTED. ***  No LoRA adapter is trained, and no inference path
-loads one: this module is a stub that says so (``IMPLEMENTED = False``).
-Neither the embedded llama-server nor Ollama applies an adapter, and
-``queue_lora_training`` raises ``LoraTrainingUnavailable`` rather than
-pretending. The server therefore does not queue jobs while ``IMPLEMENTED`` is
-False, and the engine status API reports ``lora.implemented = false``.
+*** ``IMPLEMENTED = False`` is intentional and must stay False. *** It gates server.py's per-turn JIT queue (one adapter per recalled
+node, trained in the middle of a chat turn), which was found low-value: only one adapter can be attached per turn, so N-1 of N were
+discarded, and most nodes are generated documentation, so a per-node adapter learned the register of API prose.
+
+What replaced it is real and lives in ``sdk/agent/lora_pipeline.py``: one adapter trained over her chat sessions and her HTML-NN skills
+and memories together, merged into its base, converted to GGUF and imported into Ollama as a new local provider, on a schedule, when
+enough is new. ``engine_status()`` below reports that to the engine panel; ``queue_lora_training`` still raises
+``LoraTrainingUnavailable`` rather than pretend.
 """
 
 import asyncio
@@ -19,8 +21,23 @@ logger = logging.getLogger("tala.inference.lora")
 #: Flip only when training AND loading an adapter both genuinely work.
 IMPLEMENTED = False
 STATUS_NOTE = (
-    "LoRA is not implemented: nothing trains an adapter and no engine loads one."
+    "Per-node LoRA training is not implemented (superseded): adapters are trained over her chat sessions and HTML-NN skills and "
+    "memories on a schedule by sdk/agent/lora_pipeline.py."
 )
+
+
+def engine_status() -> dict[str, Any]:
+    """What the engine panel shows about LoRA: the scheduled pipeline's state, not this retired queue's."""
+    try:
+        from sdk.agent import lora_pipeline
+
+        state = lora_pipeline.status()
+    except Exception as exc:  # the panel must render even if the pipeline cannot be imported
+        return {"implemented": False, "note": f"{STATUS_NOTE} (pipeline unavailable: {exc})"}
+    scheduled = "scheduled nightly" if state["auto_train"] else "scheduled training is off (lora_auto_train)"
+    last = f"last run {state['last_status']}" + (f" ({state['last_model']})" if state["last_model"] else "") if state["last_status"] else "no run yet"
+    return {"implemented": True, "auto_train": state["auto_train"], "running": state["running"], "last_status": state["last_status"],
+            "last_model": state["last_model"], "note": f"Voice adapter training: {scheduled}; {last}."}
 
 _training_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
 _trainer_task: asyncio.Task[None] | None = None

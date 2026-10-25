@@ -833,41 +833,39 @@ def _pi_sanitizer(data: dict) -> dict:
 @register_tool(
     name="compile_lora_adapter",
     description=(
-        "NOT IMPLEMENTED. Compiling a LoRA adapter into a node does nothing: no adapter is trained and no "
-        "inference engine loads one, so this always refuses and writes nothing."
+        "Report on, or with now=true start, the voice-adapter training run. Adapters are trained from her chat sessions and her "
+        "HTML-NN skills and memories as a whole, on a schedule, not per node: this does not write anything into the node you name."
     ),
 )
-async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> str:
+async def compile_lora_adapter(node_path: str, task_id: str | None = None, now: bool = False) -> str:
     """
     NAME
-           compile_lora_adapter - NOT IMPLEMENTED; refuses rather than fabricate weights
+           compile_lora_adapter - the voice adapter's training run: report on it, or start it now
 
     SYNOPSIS
-           await compile_lora_adapter(node_path, task_id)
+           await compile_lora_adapter(node_path, task_id, now=False)
 
     DESCRIPTION
-           Raises ``LoraTrainingUnavailable`` and leaves the node untouched.
+           This used to hash the node's file name into 256 floats and call it a LoRA; later it refused. Training is now real
+           (sdk/agent/lora_pipeline.py: train, merge, convert to GGUF, import into Ollama, smoke-test, register) but it is not
+           per node: one adapter is trained over her chat sessions and her HTML-NN skills and memories together, when enough is new,
+           at night, when the system is idle, and only if switched on (lora_auto_train in learning.json). So this reports the state
+           of that schedule. With ``now=True`` it starts a run in the background and returns at once.
 
-           This used to hash the node's file name into 256 floats, wrap them
-           in a safetensors header and write them into the node as
-           ``lora-weights``, returning "Successfully compiled". Nothing was
-           trained and nothing loads an adapter, so each block was noise that
-           was then validated, selected and broadcast as if it were a model.
-           Callers that merely want to compile when it is real should use
-           :func:`compile_adapter_if_implemented`.
+           The zero-leak guard is kept: a node marked SECURED is refused here exactly as before, and the corpus builder applies the
+           same rule to every node it reads.
     """
+    import asyncio
     import json
     import re
     from pathlib import Path
 
-    from python.inference.lora_trainer import STATUS_NOTE, LoraTrainingUnavailable
+    from sdk.agent import lora_pipeline
 
     p = Path(node_path)
     if not p.exists():
         raise FileNotFoundError(f"HTML-NN node file not found: {node_path}")
 
-    # The zero-leak guard stays: a SECURED node must never be encoded into
-    # weights, and that has to hold from the day an adapter is real, not after.
     content = p.read_text(encoding="utf-8")
     for block_id in ("node-metadata", "node-state"):
         block = re.search(rf'<script[^>]*id="{block_id}"[^>]*>(.*?)</script>', content, re.DOTALL)
@@ -879,24 +877,22 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> st
             continue
         _pi_sanitizer(payload)
 
-    raise LoraTrainingUnavailable(f"{STATUS_NOTE} Nothing was written to {node_path}.")
+    if now:
+        asyncio.get_running_loop().create_task(lora_pipeline.run_pipeline(reason="tool", force=True))
+        return "Voice adapter training started in the background (a run takes hours). Check status with the learning status."
+    state = lora_pipeline.status()
+    when = "off (set lora_auto_train in learning.json to enable it)" if not state["auto_train"] else "scheduled for the night, when idle"
+    return (f"Adapters are trained over all her chat sessions and HTML-NN skills and memories, not per node, so nothing was written to "
+            f"{node_path}. Scheduled training is {when}. Last run: {state['last_status'] or 'none yet'}"
+            f"{' (' + state['last_model'] + ')' if state['last_model'] else ''}.")
 
 
 async def compile_adapter_if_implemented(node_path: str, task_id: str | None = None) -> bool:
-    """Compile an adapter into a node only when LoRA is real; report whether it did.
-
-    The goal engine, the dream cycle and behavioural-weight adjustment each ran
-    the compile as the last step of otherwise genuine work (a manifest change,
-    a rollback record). Skipping that step quietly, rather than logging a
-    failure on every goal, keeps the genuine work in place until LoRA exists.
-    """
-    from python.inference.lora_trainer import IMPLEMENTED
-
-    if not IMPLEMENTED:
-        log.debug("LoRA is not implemented; no adapter compiled for %s", node_path)
-        return False
-    await compile_lora_adapter(node_path, task_id)
-    return True
+    """Whether a node-level compile happened: never now. Callers (the goal engine, the dream, behavioural-weight adjustment) ran this
+    as the last step of genuine work; training is scheduled, not triggered per node, so there is nothing to do here and
+    nothing is logged as a failure."""
+    log.debug("adapters are trained on a schedule, not per node; nothing compiled for %s", node_path)
+    return False
 
 
 @register_tool(

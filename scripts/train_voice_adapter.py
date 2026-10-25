@@ -112,6 +112,11 @@ def extract_turns(corpus_dir: Path, eras: tuple[str, ...] | None = None) -> list
     return examples
 
 
+def limit_examples(examples: list[dict[str, str]], maximum: int | None) -> list[dict[str, str]]:
+    """The last ``maximum`` examples (the corpus is written oldest first, so these are the newest), or all of them. For a smoke run."""
+    return examples if not maximum or maximum >= len(examples) else examples[-maximum:]
+
+
 def to_training_text(example: dict[str, str]) -> str:
     """One example as the model will see it, tool call included where present."""
     text = example["text"]
@@ -289,6 +294,8 @@ def main() -> int:
     ap.add_argument("--no-real-usage", action="store_true",
                     help="skip refreshing the real-usage and learning-event corpora from the live database and nodes")
     ap.add_argument("--epochs", type=int, default=3)
+    ap.add_argument("--max-examples", type=int, default=None,
+                    help="train on only the newest N examples: a quick smoke run of the whole pipeline, not a real adapter")
     ap.add_argument("--rank", type=int, default=8)
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--dry-run", action="store_true", help="inspect the dataset; no training deps needed")
@@ -303,7 +310,7 @@ def main() -> int:
         return 2
 
     use_real_only = args.sources == "real" or (args.sources is None and corpus.resolve() == DEFAULT_CORPUS.resolve())
-    examples = extract_turns(corpus, REAL_ERAS if use_real_only else None)
+    examples = limit_examples(extract_turns(corpus, REAL_ERAS if use_real_only else None), args.max_examples)
     if args.dry_run:
         return cmd_dry_run(examples)
     return cmd_train(examples, args.base, Path(args.output), args.epochs, args.rank)

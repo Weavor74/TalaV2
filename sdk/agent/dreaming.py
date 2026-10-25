@@ -178,6 +178,12 @@ def _parse_moment(raw: Any) -> datetime | None:
         return None
 
 
+async def system_idle(minutes: float) -> bool:
+    """No task is pending or running and the last one finished more than ``minutes`` ago: the system has nothing to do. Shared by the
+    nightly dream and the voice-adapter training trigger."""
+    return await _engine().check_dream_trigger(minutes)
+
+
 async def dream_if_due(now: datetime | None = None) -> dict[str, Any] | None:
     """The heartbeat's question: is it time to dream? None means "did not run" -- distinct from "ran and found nothing"."""
     from sdk.agent import node_learning as nl
@@ -195,7 +201,7 @@ async def dream_if_due(now: datetime | None = None) -> dict[str, Any] | None:
     if config.get("last_dream_date") == local.date().isoformat():
         return None
 
-    if not await _engine().check_dream_trigger(IDLE_MINUTES):
+    if not await system_idle(IDLE_MINUTES):
         return None
     outcome = await run_dream(now=local.astimezone(UTC))
     # Attempted today whether or not it was rolled back, so a failing dream is not retried every minute.

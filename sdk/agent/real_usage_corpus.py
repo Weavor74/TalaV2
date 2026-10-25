@@ -310,7 +310,31 @@ def _article_and_semantic_text(path: Path) -> tuple[Any, str] | tuple[None, None
     article = articles[0]
     sections = doc.xpath('.//section[@id="semantic-memory"]')
     text = sections[0].text_content().strip() if sections else ""
+    if _is_secured(doc):
+        article.set("data-secured", "true")
     return article, text
+
+
+def _has_secured(value: Any) -> bool:
+    if isinstance(value, dict):
+        return value.get("access_level") == "SECURED" or any(_has_secured(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_secured(v) for v in value)
+    return False
+
+
+def _is_secured(doc: Any) -> bool:
+    """The rule compile_lora_adapter has always enforced: a node whose metadata or state says access_level SECURED must never be
+    encoded into weights, at any depth."""
+    import json
+
+    for block in doc.xpath('//script[@id="node-metadata" or @id="node-state"]'):
+        try:
+            if _has_secured(json.loads((block.text or "").strip() or "null")):
+                return True
+        except ValueError:
+            continue
+    return False
 
 
 def _is_experience(article: Any) -> bool:
@@ -355,6 +379,9 @@ async def sync_learning_events_corpus(since: datetime | None = None) -> dict[str
             continue
         scanned += 1
 
+        if article.get("data-secured") == "true":
+            exclude("secured")
+            continue
         if path.name.startswith("learning-recovery-"):
             exclude("recovery note")
             continue

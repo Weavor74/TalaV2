@@ -615,3 +615,19 @@ async def test_a_node_with_no_timestamp_is_dated_by_its_file(monkeypatch, tmp_pa
     assert result["included"] == 1 and result["new_since"] == 1
     far_future = datetime(2100, 1, 1, tzinfo=timezone.utc)
     assert (await ruc.sync_learning_events_corpus(since=far_future))["new_since"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_secured_node_is_never_trained_in(monkeypatch, tmp_path):
+    """compile_lora_adapter has always refused to encode a node whose metadata says access_level SECURED into weights. The corpus
+    reads nodes directly, so the same rule has to hold here, from the first real training run."""
+    secured = _node("learning.event", "record", "A lesson about a private matter that must never reach any weights file.").replace(
+        "</article>", '<script type="application/json" id="node-metadata">{"access_level": "SECURED"}</script></article>')
+    nested = _node("learning.event", "record", "A lesson whose state block marks one inner part as secured, so all of it stays out.").replace(
+        "</article>", '<script type="application/json" id="node-state">{"a": {"b": [{"access_level": "SECURED"}]}}</script></article>')
+    fine = _node("learning.event", "record", "A lesson with ordinary metadata that was learned during real work.").replace(
+        "</article>", '<script type="application/json" id="node-metadata">{"access_level": "PUBLIC"}</script></article>')
+    _write_nodes(tmp_path, monkeypatch, {"learning-a.html": secured, "learning-b.html": nested, "learning-c.html": fine})
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1 and result["excluded_by"] == {"secured": 2}
+    assert "private matter" not in next(ruc.LEARNING_EVENTS_DIR.glob("*.html")).read_text(encoding="utf-8")

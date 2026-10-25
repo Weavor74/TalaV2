@@ -94,6 +94,8 @@ training = [
     "datasets==5.0.1",
     "transformers==5.15.0",
     "accelerate==1.14.0",
+    # llama.cpp's convert_hf_to_gguf.py imports it before it looks at the tokenizer, even for Llama 3 (the lora_pipeline convert step).
+    "sentencepiece>=0.2.0",
 ]
 # Local voice (docs/local-voice.md): every model runs on this machine, from files on D: (scripts/setup_voice.py).
 # Speech is Kokoro-82M (Apache-2.0). Deliberately NOT the `kokoro` package: it depends on phonemizer-fork (GPL-3.0) and

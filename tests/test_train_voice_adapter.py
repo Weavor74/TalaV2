@@ -159,3 +159,28 @@ def test_a_custom_corpus_directory_is_read_whole_unless_told_otherwise(monkeypat
     monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--corpus", str(corpus)])
     assert tva.main() == 0
     assert "examples          3" in capsys.readouterr().out
+
+
+def test_max_examples_trims_the_dataset_for_a_smoke_run(monkeypatch, tmp_path, capsys):
+    corpus = tmp_path / "corpus"
+    folder = corpus / "real-usage"
+    folder.mkdir(parents=True)
+    turns = "".join(
+        f'<div class="turn" data-speaker="tala" data-emotion="calm"><p>[Emotional State: calm] Real chat reply number {i}, long enough to count.</p></div>'
+        for i in range(30))
+    (folder / "x.html").write_text(f'<article data-era="real-usage">{turns}</article>', encoding="utf-8")
+    monkeypatch.setattr(tva, "DEFAULT_CORPUS", tmp_path / "elsewhere")
+    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--corpus", str(corpus), "--max-examples", "7"])
+    assert tva.main() == 0
+    assert "examples          7" in capsys.readouterr().out
+
+
+def test_max_examples_keeps_the_newest_not_the_first(tmp_path):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    turns = "".join(
+        f'<div class="turn" data-speaker="tala" data-emotion="calm"><p>[Emotional State: calm] Reply {i:02d} long enough to count here.</p></div>'
+        for i in range(10))
+    (corpus / "x.html").write_text(f'<article data-era="real-usage">{turns}</article>', encoding="utf-8")
+    kept = tva.limit_examples(tva.extract_turns(corpus), 3)
+    assert "Reply 09" in kept[-1]["text"] and "Reply 07" in kept[0]["text"]

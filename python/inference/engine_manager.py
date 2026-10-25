@@ -86,7 +86,7 @@ def get_status(engine_id: str = ENGINE_ID) -> Dict[str, Any]:
         "available_variants": available_variants(),
         "active_variant": active_variant(),
         "profile": _profiles.describe(),
-        "lora": {"implemented": _lora.IMPLEMENTED, "note": _lora.STATUS_NOTE},
+        "lora": _lora.engine_status(),
     }
 
 

@@ -1,12 +1,13 @@
 """
-compile_lora_adapter must not fabricate an adapter.
+compile_lora_adapter must never fabricate an adapter, and must never write into a node.
 
-It used to hash the node's file name into 256 floats, wrap them in a
-safetensors header, write them into the node as ``lora-weights`` and return
-"Successfully compiled". Nothing was trained, and no engine loads an adapter, so
-every block it produced was noise that looked like a model and was then
-validated, selected and broadcast as one. LoRA is not implemented
-(``lora_trainer.IMPLEMENTED``); the tool now says so and writes nothing.
+It used to hash the node's file name into 256 floats, wrap them in a safetensors header, write them into the node as
+``lora-weights`` and return "Successfully compiled". Nothing was trained, so every block was noise that looked like a model and
+was then validated, selected and broadcast as one. It then refused outright while LoRA was unimplemented.
+
+Training is real now (sdk/agent/lora_pipeline.py) but it is not per node: one adapter is trained over her chat sessions and
+HTML-NN skills and memories, on a schedule. So the tool reports on that, or starts a run, and what these tests protect is
+unchanged: no fabricated weights, no writes into the node, SECURED nodes refused, a missing node reported.
 """
 from __future__ import annotations
 
@@ -35,14 +36,14 @@ def node(tmp_path):
 
 
 @pytest.mark.asyncio
-async def test_it_refuses_instead_of_fabricating_weights(node):
+async def test_it_never_writes_into_the_node_or_fabricates_weights(node):
     before = node.read_bytes()
 
-    with pytest.raises(lora_trainer.LoraTrainingUnavailable, match="not implemented"):
-        await compile_lora_adapter(str(node), "task-1")
+    reply = await compile_lora_adapter(str(node), "task-1")
 
-    assert node.read_bytes() == before, "a refusal must leave the node exactly as it was"
+    assert node.read_bytes() == before, "the node must be exactly as it was"
     assert b'id="lora-weights"' not in node.read_bytes()
+    assert "not per node" in reply.lower(), "it says what it did instead: adapters are not trained per node"
 
 
 @pytest.mark.asyncio
@@ -51,10 +52,10 @@ async def test_a_missing_node_is_still_reported_as_missing(tmp_path):
         await compile_lora_adapter(str(tmp_path / "nope.html"))
 
 
-def test_the_tool_describes_itself_as_not_implemented():
+def test_the_tool_describes_what_it_now_does():
     entry = next(t for t in ToolRegistry.get_tools() if t["name"] == "compile_lora_adapter")
     text = entry["description"].lower()
-    assert "not implemented" in text
+    assert "html-nn" in text and "now=true" in text
     assert "safetensors binary" not in text, "the old description promised something it never did"
 
 
@@ -71,14 +72,12 @@ async def test_the_helper_skips_while_lora_is_not_implemented(node, monkeypatch)
 
 
 @pytest.mark.asyncio
-async def test_the_helper_compiles_once_lora_is_real(node, monkeypatch):
-    calls = []
-
-    async def fake_compile(path, task_id=None):
-        calls.append((path, task_id))
+async def test_the_helper_never_compiles_per_node_even_if_the_old_flag_is_flipped(node, monkeypatch):
+    """The goal engine, the dream and weight adjustment call this as the last step of real work. Flipping the retired queue's flag
+    used to make each of them train; now training is scheduled, so none of them does."""
+    async def must_not_run(*args, **kwargs):
+        raise AssertionError("a per-node compile was started")
 
     monkeypatch.setattr(lora_trainer, "IMPLEMENTED", True)
-    monkeypatch.setattr(tools, "compile_lora_adapter", fake_compile)
-
-    assert await tools.compile_adapter_if_implemented(str(node), "task-1") is True
-    assert calls == [(str(node), "task-1")]
+    monkeypatch.setattr(tools, "compile_lora_adapter", must_not_run)
+    assert await tools.compile_adapter_if_implemented(str(node), "task-1") is False
