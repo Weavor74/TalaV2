@@ -2,9 +2,9 @@
 sdk/agent/real_usage_corpus.py
 
 Two corpus-sync steps that feed the LoRA voice adapter from Tala's real
-experience instead of only synthetic fiction: her own turns from
-`conversation_turns` (real chat history) and the real HTML-NN
-``learning.event`` nodes. scripts/train_voice_adapter.py runs both ahead of
+experience instead of synthetic fiction: her own turns from
+`conversation_turns` (real chat sessions) and her HTML-NN skills and memories
+(the nodes use creates: skills, lessons, remembered facts). scripts/train_voice_adapter.py runs both ahead of
 every dry run or training run, fresh each time (full regeneration -- at this
 data volume, reprocessing everything is cheap and avoids persisted-cursor
 complexity for no benefit).
@@ -45,7 +45,7 @@ import html
 import logging
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -178,6 +178,19 @@ def _parse_timestamp(raw: str) -> datetime | None:
         return None
 
 
+def _is_after(when: datetime | None, since: datetime | None) -> bool:
+    """True if ``when`` is later than ``since``; with no ``since`` everything is new. Naive times are read as UTC."""
+    if since is None:
+        return True
+    if when is None:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    return when > since
+
+
 def _derive_emotion(when: datetime | None) -> str:
     """engine_emotion_for() is the same live astro-engine lookup the
     synthetic corpus already uses -- reused, not reinvented, so emotion
@@ -197,14 +210,15 @@ def _derive_emotion(when: datetime | None) -> str:
 # Source 1: conversation_turns (real chat history)
 # ---------------------------------------------------------------------------
 
-async def sync_real_usage_corpus() -> dict[str, Any]:
+async def sync_real_usage_corpus(since: datetime | None = None) -> dict[str, Any]:
     """
     Rewrite data/training_corpus/real-usage/ from Tala's own
     (role='assistant') conversation_turns rows in the renderer's chat sessions.
     Only her own words become training text -- the direct analogue of the
     synthetic corpus's data-speaker="tala" filter, and a meaningful privacy
     narrowing on its own before any content filter even runs. A failed query
-    leaves the previous corpus in place.
+    leaves the previous corpus in place. ``new_since`` counts the kept replies written after ``since`` (all of them when it is
+    None): what the retraining trigger asks, "how much is new since the adapter was trained".
     """
     from python.harness import db
     from sdk.agent.trajectory import _normalise_tool_calls
@@ -220,10 +234,12 @@ async def sync_real_usage_corpus() -> dict[str, Any]:
         )
     except Exception as exc:
         logger.warning("real_usage_corpus: could not query conversation_turns: %s", exc)
-        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {}, "included": 0}
+        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {},
+                "included": 0, "new_since": 0}
 
     scanned = len(rows)
     excluded_by: dict[str, int] = {}
+    new_since = 0
     turns: list[str] = []
     seen: set[str] = set()
 
@@ -257,6 +273,8 @@ async def sync_real_usage_corpus() -> dict[str, Any]:
 
         emotion = _derive_emotion(row["created_at"])
         turns.append(_render_turn(text, emotion, tool_calls_text))
+        if _is_after(row["created_at"], since):
+            new_since += 1
 
     included = len(turns)
     excluded = sum(excluded_by.values())
@@ -271,7 +289,8 @@ async def sync_real_usage_corpus() -> dict[str, Any]:
         "real_usage_corpus: conversation_turns scanned=%d excluded=%d included=%d excluded_by=%s",
         scanned, excluded, included, excluded_by,
     )
-    return {"success": True, "scanned": scanned, "excluded": excluded, "excluded_by": excluded_by, "included": included}
+    return {"success": True, "scanned": scanned, "excluded": excluded, "excluded_by": excluded_by, "included": included,
+            "new_since": new_since}
 
 
 # ---------------------------------------------------------------------------
@@ -294,13 +313,24 @@ def _article_and_semantic_text(path: Path) -> tuple[Any, str] | tuple[None, None
     return article, text
 
 
-async def sync_learning_events_corpus() -> dict[str, Any]:
+def _is_experience(article: Any) -> bool:
+    """Is this node one of her skills or memories, as opposed to generated documentation, settings, a tool's manual or her
+    protected persona/identity? Skills are ``skill`` nodes; memories are what the system wrote down from use: ``learning.*``
+    (lessons, run notes) and ``memory.*`` (remembered facts). The dream journal is a log of weight changes, not a memory."""
+    if (article.get("data-document-purpose") or "") == "description":
+        return False
+    target = article.get("data-doc-target") or ""
+    if target == "memory.dream-journal":
+        return False
+    return article.get("data-node-type") == "skill" or target.startswith(("learning.", "memory."))
+
+
+async def sync_learning_events_corpus(since: datetime | None = None) -> dict[str, Any]:
     """
-    Rewrite data/training_corpus/learning-events/ from the real HTML-NN
-    learning-event records: every nodes/*.html where
-    data-doc-target="learning.event" AND data-document-purpose="record" --
-    the same filter sdk/agent/documentation_nodes.py's own tooling already
-    uses to tell a real lesson from documentation/settings/UI-map nodes.
+    Rewrite data/training_corpus/learning-events/ from her skills and memories: the HTML-NN nodes use creates (see
+    ``_is_experience``). HTML-NN is where she keeps what she knows, so it is a training source beside her chats. Failure-recovery
+    notes ("the step failed, retried three times") are left out: they are incident reports, not something she learned.
+    ``new_since`` counts the kept nodes written after ``since`` (all of them when it is None).
     """
     from sdk.agent.documentation_nodes import resolve_active_nodes_dir
 
@@ -309,31 +339,44 @@ async def sync_learning_events_corpus() -> dict[str, Any]:
         paths = sorted(nodes_dir.glob("*.html")) if nodes_dir.exists() else []
     except Exception as exc:
         logger.warning("real_usage_corpus: could not list the active nodes directory: %s", exc)
-        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {}, "included": 0}
+        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {}, "included": 0, "new_since": 0}
 
     scanned = 0
-    excluded = 0
+    excluded_by: dict[str, int] = {}
+    new_since = 0
     written: list[str] = []
+
+    def exclude(reason: str) -> None:
+        excluded_by[reason] = excluded_by.get(reason, 0) + 1
 
     for path in paths:
         article, text = _article_and_semantic_text(path)
-        if article is None:
-            continue
-        if article.get("data-doc-target") != "learning.event":
-            continue
-        if article.get("data-document-purpose") != "record":
+        if article is None or not _is_experience(article):
             continue
         scanned += 1
 
-        if not text or not _passes_safety_filter(text):
-            excluded += 1
+        if path.name.startswith("learning-recovery-"):
+            exclude("recovery note")
+            continue
+        if not text:
+            exclude("empty")
+            continue
+        if not _passes_safety_filter(text):
+            exclude("safety filter")
             continue
 
         when = _parse_timestamp(article.get("data-generated-at") or "")
-        emotion = _derive_emotion(when)
-        written.append(_render_turn(text, emotion))
+        if when is None:
+            try:
+                when = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)  # a node with no stamp is as old as its file
+            except OSError:
+                when = None
+        written.append(_render_turn(text, _derive_emotion(when)))
+        if _is_after(when, since):
+            new_since += 1
 
     included = len(written)
+    excluded = sum(excluded_by.values())
     _reset_dir(LEARNING_EVENTS_DIR)
     if written:
         LEARNING_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -343,7 +386,8 @@ async def sync_learning_events_corpus() -> dict[str, Any]:
             )
 
     logger.info(
-        "real_usage_corpus: learning-event nodes scanned=%d excluded=%d included=%d",
-        scanned, excluded, included,
+        "real_usage_corpus: skill and memory nodes scanned=%d excluded=%d included=%d excluded_by=%s",
+        scanned, excluded, included, excluded_by,
     )
-    return {"success": True, "scanned": scanned, "excluded": excluded, "included": included}
+    return {"success": True, "scanned": scanned, "excluded": excluded, "excluded_by": excluded_by, "included": included,
+            "new_since": new_since}

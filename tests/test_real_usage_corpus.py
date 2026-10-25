@@ -476,3 +476,142 @@ def test_the_safety_filter_leaves_no_audit_trail(monkeypatch):
     monkeypatch.setattr(gm, "_log_violation_to_ledger", lambda kind, details: recorded.append(kind))
     assert ruc._passes_safety_filter("That was a violent threat and I will not repeat it, whatever the tunnel is doing now.") is False
     assert recorded == [], "a rejected training example must not look like a guardrail violation in the audit log"
+
+
+# --- "new HTML-NN": the nodes that use creates, not the generated documentation ---------------------------------------------
+
+
+def _node(doc_target, purpose, text, generated="2026-10-20T12:00:00Z", node_type="documentation"):
+    purpose_attr = f' data-document-purpose="{purpose}"' if purpose is not None else ""
+    target_attr = f' data-doc-target="{doc_target}"' if doc_target else ""
+    generated_attr = f' data-generated-at="{generated}"' if generated else ""
+    return f"""<!DOCTYPE html>
+<html><body>
+<article data-node-type="{node_type}"{target_attr}{purpose_attr}{generated_attr}>
+  <section id="semantic-memory"><p>{text}</p></section>
+</article>
+</body></html>
+"""
+
+
+def _write_nodes(tmp_path, monkeypatch, files):
+    from sdk.agent import documentation_nodes
+
+    nodes_dir = tmp_path / "nodes"
+    nodes_dir.mkdir()
+    for name, body in files.items():
+        (nodes_dir / name).write_text(body, encoding="utf-8")
+    monkeypatch.setattr(documentation_nodes, "resolve_active_nodes_dir", lambda: nodes_dir)
+    return nodes_dir
+
+
+@pytest.mark.asyncio
+async def test_a_remembered_user_fact_is_new_html_nn_even_with_no_declared_purpose(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-remembered-cat.html": _node("memory.user-fact", None, "The user's cat is called Zorblax and she dislikes Tuesdays."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1
+    assert "Zorblax" in next(ruc.LEARNING_EVENTS_DIR.glob("*.html")).read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_a_learning_lesson_with_no_declared_purpose_is_included_too(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-when-writing-tests.html": _node("learning.event", None, "When writing tests, name what the test proves, not how it works."),
+    })
+    assert (await ruc.sync_learning_events_corpus())["included"] == 1
+
+
+@pytest.mark.asyncio
+async def test_generated_documentation_and_journals_are_not_experience(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "sdk_agent_tools.html": _node("sdk.agent.tools", "description", "Module documentation generated from the source code."),
+        "dream-journal-2026-10-24.html": _node("memory.dream-journal", "record", "Dream journal for 2026-10-24. Nothing changed tonight."),
+        "learning-skill-ok.html": _node("learning.event", "record", "A lesson that was actually learned during real work, in full sentences."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1 and result["scanned"] == 1  # the other two were never candidates
+
+
+@pytest.mark.asyncio
+async def test_failure_recovery_notes_are_left_out_with_a_reason(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-recovery-create-a-bounded-self-improvement-plan.html":
+            _node("learning.event", "record", "Recovery: the plan step failed with an error and was retried three times."),
+        "learning-skill-ok.html": _node("learning.event", "record", "A lesson that was actually learned during real work, in full sentences."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1 and result["excluded_by"] == {"recovery note": 1}
+
+
+@pytest.mark.asyncio
+async def test_a_secret_in_a_node_is_reported_as_a_safety_exclusion(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-skill-leaky.html": _node("learning.event", "record", "Use Bearer sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 to authenticate with the service."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 0 and result["excluded_by"] == {"safety filter": 1}
+
+
+@pytest.mark.asyncio
+async def test_new_since_counts_only_what_was_created_after_the_last_training(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-skill-old.html": _node("learning.event", "record", "An older lesson that was learned in full sentences, long ago.", "2026-09-01T00:00:00Z"),
+        "learning-skill-new.html": _node("learning.event", "record", "A newer lesson that was learned in full sentences, yesterday.", "2026-10-24T00:00:00Z"),
+    })
+    since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    result = await ruc.sync_learning_events_corpus(since=since)
+    assert result["included"] == 2 and result["new_since"] == 1
+    assert (await ruc.sync_learning_events_corpus())["new_since"] == 2, "with no earlier training, everything is new"
+
+
+@pytest.mark.asyncio
+async def test_new_chat_replies_since_the_last_training_are_counted(monkeypatch):
+    from datetime import datetime, timezone
+
+    old = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    new = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    _patch_fetch(monkeypatch, [
+        _row(VOICE + " An old reply.", created_at=old), _row(VOICE + " A new reply.", created_at=new),
+    ])
+    result = await ruc.sync_real_usage_corpus(since=datetime(2026, 10, 1, tzinfo=timezone.utc))
+    assert result["included"] == 2 and result["new_since"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_skill_node_is_one_of_her_skills_and_is_included(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "skill-self-check-discipline.html": _node(None, None, "Self-check discipline: before answering, restate the question and check the answer against it.",
+                                                  node_type="skill"),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1
+    assert "Self-check discipline" in next(ruc.LEARNING_EVENTS_DIR.glob("*.html")).read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_her_persona_and_identity_nodes_are_not_trained_in(monkeypatch, tmp_path):
+    """They are her protected core and already reach every prompt; training them into the weights would also make them
+    impossible to edit by editing the node."""
+    _write_nodes(tmp_path, monkeypatch, {
+        "persona-tala-core.html": _node(None, None, "You are Tala. You are practical, observant and warm, and you answer plainly.", node_type="persona"),
+        "identity-tala.html": _node(None, None, "Tala is an offline-first cognitive agent and workspace companion for Weavor.", node_type="identity"),
+        "function-doc-x.html": _node("code.x", "description", "Function documentation generated from the source code of x.", node_type="function-doc"),
+    })
+    assert (await ruc.sync_learning_events_corpus())["scanned"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_node_with_no_timestamp_is_dated_by_its_file(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+
+    _write_nodes(tmp_path, monkeypatch, {
+        "skill-undated.html": _node(None, None, "An undated skill that was written down in full sentences for later.", generated="", node_type="skill"),
+    })
+    result = await ruc.sync_learning_events_corpus(since=datetime(2000, 1, 1, tzinfo=timezone.utc))
+    assert result["included"] == 1 and result["new_since"] == 1
+    far_future = datetime(2100, 1, 1, tzinfo=timezone.utc)
+    assert (await ruc.sync_learning_events_corpus(since=far_future))["new_since"] == 0

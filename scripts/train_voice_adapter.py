@@ -27,8 +27,9 @@ some carrying tool calls inline. Training on that surface form keeps voice,
 emotion and tool habit on one axis rather than three.
 
 Before reading the corpus it refreshes real-usage/ (Tala's own replies in the renderer's chat sessions) and learning-events/
-(the real HTML-NN lesson records) from the live database and nodes -- see sdk/agent/real_usage_corpus.py for what is kept and
-why. Pass --no-real-usage to train on what is already on disk.
+(her HTML-NN skills and memories: the skill, lesson and remembered-fact nodes that use creates) from the live database and
+nodes -- see sdk/agent/real_usage_corpus.py for what is kept and why. Those two are what she trains on by default; the
+synthetic stories are used only with --sources all. Pass --no-real-usage to train on what is already on disk.
 
 USAGE
     python scripts/train_voice_adapter.py --dry-run      # show the dataset, no torch needed
@@ -70,9 +71,13 @@ def _text(fragment: str) -> str:
     return re.sub(r"\s+", " ", _TAG_RE.sub(" ", fragment)).strip()
 
 
-def extract_turns(corpus_dir: Path) -> list[dict[str, str]]:
+#: What she trains on by default: her real chat sessions and her HTML-NN skills and memories. The synthetic stories are opt-in.
+REAL_ERAS = ("real-usage", "learning-events")
+
+
+def extract_turns(corpus_dir: Path, eras: tuple[str, ...] | None = None) -> list[dict[str, str]]:
     """
-    Every Tala turn in the corpus, as a training example.
+    Every Tala turn in the corpus (or in the given ``eras``), as a training example.
 
     Only her turns: training on the interlocutor's lines would teach her to
     write them. The "[Emotional State: X]" prefix is preserved verbatim rather
@@ -85,6 +90,8 @@ def extract_turns(corpus_dir: Path) -> list[dict[str, str]]:
         raw = path.read_text(encoding="utf-8", errors="ignore")
         era_match = re.search(r'data-era="([^"]*)"', raw)
         era = era_match.group(1) if era_match else "unknown"
+        if eras is not None and era not in eras:
+            continue
 
         for match in _TURN_RE.finditer(raw):
             attrs = {m.group("name"): m.group("value") for m in _ATTR_RE.finditer(match.group("attrs"))}
@@ -267,7 +274,7 @@ def sync_real_usage() -> None:
     else:
         print(f"real-usage: conversation turns not refreshed ({chats.get('error')})")
     if events.get("success"):
-        print(f"real-usage: kept {events['included']} of {events['scanned']} learning-event records")
+        print(f"real-usage: kept {events['included']} of {events['scanned']} skill and memory nodes")
     print()
 
 
@@ -276,6 +283,9 @@ def main() -> int:
     ap.add_argument("--corpus", default=str(DEFAULT_CORPUS))
     ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--base", default=DEFAULT_BASE_MODEL)
+    ap.add_argument("--sources", choices=("real", "all"), default=None,
+                    help="real = her chat sessions and HTML-NN skills/memories only; all = also the synthetic stories. "
+                         "Default: real for the shared corpus, everything for a --corpus directory you point at")
     ap.add_argument("--no-real-usage", action="store_true",
                     help="skip refreshing the real-usage and learning-event corpora from the live database and nodes")
     ap.add_argument("--epochs", type=int, default=3)
@@ -292,7 +302,8 @@ def main() -> int:
         print(f"Corpus directory not found: {corpus}")
         return 2
 
-    examples = extract_turns(corpus)
+    use_real_only = args.sources == "real" or (args.sources is None and corpus.resolve() == DEFAULT_CORPUS.resolve())
+    examples = extract_turns(corpus, REAL_ERAS if use_real_only else None)
     if args.dry_run:
         return cmd_dry_run(examples)
     return cmd_train(examples, args.base, Path(args.output), args.epochs, args.rank)
