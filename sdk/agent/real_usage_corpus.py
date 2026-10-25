@@ -85,6 +85,14 @@ _SAFETY_RULES = {
 }
 
 
+#: Credentials that are recognisable by shape alone, with no "key=" or "Bearer" beside them. sdk/gateway/redaction.py only knows the
+#: labelled forms, so a bare key pasted into a chat sailed through; training is permanent, so these are excluded here as well.
+_KEY_SHAPES = re.compile(
+    r"\b(?:sk-[A-Za-z0-9_\-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|glpat-[A-Za-z0-9_\-]{16,}"
+    r"|AKIA[0-9A-Z]{16}|xox[abpr]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{30,}|eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+)"
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----")
+
+
 def _passes_safety_filter(text: str) -> bool:
     """
     True only if *text* is safe to bake into permanent weights unmodified.
@@ -98,7 +106,7 @@ def _passes_safety_filter(text: str) -> bool:
 
     from sdk.gateway.redaction import redact_string
 
-    if redact_string(text) != text:
+    if redact_string(text) != text or _KEY_SHAPES.search(text):
         return False
 
     from python.harness.guardrails_manager import GuardrailsManager
@@ -418,3 +426,102 @@ async def sync_learning_events_corpus(since: datetime | None = None) -> dict[str
     )
     return {"success": True, "scanned": scanned, "excluded": excluded, "excluded_by": excluded_by, "included": included,
             "new_since": new_since}
+
+
+# ---------------------------------------------------------------------------
+# Candidates for the review queue (sdk/agent/lora_approvals.py)
+# ---------------------------------------------------------------------------
+
+MAX_PROMPT_CHARS = 2000
+
+
+def _candidate_id(kind: str, prompt: str, reply: str) -> str:
+    """A decision belongs to one exact piece of content: change a word and it is a different item with no decision."""
+    import hashlib
+
+    return hashlib.sha256(f"{kind}\0{prompt}\0{reply}".encode()).hexdigest()[:16]
+
+
+def _candidate(kind: str, title: str, prompt: str, reply: str, when: datetime | None, source: str, blocked: str | None) -> dict[str, Any]:
+    return {"id": _candidate_id(kind, prompt, reply), "kind": kind, "title": title, "prompt": prompt, "reply": reply,
+            "created_at": when.isoformat() if when else "", "source": source, "blocked": blocked}
+
+
+async def gather_chat_candidates() -> list[dict[str, Any]]:
+    """Every reply of hers in the renderer's chat sessions, paired with the message it answered, each either clean or carrying the
+    reason the corpus filters reject it. Nothing is dropped here: the queue shows what was held back and why."""
+    from python.harness import db
+
+    rows = await db.fetch(
+        """
+        SELECT content, tool_calls, created_at, prev_role, prev_content FROM (
+            SELECT role, content, tool_calls, created_at,
+                   LAG(role) OVER w AS prev_role, LAG(content) OVER w AS prev_content
+            FROM conversation_turns
+            WHERE session_id LIKE 'chat-%'
+            WINDOW w AS (PARTITION BY session_id ORDER BY created_at, id)
+        ) t
+        WHERE role = 'assistant'
+        ORDER BY created_at ASC
+        """
+    )
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        original = row["content"] or ""
+        reply = _clean_reply(original)
+        prompt = (row["prev_content"] or "").strip() if row["prev_role"] == "user" else ""
+        blocked = _quality_exclusion(original, reply)
+        if blocked is None and not _passes_safety_filter(reply):
+            blocked = "safety filter"
+        if blocked is None and not prompt:
+            blocked = "no user message"
+        if blocked is None and len(prompt) > MAX_PROMPT_CHARS:
+            blocked = "message too long"
+        if blocked is None and not _passes_safety_filter(prompt):
+            blocked = "safety filter (message)"
+        if blocked is None:
+            if reply[:200] in seen:
+                blocked = "duplicate"
+            else:
+                seen.add(reply[:200])
+        out.append(_candidate("chat", reply[:60], prompt, reply, row["created_at"], "chat", blocked))
+    return out
+
+
+async def gather_memory_candidates() -> list[dict[str, Any]]:
+    """Her skills and memories (see ``_is_experience``) as candidates. A memory has no message it answered, so it is asked for by name:
+    "What do you remember about <title>?"."""
+    from sdk.agent import documentation_nodes
+
+    try:
+        nodes_dir = documentation_nodes.resolve_active_nodes_dir()
+        paths = sorted(nodes_dir.glob("*.html")) if nodes_dir.exists() else []
+    except Exception as exc:
+        logger.warning("real_usage_corpus: could not list the active nodes directory: %s", exc)
+        return []
+    out: list[dict[str, Any]] = []
+    for path in paths:
+        article, text = _article_and_semantic_text(path)
+        if article is None or not _is_experience(article):
+            continue
+        title = " ".join(str(article.xpath("string(.//h1)")).split()) or path.stem
+        blocked: str | None = None
+        if article.get("data-secured") == "true":
+            blocked = "secured"
+        elif path.name.startswith("learning-recovery-"):
+            blocked = "recovery note"
+        elif not text:
+            blocked = "empty"
+        elif len(text) > MAX_CHARS:
+            blocked = "too long"
+        elif not _passes_safety_filter(text) or not _passes_safety_filter(title):
+            blocked = "safety filter"
+        when = _parse_timestamp(article.get("data-generated-at") or "")
+        if when is None:
+            try:
+                when = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                when = None
+        out.append(_candidate("memory", title, f"What do you remember about {title}?", text, when, path.name, blocked))
+    return out

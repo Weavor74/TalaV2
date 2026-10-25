@@ -30,6 +30,17 @@
     "ollama_url": "http://localhost:11434",
     "allow_remote": false,
     "vram": {"total_mb": 6144, "exclusive": true},
+    "persona": {
+      "label": "llama-3.2-3b-persona",
+      "model_path": "{models_dir}/gguf/Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "hf_repo": "bartowski/Llama-3.2-3B-Instruct-GGUF",
+      "hf_file": "Llama-3.2-3B-Instruct-Q4_K_M.gguf",
+      "base_model": "unsloth/Llama-3.2-3B-Instruct",
+      "port": 8090,
+      "ctx": 4096,
+      "args": ["-ngl", "99"],
+      "startup_timeout_s": 120
+    },
     "hf_cache_dir": "{models_dir}/hf-cache"
   },
   "nano": {

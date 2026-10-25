@@ -833,8 +833,9 @@ def _pi_sanitizer(data: dict) -> dict:
 @register_tool(
     name="compile_lora_adapter",
     description=(
-        "Report on, or with now=true start, the voice-adapter training run. Adapters are trained from her chat sessions and her "
-        "HTML-NN skills and memories as a whole, on a schedule, not per node: this does not write anything into the node you name."
+        "Report on, or with now=true start, the persona-adapter training run. One adapter is trained weekly from the memories and replies "
+        "Steven approved, and served only if it beats the current one on an eval gate; it is not per node: this does not write anything "
+        "into the node you name."
     ),
 )
 async def compile_lora_adapter(node_path: str, task_id: str | None = None, now: bool = False) -> str:
@@ -847,10 +848,11 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None, now: 
 
     DESCRIPTION
            This used to hash the node's file name into 256 floats and call it a LoRA; later it refused. Training is now real
-           (sdk/agent/lora_pipeline.py: train, merge, convert to GGUF, import into Ollama, smoke-test, register) but it is not
-           per node: one adapter is trained over her chat sessions and her HTML-NN skills and memories together, when enough is new,
-           at night, when the system is idle, and only if switched on (lora_auto_train in learning.json). So this reports the state
-           of that schedule. With ``now=True`` it starts a run in the background and returns at once.
+           (sdk/agent/lora_pipeline.py: dataset of approved items, QLoRA on the GPU, held-out scoring, GGUF LoRA, eval gate, deploy) but it
+           is not per node: one adapter is trained over the memories and replies Steven approved in the review queue, weekly at night,
+           when the system is idle, and only if switched on (lora_auto_train in learning.json); it is served only if it beats the
+           adapter being served. So this reports the state of that schedule. With ``now=True`` it starts a run in the background and
+           returns at once.
 
            The zero-leak guard is kept: a node marked SECURED is refused here exactly as before, and the corpus builder applies the
            same rule to every node it reads.
@@ -879,12 +881,12 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None, now: 
 
     if now:
         asyncio.get_running_loop().create_task(lora_pipeline.run_pipeline(reason="tool", force=True))
-        return "Voice adapter training started in the background (a run takes hours). Check status with the learning status."
+        return "Persona adapter training started in the background (a GPU run takes minutes; the CPU fallback takes hours). Check the LoRA review page for the result."
     state = lora_pipeline.status()
-    when = "off (set lora_auto_train in learning.json to enable it)" if not state["auto_train"] else "scheduled for the night, when idle"
+    when = "off (set lora_auto_train in learning.json to enable it)" if not state["auto_train"] else "weekly at night, when idle"
     return (f"Adapters are trained over all her chat sessions and HTML-NN skills and memories, not per node, so nothing was written to "
             f"{node_path}. Scheduled training is {when}. Last run: {state['last_status'] or 'none yet'}"
-            f"{' (' + state['last_model'] + ')' if state['last_model'] else ''}.")
+            f"{' (serving ' + state['active_adapter'] + ')' if state['active_adapter'] else ''}.")
 
 
 async def compile_adapter_if_implemented(node_path: str, task_id: str | None = None) -> bool:

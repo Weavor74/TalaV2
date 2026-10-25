@@ -12,10 +12,15 @@
   .\scripts\kagura-stack.ps1 -Check      # report what is present, change nothing
   .\scripts\kagura-stack.ps1             # pull/fetch anything missing, then start Tala
   .\scripts\kagura-stack.ps1 -NoStart    # prepare only
+  .\scripts\kagura-stack.ps1 -FetchPersona   # also fetch the 3B the persona LoRA is trained on and served with (~2 GB GGUF)
+
+  The weekly persona LoRA (docs/lora-pipeline.md) needs three more things, all on D:: a CUDA build of torch plus bitsandbytes in
+  the venv, the base weights in the Hugging Face cache, and a llama.cpp checkout for the GGUF converter. This script only reports them.
 #>
 param(
     [switch]$Check,
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$FetchPersona
 )
 
 $ErrorActionPreference = "Stop"
@@ -63,6 +68,16 @@ Write-Host ("gpt-oss GGUF   : {0}  ({1})" -f $Gguf, $(if ($haveGguf) { "found" }
 $VoiceDir  = Join-Path $env:TALA_MODELS_DIR "voice"
 $haveVoice = (Test-Path (Join-Path $VoiceDir "kokoro\kokoro-v1_0.pth")) -and (Test-Path (Join-Path $VoiceDir "whisper\base.en\model.bin"))
 Write-Host ("voice models   : {0}  ({1})" -f $VoiceDir, $(if ($haveVoice) { "found" } else { "missing: run  .venv\Scripts\python scripts\setup_voice.py" }))
+
+# Persona adapter (docs/lora-pipeline.md): the Llama 3.2 3B the weekly LoRA rides on. Optional; nothing is fetched at run time.
+$PersonaGguf = Join-Path $env:TALA_MODELS_DIR "gguf\Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+$havePersona = Test-Path $PersonaGguf
+Write-Host ("persona GGUF   : {0}  ({1})" -f $PersonaGguf, $(if ($havePersona) { "found" } else { "missing: pass -FetchPersona, or see docs/lora-pipeline.md" }))
+if (Test-Path $VenvPython) {
+    $torch = & $VenvPython -c "import torch; print(torch.__version__, torch.cuda.is_available())" 2>$null
+    $bnb   = & $VenvPython -c "import bitsandbytes" 2>$null; $haveBnb = ($LASTEXITCODE -eq 0)
+    Write-Host ("persona train  : torch {0}; bitsandbytes {1}" -f $(if ($torch) { $torch } else { "missing" }), $(if ($haveBnb) { "found" } else { "missing" }))
+}
 
 function Test-Swisseph {
     if (-not (Test-Path $VenvPython)) { return $false }
@@ -118,6 +133,15 @@ if (-not $haveGguf) {
     & python -m huggingface_hub.commands.huggingface_cli download mradermacher/gpt-oss-20b-heretic-GGUF `
         gpt-oss-20b-heretic.MXFP4_MOE.gguf --local-dir (Split-Path $Gguf)
     if (-not (Test-Path $Gguf)) { throw "GGUF download did not produce $Gguf" }
+}
+
+if ($FetchPersona -and -not $havePersona) {
+    Write-Host "Downloading the Llama 3.2 3B Instruct Q4_K_M GGUF (~2 GB) to $PersonaGguf ..."
+    New-Item -ItemType Directory -Force -Path (Split-Path $PersonaGguf) | Out-Null
+    & python -m pip install --quiet "huggingface_hub[cli]"
+    & python -m huggingface_hub.commands.huggingface_cli download bartowski/Llama-3.2-3B-Instruct-GGUF `
+        Llama-3.2-3B-Instruct-Q4_K_M.gguf --local-dir (Split-Path $PersonaGguf)
+    if (-not (Test-Path $PersonaGguf)) { throw "GGUF download did not produce $PersonaGguf" }
 }
 
 if ($NoStart) { Write-Host "Stack prepared."; return }

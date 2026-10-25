@@ -61,6 +61,21 @@ class MainModel:
 
 
 @dataclass(frozen=True)
+class PersonaModel:
+    """The small model the trained persona adapter rides on, served by a second llama-server (python/inference/persona_adapter.py).
+    ``base_model`` is the Hugging Face repo of the same weights, which the adapter is trained and converted against."""
+    label: str
+    model_path: Path
+    hf_repo: str
+    hf_file: str
+    base_model: str
+    port: int
+    ctx: int
+    args: tuple[str, ...]
+    startup_timeout_s: float
+
+
+@dataclass(frozen=True)
 class OllamaRole:
     model: str
     num_ctx: int
@@ -88,6 +103,7 @@ class Profile:
     vram_total_mb: int = 6144
     vram_exclusive: bool = True
     hf_cache_dir: Path | None = None
+    persona: PersonaModel | None = None
 
     def reasoning_effort(self, *, has_tools: bool) -> str | None:
         """Reasoning level for this turn, or None when the model has none.
@@ -124,6 +140,7 @@ class Profile:
             "ollama_url": self.ollama_url,
             "allow_remote": self.allow_remote,
             "vram": {"total_mb": self.vram_total_mb, "exclusive": self.vram_exclusive},
+            "persona": self.persona.label if self.persona else None,
         }
 
 
@@ -217,6 +234,22 @@ def _role(data: Any, *, vision: bool = False) -> OllamaRole | None:
     )
 
 
+def _persona(data: Any) -> PersonaModel | None:
+    if not isinstance(data, dict) or not data.get("model_path"):
+        return None
+    return PersonaModel(
+        label=str(data.get("label", "persona")),
+        model_path=Path(data["model_path"]),
+        hf_repo=str(data.get("hf_repo", "")),
+        hf_file=str(data.get("hf_file", "")),
+        base_model=str(data.get("base_model", "")),
+        port=int(data.get("port", 8090)),
+        ctx=int(data.get("ctx", 4096)),
+        args=tuple(str(a) for a in data.get("args", [])),
+        startup_timeout_s=float(data.get("startup_timeout_s", 120)),
+    )
+
+
 def _build(name: str, data: dict[str, Any]) -> Profile:
     data = _expand(data)
     main = data["main"]
@@ -249,6 +282,7 @@ def _build(name: str, data: dict[str, Any]) -> Profile:
         vram_total_mb=int(vram.get("total_mb", 6144)),
         vram_exclusive=bool(vram.get("exclusive", True)),
         hf_cache_dir=Path(hf_cache) if hf_cache else None,
+        persona=_persona(data.get("persona")),
     )
 
 

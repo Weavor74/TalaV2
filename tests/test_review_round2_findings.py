@@ -97,22 +97,16 @@ def test_a_representable_schedule_still_opens_in_its_builder_mode():
 # --- lora trainer: no placeholder on the adapter path -----------------------
 
 
-def test_the_peft_missing_branch_writes_nothing():
-    """The JIT selector gates on Path.exists(), so a placeholder at the adapter
-    path permanently prevents that node from ever queuing training again -- even
-    once peft is installed. It also rebuilt the files commit 16e93a5 deleted."""
+def test_the_trainer_module_can_no_longer_write_a_placeholder_adapter():
+    """The per-node JIT queue used to write DUMMY_LORA_WEIGHTS_FOR_<node> when peft was missing, which a Path.exists() gate then mistook
+    for an adapter forever, and it logged "Successfully trained" over a bare ``pass``. The queue is gone; this pins that nothing in the
+    module can write an adapter file or fake a training success again."""
     source = TRAINER.read_text(encoding="utf-8")
-    branch = source.split("if not _is_peft_available():", 1)[1].split("logger.info(", 1)[0]
-    # Comments in this branch describe the removed behaviour by name, so assert
-    # against code only.
-    code = "\n".join(
-        line for line in branch.splitlines() if not line.strip().startswith("#")
-    )
+    code = "\n".join(line for line in source.splitlines() if not line.strip().startswith("#"))
 
     assert "DUMMY_LORA_WEIGHTS_FOR" not in code, "a placeholder is written again"
-    assert "open(output_path" not in code and "write_text" not in code
-    assert "mkdir(" not in code, "the adapter directory must not be created either"
-    assert "raise LoraTrainingUnavailable" in code
+    assert "write_text" not in code and "write_bytes" not in code and "open(" not in code and "mkdir(" not in code
+    assert "queue_lora_training" not in code and "Successfully trained" not in code
 
 
 def test_no_placeholder_adapters_remain_in_the_repository():

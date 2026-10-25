@@ -631,3 +631,20 @@ async def test_a_secured_node_is_never_trained_in(monkeypatch, tmp_path):
     result = await ruc.sync_learning_events_corpus()
     assert result["included"] == 1 and result["excluded_by"] == {"secured": 2}
     assert "private matter" not in next(ruc.LEARNING_EVENTS_DIR.glob("*.html")).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("secret", [
+    "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+    "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+    "glpat-abcdefghijklmnopqrst",
+    "AKIAABCDEFGHIJKLMNOP",
+    "xoxb-1234567890-abcdefghij",
+    "-----BEGIN RSA PRIVATE KEY-----",
+])
+def test_a_bare_credential_is_excluded_even_with_no_label_beside_it(secret):
+    """redaction.py only knows "api_key=..." and "Bearer ..."; a key pasted on its own used to pass the filter and could be approved for training."""
+    assert ruc._passes_safety_filter(f"here you go, this is what I used for the deploy last night: {secret} and then it worked") is False
+
+
+def test_ordinary_prose_with_dashes_and_underscores_still_passes():
+    assert ruc._passes_safety_filter("The sk-learn style of naming is not something I would call a secret; it is just a habit, really.") is True

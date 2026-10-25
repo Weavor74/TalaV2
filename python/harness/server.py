@@ -130,7 +130,7 @@ from python.harness.provider_probe import probe_remote_provider
 from python.harness.inference_helpers import strip_tool_tags_if_no_tools, notify_inference_fallback
 from python.harness.long_job_loop import attach_long_job, report_long_job_turn, run_reply_tool_rounds
 from python.harness.workstation_rpc import WORKSTATION_RPC_HANDLERS
-from python.harness.learning_rpc import LEARNING_RPC_HANDLERS
+from python.harness.learning_rpc import LEARNING_RPC_HANDLERS; from python.harness.lora_handlers import LORA_RPC_HANDLERS  # one line: the size ratchet leaves server.py no room for another
 from python.harness.voice_rpc import VOICE_RPC_HANDLERS
 from python.harness.task_rpc import (
     handle_task_artifacts, handle_task_assign_worker, handle_task_clear,
@@ -2238,8 +2238,6 @@ async def handle_inference_generate(
                         max_injected_nodes = 2 if chat_mode in ("rp", "hybrid") else 5
                         nodes_to_inject = top_active[:max_injected_nodes]
                         
-                        from python.inference.lora_trainer import IMPLEMENTED as _lora_implemented
-                        from python.inference.lora_trainer import queue_lora_training
                         # (asyncio is imported at module scope; a local import
                         # here made `asyncio` a function-local name, so any use
                         # of it EARLIER in this function raised UnboundLocalError.)
@@ -2260,34 +2258,13 @@ async def handle_inference_generate(
                                 break
 
                         if not best_lora_path:
-                            # JIT training over the injected SET, not one adapter per
-                            # node.
-                            #
-                            # Per-node was the original shape and it works against
-                            # itself: only one best_lora_path can be attached per
-                            # turn, so training an adapter for each recalled node
-                            # produces N adapters of which N-1 are discarded. Worse,
-                            # most nodes are AST-derived documentation, so a per-node
-                            # adapter learns the register of generated API prose and
-                            # then gets attached for the turn that recalled it --
-                            # the mechanism working exactly as written and producing
-                            # the opposite of a voice.
-                            #
-                            # Training on the combined semantic memory of everything
-                            # recalled this turn matches what an adapter is for: the
-                            # blend of context she is actually thinking in, led by
-                            # the primary node.
-                            primary = nodes_to_inject[0][0]
-                            combined = "\n\n".join(
-                                n.semantic_memory.strip() for n, _ in nodes_to_inject if n.semantic_memory.strip()
-                            )
-                            out_path = str(Path(nodes_dir) / f"{primary.node_id}_lora" / "adapter_model.safetensors")
+                            # An adapter already sitting beside the primary node is used as found. Nothing trains one per turn any more
+                            # (the per-node JIT queue was retired: only one adapter can be attached per turn, so N-1 of N were wasted,
+                            # and a per-node adapter learned the register of generated API prose). The trained persona adapter is a
+                            # different thing, served by its own llama-server: python/inference/persona_adapter.py.
+                            out_path = str(Path(nodes_dir) / f"{nodes_to_inject[0][0].node_id}_lora" / "adapter_model.safetensors")
                             if Path(out_path).exists():
                                 best_lora_path = out_path
-                            elif combined and _lora_implemented:
-                                asyncio.create_task(
-                                    queue_lora_training(primary.node_id, combined, out_path)
-                                )
 
                         context_parts = []
                         if chat_mode in ("rp", "hybrid"):
@@ -2761,7 +2738,7 @@ async def handle_inference_generate(
     # With a profile in force the chain is the profile's roles (vision when an
     # image is attached, main, fallback). An explicit choice is never overridden.
     _profile = _engine_cfg.profile()
-    providers = _router.apply(_route, _profile, messages)
+    providers = _router.apply(_route, _profile, messages, **_router.persona_turn(in_character=not raw_prompt and chat_mode in ("rp", "hybrid"), has_tools=True))
     if request_provider:
         logger.info(
             "Request-selected provider active for session %s: '%s' (Preferred First)",
@@ -6646,7 +6623,7 @@ async def _generate_reply(
             pin_strict=os.environ.get("TALA_PIN_STRICT") == "1",
         )
         _reply_profile = _engine_cfg.profile()
-        for provider in _router.apply(_reply_route, _reply_profile, inference_messages):
+        for provider in _router.apply(_reply_route, _reply_profile, inference_messages, **_router.persona_turn(in_character=True, has_tools=bool(tools))):
             if skip_provider_attempt(
                 provider, _reply_route.forced_provider, _reply_route.request_provider,
             ):
@@ -14423,7 +14400,7 @@ _HANDLERS: dict[str, Any] = {
     "p2p.webrtc_answer": handle_p2p_webrtc_answer,
     "p2p.encrypted_payload": handle_p2p_encrypted_payload,
     **WORKSTATION_RPC_HANDLERS,
-    **LEARNING_RPC_HANDLERS,
+    **LEARNING_RPC_HANDLERS, **LORA_RPC_HANDLERS,
     **VOICE_RPC_HANDLERS,
 }
 

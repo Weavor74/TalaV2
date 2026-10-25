@@ -93,9 +93,14 @@ def extract_turns(corpus_dir: Path, eras: tuple[str, ...] | None = None) -> list
         if eras is not None and era not in eras:
             continue
 
+        previous = None  # the user turn directly before a Tala turn: the message she is answering
         for match in _TURN_RE.finditer(raw):
             attrs = {m.group("name"): m.group("value") for m in _ATTR_RE.finditer(match.group("attrs"))}
+            if attrs.get("speaker") == "user":
+                previous = _text(match.group("body"))
+                continue
             if attrs.get("speaker") != "tala":
+                previous = None
                 continue
             body = match.group("body")
             tool_calls = [_text(t) for t in _TOOL_CALL_RE.findall(body)]
@@ -108,7 +113,9 @@ def extract_turns(corpus_dir: Path, eras: tuple[str, ...] | None = None) -> list
                 "emotion": attrs.get("emotion", ""),
                 "text": prose,
                 "tool_calls": " ".join(tool_calls),
+                "prompt": previous or "",
             })
+            previous = None
     return examples
 
 
@@ -154,8 +161,76 @@ def cmd_dry_run(examples: list[dict[str, str]]) -> int:
     return 0
 
 
-def cmd_train(examples: list[dict[str, str]], base_model: str, output: Path,
-              epochs: int, rank: int) -> int:
+def _ids(encoded) -> list[int]:
+    """Token ids from whatever apply_chat_template returned: a plain list, or (transformers 5) a mapping carrying input_ids."""
+    if hasattr(encoded, "keys"):
+        encoded = encoded["input_ids"]
+    if encoded and isinstance(encoded[0], list):
+        encoded = encoded[0]
+    return [int(i) for i in encoded]
+
+
+def encode_example(tokenizer, example: dict[str, str], max_seq: int) -> dict[str, list[int]] | None:
+    """
+    One example as tokens and labels. With a message to answer it goes through the chat template and only her reply is scored (the
+    message is context, not something to learn to say); without one it is plain text, scored whole, as the earlier trainer did.
+    Cut to ``max_seq``. None when the message alone fills the limit, leaving nothing of hers to score.
+    """
+    prompt = (example.get("prompt") or "").strip()
+    reply = to_training_text(example)
+    if not prompt:
+        encoded = tokenizer(reply, truncation=True, max_length=max_seq)
+        ids = list(encoded["input_ids"])
+        return {"input_ids": ids, "attention_mask": list(encoded["attention_mask"]), "labels": list(ids)}
+    user = [{"role": "user", "content": prompt}]
+    prefix = _ids(tokenizer.apply_chat_template(user, add_generation_prompt=True, tokenize=True))
+    full = _ids(tokenizer.apply_chat_template(user + [{"role": "assistant", "content": reply}], tokenize=True))
+    if len(prefix) >= max_seq or len(full) <= len(prefix):
+        return None
+    full = full[:max_seq]
+    labels = [-100] * len(prefix) + full[len(prefix):]
+    return {"input_ids": full, "attention_mask": [1] * len(full), "labels": labels}
+
+
+def resolve_quantize(mode: str, *, cuda: bool, bnb: bool) -> str:
+    """"4bit" (QLoRA) or "none". auto means 4-bit wherever a GPU and bitsandbytes exist; asking for it without them is an error."""
+    if mode == "none":
+        return "none"
+    if mode == "auto":
+        return "4bit" if cuda and bnb else "none"
+    if not (cuda and bnb):
+        raise SystemExit("--quantize 4bit needs a CUDA GPU and bitsandbytes (uv pip install bitsandbytes, with a CUDA build of torch)")
+    return "4bit"
+
+
+def target_modules(which: str) -> list[str]:
+    """The layers the adapter touches: attention only (small, voice), or every linear layer (what the QLoRA persona adapter uses)."""
+    if which == "all":
+        return ["q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"]
+    return ["q_proj", "v_proj"]
+
+
+def latest_checkpoint(output: Path) -> Path | None:
+    """The newest ``checkpoints/checkpoint-N`` under ``output``, for resuming an interrupted run."""
+    found = []
+    for path in (output / "checkpoints").glob("checkpoint-*") if (output / "checkpoints").is_dir() else []:
+        suffix = path.name.split("-", 1)[1]
+        if path.is_dir() and suffix.isdigit():
+            found.append((int(suffix), path))
+    return max(found)[1] if found else None
+
+
+def write_report(output: Path, **fields) -> None:
+    """What was trained and what it cost, next to the adapter, for the pipeline and for a person to read."""
+    import json
+
+    output.mkdir(parents=True, exist_ok=True)
+    (output / "train_report.json").write_text(json.dumps(fields, indent=2), encoding="utf-8")
+
+
+def cmd_train(examples: list[dict[str, str]], base_model: str, output: Path, epochs: int, rank: int, *, quantize: str = "auto",
+              target: str = "attn", max_seq: int = 512, resume: bool = False, keep_checkpoints: bool = False,
+              learning_rate: float = 2e-4, accumulation: int = 4) -> int:
     """
     Train for real, or say plainly that it cannot.
 
@@ -164,13 +239,14 @@ def cmd_train(examples: list[dict[str, str]], base_model: str, output: Path,
     nothing.
     """
     try:
-        import torch  # noqa: F401
+        import torch
         from datasets import Dataset
-        from peft import LoraConfig, get_peft_model
+        from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
         from transformers import (
             AutoModelForCausalLM,
             AutoTokenizer,
-            DataCollatorForLanguageModeling,
+            BitsAndBytesConfig,
+            DataCollatorForSeq2Seq,
             Trainer,
             TrainingArguments,
         )
@@ -184,58 +260,81 @@ def cmd_train(examples: list[dict[str, str]], base_model: str, output: Path,
         print("Refusing to train on an empty corpus.")
         return 1
 
+    import importlib.util
+    import shutil
+    import time
+
+    cuda = torch.cuda.is_available()
+    mode = resolve_quantize(quantize, cuda=cuda, bnb=importlib.util.find_spec("bitsandbytes") is not None)
     print(f"base model   {base_model}")
     print(f"examples     {len(examples)}")
-    print(f"lora rank    {rank}")
+    print(f"lora rank    {rank}  ({target} layers)")
+    print(f"precision    {mode if mode == '4bit' else ('bf16' if cuda else 'fp32')}  max sequence {max_seq}")
     print(f"output       {output}")
 
     tokenizer = AutoTokenizer.from_pretrained(base_model)
     if tokenizer.pad_token is None:
         tokenizer.pad_token = tokenizer.eos_token
 
-    dataset = Dataset.from_dict({"text": [to_training_text(e) for e in examples]})
+    encoded = [e for e in (encode_example(tokenizer, ex, max_seq) for ex in examples) if e is not None]
+    if len(encoded) < len(examples):
+        print(f"skipped {len(examples) - len(encoded)} example(s) whose message alone fills {max_seq} tokens")
+    if not encoded:
+        print("Nothing left to train on.")
+        return 1
+    dataset = Dataset.from_list(encoded)
 
-    def tokenize(batch):
-        return tokenizer(batch["text"], truncation=True, max_length=512)
-
-    dataset = dataset.map(tokenize, batched=True, remove_columns=["text"])
-
-    model = AutoModelForCausalLM.from_pretrained(
-        base_model,
-        torch_dtype=torch.float16 if torch.cuda.is_available() else torch.float32,
-    )
-    # Attention projections only: voice lives in how attention is distributed,
-    # and restricting the target keeps the adapter small enough to be worth
-    # swapping per turn.
+    started = time.perf_counter()
+    if mode == "4bit":
+        quant = BitsAndBytesConfig(load_in_4bit=True, bnb_4bit_quant_type="nf4", bnb_4bit_compute_dtype=torch.bfloat16,
+                                   bnb_4bit_use_double_quant=True)
+        model = AutoModelForCausalLM.from_pretrained(base_model, quantization_config=quant, device_map={"": 0}, dtype=torch.bfloat16)
+        model = prepare_model_for_kbit_training(model, use_gradient_checkpointing=True)
+    else:
+        model = AutoModelForCausalLM.from_pretrained(base_model, dtype=torch.bfloat16 if cuda else torch.float32)
     model = get_peft_model(model, LoraConfig(
         r=rank,
         lora_alpha=rank * 2,
         lora_dropout=0.05,
         bias="none",
         task_type="CAUSAL_LM",
-        target_modules=["q_proj", "v_proj"],
+        target_modules=target_modules(target),
     ))
     model.print_trainable_parameters()
 
     output.mkdir(parents=True, exist_ok=True)
+    checkpoint = latest_checkpoint(output) if resume else None
+    if checkpoint:
+        print(f"resuming from {checkpoint}")
+    if cuda:
+        torch.cuda.reset_peak_memory_stats()
     trainer = Trainer(
         model=model,
         args=TrainingArguments(
             output_dir=str(output / "checkpoints"),
             num_train_epochs=epochs,
             per_device_train_batch_size=1,
-            gradient_accumulation_steps=4,
-            learning_rate=2e-4,
+            gradient_accumulation_steps=accumulation,
+            learning_rate=learning_rate,
             logging_steps=5,
-            save_strategy="no",
+            save_strategy="steps",
+            save_steps=25,
+            save_total_limit=2,
             report_to=[],
-            fp16=torch.cuda.is_available(),
+            bf16=cuda,
+            optim="paged_adamw_8bit" if mode == "4bit" else "adamw_torch",
+            gradient_checkpointing=mode == "4bit",
+            gradient_checkpointing_kwargs={"use_reentrant": False} if mode == "4bit" else None,
         ),
         train_dataset=dataset,
-        data_collator=DataCollatorForLanguageModeling(tokenizer, mlm=False),
+        data_collator=DataCollatorForSeq2Seq(tokenizer, padding=True, label_pad_token_id=-100, pad_to_multiple_of=8),
     )
-    trainer.train()
+    trainer.train(resume_from_checkpoint=str(checkpoint) if checkpoint else None)
     model.save_pretrained(str(output))
+    losses = [h["loss"] for h in trainer.state.log_history if "loss" in h]
+    write_report(output, base=base_model, examples=len(encoded), rank=rank, quantize=mode, seconds=round(time.perf_counter() - started, 1),
+                 peak_vram_mb=round(torch.cuda.max_memory_allocated() / 2**20) if cuda else 0,
+                 final_loss=round(losses[-1], 4) if losses else None, steps=int(trainer.state.global_step))
 
     written = sorted(p.name for p in output.glob("*") if p.is_file())
     print(f"\nwrote {output}: {written}")
@@ -246,6 +345,8 @@ def cmd_train(examples: list[dict[str, str]], base_model: str, output: Path,
         if size < 4096:
             print("WARNING: that is placeholder-sized. Something did not train.")
             return 1
+    if not keep_checkpoints:
+        shutil.rmtree(output / "checkpoints", ignore_errors=True)  # only needed to resume; a finished adapter does not need them
     return 0
 
 
@@ -297,6 +398,12 @@ def main() -> int:
     ap.add_argument("--max-examples", type=int, default=None,
                     help="train on only the newest N examples: a quick smoke run of the whole pipeline, not a real adapter")
     ap.add_argument("--rank", type=int, default=8)
+    ap.add_argument("--quantize", choices=("auto", "4bit", "none"), default="auto",
+                    help="4bit = QLoRA (needs a CUDA GPU and bitsandbytes); auto picks it where available")
+    ap.add_argument("--target", choices=("attn", "all"), default="attn", help="LoRA on attention only, or on every linear layer")
+    ap.add_argument("--max-seq", type=int, default=512, help="tokens per example (1024 is the most a 6 GB card holds for a 3B)")
+    ap.add_argument("--resume", action="store_true", help="continue from the newest checkpoint under --output, if there is one")
+    ap.add_argument("--keep-checkpoints", action="store_true")
     group = ap.add_mutually_exclusive_group(required=True)
     group.add_argument("--dry-run", action="store_true", help="inspect the dataset; no training deps needed")
     group.add_argument("--train", action="store_true")
@@ -313,7 +420,8 @@ def main() -> int:
     examples = limit_examples(extract_turns(corpus, REAL_ERAS if use_real_only else None), args.max_examples)
     if args.dry_run:
         return cmd_dry_run(examples)
-    return cmd_train(examples, args.base, Path(args.output), args.epochs, args.rank)
+    return cmd_train(examples, args.base, Path(args.output), args.epochs, args.rank, quantize=args.quantize, target=args.target,
+                     max_seq=args.max_seq, resume=args.resume, keep_checkpoints=args.keep_checkpoints)
 
 
 if __name__ == "__main__":

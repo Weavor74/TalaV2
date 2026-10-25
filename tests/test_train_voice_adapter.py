@@ -184,3 +184,91 @@ def test_max_examples_keeps_the_newest_not_the_first(tmp_path):
     (corpus / "x.html").write_text(f'<article data-era="real-usage">{turns}</article>', encoding="utf-8")
     kept = tva.limit_examples(tva.extract_turns(corpus), 3)
     assert "Reply 09" in kept[-1]["text"] and "Reply 07" in kept[0]["text"]
+
+
+# --- the QLoRA path: what the model is shown, and what it is scored on -----------------------------------------------------------
+
+
+class _FakeTokenizer:
+    """Word-level stand-in with a chat template shaped like Llama 3's: a header per turn, and a generation header at the end."""
+
+    eos_token_id = 0
+
+    def apply_chat_template(self, messages, add_generation_prompt=False, tokenize=True, **kwargs):
+        ids = [1]
+        for m in messages:
+            ids += [10 if m["role"] == "user" else 11] + [100 + len(w) for w in m["content"].split()] + [2]
+        if add_generation_prompt:
+            ids += [11]
+        return ids
+
+    def __call__(self, text, truncation=True, max_length=512):
+        ids = [100 + len(w) for w in text.split()][:max_length]
+        return {"input_ids": ids, "attention_mask": [1] * len(ids)}
+
+
+def test_only_her_reply_is_scored_never_the_message_it_answers():
+    example = {"prompt": "how was the run tonight", "text": "quiet and fine", "tool_calls": ""}
+
+    encoded = tva.encode_example(_FakeTokenizer(), example, max_seq=64)
+
+    prompt_len = len(_FakeTokenizer().apply_chat_template([{"role": "user", "content": example["prompt"]}], add_generation_prompt=True))
+    assert encoded["labels"][:prompt_len] == [-100] * prompt_len, "the message is context, not something to learn to say"
+    assert all(label != -100 for label in encoded["labels"][prompt_len:]), "her words are all scored"
+    assert len(encoded["labels"]) == len(encoded["input_ids"]) == len(encoded["attention_mask"])
+
+
+def test_a_long_example_is_cut_to_the_sequence_limit():
+    example = {"prompt": "go on", "text": " ".join(["word"] * 400), "tool_calls": ""}
+
+    encoded = tva.encode_example(_FakeTokenizer(), example, max_seq=128)
+
+    assert len(encoded["input_ids"]) == 128 and len(encoded["labels"]) == 128
+
+
+def test_an_example_with_no_message_is_trained_as_plain_text_as_before():
+    example = {"prompt": "", "text": "a plain line of her voice here", "tool_calls": ""}
+
+    encoded = tva.encode_example(_FakeTokenizer(), example, max_seq=64)
+
+    assert encoded["labels"] == encoded["input_ids"]
+
+
+def test_a_prompt_longer_than_the_limit_leaves_nothing_to_score_and_is_refused():
+    example = {"prompt": " ".join(["ask"] * 300), "text": "short", "tool_calls": ""}
+
+    assert tva.encode_example(_FakeTokenizer(), example, max_seq=64) is None
+
+
+def test_quantization_is_four_bit_only_where_a_gpu_and_bitsandbytes_exist():
+    assert tva.resolve_quantize("auto", cuda=True, bnb=True) == "4bit"
+    assert tva.resolve_quantize("auto", cuda=True, bnb=False) == "none"
+    assert tva.resolve_quantize("auto", cuda=False, bnb=True) == "none"
+    assert tva.resolve_quantize("none", cuda=True, bnb=True) == "none"
+    with pytest.raises(SystemExit):
+        tva.resolve_quantize("4bit", cuda=False, bnb=True)
+
+
+def test_the_lora_targets_are_attention_only_or_every_linear_layer():
+    assert tva.target_modules("attn") == ["q_proj", "v_proj"]
+    assert set(tva.target_modules("all")) == {"q_proj", "k_proj", "v_proj", "o_proj", "gate_proj", "up_proj", "down_proj"}
+
+
+def test_the_newest_checkpoint_is_found_for_a_resume(tmp_path):
+    ckpt = tmp_path / "checkpoints"
+    for n in (20, 100, 40):
+        (ckpt / f"checkpoint-{n}").mkdir(parents=True)
+    (ckpt / "not-a-checkpoint").mkdir()
+
+    assert tva.latest_checkpoint(tmp_path) == ckpt / "checkpoint-100"
+    assert tva.latest_checkpoint(tmp_path / "nowhere") is None
+
+
+def test_the_training_report_says_what_was_trained_and_what_it_cost(tmp_path):
+    tva.write_report(tmp_path, base="b", examples=20, rank=16, quantize="4bit", seconds=12.3, peak_vram_mb=3951, final_loss=1.25, steps=30)
+
+    import json
+
+    report = json.loads((tmp_path / "train_report.json").read_text(encoding="utf-8"))
+    assert report == {"base": "b", "examples": 20, "rank": 16, "quantize": "4bit", "seconds": 12.3, "peak_vram_mb": 3951,
+                      "final_loss": 1.25, "steps": 30}
