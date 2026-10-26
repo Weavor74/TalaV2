@@ -261,3 +261,43 @@ def test_when_nothing_clears_the_bar_the_default_threshold_and_its_shortfalls_ar
 def test_the_threshold_is_written_into_the_report_so_the_runtime_can_use_it():
     source = SCRIPT.read_text(encoding="utf-8")
     assert '"threshold": threshold' in source or "'threshold': threshold" in source
+
+
+# --- being a good neighbour: the card may be in use, and this runs for an hour -------------------------------------------------------------
+
+
+def test_the_device_is_chosen_without_surprises():
+    assert tw.choose_device("auto", cuda=True) == "cuda" and tw.choose_device("auto", cuda=False) == "cpu"
+    assert tw.choose_device("cpu", cuda=True) == "cpu"
+    with pytest.raises(SystemExit):
+        tw.choose_device("cuda", cuda=False)
+
+
+def test_the_default_is_to_ask_the_card_for_nothing_it_is_busy_with(monkeypatch):
+    """Synthesis is the slow part and the GPU is the fast way to do it, but "auto" can be wrong when a game is running on it, so the
+    command line has a plain --device cpu and the docs say when to use it."""
+    args = tw.build_parser().parse_args([])
+    assert args.device == "auto" and args.negative_ratio == 2.0 and args.normal_priority is False
+    args = tw.build_parser().parse_args(["--device", "cpu", "--negative-ratio", "1.25", "--normal-priority"])
+    assert args.device == "cpu" and args.negative_ratio == 1.25 and args.normal_priority is True
+
+
+def test_a_long_run_lowers_its_own_priority_and_survives_a_platform_that_cannot(monkeypatch):
+    import psutil
+
+    class Process:
+        niced = []
+
+        def nice(self, value=None):
+            self.niced.append(value)
+
+    monkeypatch.setattr(psutil, "Process", Process)
+    tw.lower_priority()
+    assert Process.niced, "it asked the operating system to run it below normal priority"
+
+    class Broken:
+        def nice(self, value=None):
+            raise psutil.AccessDenied()
+
+    monkeypatch.setattr(psutil, "Process", Broken)
+    tw.lower_priority()  # no exception

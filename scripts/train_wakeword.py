@@ -144,6 +144,7 @@ def pronunciations(phrase: str) -> list[str]:
 # --- synthesis (needs the voices on D:) ---------------------------------------------------------------------------------------------------------
 
 _ENGINE: object | None = None
+DEVICE = "auto"  # set from --device
 
 
 def _resample(audio: np.ndarray, rate: int) -> np.ndarray:
@@ -153,6 +154,26 @@ def _resample(audio: np.ndarray, rate: int) -> np.ndarray:
 
     g = math.gcd(rate, SR)
     return resample_poly(audio, SR // g, rate // g).astype(np.float32)
+
+
+def choose_device(requested: str, cuda: bool) -> str:
+    """"cuda" or "cpu". ``auto`` is the GPU when there is one; asking for cuda without one is an error, not a silent fallback."""
+    if requested == "cpu":
+        return "cpu"
+    if requested == "cuda" and not cuda:
+        raise SystemExit("--device cuda was asked for, but no CUDA GPU is available")
+    return "cuda" if cuda else "cpu"
+
+
+def lower_priority() -> None:
+    """Run below normal priority: this goes on for an hour or more and must not take the machine from whoever is using it."""
+    try:
+        import psutil
+
+        process = psutil.Process()
+        process.nice(psutil.BELOW_NORMAL_PRIORITY_CLASS if os.name == "nt" else 10)
+    except Exception:  # noqa: BLE001 - a nicety; never a reason not to run
+        pass
 
 
 def _kokoro_engine():
@@ -165,7 +186,7 @@ def _kokoro_engine():
         from python.harness import voice_kokoro
 
         engine = voice_kokoro._load()
-        engine.device = "cuda" if torch.cuda.is_available() else "cpu"
+        engine.device = choose_device(DEVICE, torch.cuda.is_available())
         engine.model.to(engine.device)
         _ENGINE = engine
     return _ENGINE
@@ -496,7 +517,7 @@ def evaluate(model_path: Path, wake_dir: Path, test_speakers: list[Speaker], phr
             "near_miss_note": "ordinary speech sets the bar; names that sound like the phrase (Talia, Tara, ...) are reported separately"}
 
 
-def main(argv: list[str] | None = None) -> int:
+def build_parser() -> argparse.ArgumentParser:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("--phrase", default="Hey Tala")
     ap.add_argument("--models-dir", default=None, help="parent of the voice folder (default: where the harness looks, TALA_MODELS_DIR)")
@@ -509,7 +530,19 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--seed", type=int, default=7)
     ap.add_argument("--eval-only", action="store_true", help="measure the model already in the work folder; train nothing")
     ap.add_argument("--install", action="store_true", help="copy the model into the wakeword folder if it clears the bar")
-    args = ap.parse_args(argv)
+    ap.add_argument("--negative-ratio", type=float, default=2.0, help="negative training clips per positive one")
+    ap.add_argument("--device", choices=("auto", "cpu", "cuda"), default="auto",
+                    help="where Kokoro runs. auto is the GPU if there is one; use cpu when something else (a game) is using it")
+    ap.add_argument("--normal-priority", action="store_true", help="do not lower this process's priority")
+    return ap
+
+
+def main(argv: list[str] | None = None) -> int:
+    global DEVICE
+    args = build_parser().parse_args(argv)
+    DEVICE = args.device
+    if not args.normal_priority:
+        lower_priority()
 
     repo = Path(__file__).resolve().parents[1]
     sys.path.insert(0, str(repo))
@@ -531,7 +564,8 @@ def main(argv: list[str] | None = None) -> int:
         if not candidate.is_file():
             raise SystemExit(f"--eval-only needs an existing {candidate}")
     else:
-        pcm, ends = build_examples(train, args.phrase, args.train_clips, args.train_clips * 2, args.seed, models, work, repo, "train")
+        pcm, ends = build_examples(train, args.phrase, args.train_clips, int(args.train_clips * args.negative_ratio), args.seed, models, work,
+                                   repo, "train")
         print(f"embedding {len(pcm)} clips ...", flush=True)
         x, y = windows_from(embed(pcm, wake_dir), ends)
         print(f"{len(x)} windows, {int(y.sum())} positive", flush=True)
