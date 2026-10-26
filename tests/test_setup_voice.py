@@ -119,33 +119,73 @@ def test_the_spacy_model_is_installed_from_its_pinned_wheel_only_when_missing(sv
     assert ran[1][1:4] == ["-m", "pip", "install"]
 
 
-def test_a_default_setup_does_not_fetch_piper(sv, monkeypatch):
-    called = []
+def _quiet_main(sv, monkeypatch, **fetchers):
     monkeypatch.setattr(sv, "refuse_c_drive", lambda path: None)  # the refusal has its own test; the temp dir may be on C:
     monkeypatch.setattr(sv, "models_root", lambda: Path("models"))
     monkeypatch.setenv("HF_HOME", "D:/hf-cache")
     monkeypatch.setenv("TEMP", "D:/caches/tmp")
     monkeypatch.setenv("TMP", "D:/caches/tmp")
-    for name in ("fetch_kokoro", "fetch_spacy_model", "fetch_whisper", "fetch_wakeword", "fetch_piper"):
-        monkeypatch.setattr(sv, name, lambda *a, _n=name, **k: called.append(_n))
-    assert sv.main([]) == 0
-    assert "fetch_kokoro" in called and "fetch_spacy_model" in called
-    assert "fetch_piper" not in called
+    for name in ("fetch_kokoro", "fetch_spacy_model", "fetch_whisper", "fetch_wakeword", "fetch_kokoro_voices"):
+        monkeypatch.setattr(sv, name, fetchers.get(name, lambda *a, **k: None))
 
 
-def test_piper_is_fetched_only_for_wake_word_training(sv, monkeypatch):
+def test_a_default_setup_fetches_one_voice_not_the_training_set(sv, monkeypatch):
     called = []
-    monkeypatch.setattr(sv, "refuse_c_drive", lambda path: None)
-    monkeypatch.setattr(sv, "models_root", lambda: Path("models"))
-    monkeypatch.setenv("HF_HOME", "D:/hf-cache")
-    monkeypatch.setenv("TEMP", "D:/caches/tmp")
-    monkeypatch.setenv("TMP", "D:/caches/tmp")
-    for name in ("fetch_kokoro", "fetch_spacy_model", "fetch_whisper", "fetch_wakeword"):
-        monkeypatch.setattr(sv, name, lambda *a, **k: None)
-    monkeypatch.setattr(sv, "fetch_piper", lambda root, voice: called.append(voice))
+    _quiet_main(sv, monkeypatch, fetch_kokoro=lambda *a, **k: called.append("fetch_kokoro"),
+                fetch_kokoro_voices=lambda *a, **k: called.append("fetch_kokoro_voices"))
+
+    assert sv.main([]) == 0
+
+    assert called == ["fetch_kokoro"]
+
+
+def test_the_other_us_voices_are_fetched_only_for_wake_word_training(sv, monkeypatch):
+    fetched = []
+    _quiet_main(sv, monkeypatch, fetch_kokoro_voices=lambda root, voices: fetched.extend(voices))
+
     assert sv.main(["--training-voices"]) == 0
-    assert set(called) == set(sv.TRAINING_VOICES)
-    assert "en_US-lessac-medium" in called  # train_wakeword.py tests against it
+
+    assert set(fetched) == set(sv.KOKORO_US_VOICES) and len(fetched) == 20
+    assert {"af_heart", "am_adam", "am_puck"} <= set(fetched)
+
+
+def test_the_training_voices_are_the_ones_the_wake_word_trainer_holds_out_and_trains_on():
+    import importlib.util
+
+    spec = importlib.util.spec_from_file_location("tw_for_voices", Path(__file__).resolve().parents[1] / "scripts" / "train_wakeword.py")
+    tw = importlib.util.module_from_spec(spec)
+    import sys
+
+    sys.modules["tw_for_voices"] = tw
+    spec.loader.exec_module(tw)
+    import scripts.setup_voice as setup
+
+    assert tuple(tw.KOKORO_VOICES) == tuple(setup.KOKORO_US_VOICES)
+
+
+def test_voices_come_from_the_pinned_revision_into_the_voices_folder(sv, monkeypatch, tmp_path):
+    import huggingface_hub
+
+    asked = []
+
+    def fake_download(repo, name, revision=None, local_dir=None):
+        asked.append((repo, name, revision))
+        target = Path(local_dir) / name
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_bytes(b"voice")
+        return str(target)
+
+    monkeypatch.setattr(huggingface_hub, "hf_hub_download", fake_download)
+
+    sv.fetch_kokoro_voices(tmp_path, ("af_nova", "am_puck"))
+
+    assert asked == [(sv.KOKORO_REPO, "voices/af_nova.pt", sv.KOKORO_REVISION), (sv.KOKORO_REPO, "voices/am_puck.pt", sv.KOKORO_REVISION)]
+    assert (tmp_path / "kokoro" / "voices" / "af_nova.pt").is_file()
+
+
+def test_piper_is_gone_from_setup(sv):
+    """Piper is GPL-3.0; the wake-word trainer now makes its clips with Kokoro, so nothing here fetches it."""
+    assert not hasattr(sv, "fetch_piper") and not hasattr(sv, "PIPER_REPO") and not hasattr(sv, "piper_voice_path")
 
 
 def test_a_target_on_c_drive_is_refused(sv):

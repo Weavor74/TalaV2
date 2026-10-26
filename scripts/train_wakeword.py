@@ -4,15 +4,15 @@ scripts/train_wakeword.py -- train a custom openWakeWord model for the wake phra
 openWakeWord ships pretrained models for a handful of phrases ("hey jarvis", "alexa", "hey mycroft") and none for "Hey
 Tala". This builds one the way openWakeWord's own pipeline does, in a lighter form that needs no multi-gigabyte download:
 
-1. **Synthesise speech.** The phrase (and a few spellings of how it is pronounced) is rendered by many voices: Piper's US
-   English voices (including the multi-speaker LibriTTS one) and the two Windows system voices, at several speeds, then
-   mixed with noise at several signal-to-noise ratios. Negatives are ordinary sentences and near misses ("hey Tyler",
-   "hey Taylor", "hey there", "hey Alexa", ...), spoken the same way.
+1. **Synthesise speech.** The phrase (and a few spellings of how it is pronounced) is rendered by Kokoro, the voice Tala
+   already speaks with (Apache-2.0, US-origin): sixteen of its twenty US-English voices plus blends of pairs of them, at
+   several speeds, then mixed with noise at several signal-to-noise ratios. Negatives are ordinary sentences and near misses
+   ("hey Tyler", "hey Taylor", "hey there", "hey Alexa", ...), spoken the same way.
 2. **Embed.** openWakeWord's own frozen feature models turn each clip into 96-number embeddings, one per 80 ms.
 3. **Train** a small classifier over 16 embeddings (1.28 s) that should fire as the phrase ends, and export it as ONNX in
    the shape openWakeWord loads.
-4. **Measure on voices it never trained on** (different Piper voices, unseen LibriTTS speakers, and the Windows voices),
-   through the real streaming detector: false rejects at several noise levels, and false accepts per hour of ordinary speech.
+4. **Measure on voices it never trained on** (four Kokoro voices held out of training and of every blend, and the two
+   Windows voices), through the real streaming detector: false rejects at several noise levels, and false accepts per hour of ordinary speech.
 
 The model is installed only if it clears the bar (``BAR``) and only with ``--install``. **What this cannot measure is real
 human voices and real rooms**: every number is on synthetic speech. ``<name>.metrics.json`` says so, and the real test is
@@ -49,9 +49,13 @@ ADVERSARIAL = [
     "hey tanya", "hey carla", "hey buddy", "hey dad", "hey stella", "hey tara", "hey tallulah", "hey tell us",
     "hey teller", "hey lola", "hey now", "hey man", "tala", "a la carte", "hey, let's go", "hey tonight",
 ]
-PIPER_TRAIN = ("en_US-amy-medium", "en_US-ryan-medium", "en_US-hfc_female-medium", "en_US-joe-medium")
-PIPER_TEST = ("en_US-kusal-medium", "en_US-lessac-medium")
-LIBRITTS = "en_US-libritts_r-medium"
+#: Kokoro's US-English voices (scripts/setup_voice.py --training-voices puts them on D:). Four are held out for measuring.
+KOKORO_VOICES = ("af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
+                 "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa")
+HELD_OUT_PER_GENDER = 2
+TRAIN_BLENDS = 24  # extra training speakers: a random mix of two training voices each
+KOKORO_RATE = 24000
+KOKORO_SPEEDS = (0.8, 0.9, 1.0, 1.1, 1.25)
 SAPI_TEST = ("Microsoft David Desktop", "Microsoft Zira Desktop")
 
 
@@ -60,22 +64,28 @@ SAPI_TEST = ("Microsoft David Desktop", "Microsoft Zira Desktop")
 
 @dataclass(frozen=True)
 class Speaker:
-    kind: str          # "piper" | "sapi"
-    name: str
-    speaker_id: int | None = None
+    kind: str          # "kokoro" | "sapi"
+    name: str          # a Kokoro voice id, "first+second" for a blend, or a Windows voice name
+    blend: float | None = None   # for a blend: the weight of the first voice
 
     @property
     def label(self) -> str:
-        return f"{self.name}#{self.speaker_id}" if self.speaker_id is not None else self.name
+        return f"{self.name}@{self.blend:.2f}" if self.blend is not None else self.name
 
 
-def split_speakers(seed: int = 7, libritts_speakers: int = 904, train_ids: int = 30, test_ids: int = 15) -> tuple[list[Speaker], list[Speaker]]:
-    """Disjoint train and test speakers: whole voices and whole LibriTTS speaker ids are held out, never clips."""
+def split_speakers(seed: int = 7) -> tuple[list[Speaker], list[Speaker]]:
+    """Disjoint train and test speakers. Whole voices are held out, never clips: HELD_OUT_PER_GENDER of each gender stay out of
+    training and out of every blend, and the Windows voices (a different engine entirely) are test speakers too."""
     rng = random.Random(seed)
-    ids = rng.sample(range(libritts_speakers), train_ids + test_ids)
-    train = [Speaker("piper", v) for v in PIPER_TRAIN] + [Speaker("piper", LIBRITTS, i) for i in ids[:train_ids]]
-    test = ([Speaker("piper", v) for v in PIPER_TEST] + [Speaker("sapi", v) for v in SAPI_TEST]
-            + [Speaker("piper", LIBRITTS, i) for i in ids[train_ids:]])
+    held = set(rng.sample([v for v in KOKORO_VOICES if v.startswith("af_")], HELD_OUT_PER_GENDER)
+               + rng.sample([v for v in KOKORO_VOICES if v.startswith("am_")], HELD_OUT_PER_GENDER))
+    trained = [v for v in KOKORO_VOICES if v not in held]
+    blends: list[Speaker] = []
+    while len(blends) < TRAIN_BLENDS:
+        first, second = rng.sample(trained, 2)
+        blends.append(Speaker("kokoro", f"{first}+{second}", blend=round(rng.uniform(0.25, 0.75), 2)))
+    train = [Speaker("kokoro", v) for v in trained] + blends
+    test = [Speaker("kokoro", v) for v in sorted(held)] + [Speaker("sapi", v) for v in SAPI_TEST]
     return train, test
 
 
@@ -133,7 +143,7 @@ def pronunciations(phrase: str) -> list[str]:
 
 # --- synthesis (needs the voices on D:) ---------------------------------------------------------------------------------------------------------
 
-_VOICES: dict[str, object] = {}
+_ENGINE: object | None = None
 
 
 def _resample(audio: np.ndarray, rate: int) -> np.ndarray:
@@ -145,15 +155,37 @@ def _resample(audio: np.ndarray, rate: int) -> np.ndarray:
     return resample_poly(audio, SR // g, rate // g).astype(np.float32)
 
 
-def synth_piper(models: Path, speaker: Speaker, text: str, length: float, noise: float, noise_w: float) -> np.ndarray:
-    from piper import PiperVoice, SynthesisConfig
+def _kokoro_engine():
+    """Tala's own Kokoro engine (python/harness/voice_kokoro.py), moved to the GPU when there is one: clips are made by the thousand.
+    The voice files and the model come from D:; nothing is downloaded."""
+    global _ENGINE
+    if _ENGINE is None:
+        import torch
 
-    if speaker.name not in _VOICES:
-        _VOICES[speaker.name] = PiperVoice.load(str(models / "piper" / f"{speaker.name}.onnx"))
-    voice = _VOICES[speaker.name]
-    cfg = SynthesisConfig(speaker_id=speaker.speaker_id, length_scale=length, noise_scale=noise, noise_w_scale=noise_w)
-    pcm = np.concatenate([np.frombuffer(c.audio_int16_bytes, dtype=np.int16) for c in voice.synthesize(text, cfg)])
-    return _resample(pcm.astype(np.float32) / 32768.0, voice.config.sample_rate)
+        from python.harness import voice_kokoro
+
+        engine = voice_kokoro._load()
+        engine.device = "cuda" if torch.cuda.is_available() else "cpu"
+        engine.model.to(engine.device)
+        _ENGINE = engine
+    return _ENGINE
+
+
+def synth_kokoro(speaker: Speaker, text: str, speed: float) -> np.ndarray:
+    """Speech for ``text`` in a Kokoro voice, or in a blend of two (``speaker.blend`` of the first, the rest of the second)."""
+    import torch
+
+    engine = _kokoro_engine()
+    phonemes = engine._phonemize(text)[:510]
+    index = len(phonemes) - 1
+    if speaker.blend is None:
+        ref = engine._voice(speaker.name)[index]
+    else:
+        first, second = speaker.name.split("+")
+        ref = speaker.blend * engine._voice(first)[index] + (1.0 - speaker.blend) * engine._voice(second)[index]
+    with torch.no_grad():
+        audio = engine.model(phonemes, ref.to(getattr(engine, "device", "cpu")), speed)
+    return _resample(np.asarray(audio.detach().cpu(), dtype=np.float32).reshape(-1), KOKORO_RATE)
 
 
 def synth_sapi(work: Path, speaker: Speaker, text: str, rate_wpm: int) -> np.ndarray:
@@ -178,7 +210,7 @@ def synth_sapi(work: Path, speaker: Speaker, text: str, rate_wpm: int) -> np.nda
 
 
 def trim_silence(audio: np.ndarray, margin_s: float = 0.04, rel: float = 0.02) -> np.ndarray:
-    """Cut the silence off both ends. Voices pad differently (the Windows ones leave ~0.8 s after the last word, Piper ~0.2 s),
+    """Cut the silence off both ends. Voices pad differently (the Windows ones leave ~0.8 s after the last word, Kokoro ~0.2 s),
     and "where the phrase ends" is what both the training labels and the scoring window are anchored to."""
     peak = float(np.max(np.abs(audio))) if len(audio) else 0.0
     if peak <= 0:
@@ -192,8 +224,7 @@ def render(models: Path, work: Path, speaker: Speaker, text: str, rng: random.Ra
     if speaker.kind == "sapi":
         audio = synth_sapi(work, speaker, text, rate_wpm=rng.choice((150, 175, 200)))
     else:
-        audio = synth_piper(models, speaker, text, length=rng.choice((0.85, 1.0, 1.15, 1.3)),
-                            noise=rng.choice((0.4, 0.667, 0.9)), noise_w=rng.choice((0.6, 0.8, 1.0)))
+        audio = synth_kokoro(speaker, text, speed=rng.choice(KOKORO_SPEEDS))
     audio = trim_silence(audio)
     peak = float(np.max(np.abs(audio))) or 1.0
     return audio / peak * rng.uniform(0.35, 0.9)
@@ -440,7 +471,7 @@ def evaluate(model_path: Path, wake_dir: Path, test_speakers: list[Speaker], phr
             rejected[rec["level"]][0] += 0 if hit else 1
             rejected[rec["level"]][1] += 1
             sp = rec["speaker"]
-            tally = by_speaker.setdefault(f"{'libritts' if sp.speaker_id is not None else sp.kind}:{sp.name}", [0, 0])
+            tally = by_speaker.setdefault(f"{sp.kind}:{sp.name}", [0, 0])
             tally[0] += 0 if hit else 1
             tally[1] += 1
             if not hit and len(misses) < 20:
