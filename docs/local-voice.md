@@ -110,46 +110,76 @@ A provider-table TTS (an OpenAI-style endpoint with a key) is used only if its e
 * The microphone is captured in the renderer. Electron allows exactly one permission: **audio capture, for the app's own
   window, from a `file://` page** (`electron/media_permissions.js`). Video, other windows, remote pages and every other
   permission stay denied.
-* Audio goes to the harness over the existing local websocket and nowhere else.
-* **Nothing is recorded to disk.** Setting `TALA_VOICE_DEBUG_DIR` (it must be on D:) writes each utterance as a WAV for
-  debugging, and is off unless you set it.
+* Audio goes to the harness over the existing local websocket and nowhere else. The modules that hear and answer (wake word, voice
+  activity, recogniser, session, runtime, stream, chunker, meter, latency log) import **no network library at all**, so they cannot
+  open a connection; `tests/test_voice_privacy.py` fails if one is added. The only voice module that can reach a network is
+  `voice.py`, which holds the two optional text-to-speech backends that can, both refused unless explicitly allowed:
+  edge-tts (`allow_cloud_tts`, **off by default**, labelled CLOUD, asks before it is switched on) and a provider-table TTS that must be
+  on this machine.
+* **Nothing is recorded to disk.** A whole spoken turn writes no audio file anywhere (tested). Setting `TALA_VOICE_DEBUG_DIR`
+  (it must not be on C:) writes each utterance as a WAV for debugging, only there, and is off unless you set it.
+* **The latency log holds numbers and model names only**, never a transcript and never audio (see Latency).
+* Nothing but plain sentences reaches the speech engine: thinking, tool calls in any shape, code and tags are removed before synthesis.
 * Listening is a UI action. It is not an agent tool: the agent can speak (`speak_text`) but cannot switch the
   microphone on. The emergency halt refuses every `voice.*` method and `voice.listen_start` refuses on its own as well.
+* There is one way to listen. The old harness-side five-second recorder (`multimodal.transcribe_voice`) is gone: nothing called it, and
+  it was a second place a microphone could be opened.
 
 ## The wake word
 
-openWakeWord has no pretrained "Hey Tala". `scripts/train_wakeword.py` builds one locally: it synthesises the phrase with
-many voices (Piper's US voices including 900-speaker LibriTTS, at several speeds and noise levels), trains a small
-classifier over openWakeWord's own embeddings, exports ONNX, and **measures it on voices it never trained on** (other
-Piper voices, unseen LibriTTS speakers, and the Windows system voices) through the real streaming detector: false rejects at
-several noise levels and false accepts per hour of ordinary speech. It installs only if it clears the bar, and only with
-`--install`. The result is `hey_tala.metrics.json` next to the model.
+openWakeWord has no pretrained "Hey Tala". `scripts/train_wakeword.py` builds one locally, **with Kokoro, the voice Tala already speaks
+with** (Apache-2.0, US-origin; nothing GPL): sixteen of its twenty US-English voices plus 24 blends of pairs of them, at several speeds
+and noise levels, trained into a small classifier over openWakeWord's own embeddings and exported as ONNX. It then **measures it on
+voices it never trained on**, through the real streaming detector: four Kokoro voices held out of training and of every blend (two
+female, two male) and the two Windows system voices, which are a different engine entirely. The numbers are false rejects at clean,
+10 dB and 5 dB noise, and false accepts per hour of ordinary speech. It installs only if it clears the bar, and only with `--install`.
+The result is `hey_tala.metrics.json` next to the model; the threshold the runtime uses is the one measured there.
 
-**Everything it measures is synthetic speech.** Real human voices and real rooms are not represented; the real test is
-saying the phrase to it. If it misses you, set `wake_model` to the pretrained fallback (or lower `wake_threshold`).
+**Everything it measures is synthetic speech.** Real human voices and real rooms are not represented; the real test is saying the
+phrase to it. If it misses you, set `wake_model` to the pretrained fallback (or lower `wake_threshold`). The wake phrase is on by
+default; the microphone is not (it is never on until you turn listening on, and the indicator reads "MIC LIVE" for as long as it is).
 
 ```powershell
-python scripts\setup_voice.py --training-voices
-uv pip install -e .[wakeword-training]
-python scripts\train_wakeword.py --phrase "Hey Tala" --install
+$env:TALA_MODELS_DIR = "D:\models"; $env:HF_HOME = "D:\hf-cache"; $env:TEMP = "D:\caches\tmp"; $env:TMP = $env:TEMP
+python scripts\setup_voice.py --training-voices        # Kokoro's other US voices, 10 MB, pinned revision
+uv pip install -e ".[voice,wakeword-training]"
+python scripts\train_wakeword.py --phrase "Hey Tala" --install --device cpu --train-clips 1200 --negative-ratio 1.25 --mine 800
 ```
+
+Synthesis is the slow part. `--device auto` uses the GPU, which is several times faster, but a game or anything else on the card
+slows both down: use `--device cpu` then. The run lowers its own priority, writes only to D:, and downloads nothing.
+`tests/test_voice_wake_fixture.py` runs four short WAVs (two say "Hey Tala", a near miss and an ordinary sentence do not; made by
+`scripts/make_wake_fixtures.py` in held-out voices) through the detector: with a stand-in model everywhere, and with the real model on
+a machine that has it.
 
 ## Latency
 
-The harness logs one line when playback starts (`voice latency (ms): ...`) and `voice.status` returns the last one:
+Three numbers per spoken turn, measured on the runtime's own clock:
 
-| field | meaning |
-|---|---|
-| `wake_to_first_audio` / `wake_to_playback` | the wake word firing to her first sentence being sent / starting to play |
-| `end_of_speech_to_first_audio` | you stop talking to her first sentence being sent (the time-to-first-audio) |
-| `stt` | transcription |
-| `model_first_text` | the turn starting to the model's first token |
-| `first_sentence_tts` | first sentence complete to its audio being ready |
+| number | from | to |
+|---|---|---|
+| `wake_to_first_word` | the wake word is detected | the first sound of her answer starts playing |
+| `stt_latency` | you stop speaking | the final transcript exists |
+| `time_to_first_audio` | you stop speaking | the first piece of her answer has been synthesised |
+
+and the parts they are made of: `stt_compute` (the recogniser alone), `model_first_text` (the turn starting to the model's first
+token), `first_sentence_tts` (first sentence complete to its audio being ready) and `first_audio_to_playback`. A follow-up that needed
+no wake word has no `wake_to_first_word`; a number whose two marks were not both seen is left out, never zero. Note that "you stop
+speaking" is the voice detector's end of speech, which comes about 0.5 s of silence after you actually stop.
+
+Each turn is also appended as one JSON line to `voice-latency.jsonl` in `TALA_VOICE_LOG_DIR` (default `<user data>/logs/voice`; on
+Kagura `kagura-stack.ps1` sets it to `D:\tala-logs\voice`). A line holds the turn id, the numbers and the names of the models in use,
+**and nothing else: no transcript, no audio**. A directory on C: is refused, the file is rotated at 2 MB, and a log that cannot be
+written is a warning, never an error in the voice loop. `voice.status` returns the last turn, a `voice.latency` notification carries
+each one to the renderer, and the status bar shows it next to the model's speed:
+`voice: wake to first word 6.3 s · speech to text 850 ms · first audio 4.2 s`.
 
 ## Tests
 
-`tests/test_voice_session.py` (state machine), `test_voice_vad.py` (segmentation on a fixture WAV), `test_voice_wake.py`
-(wake gating), `test_voice_backends.py` (edge-tts is never chosen by default), `test_voice_chunker.py`,
+`tests/test_voice_session.py` (state machine, with barge-in as a table), `test_voice_vad.py` (segmentation on a fixture WAV),
+`test_voice_wake.py` and `test_voice_wake_fixture.py` (wake gating, on WAVs), `test_voice_backends.py` (edge-tts is never chosen,
+imported or defaulted unless enabled), `test_voice_privacy.py` (no network library, no audio on disk, no markup to the speech
+engine), `test_voice_latency.py`, `test_multimodal.py` (the old recorder stays gone), `test_voice_chunker.py`,
 `test_voice_stream.py`, `test_voice_runtime.py` (the whole loop with stand-in models), `test_voice_rpc.py`,
 `test_voice_stt.py`, `test_train_wakeword.py`, and `test_voice_models.py` which runs the real models and is skipped where
 they are not installed. Jest: `tests/renderer/voice_ui.test.js`, `tests/electron/media_permissions.test.js`.

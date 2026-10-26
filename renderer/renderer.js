@@ -5366,6 +5366,7 @@ const AgentChat = {
         showVoiceLatency: (ms) => { if (window.LatencyStatus) window.LatencyStatus.showVoice(document, ms); },
       });
       VoiceUI.initSettings(document, rpc, (t) => window.confirm(t));
+      this._voice.autoStart().catch(() => {}); // listens from launch only if the user turned listen_on_start on
     }
 
     // Image attach + paste support

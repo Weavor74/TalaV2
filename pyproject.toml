@@ -117,10 +117,9 @@ voice = [
     "numpy>=1.26.0,<2.5.0",
 ]
 # scripts/train_wakeword.py exports its classifier as ONNX (it also needs torch, from the training extra) and renders its training
-# clips with Piper voices. piper-tts is GPL-3.0-or-later: a developer's training tool, not part of the voice that ships.
+# clips with Kokoro, the voice Tala already speaks with (the [voice] extra). Nothing GPL is involved: it used Piper once.
 wakeword-training = [
     "onnx>=1.16,<1.18",  # newer onnx needs protobuf>=6, which the rest of the environment does not use
-    "piper-tts>=1.3.0",
 ]
 mem0 = [
     "mem0ai>=0.1.29",

@@ -301,6 +301,27 @@ function voiceCreateController(env) {
     render(started);
   }
 
+  /**
+   * "Listening from launch": if the user turned ``listen_on_start`` on (it is off until they do, and turning it on asks first), start
+   * listening without a button press, so "Hey Tala" works the moment the app is up. The harness may still be starting, so the
+   * settings are asked for again after each delay in ``delaysMs`` and then given up on, quietly: a harness that never came up is not
+   * an error message in the chat. A refusal (the emergency halt, a blocked microphone) is reported once.
+   */
+  async function autoStart(delaysMs = [1000, 2000, 4000, 8000]) {
+    for (const delay of delaysMs) {
+      if (listening) return;
+      if (delay) await new Promise((resolve) => setTimeout(resolve, delay));
+      let settings = null;
+      try {
+        const loaded = await rpc('voice.get_settings', {});
+        settings = (loaded && loaded.settings) || {};
+      } catch (_) { continue; }
+      if (settings.listen_on_start !== true) return;
+      try { await start('continuous'); } catch (err) { fail(err); }
+      return;
+    }
+  }
+
   async function stop() {
     closeMic();
     playback.stop();
@@ -353,7 +374,7 @@ function voiceCreateController(env) {
   });
 
   return {
-    toggle, dictate, stop, handleNotification, playback,
+    toggle, dictate, stop, autoStart, handleNotification, playback,
     isListening: () => listening,
     turnDone: (turnId, text) => rpc('voice.turn_done', { turn_id: turnId, text }).catch(() => {}),
     _test: { render, get sendLoop() { return sendLoop; } },
@@ -369,9 +390,10 @@ async function voiceInitSettings(doc, rpc, confirmFn) {
   const voiceName = get('voice-tts-voice');
   const whisper = get('voice-whisper-model');
   const cloud = get('voice-cloud-tts');
+  const listenOnStart = get('voice-listen-on-start');
   const note = get('voice-settings-note');
   const say = (text) => { if (note) note.textContent = text; };
-  if (!wake && !phrase && !voiceName && !whisper && !cloud) return;
+  if (!wake && !phrase && !voiceName && !whisper && !cloud && !listenOnStart) return;
 
   const save = async (changes) => {
     const result = await rpc('voice.set_settings', { settings: changes });
@@ -388,12 +410,24 @@ async function voiceInitSettings(doc, rpc, confirmFn) {
     if (voiceName && s.tts_voice) voiceName.value = s.tts_voice;
     if (whisper && s.whisper_model) whisper.value = s.whisper_model;
     if (cloud) cloud.checked = Boolean(s.allow_cloud_tts);
+    if (listenOnStart) listenOnStart.checked = Boolean(s.listen_on_start);
   } catch (_) { /* leave the controls as rendered */ }
 
   if (wake) wake.addEventListener('change', () => save({ wake_enabled: wake.checked }));
   if (phrase) phrase.addEventListener('change', () => save({ wake_phrase: phrase.value }));
   if (voiceName) voiceName.addEventListener('change', () => save({ tts_voice: voiceName.value }));
   if (whisper) whisper.addEventListener('change', () => save({ whisper_model: whisper.value }));
+  if (listenOnStart) {
+    listenOnStart.addEventListener('change', async () => {
+      if (listenOnStart.checked && !confirmFn('Tala will turn the microphone on every time she starts, and listen for "Hey Tala" until you turn it off. '
+        + 'The MIC LIVE indicator shows for as long as it is on, and nothing is recorded or sent anywhere. Turn it on?')) {
+        listenOnStart.checked = false;
+        return;
+      }
+      const result = await save({ listen_on_start: listenOnStart.checked });
+      if (!result) listenOnStart.checked = !listenOnStart.checked;
+    });
+  }
   if (cloud) {
     cloud.addEventListener('change', async () => {
       if (cloud.checked && !confirmFn("Cloud speech sends everything she says to Microsoft's servers. Turn it on anyway?")) {

@@ -140,3 +140,12 @@ def test_nothing_but_plain_sentences_reaches_the_speech_engine():
     for banned in ("<", ">", "call", "thinking", "get_time", "print", "```", "check the clock"):
         assert banned not in joined, f"{banned!r} reached the speech engine: {spoken}"
     assert "noon on the Nyx run" in joined and "All done" in joined
+
+
+def test_the_microphone_is_off_until_the_user_turns_listen_on_start_on_and_the_page_ships_it_unticked():
+    from python.harness import voice_settings
+
+    assert voice_settings.DEFAULTS["listen_on_start"] is False
+    html = (HARNESS.parents[1] / "renderer" / "index.html").read_text(encoding="utf-8")
+    tag = next(line for line in html.splitlines() if 'id="voice-listen-on-start"' in line)
+    assert "checked" not in tag.split("id=\"voice-listen-on-start\"")[1].split(">")[0]
