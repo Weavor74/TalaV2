@@ -222,6 +222,7 @@ function voiceIndicatorText(state) {
 /** Wire everything to the page. `env` carries the browser APIs so the logic stays testable. */
 function voiceCreateController(env) {
   const { doc, rpc, agentChat, confirmFn } = env;
+  const showVoiceLatency = env.showVoiceLatency || (() => {});
   const els = {
     listen: doc.getElementById('btn-chat-listen'),
     indicator: doc.getElementById('voice-indicator'),
@@ -341,6 +342,8 @@ function voiceCreateController(env) {
       playback.enqueue(p);
     } else if (method === 'voice.interrupt') {
       playback.stop();
+    } else if (method === 'voice.latency') {
+      showVoiceLatency(p.latency_ms || null);
     }
   }
 

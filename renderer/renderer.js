@@ -5363,6 +5363,7 @@ const AgentChat = {
         doc: document, agentChat: this, rpc, confirmFn: (t) => window.confirm(t),
         getUserMedia: (c) => navigator.mediaDevices.getUserMedia(c),
         AudioContext: window.AudioContext, AudioWorkletNode: window.AudioWorkletNode,
+        showVoiceLatency: (ms) => { if (window.LatencyStatus) window.LatencyStatus.showVoice(document, ms); },
       });
       VoiceUI.initSettings(document, rpc, (t) => window.confirm(t));
     }

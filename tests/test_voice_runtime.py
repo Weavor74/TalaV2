@@ -333,7 +333,7 @@ def test_latency_is_measured_and_logged_when_playback_starts():
         r.clock.t += 0.2
         await r.rt.playback("started", turn)
         latency = r.rt.last_latency
-        assert {"stt", "wake_to_playback", "end_of_speech_to_first_audio"} <= set(latency)
+        assert {"wake_to_first_word", "stt_latency", "time_to_first_audio"} <= set(latency)
         assert all(isinstance(v, int) and v >= 0 for v in latency.values())
 
     run(go())

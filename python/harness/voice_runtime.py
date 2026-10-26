@@ -29,7 +29,7 @@ from typing import Any, Awaitable, Callable
 
 import numpy as np
 
-from python.harness import voice_meter, voice_settings
+from python.harness import voice_latency, voice_meter, voice_settings
 from python.harness.voice_session import (
     BEGIN_TURN, CANCEL_TURN, CAPTURE_START, STOP_PLAYBACK, TRANSCRIBE, TRANSCRIPT, State, VoiceConfig, VoiceSession,
 )
@@ -368,7 +368,9 @@ class VoiceRuntime:
         if state == "started":
             self.timeline["playback_start"] = self._clock()
             self.session.on_playback_started()
-            self._log_latency()
+            latency = self._log_latency()
+            if latency:
+                await self._notify("voice.latency", {"turn_id": self.turn_id, "latency_ms": latency})
         elif state == "ended":
             self.session.on_playback_ended()
         await self._announce()
@@ -383,20 +385,17 @@ class VoiceRuntime:
         await self._announce()
         return self.status()
 
-    def _log_latency(self) -> None:
-        t = self.timeline
-        ms = lambda a, b: round((t[b] - t[a]) * 1000) if a in t and b in t else None  # noqa: E731
-        self.last_latency = {k: v for k, v in {
-            "wake_to_first_audio": ms("wake", "first_audio"),
-            "wake_to_playback": ms("wake", "playback_start"),
-            "end_of_speech_to_first_audio": ms("speech_end", "first_audio"),
-            "stt": ms("stt_start", "stt_done"),
-            "model_first_text": ms("turn_begin", "first_text"),
-            "first_sentence_tts": round(t["first_sentence_tts"] * 1000) if "first_sentence_tts" in t else None,
-            "first_audio_to_playback": ms("first_audio", "playback_start"),
-        }.items() if v is not None}
-        log.info("voice latency (ms): %s", self.last_latency)
+    def _log_latency(self) -> dict[str, int]:
+        """Measure the turn that just started playing, keep it for ``voice.status``, append it to the D: log (numbers only: see
+        voice_latency.py), and return it. A turn with nothing measured logs nothing."""
+        self.last_latency = voice_latency.measure(self.timeline)
         self.timeline = {}
+        if not self.last_latency:
+            return {}
+        log.info("voice latency (ms): %s", self.last_latency)
+        voice_latency.append({"turn_id": self.turn_id, "ms": self.last_latency, "whisper_model": self.settings["whisper_model"],
+                              "wake_model": self.wake_info.get("model"), "tts_voice": self.settings["tts_voice"]})
+        return dict(self.last_latency)
 
     # --- debug --------------------------------------------------------------------------------------------------------------------------
 

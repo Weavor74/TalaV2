@@ -632,3 +632,26 @@ describe('wiring', () => {
     assert.doesNotMatch(worklet, /fetch|XMLHttpRequest|WebSocket|localStorage|indexedDB/);
   });
 });
+
+
+describe('voice latency notification', () => {
+  function controller(extra = {}) {
+    const env = makeEnv();
+    const { doc } = makeDoc(['btn-chat-listen', 'voice-indicator', 'voice-indicator-text', 'chat-textarea']);
+    return load().createController({ doc, rpc: env.rpc, agentChat: { appendMessage() {} }, confirmFn: () => true,
+      getUserMedia: env.getUserMedia, AudioContext: env.AudioContext, AudioWorkletNode: env.AudioWorkletNode, ...extra });
+  }
+
+  test('the numbers the harness measured go to the status bar', () => {
+    const shown = [];
+    const ui = controller({ showVoiceLatency: (ms) => shown.push(ms) });
+
+    ui.handleNotification('voice.latency', { turn_id: 't1', latency_ms: { wake_to_first_word: 6300, stt_latency: 850 } });
+
+    assert.deepEqual(shown, [{ wake_to_first_word: 6300, stt_latency: 850 }]);
+  });
+
+  test('without a status bar to show it in, the notification is harmless', () => {
+    assert.doesNotThrow(() => controller().handleNotification('voice.latency', { latency_ms: { stt_latency: 1 } }));
+  });
+});
