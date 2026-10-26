@@ -12,8 +12,6 @@ gracefully failing if TALA_HEADLESS is active.
 ### `async def get_screen_context()`
 Capture the active screen, return base64 encoded image.
 
-### `async def transcribe_voice(duration_seconds)`
-Record audio for duration_seconds and transcribe using local whisper.
 
 ## Source Code
 
@@ -79,36 +77,5 @@ async def get_screen_context() -> dict[str, Any]:
         return {"error": str(e)}
 
 
-async def transcribe_voice(duration_seconds: int = 5) -> dict[str, Any]:
-    """Record audio for duration_seconds and transcribe using local whisper."""
-    global _whisper_model
-
-    if settings.IS_HEADLESS:
-        return {"error": "Tala is running in embedded/headless mode and cannot access the Microphone."}
-    
-    if not whisper or not sd or not np:
-        return {"error": "Multimodal dependencies (openai-whisper, sounddevice, numpy) are not installed."}
-
-    try:
-        # Load model lazily
-        if _whisper_model is None:
-            logger.info("Loading local Whisper model (tiny)...")
-            _whisper_model = whisper.load_model("tiny")
-        
-        fs = 16000  # Sample rate required by whisper
-        logger.info(f"Recording audio for {duration_seconds} seconds...")
-        recording = sd.rec(int(duration_seconds * fs), samplerate=fs, channels=1, dtype='float32')
-        sd.wait()
-        logger.info("Recording finished. Transcribing...")
-        
-        # Whisper expects 1D array of float32
-        audio_data = np.squeeze(recording)
-        
-        result = _whisper_model.transcribe(audio_data, fp16=False)
-        text = result.get("text", "").strip()
-        return {"text": text}
-    except Exception as e:
-        logger.exception("Failed to transcribe voice")
-        return {"error": str(e)}
 
 ```

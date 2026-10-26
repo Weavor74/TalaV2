@@ -10873,15 +10873,6 @@ async def handle_multimodal_capture_screen(params: dict, req_id: any) -> str:
     except Exception as exc:
         return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
 
-async def handle_multimodal_transcribe_voice(params: dict, req_id: any) -> str:
-    from python.harness.server import _ok, _err, JsonRpcError
-    from python.harness.multimodal import transcribe_voice
-    try:
-        duration = float(params.get("duration_seconds", 5.0))
-        return _ok(req_id, await transcribe_voice(duration))
-    except Exception as exc:
-        return _err(req_id, JsonRpcError.INTERNAL_ERROR, str(exc))
-
 async def handle_voice_speak(params: dict, req_id: any) -> str:
     from python.harness.server import _ok, _err, JsonRpcError
     from python.harness.voice import synthesize_speech
@@ -14215,7 +14206,6 @@ _HANDLERS: dict[str, Any] = {
     "p2p.resolve_node_reference": handle_p2p_resolve_node_reference,
     "p2p.semantic_search": handle_p2p_semantic_search,
     "multimodal.capture_screen": handle_multimodal_capture_screen,
-    "multimodal.transcribe_voice": handle_multimodal_transcribe_voice,
     "voice.speak": handle_voice_speak,
     "voice.backends": handle_voice_backends,
     "channels.list": handle_channels_list,
