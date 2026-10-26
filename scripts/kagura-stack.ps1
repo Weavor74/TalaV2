@@ -39,6 +39,9 @@ foreach ($v in "TEMP", "TMP") {
     if (-not $current -or $current -match '^[Cc]:') { [Environment]::SetEnvironmentVariable($v, "D:\caches\tmp", "Process") }
 }
 New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+# Voice latency (docs/local-voice.md): one JSON line per spoken turn, numbers only, never a transcript or audio. Kept on D:.
+if (-not $env:TALA_VOICE_LOG_DIR -or $env:TALA_VOICE_LOG_DIR -match '^[Cc]:') { $env:TALA_VOICE_LOG_DIR = "D:\tala-logs\voice" }
+New-Item -ItemType Directory -Force -Path $env:TALA_VOICE_LOG_DIR | Out-Null
 # The llama.cpp checkout whose convert_lora_to_gguf.py turns a trained adapter into a GGUF LoRA (same commit as the engine binary).
 if (-not $env:TALA_LLAMA_CPP_SRC -and (Test-Path "D:\src\llama-build\src\convert_lora_to_gguf.py")) { $env:TALA_LLAMA_CPP_SRC = "D:\src\llama-build\src" }
 
@@ -77,6 +80,8 @@ Write-Host ("gpt-oss GGUF   : {0}  ({1})" -f $Gguf, $(if ($haveGguf) { "found" }
 $VoiceDir  = Join-Path $env:TALA_MODELS_DIR "voice"
 $haveVoice = (Test-Path (Join-Path $VoiceDir "kokoro\kokoro-v1_0.pth")) -and (Test-Path (Join-Path $VoiceDir "whisper\base.en\model.bin"))
 Write-Host ("voice models   : {0}  ({1})" -f $VoiceDir, $(if ($haveVoice) { "found" } else { "missing: run  .venv\Scripts\python scripts\setup_voice.py" }))
+$haveWake = Test-Path (Join-Path $VoiceDir "wakeword\hey_tala.onnx")
+Write-Host ("wake word      : {0}  (voice latency log: {1})" -f $(if ($haveWake) { "hey_tala.onnx, trained for Hey Tala" } else { "no trained hey_tala.onnx: the pretrained fallback phrase will be used; see docs/local-voice.md" }), $env:TALA_VOICE_LOG_DIR)
 
 # Persona adapter (docs/lora-pipeline.md): the Llama 3.2 3B the weekly LoRA rides on. Optional; nothing is fetched at run time.
 $PersonaGguf = Join-Path $env:TALA_MODELS_DIR "gguf\Llama-3.2-3B-Instruct-Q4_K_M.gguf"

@@ -366,10 +366,26 @@ The voice is Kokoro-82M (Apache-2.0) and nothing GPL ships with it. It is delibe
 "Licensing" in `docs/local-voice.md`, which also says how to teach it a word it cannot pronounce.
 
 The microphone is captured by the app itself (Electron allows audio capture for its own window
-and nothing else), is off until you press the always-listen button, and the status bar shows a
-red **MIC LIVE** indicator for exactly as long as it is on. Settings → VOICE changes the wake
-phrase, the voice and the recogniser size. Cloud speech (edge-tts, which sends text to
-Microsoft) exists but is **off by default** and needs an explicit confirmation to turn on.
+and nothing else), is off until you press the always-listen button or turn on Settings → VOICE →
+*listen when Tala starts* (which asks first), and the status bar shows a red **MIC LIVE** indicator
+for exactly as long as it is on. With that switch on, saying "Hey Tala, what time is it?" is all it
+takes; no button. Settings → VOICE changes the wake phrase, the voice and the recogniser size.
+Cloud speech (edge-tts, which sends text to Microsoft) exists but is **off by default** and needs
+an explicit confirmation to turn on.
+
+The "Hey Tala" model is trained locally, with Kokoro's own voices, and measured on voices it never
+trained on (numbers in `D:\models\voice\wakeword\hey_tala.metrics.json`). To retrain it:
+
+```powershell
+$env:TALA_MODELS_DIR = "D:\models"; $env:HF_HOME = "D:\hf-cache"; $env:TEMP = "D:\caches\tmp"; $env:TMP = $env:TEMP
+python scripts\setup_voice.py --training-voices
+uv pip install -e ".[voice,wakeword-training]"
+python scripts\train_wakeword.py --phrase "Hey Tala" --install --device cpu --train-clips 1200 --negative-ratio 1.25 --mine 800
+```
+
+Each spoken turn's latency (wake to first word, speech to text, time to first audio) is logged as
+numbers only to `TALA_VOICE_LOG_DIR` (`D:\tala-logs\voice` under `kagura-stack.ps1`) and shown in
+the status bar.
 
 ### Tuning the main model for your GPU (Kagura profile)
 
