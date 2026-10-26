@@ -236,11 +236,11 @@ def test_an_unavailable_kokoro_says_why_in_the_backends_list(monkeypatch, tmp_pa
     assert voice_kokoro.missing_reason(voice_settings.read()["tts_voice"]) in note
 
 
-def test_listening_is_a_conversation_by_default_not_a_wake_word_gate(tmp_path, monkeypatch):
-    """Pressing the always-listen button means talk freely. Requiring "Hey Tala" is the opt-in."""
+def test_the_wake_phrase_is_the_default_and_conversation_style_is_the_choice(tmp_path, monkeypatch):
+    """Out of the box she answers after "Hey Tala". Turning the phrase off gives the no-phrase conversation style."""
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
-    assert voice_settings.DEFAULTS["wake_enabled"] is False
-    assert voice_settings.read()["wake_enabled"] is False
+    assert voice_settings.DEFAULTS["wake_enabled"] is True
+    assert voice_settings.read()["wake_enabled"] is True and voice_settings.read()["wake_phrase"] == "Hey Tala"
 
     from python.harness.voice_runtime import VoiceRuntime
 
@@ -248,8 +248,12 @@ def test_listening_is_a_conversation_by_default_not_a_wake_word_gate(tmp_path, m
         return None
 
     runtime = VoiceRuntime(notify)
-    assert runtime.session.config.wake_required is False
-    assert runtime.status()["wake_enabled"] is False
+    assert runtime.session.config.wake_required is True
+    assert runtime.status()["wake_enabled"] is True
+
+    voice_settings.update({"wake_enabled": False})
+    runtime.apply_settings()
+    assert runtime.session.config.wake_required is False and runtime.status()["wake_enabled"] is False
 
 
 def test_an_explicit_wake_setting_is_still_honoured(tmp_path, monkeypatch):

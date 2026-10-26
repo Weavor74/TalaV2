@@ -441,3 +441,11 @@ def test_in_conversation_style_the_wake_detector_is_not_consulted():
         assert r.wake.fed == 0, "with no phrase required there is nothing to listen for"
 
     run(go())
+
+
+def test_the_wake_phrase_is_on_by_default_and_hey_tala_is_the_phrase():
+    """She answers after "Hey Tala" out of the box. The no-phrase conversation style is a choice, not the default."""
+    from python.harness import voice_settings
+
+    assert voice_settings.DEFAULTS["wake_enabled"] is True and voice_settings.DEFAULTS["wake_phrase"] == "Hey Tala"
+    assert voice_settings.DEFAULTS["listen_on_start"] is False, "the microphone is never on without the user having said so"
