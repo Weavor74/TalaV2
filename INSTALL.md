@@ -387,6 +387,29 @@ Results land in `D:\tala-audit\bench`; the numbers behind the shipped settings a
 described by `gemma3:4b` on the CPU through Ollama (`ollama pull gemma3:4b`, already in `kagura-stack.ps1`), so an image turn
 never stops the main model.
 
+### Persona adapter: weekly, eval-gated LoRA on approved memories (Kagura)
+
+Tala can train a LoRA on Llama 3.2 3B from the replies and memories you approve (Settings → LORA) and serve it with a second
+`llama-server` (`--lora`), only if it beats the adapter being served. Everything lives on D:; nothing is fetched at run time.
+How it works, what it measures and how to roll back: [docs/lora-pipeline.md](docs/lora-pipeline.md). One-time setup:
+
+```powershell
+$env:UV_CACHE_DIR = "D:\caches\uv"; $env:TEMP = "D:\caches\tmp"; $env:TMP = $env:TEMP; $env:HF_HOME = "D:\hf-cache"
+# 1. a CUDA torch (the default index serves +cpu wheels): all three together, same index, same tag
+uv pip install --python .venv\Scripts\python.exe --no-deps torch==2.11.0+cu128 torchvision==0.26.0+cu128 torchaudio==2.11.0+cu128 --index-url https://download.pytorch.org/whl/cu128
+uv pip install --python .venv\Scripts\python.exe -e ".[training]"        # peft, trl, bitsandbytes, ...
+# 2. the 3B: served as a GGUF, trained from the Hugging Face weights of the same model
+.\scripts\kagura-stack.ps1 -FetchPersona -NoStart
+.venv\Scripts\python -c "from huggingface_hub import snapshot_download as d; d('unsloth/Llama-3.2-3B-Instruct', allow_patterns=['*.safetensors','*.json','tokenizer*'])"
+# 3. a llama.cpp checkout for convert_lora_to_gguf.py, ideally the commit your llama-server was built from
+git clone https://github.com/ggml-org/llama.cpp D:\src\llama-build\src
+```
+
+The weekly run is automatic (`lora_auto_train` defaults to true; set it to `false` to stop it): with nothing approved it simply skips.
+Point it at the converter and (if your cache is not `HF_HOME`) the weights in `learning.json`, or let `kagura-stack.ps1` set
+`TALA_LLAMA_CPP_SRC` and a D: temp directory for you (the run refuses to use C:):
+`{"llama_cpp_src": "D:\\src\\llama-build\\src", "lora_hf_home": "D:\\hf-cache"}`.
+
 ### Semantic Memory (Mem0)
 
 Tala can optionally use `mem0ai` as a read-only fuzzy-search cache for deep historical

@@ -162,16 +162,47 @@ def _main_provider(providers: list[dict[str, Any]], profile: Profile) -> dict[st
     return main
 
 
-def apply(route: Any, profile: Profile | None, messages: list[dict[str, Any]]) -> list[dict[str, Any]]:
+def persona_turn(*, in_character: bool, has_tools: bool) -> dict[str, Any]:
+    """The persona arguments for ``apply``, from what the caller knows about the turn: the active adapter's provider (None when
+    nothing is active), the routing mode from learning.json, whether this is an in-character turn and whether it may use tools."""
+    from python.inference import persona_adapter
+
+    persona = persona_adapter.provider()
+    return {"persona": persona, "persona_mode": persona_adapter.routing_mode() if persona else "off",
+            "in_character": in_character, "has_tools": has_tools}
+
+
+def apply(
+    route: Any,
+    profile: Profile | None,
+    messages: list[dict[str, Any]],
+    *,
+    persona: dict[str, Any] | None = None,
+    persona_mode: str = "off",
+    in_character: bool = False,
+    has_tools: bool = True,
+) -> list[dict[str, Any]]:
     """The providers to try for this turn.
 
     ``route`` is a ``ProviderRoute``. An explicit choice (a named provider, a
     pin, FORCE, or a strict pin) is returned exactly as ``resolve_provider_chain``
     ordered it; otherwise the profile's roles decide.
+
+    ``persona`` is the trained persona adapter's provider (python/inference/persona_adapter.py), if one is active. With
+    ``persona_mode`` "in_character" it leads an in-character turn that uses no tools; with "fallback" it is tried after every
+    other provider; "off" leaves the chain exactly as it was. A turn that may call tools never gets it first: a 3B persona
+    must not take a roleplay turn that probes the machine.
     """
     if profile is None or route.request_provider or route.forced_provider or route.strict:
         return route.providers
-    return _build_chain(route.providers, profile, images=_has_images(messages))
+    chain = _build_chain(route.providers, profile, images=_has_images(messages))
+    if persona is None or persona_mode == "off":
+        return chain
+    if persona_mode == "in_character" and in_character and not has_tools and not _has_images(messages):
+        return [persona, *chain]
+    if persona_mode == "fallback":
+        return [*chain, persona]
+    return chain
 
 
 def _build_chain(

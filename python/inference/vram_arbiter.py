@@ -36,12 +36,13 @@ logger = logging.getLogger(__name__)
 
 SERVER = "llama-server"
 OLLAMA = "ollama"
+PERSONA = "persona-server"
 
 
 @dataclass(frozen=True)
 class Action:
     kind: str  # "unload" | "stop"
-    target: str  # Ollama model name, or "llama-server"
+    target: str  # Ollama model name, "llama-server" or "persona-server"
 
 
 def plan(
@@ -53,8 +54,9 @@ def plan(
     exclusive: bool = True,
     cpu_only: bool = False,
     cpu_resident: set[str] | None = None,
+    persona_running: bool = False,
 ) -> list[Action]:
-    """Actions to take before ``using`` ("llama-server" or "ollama") runs.
+    """Actions to take before ``using`` ("llama-server", "ollama" or "persona-server") runs.
 
     ``model`` is the Ollama model about to be used; it is never unloaded. ``cpu_only`` says that model runs on the CPU, so
     it needs no GPU room. ``cpu_resident`` names the loaded Ollama models known to be in system memory; they are not
@@ -64,13 +66,20 @@ def plan(
         return []
     if using == SERVER:
         keep = cpu_resident or set()
-        return [Action("unload", m) for m in loaded_ollama if m not in keep]
+        actions = [Action("unload", m) for m in loaded_ollama if m not in keep]
+        return actions + ([Action("stop", PERSONA)] if persona_running else [])
+    if using == PERSONA:
+        keep = cpu_resident or set()
+        actions = [Action("unload", m) for m in loaded_ollama if m not in keep]
+        return actions + ([Action("stop", SERVER)] if server_running else [])
     if using == OLLAMA:
         if cpu_only:
             return []
         actions = [Action("unload", m) for m in loaded_ollama if m != model]
         if server_running:
             actions.append(Action("stop", SERVER))
+        if persona_running:
+            actions.append(Action("stop", PERSONA))
         return actions
     raise ValueError(f"unknown engine {using!r}")
 
@@ -85,8 +94,14 @@ class VramArbiter:
         server_running: Callable[[], bool],
         server_stop: Callable[[], Awaitable[None]],
         ollama_cpu_resident: Callable[[], Awaitable[set[str]]] | None = None,
+        persona_running: Callable[[], bool] | None = None,
+        persona_stop: Callable[[], Awaitable[None]] | None = None,
+        persona_start: Callable[[], Awaitable[Any]] | None = None,
     ) -> None:
         self.exclusive = exclusive
+        self._persona_running = persona_running or (lambda: False)
+        self._persona_stop = persona_stop
+        self._persona_start = persona_start
         self._ollama_cpu_resident = ollama_cpu_resident
         self._ollama_loaded = ollama_loaded
         self._ollama_unload = ollama_unload
@@ -94,8 +109,9 @@ class VramArbiter:
         self._server_stop = server_stop
         self._lock: asyncio.Lock | None = None
 
-    async def prepare(self, using: str, model: str = "", cpu_only: bool = False) -> list[Action]:
-        """Make room for ``using``; returns the actions that were attempted."""
+    async def prepare(self, using: str, model: str = "", cpu_only: bool = False, start: bool = True) -> list[Action]:
+        """Make room for ``using``; returns the actions that were attempted. ``start=False`` makes the room for the persona server without
+        starting it (training wants the GPU empty, not occupied)."""
         if not self.exclusive:
             return []
         if self._lock is None:
@@ -107,7 +123,7 @@ class VramArbiter:
                 logger.debug("vram: could not list loaded Ollama models: %s", exc)
                 loaded = []
             cpu_resident: set[str] | None = None
-            if using == SERVER and loaded and self._ollama_cpu_resident is not None:
+            if using in (SERVER, PERSONA) and loaded and self._ollama_cpu_resident is not None:
                 try:
                     cpu_resident = await self._ollama_cpu_resident()
                 except Exception as exc:
@@ -115,22 +131,31 @@ class VramArbiter:
             actions = plan(
                 using=using, model=model, loaded_ollama=loaded,
                 server_running=self._server_running(), exclusive=self.exclusive,
-                cpu_only=cpu_only, cpu_resident=cpu_resident,
+                cpu_only=cpu_only, cpu_resident=cpu_resident, persona_running=self._persona_running(),
             )
             for action in actions:
                 try:
                     if action.kind == "unload":
                         await self._ollama_unload(action.target)
+                    elif action.target == PERSONA:
+                        if self._persona_stop is not None:
+                            await self._persona_stop()
                     else:
                         await self._server_stop()
                     logger.info("vram: %s %s (making room for %s)", action.kind, action.target, using)
                 except Exception as exc:
                     logger.warning("vram: %s %s failed: %s", action.kind, action.target, exc)
+            if using == PERSONA and start and self._persona_start is not None:
+                try:
+                    await self._persona_start()  # last: only once the room is made
+                except Exception as exc:
+                    logger.warning("vram: the persona server did not start: %s", exc)
             return actions
 
 
 def _default_arbiter(profile: Profile) -> VramArbiter:
     from python.inference import llama_server_manager as lsm
+    from python.inference import persona_adapter
 
     base = profile.ollama_url
 
@@ -159,6 +184,9 @@ def _default_arbiter(profile: Profile) -> VramArbiter:
         server_running=lambda: lsm.active_variant() is not None,
         server_stop=lsm.stop_server,
         ollama_cpu_resident=_resident_on_cpu,
+        persona_running=persona_adapter.is_running,
+        persona_stop=persona_adapter.stop,
+        persona_start=persona_adapter.ensure_running,
     )
 
 
@@ -172,6 +200,8 @@ async def prepare_for(provider: dict[str, Any], profile: Profile | None) -> list
     ptype = provider.get("type")
     if ptype == "embedded":
         using, model = SERVER, ""
+    elif ptype == "local" and (provider.get("config") or {}).get("engine") == "persona":
+        using, model = PERSONA, ""
     elif ptype == "local" and (provider.get("config") or {}).get("engine", "ollama") == "ollama":
         using, model = OLLAMA, str((provider.get("config") or {}).get("model", ""))
     else:

@@ -476,3 +476,224 @@ def test_the_safety_filter_leaves_no_audit_trail(monkeypatch):
     monkeypatch.setattr(gm, "_log_violation_to_ledger", lambda kind, details: recorded.append(kind))
     assert ruc._passes_safety_filter("That was a violent threat and I will not repeat it, whatever the tunnel is doing now.") is False
     assert recorded == [], "a rejected training example must not look like a guardrail violation in the audit log"
+
+
+# --- "new HTML-NN": the nodes that use creates, not the generated documentation ---------------------------------------------
+
+
+def _node(doc_target, purpose, text, generated="2026-10-20T12:00:00Z", node_type="documentation"):
+    purpose_attr = f' data-document-purpose="{purpose}"' if purpose is not None else ""
+    target_attr = f' data-doc-target="{doc_target}"' if doc_target else ""
+    generated_attr = f' data-generated-at="{generated}"' if generated else ""
+    return f"""<!DOCTYPE html>
+<html><body>
+<article data-node-type="{node_type}"{target_attr}{purpose_attr}{generated_attr}>
+  <section id="semantic-memory"><p>{text}</p></section>
+</article>
+</body></html>
+"""
+
+
+def _write_nodes(tmp_path, monkeypatch, files):
+    from sdk.agent import documentation_nodes
+
+    nodes_dir = tmp_path / "nodes"
+    nodes_dir.mkdir()
+    for name, body in files.items():
+        (nodes_dir / name).write_text(body, encoding="utf-8")
+    monkeypatch.setattr(documentation_nodes, "resolve_active_nodes_dir", lambda: nodes_dir)
+    return nodes_dir
+
+
+@pytest.mark.asyncio
+async def test_a_remembered_user_fact_is_new_html_nn_even_with_no_declared_purpose(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-remembered-cat.html": _node("memory.user-fact", None, "The user's cat is called Zorblax and she dislikes Tuesdays."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1
+    assert "Zorblax" in next(ruc.LEARNING_EVENTS_DIR.glob("*.html")).read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_a_learning_lesson_with_no_declared_purpose_is_included_too(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-when-writing-tests.html": _node("learning.event", None, "When writing tests, name what the test proves, not how it works."),
+    })
+    assert (await ruc.sync_learning_events_corpus())["included"] == 1
+
+
+@pytest.mark.asyncio
+async def test_generated_documentation_and_journals_are_not_experience(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "sdk_agent_tools.html": _node("sdk.agent.tools", "description", "Module documentation generated from the source code."),
+        "dream-journal-2026-10-24.html": _node("memory.dream-journal", "record", "Dream journal for 2026-10-24. Nothing changed tonight."),
+        "learning-skill-ok.html": _node("learning.event", "record", "A lesson that was actually learned during real work, in full sentences."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1 and result["scanned"] == 1  # the other two were never candidates
+
+
+@pytest.mark.asyncio
+async def test_failure_recovery_notes_are_left_out_with_a_reason(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-recovery-create-a-bounded-self-improvement-plan.html":
+            _node("learning.event", "record", "Recovery: the plan step failed with an error and was retried three times."),
+        "learning-skill-ok.html": _node("learning.event", "record", "A lesson that was actually learned during real work, in full sentences."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1 and result["excluded_by"] == {"recovery note": 1}
+
+
+@pytest.mark.asyncio
+async def test_a_secret_in_a_node_is_reported_as_a_safety_exclusion(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-skill-leaky.html": _node("learning.event", "record", "Use Bearer sk-ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789 to authenticate with the service."),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 0 and result["excluded_by"] == {"safety filter": 1}
+
+
+@pytest.mark.asyncio
+async def test_new_since_counts_only_what_was_created_after_the_last_training(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+
+    _write_nodes(tmp_path, monkeypatch, {
+        "learning-skill-old.html": _node("learning.event", "record", "An older lesson that was learned in full sentences, long ago.", "2026-09-01T00:00:00Z"),
+        "learning-skill-new.html": _node("learning.event", "record", "A newer lesson that was learned in full sentences, yesterday.", "2026-10-24T00:00:00Z"),
+    })
+    since = datetime(2026, 10, 1, tzinfo=timezone.utc)
+    result = await ruc.sync_learning_events_corpus(since=since)
+    assert result["included"] == 2 and result["new_since"] == 1
+    assert (await ruc.sync_learning_events_corpus())["new_since"] == 2, "with no earlier training, everything is new"
+
+
+@pytest.mark.asyncio
+async def test_new_chat_replies_since_the_last_training_are_counted(monkeypatch):
+    from datetime import datetime, timezone
+
+    old = datetime(2026, 8, 1, tzinfo=timezone.utc)
+    new = datetime(2026, 10, 20, tzinfo=timezone.utc)
+    _patch_fetch(monkeypatch, [
+        _row(VOICE + " An old reply.", created_at=old), _row(VOICE + " A new reply.", created_at=new),
+    ])
+    result = await ruc.sync_real_usage_corpus(since=datetime(2026, 10, 1, tzinfo=timezone.utc))
+    assert result["included"] == 2 and result["new_since"] == 1
+
+
+@pytest.mark.asyncio
+async def test_a_skill_node_is_one_of_her_skills_and_is_included(monkeypatch, tmp_path):
+    _write_nodes(tmp_path, monkeypatch, {
+        "skill-self-check-discipline.html": _node(None, None, "Self-check discipline: before answering, restate the question and check the answer against it.",
+                                                  node_type="skill"),
+    })
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1
+    assert "Self-check discipline" in next(ruc.LEARNING_EVENTS_DIR.glob("*.html")).read_text(encoding="utf-8")
+
+
+@pytest.mark.asyncio
+async def test_her_persona_and_identity_nodes_are_not_trained_in(monkeypatch, tmp_path):
+    """They are her protected core and already reach every prompt; training them into the weights would also make them
+    impossible to edit by editing the node."""
+    _write_nodes(tmp_path, monkeypatch, {
+        "persona-tala-core.html": _node(None, None, "You are Tala. You are practical, observant and warm, and you answer plainly.", node_type="persona"),
+        "identity-tala.html": _node(None, None, "Tala is an offline-first cognitive agent and workspace companion for Weavor.", node_type="identity"),
+        "function-doc-x.html": _node("code.x", "description", "Function documentation generated from the source code of x.", node_type="function-doc"),
+    })
+    assert (await ruc.sync_learning_events_corpus())["scanned"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_node_with_no_timestamp_is_dated_by_its_file(monkeypatch, tmp_path):
+    from datetime import datetime, timezone
+
+    _write_nodes(tmp_path, monkeypatch, {
+        "skill-undated.html": _node(None, None, "An undated skill that was written down in full sentences for later.", generated="", node_type="skill"),
+    })
+    result = await ruc.sync_learning_events_corpus(since=datetime(2000, 1, 1, tzinfo=timezone.utc))
+    assert result["included"] == 1 and result["new_since"] == 1
+    far_future = datetime(2100, 1, 1, tzinfo=timezone.utc)
+    assert (await ruc.sync_learning_events_corpus(since=far_future))["new_since"] == 0
+
+
+@pytest.mark.asyncio
+async def test_a_secured_node_is_never_trained_in(monkeypatch, tmp_path):
+    """compile_lora_adapter has always refused to encode a node whose metadata says access_level SECURED into weights. The corpus
+    reads nodes directly, so the same rule has to hold here, from the first real training run."""
+    secured = _node("learning.event", "record", "A lesson about a private matter that must never reach any weights file.").replace(
+        "</article>", '<script type="application/json" id="node-metadata">{"access_level": "SECURED"}</script></article>')
+    nested = _node("learning.event", "record", "A lesson whose state block marks one inner part as secured, so all of it stays out.").replace(
+        "</article>", '<script type="application/json" id="node-state">{"a": {"b": [{"access_level": "SECURED"}]}}</script></article>')
+    fine = _node("learning.event", "record", "A lesson with ordinary metadata that was learned during real work.").replace(
+        "</article>", '<script type="application/json" id="node-metadata">{"access_level": "PUBLIC"}</script></article>')
+    _write_nodes(tmp_path, monkeypatch, {"learning-a.html": secured, "learning-b.html": nested, "learning-c.html": fine})
+    result = await ruc.sync_learning_events_corpus()
+    assert result["included"] == 1 and result["excluded_by"] == {"secured": 2}
+    assert "private matter" not in next(ruc.LEARNING_EVENTS_DIR.glob("*.html")).read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("secret", [
+    "sk-abcdefghijklmnopqrstuvwxyz0123456789ABCD",
+    "ghp_abcdefghijklmnopqrstuvwxyz0123456789",
+    "glpat-abcdefghijklmnopqrst",
+    "AKIAABCDEFGHIJKLMNOP",
+    "xoxb-1234567890-abcdefghij",
+    "-----BEGIN RSA PRIVATE KEY-----",
+])
+def test_a_bare_credential_is_excluded_even_with_no_label_beside_it(secret):
+    """redaction.py only knows "api_key=..." and "Bearer ..."; a key pasted on its own used to pass the filter and could be approved for training."""
+    assert ruc._passes_safety_filter(f"here you go, this is what I used for the deploy last night: {secret} and then it worked") is False
+
+
+def test_ordinary_prose_with_dashes_and_underscores_still_passes():
+    assert ruc._passes_safety_filter("The sk-learn style of naming is not something I would call a secret; it is just a habit, really.") is True
+
+
+# --- credentials that are not "key=value": wallet keys, seed phrases, Stripe keys, password lines -----------------------------------
+
+
+SEED_12 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+SEED_24 = ("legal winner thank year wave sausage worth useful legal winner thank yellow legal winner thank year wave sausage "
+           "worth useful legal winner thank year")
+
+
+@pytest.mark.parametrize("secret", [
+    "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+    "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+    "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ",
+    "L1aW4aubDFB7yfras2S1mN3bqg9nwySY8nkoLmJebSLD5BWv3ENZ",
+    "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi",
+    SEED_12,
+    SEED_24,
+    "sk_" + "live_" + "0123456789abcdefghijklmn",  # built at runtime: a literal would trip GitHub push protection
+    "rk_" + "live_" + "0123456789abcdefghijklmn",
+    "sk_" + "test_" + "0123456789abcdefghijklmn",
+    "whsec_" + "0123456789abcdefghijklmn",
+])
+def test_a_raw_wallet_key_seed_phrase_or_payment_key_is_excluded(secret):
+    assert ruc._passes_safety_filter(f"Here is what I wrote down for the wallet last night, keep it somewhere safe: {secret} and that is all of it.") is False
+    assert ruc._passes_safety_filter(secret) is False
+
+
+@pytest.mark.parametrize("line", ["password: hunter2", "Password = p@ss", "passwd: x", "pwd: abc", "login ok\npassword:swordfish\nthanks",
+                                  "The PASSPHRASE: correct horse battery staple"])
+def test_a_password_line_is_excluded_whatever_its_length_or_characters(line):
+    assert ruc._passes_safety_filter(f"For the router, as I noted earlier in the day, {line} is what it was set to, and that was a mistake.") is False
+
+
+@pytest.mark.parametrize("text", [
+    "I would rather abandon the plan about the legal winner than thank the year for a worth-while sausage, honestly.",
+    "She asked about the password policy and whether a password manager is worth the trouble for a small crew.",
+    "The commit abc1234 fixed it, and the sha 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b made the build cache hit.",
+    "Just eleven words from that list, which is not enough for anything: abandon ability able about above absent absorb abstract absurd abuse access, and that is all.",
+    "The payment test went through on the sandbox account and the live account is untouched for now, as it should be.",
+])
+def test_ordinary_prose_that_merely_mentions_these_things_still_passes(text):
+    assert ruc._passes_safety_filter(text) is True
+
+
+def test_a_seed_phrase_is_found_wherever_it_sits_in_a_longer_message():
+    text = f"Right, so the thing I was telling you about is {SEED_12}, and then after that we moved on to the cargo manifest for Stanton."
+
+    assert ruc._passes_safety_filter(text) is False

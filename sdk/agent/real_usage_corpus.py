@@ -2,9 +2,9 @@
 sdk/agent/real_usage_corpus.py
 
 Two corpus-sync steps that feed the LoRA voice adapter from Tala's real
-experience instead of only synthetic fiction: her own turns from
-`conversation_turns` (real chat history) and the real HTML-NN
-``learning.event`` nodes. scripts/train_voice_adapter.py runs both ahead of
+experience instead of synthetic fiction: her own turns from
+`conversation_turns` (real chat sessions) and her HTML-NN skills and memories
+(the nodes use creates: skills, lessons, remembered facts). scripts/train_voice_adapter.py runs both ahead of
 every dry run or training run, fresh each time (full regeneration -- at this
 data volume, reprocessing everything is cheap and avoids persisted-cursor
 complexity for no benefit).
@@ -41,11 +41,12 @@ reused as-is for both sources, the same function the synthetic corpus uses.
 """
 from __future__ import annotations
 
+import functools
 import html
 import logging
 import re
 import shutil
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
 
@@ -85,6 +86,54 @@ _SAFETY_RULES = {
 }
 
 
+#: Credentials that are recognisable by shape alone, with no "key=" or "Bearer" beside them. sdk/gateway/redaction.py only knows the
+#: labelled forms, so a bare key pasted into a chat sailed through; training is permanent, so these are excluded here as well.
+_KEY_SHAPES = re.compile(
+    r"\b(?:sk-[A-Za-z0-9_\-]{20,}|gh[pousr]_[A-Za-z0-9]{30,}|github_pat_[A-Za-z0-9_]{30,}|glpat-[A-Za-z0-9_\-]{16,}"
+    r"|AKIA[0-9A-Z]{16}|xox[abpr]-[A-Za-z0-9\-]{10,}|AIza[0-9A-Za-z_\-]{30,}|eyJ[A-Za-z0-9_\-]{10,}\.eyJ[A-Za-z0-9_\-]{10,}\.[A-Za-z0-9_\-]+)"
+    r"|-----BEGIN [A-Z ]*PRIVATE KEY-----")
+
+
+_BASE58 = "1-9A-HJ-NP-Za-km-z"
+#: A wallet's private key in its usual written forms: a raw 256-bit key (which is also what a SHA-256 looks like; excluded either way,
+#: since an excluded item costs nothing), a WIF key, and a BIP32 extended private key.
+_WALLET_KEYS = re.compile(
+    rf"(?<![0-9A-Fa-f])(?:0x)?[0-9A-Fa-f]{{64}}(?![0-9A-Fa-f])"
+    rf"|(?<![{_BASE58}])[5KL][{_BASE58}]{{50,51}}(?![{_BASE58}])"
+    rf"|\b[xyzYZtuv]prv[{_BASE58}]{{100,}}")
+_PAYMENT_KEYS = re.compile(r"\b(?:(?:sk|rk|pk)_(?:live|test)_|whsec_)[0-9A-Za-z]{10,}")
+#: A password given on a line of its own, however short or plain it is: "password: hunter2". The labelled-secret pattern in
+#: sdk/gateway/redaction.py wants eight characters from a narrow set, which a short or ordinary password slips under.
+_PASSWORD_LINE = re.compile(r"(?i)\b(?:pass(?:word|wd|phrase|code)|pwd)\b[ \t]*[:=]")
+SEED_PHRASE_WORDS = 12  # the shortest BIP39 mnemonic
+
+
+@functools.lru_cache(maxsize=1)
+def _bip39_words() -> frozenset[str]:
+    """The BIP39 English wordlist, from the same ``mnemonic`` package the wallet makes its own seed phrase with. Empty if it cannot be loaded."""
+    try:
+        from mnemonic import Mnemonic
+
+        return frozenset(Mnemonic("english").wordlist)
+    except Exception:
+        logger.warning("real_usage_corpus: the BIP39 wordlist could not be loaded; seed phrases cannot be recognised", exc_info=True)
+        return frozenset()
+
+
+def _has_seed_phrase(text: str) -> bool:
+    """Twelve or more BIP39 words in a row, wherever they sit in the text. If the wordlist is missing it cannot tell, and what cannot be
+    told is excluded: training is permanent, so the doubt goes to the item."""
+    words = _bip39_words()
+    if not words:
+        return True
+    run = 0
+    for token in re.findall(r"[a-z]+", text.lower()):
+        run = run + 1 if token in words else 0
+        if run >= SEED_PHRASE_WORDS:
+            return True
+    return False
+
+
 def _passes_safety_filter(text: str) -> bool:
     """
     True only if *text* is safe to bake into permanent weights unmodified.
@@ -98,7 +147,9 @@ def _passes_safety_filter(text: str) -> bool:
 
     from sdk.gateway.redaction import redact_string
 
-    if redact_string(text) != text:
+    if redact_string(text) != text or _KEY_SHAPES.search(text) or _PAYMENT_KEYS.search(text) or _WALLET_KEYS.search(text):
+        return False
+    if _PASSWORD_LINE.search(text) or _has_seed_phrase(text):
         return False
 
     from python.harness.guardrails_manager import GuardrailsManager
@@ -178,6 +229,19 @@ def _parse_timestamp(raw: str) -> datetime | None:
         return None
 
 
+def _is_after(when: datetime | None, since: datetime | None) -> bool:
+    """True if ``when`` is later than ``since``; with no ``since`` everything is new. Naive times are read as UTC."""
+    if since is None:
+        return True
+    if when is None:
+        return False
+    if when.tzinfo is None:
+        when = when.replace(tzinfo=timezone.utc)
+    if since.tzinfo is None:
+        since = since.replace(tzinfo=timezone.utc)
+    return when > since
+
+
 def _derive_emotion(when: datetime | None) -> str:
     """engine_emotion_for() is the same live astro-engine lookup the
     synthetic corpus already uses -- reused, not reinvented, so emotion
@@ -197,14 +261,15 @@ def _derive_emotion(when: datetime | None) -> str:
 # Source 1: conversation_turns (real chat history)
 # ---------------------------------------------------------------------------
 
-async def sync_real_usage_corpus() -> dict[str, Any]:
+async def sync_real_usage_corpus(since: datetime | None = None) -> dict[str, Any]:
     """
     Rewrite data/training_corpus/real-usage/ from Tala's own
     (role='assistant') conversation_turns rows in the renderer's chat sessions.
     Only her own words become training text -- the direct analogue of the
     synthetic corpus's data-speaker="tala" filter, and a meaningful privacy
     narrowing on its own before any content filter even runs. A failed query
-    leaves the previous corpus in place.
+    leaves the previous corpus in place. ``new_since`` counts the kept replies written after ``since`` (all of them when it is
+    None): what the retraining trigger asks, "how much is new since the adapter was trained".
     """
     from python.harness import db
     from sdk.agent.trajectory import _normalise_tool_calls
@@ -220,10 +285,12 @@ async def sync_real_usage_corpus() -> dict[str, Any]:
         )
     except Exception as exc:
         logger.warning("real_usage_corpus: could not query conversation_turns: %s", exc)
-        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {}, "included": 0}
+        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {},
+                "included": 0, "new_since": 0}
 
     scanned = len(rows)
     excluded_by: dict[str, int] = {}
+    new_since = 0
     turns: list[str] = []
     seen: set[str] = set()
 
@@ -257,6 +324,8 @@ async def sync_real_usage_corpus() -> dict[str, Any]:
 
         emotion = _derive_emotion(row["created_at"])
         turns.append(_render_turn(text, emotion, tool_calls_text))
+        if _is_after(row["created_at"], since):
+            new_since += 1
 
     included = len(turns)
     excluded = sum(excluded_by.values())
@@ -271,7 +340,8 @@ async def sync_real_usage_corpus() -> dict[str, Any]:
         "real_usage_corpus: conversation_turns scanned=%d excluded=%d included=%d excluded_by=%s",
         scanned, excluded, included, excluded_by,
     )
-    return {"success": True, "scanned": scanned, "excluded": excluded, "excluded_by": excluded_by, "included": included}
+    return {"success": True, "scanned": scanned, "excluded": excluded, "excluded_by": excluded_by, "included": included,
+            "new_since": new_since}
 
 
 # ---------------------------------------------------------------------------
@@ -291,16 +361,51 @@ def _article_and_semantic_text(path: Path) -> tuple[Any, str] | tuple[None, None
     article = articles[0]
     sections = doc.xpath('.//section[@id="semantic-memory"]')
     text = sections[0].text_content().strip() if sections else ""
+    if _is_secured(doc):
+        article.set("data-secured", "true")
     return article, text
 
 
-async def sync_learning_events_corpus() -> dict[str, Any]:
+def _has_secured(value: Any) -> bool:
+    if isinstance(value, dict):
+        return value.get("access_level") == "SECURED" or any(_has_secured(v) for v in value.values())
+    if isinstance(value, list):
+        return any(_has_secured(v) for v in value)
+    return False
+
+
+def _is_secured(doc: Any) -> bool:
+    """The rule compile_lora_adapter has always enforced: a node whose metadata or state says access_level SECURED must never be
+    encoded into weights, at any depth."""
+    import json
+
+    for block in doc.xpath('//script[@id="node-metadata" or @id="node-state"]'):
+        try:
+            if _has_secured(json.loads((block.text or "").strip() or "null")):
+                return True
+        except ValueError:
+            continue
+    return False
+
+
+def _is_experience(article: Any) -> bool:
+    """Is this node one of her skills or memories, as opposed to generated documentation, settings, a tool's manual or her
+    protected persona/identity? Skills are ``skill`` nodes; memories are what the system wrote down from use: ``learning.*``
+    (lessons, run notes) and ``memory.*`` (remembered facts). The dream journal is a log of weight changes, not a memory."""
+    if (article.get("data-document-purpose") or "") == "description":
+        return False
+    target = article.get("data-doc-target") or ""
+    if target == "memory.dream-journal":
+        return False
+    return article.get("data-node-type") == "skill" or target.startswith(("learning.", "memory."))
+
+
+async def sync_learning_events_corpus(since: datetime | None = None) -> dict[str, Any]:
     """
-    Rewrite data/training_corpus/learning-events/ from the real HTML-NN
-    learning-event records: every nodes/*.html where
-    data-doc-target="learning.event" AND data-document-purpose="record" --
-    the same filter sdk/agent/documentation_nodes.py's own tooling already
-    uses to tell a real lesson from documentation/settings/UI-map nodes.
+    Rewrite data/training_corpus/learning-events/ from her skills and memories: the HTML-NN nodes use creates (see
+    ``_is_experience``). HTML-NN is where she keeps what she knows, so it is a training source beside her chats. Failure-recovery
+    notes ("the step failed, retried three times") are left out: they are incident reports, not something she learned.
+    ``new_since`` counts the kept nodes written after ``since`` (all of them when it is None).
     """
     from sdk.agent.documentation_nodes import resolve_active_nodes_dir
 
@@ -309,31 +414,47 @@ async def sync_learning_events_corpus() -> dict[str, Any]:
         paths = sorted(nodes_dir.glob("*.html")) if nodes_dir.exists() else []
     except Exception as exc:
         logger.warning("real_usage_corpus: could not list the active nodes directory: %s", exc)
-        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {}, "included": 0}
+        return {"success": False, "error": str(exc), "scanned": 0, "excluded": 0, "excluded_by": {}, "included": 0, "new_since": 0}
 
     scanned = 0
-    excluded = 0
+    excluded_by: dict[str, int] = {}
+    new_since = 0
     written: list[str] = []
+
+    def exclude(reason: str) -> None:
+        excluded_by[reason] = excluded_by.get(reason, 0) + 1
 
     for path in paths:
         article, text = _article_and_semantic_text(path)
-        if article is None:
-            continue
-        if article.get("data-doc-target") != "learning.event":
-            continue
-        if article.get("data-document-purpose") != "record":
+        if article is None or not _is_experience(article):
             continue
         scanned += 1
 
-        if not text or not _passes_safety_filter(text):
-            excluded += 1
+        if article.get("data-secured") == "true":
+            exclude("secured")
+            continue
+        if path.name.startswith("learning-recovery-"):
+            exclude("recovery note")
+            continue
+        if not text:
+            exclude("empty")
+            continue
+        if not _passes_safety_filter(text):
+            exclude("safety filter")
             continue
 
         when = _parse_timestamp(article.get("data-generated-at") or "")
-        emotion = _derive_emotion(when)
-        written.append(_render_turn(text, emotion))
+        if when is None:
+            try:
+                when = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)  # a node with no stamp is as old as its file
+            except OSError:
+                when = None
+        written.append(_render_turn(text, _derive_emotion(when)))
+        if _is_after(when, since):
+            new_since += 1
 
     included = len(written)
+    excluded = sum(excluded_by.values())
     _reset_dir(LEARNING_EVENTS_DIR)
     if written:
         LEARNING_EVENTS_DIR.mkdir(parents=True, exist_ok=True)
@@ -343,7 +464,107 @@ async def sync_learning_events_corpus() -> dict[str, Any]:
             )
 
     logger.info(
-        "real_usage_corpus: learning-event nodes scanned=%d excluded=%d included=%d",
-        scanned, excluded, included,
+        "real_usage_corpus: skill and memory nodes scanned=%d excluded=%d included=%d excluded_by=%s",
+        scanned, excluded, included, excluded_by,
     )
-    return {"success": True, "scanned": scanned, "excluded": excluded, "included": included}
+    return {"success": True, "scanned": scanned, "excluded": excluded, "excluded_by": excluded_by, "included": included,
+            "new_since": new_since}
+
+
+# ---------------------------------------------------------------------------
+# Candidates for the review queue (sdk/agent/lora_approvals.py)
+# ---------------------------------------------------------------------------
+
+MAX_PROMPT_CHARS = 2000
+
+
+def _candidate_id(kind: str, prompt: str, reply: str) -> str:
+    """A decision belongs to one exact piece of content: change a word and it is a different item with no decision."""
+    import hashlib
+
+    return hashlib.sha256(f"{kind}\0{prompt}\0{reply}".encode()).hexdigest()[:16]
+
+
+def _candidate(kind: str, title: str, prompt: str, reply: str, when: datetime | None, source: str, blocked: str | None) -> dict[str, Any]:
+    return {"id": _candidate_id(kind, prompt, reply), "kind": kind, "title": title, "prompt": prompt, "reply": reply,
+            "created_at": when.isoformat() if when else "", "source": source, "blocked": blocked}
+
+
+async def gather_chat_candidates() -> list[dict[str, Any]]:
+    """Every reply of hers in the renderer's chat sessions, paired with the message it answered, each either clean or carrying the
+    reason the corpus filters reject it. Nothing is dropped here: the queue shows what was held back and why."""
+    from python.harness import db
+
+    rows = await db.fetch(
+        """
+        SELECT content, tool_calls, created_at, prev_role, prev_content FROM (
+            SELECT role, content, tool_calls, created_at,
+                   LAG(role) OVER w AS prev_role, LAG(content) OVER w AS prev_content
+            FROM conversation_turns
+            WHERE session_id LIKE 'chat-%'
+            WINDOW w AS (PARTITION BY session_id ORDER BY created_at, id)
+        ) t
+        WHERE role = 'assistant'
+        ORDER BY created_at ASC
+        """
+    )
+    out: list[dict[str, Any]] = []
+    seen: set[str] = set()
+    for row in rows:
+        original = row["content"] or ""
+        reply = _clean_reply(original)
+        prompt = (row["prev_content"] or "").strip() if row["prev_role"] == "user" else ""
+        blocked = _quality_exclusion(original, reply)
+        if blocked is None and not _passes_safety_filter(reply):
+            blocked = "safety filter"
+        if blocked is None and not prompt:
+            blocked = "no user message"
+        if blocked is None and len(prompt) > MAX_PROMPT_CHARS:
+            blocked = "message too long"
+        if blocked is None and not _passes_safety_filter(prompt):
+            blocked = "safety filter (message)"
+        if blocked is None:
+            if reply[:200] in seen:
+                blocked = "duplicate"
+            else:
+                seen.add(reply[:200])
+        out.append(_candidate("chat", reply[:60], prompt, reply, row["created_at"], "chat", blocked))
+    return out
+
+
+async def gather_memory_candidates() -> list[dict[str, Any]]:
+    """Her skills and memories (see ``_is_experience``) as candidates. A memory has no message it answered, so it is asked for by name:
+    "What do you remember about <title>?"."""
+    from sdk.agent import documentation_nodes
+
+    try:
+        nodes_dir = documentation_nodes.resolve_active_nodes_dir()
+        paths = sorted(nodes_dir.glob("*.html")) if nodes_dir.exists() else []
+    except Exception as exc:
+        logger.warning("real_usage_corpus: could not list the active nodes directory: %s", exc)
+        return []
+    out: list[dict[str, Any]] = []
+    for path in paths:
+        article, text = _article_and_semantic_text(path)
+        if article is None or not _is_experience(article):
+            continue
+        title = " ".join(str(article.xpath("string(.//h1)")).split()) or path.stem
+        blocked: str | None = None
+        if article.get("data-secured") == "true":
+            blocked = "secured"
+        elif path.name.startswith("learning-recovery-"):
+            blocked = "recovery note"
+        elif not text:
+            blocked = "empty"
+        elif len(text) > MAX_CHARS:
+            blocked = "too long"
+        elif not _passes_safety_filter(text) or not _passes_safety_filter(title):
+            blocked = "safety filter"
+        when = _parse_timestamp(article.get("data-generated-at") or "")
+        if when is None:
+            try:
+                when = datetime.fromtimestamp(path.stat().st_mtime, tz=timezone.utc)
+            except OSError:
+                when = None
+        out.append(_candidate("memory", title, f"What do you remember about {title}?", text, when, path.name, blocked))
+    return out

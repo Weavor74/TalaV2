@@ -12,10 +12,15 @@
   .\scripts\kagura-stack.ps1 -Check      # report what is present, change nothing
   .\scripts\kagura-stack.ps1             # pull/fetch anything missing, then start Tala
   .\scripts\kagura-stack.ps1 -NoStart    # prepare only
+  .\scripts\kagura-stack.ps1 -FetchPersona   # also fetch the 3B the persona LoRA is trained on and served with (~2 GB GGUF)
+
+  The weekly persona LoRA (docs/lora-pipeline.md) needs three more things, all on D:: a CUDA build of torch plus bitsandbytes in
+  the venv, the base weights in the Hugging Face cache, and a llama.cpp checkout for the GGUF converter. This script only reports them.
 #>
 param(
     [switch]$Check,
-    [switch]$NoStart
+    [switch]$NoStart,
+    [switch]$FetchPersona
 )
 
 $ErrorActionPreference = "Stop"
@@ -27,6 +32,15 @@ $env:TALA_MODELS_DIR  = if ($env:TALA_MODELS_DIR) { $env:TALA_MODELS_DIR } else 
 $env:OLLAMA_MODELS    = if ($env:OLLAMA_MODELS)   { $env:OLLAMA_MODELS }   else { "D:\ollama\models" }
 # Keep an HF cache the user already has on a non-C: drive; otherwise use the profile's.
 if (-not $env:HF_HOME -or $env:HF_HOME -match '^[Cc]:') { $env:HF_HOME = "$($env:TALA_MODELS_DIR)\hf-cache" }
+# The weekly persona LoRA (docs/lora-pipeline.md) refuses to run with its scratch space or caches on C:, and Windows' temp directory
+# defaults to C:. Point it at D: for this session unless it already is.
+foreach ($v in "TEMP", "TMP") {
+    $current = [Environment]::GetEnvironmentVariable($v, "Process")
+    if (-not $current -or $current -match '^[Cc]:') { [Environment]::SetEnvironmentVariable($v, "D:\caches\tmp", "Process") }
+}
+New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+# The llama.cpp checkout whose convert_lora_to_gguf.py turns a trained adapter into a GGUF LoRA (same commit as the engine binary).
+if (-not $env:TALA_LLAMA_CPP_SRC -and (Test-Path "D:\src\llama-build\src\convert_lora_to_gguf.py")) { $env:TALA_LLAMA_CPP_SRC = "D:\src\llama-build\src" }
 
 $LlamaServer = Join-Path $env:TALA_TOOLS_DIR "llama-cuda-copy\llama-server.exe"
 $Gguf        = Join-Path $env:TALA_MODELS_DIR "gguf\gpt-oss-20b-heretic.MXFP4_MOE.gguf"
@@ -63,6 +77,16 @@ Write-Host ("gpt-oss GGUF   : {0}  ({1})" -f $Gguf, $(if ($haveGguf) { "found" }
 $VoiceDir  = Join-Path $env:TALA_MODELS_DIR "voice"
 $haveVoice = (Test-Path (Join-Path $VoiceDir "kokoro\kokoro-v1_0.pth")) -and (Test-Path (Join-Path $VoiceDir "whisper\base.en\model.bin"))
 Write-Host ("voice models   : {0}  ({1})" -f $VoiceDir, $(if ($haveVoice) { "found" } else { "missing: run  .venv\Scripts\python scripts\setup_voice.py" }))
+
+# Persona adapter (docs/lora-pipeline.md): the Llama 3.2 3B the weekly LoRA rides on. Optional; nothing is fetched at run time.
+$PersonaGguf = Join-Path $env:TALA_MODELS_DIR "gguf\Llama-3.2-3B-Instruct-Q4_K_M.gguf"
+$havePersona = Test-Path $PersonaGguf
+Write-Host ("persona GGUF   : {0}  ({1})" -f $PersonaGguf, $(if ($havePersona) { "found" } else { "missing: pass -FetchPersona, or see docs/lora-pipeline.md" }))
+if (Test-Path $VenvPython) {
+    $torch = & $VenvPython -c "import torch; print(torch.__version__, torch.cuda.is_available())" 2>$null
+    $bnb   = & $VenvPython -c "import bitsandbytes" 2>$null; $haveBnb = ($LASTEXITCODE -eq 0)
+    Write-Host ("persona train  : torch {0}; bitsandbytes {1}" -f $(if ($torch) { $torch } else { "missing" }), $(if ($haveBnb) { "found" } else { "missing" }))
+}
 
 function Test-Swisseph {
     if (-not (Test-Path $VenvPython)) { return $false }
@@ -118,6 +142,15 @@ if (-not $haveGguf) {
     & python -m huggingface_hub.commands.huggingface_cli download mradermacher/gpt-oss-20b-heretic-GGUF `
         gpt-oss-20b-heretic.MXFP4_MOE.gguf --local-dir (Split-Path $Gguf)
     if (-not (Test-Path $Gguf)) { throw "GGUF download did not produce $Gguf" }
+}
+
+if ($FetchPersona -and -not $havePersona) {
+    Write-Host "Downloading the Llama 3.2 3B Instruct Q4_K_M GGUF (~2 GB) to $PersonaGguf ..."
+    New-Item -ItemType Directory -Force -Path (Split-Path $PersonaGguf) | Out-Null
+    & python -m pip install --quiet "huggingface_hub[cli]"
+    & python -m huggingface_hub.commands.huggingface_cli download bartowski/Llama-3.2-3B-Instruct-GGUF `
+        Llama-3.2-3B-Instruct-Q4_K_M.gguf --local-dir (Split-Path $PersonaGguf)
+    if (-not (Test-Path $PersonaGguf)) { throw "GGUF download did not produce $PersonaGguf" }
 }
 
 if ($NoStart) { Write-Host "Stack prepared."; return }

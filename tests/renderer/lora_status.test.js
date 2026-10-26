@@ -1,11 +1,11 @@
 'use strict';
 
 /**
- * The engine panel must say plainly that LoRA is not implemented.
+ * The engine panel must say plainly what LoRA is.
  *
- * The backend already reports `lora.implemented = false` on every engine, and
- * the panel ignored it, so the UI read as though adapters were something the
- * engine could do.
+ * The backend reports `lora: { implemented, note }` on every engine. While nothing could train or load an adapter the panel had
+ * to say "not implemented"; now that one can (python/inference/lora_trainer.py engine_status), it shows the backend's own
+ * one-line status instead, and still says nothing when an engine reports nothing at all.
  */
 
 const fs = require('node:fs');
@@ -30,8 +30,22 @@ describe('loraStatusNote', () => {
     assert.match(html, /nothing trains an adapter/);
   });
 
-  test('says nothing when LoRA is implemented', () => {
-    assert.equal(load()({ lora: { implemented: true, note: 'ready' } }), '');
+  test('shows the backend note, and no "not implemented", when LoRA is implemented', () => {
+    const html = load()({ lora: { implemented: true, note: 'adapter a-03 active; scheduled training is off' } });
+    assert.match(html, /LoRA: adapter a-03 active; scheduled training is off/);
+    assert.ok(!/not implemented/i.test(html), html);
+  });
+
+  test('says LoRA is on without inventing a note when an implemented engine sent none', () => {
+    const html = load()({ lora: { implemented: true } });
+    assert.match(html, /LoRA: /);
+    assert.ok(!/not implemented/i.test(html), html);
+  });
+
+  test('escapes an implemented note too', () => {
+    const html = load()({ lora: { implemented: true, note: '<script>alert(1)</script>' } });
+    assert.ok(!html.includes('<script'), html);
+    assert.match(html, /&lt;script&gt;/);
   });
 
   test('makes no claim about an engine that did not report LoRA status', () => {

@@ -579,6 +579,7 @@
               <button class="settings-sub-tab" data-panel="firewall">FIREWALL</button>
               <button class="settings-sub-tab" data-panel="channels">CHANNELS</button>
               <button class="settings-sub-tab" data-panel="logging">LOGGING</button>
+              <button class="settings-sub-tab" data-panel="lora" title="Review what Tala may learn from, and what her adapter is doing">LORA</button>
               <button class="settings-sub-tab" data-panel="architecture">ARCHITECTURE</button>
               <button class="settings-sub-tab" data-panel="about">ABOUT</button>
             </div>
@@ -1893,6 +1894,18 @@
                     <div class="fallback-rule-item"><span class="fallback-rule-bullet fallback-bullet-embedded">⟳</span><div class="fallback-rule-text"><strong>Switching</strong>: her sandbox, audit log and Python environment move to the new folder. Background jobs already running keep running in the old one until they finish or you stop them. The change is recorded in the audit log.</div></div>
                   </div>
                 </div>
+              </div>
+
+              <!-- ══ LORA REVIEW ═══════════════════════════════════════ -->
+              <!-- Built by renderer/lora_review.js from the lora.* RPCs; nothing is trained on unless it was approved here. -->
+              <div class="settings-panel" id="settings-panel-lora" hidden>
+                <div class="panel-toolbar">
+                  <div class="panel-toolbar-info">
+                    <h2 class="panel-heading">LoRA review</h2>
+                    <p class="panel-subheading">Tala's voice adapter is trained only on replies and memories you approve here. Anything the safety filters hold back (secrets, personal data, secured nodes) is listed with the reason and cannot be approved. The adapter is deployed only if it beats the current one on a fixed eval set; you can roll back at any time.</p>
+                  </div>
+                </div>
+                <div id="lora-review-root"></div>
               </div>
 
               <!-- ══ STORAGE ════════════════════════════════════════════ -->
@@ -3678,6 +3691,7 @@
   <script src="inference_gpu_ops.js"></script>
   <script src="lora_status.js"></script>
   <script src="learning_feedback.js"></script>
+  <script src="lora_review.js"></script>
   <script src="voice_ui.js"></script>
   <script src="latency_status.js"></script>
   <script src="gateway_status_ops.js"></script>

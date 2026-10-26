@@ -833,41 +833,40 @@ def _pi_sanitizer(data: dict) -> dict:
 @register_tool(
     name="compile_lora_adapter",
     description=(
-        "NOT IMPLEMENTED. Compiling a LoRA adapter into a node does nothing: no adapter is trained and no "
-        "inference engine loads one, so this always refuses and writes nothing."
+        "Report on the persona-adapter training schedule; it cannot start a run. One adapter is trained weekly, automatically, from the "
+        "memories and replies Steven approved, and served only if it beats the current one on an eval gate; it is not per node: this does "
+        "not write anything into the node you name."
     ),
 )
 async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> str:
     """
     NAME
-           compile_lora_adapter - NOT IMPLEMENTED; refuses rather than fabricate weights
+           compile_lora_adapter - report on the persona adapter's training schedule (it cannot start a run)
 
     SYNOPSIS
            await compile_lora_adapter(node_path, task_id)
 
     DESCRIPTION
-           Raises ``LoraTrainingUnavailable`` and leaves the node untouched.
+           This used to hash the node's file name into 256 floats and call it a LoRA; later it refused. Training is now real
+           (sdk/agent/lora_pipeline.py: dataset of approved items, QLoRA on the GPU, held-out scoring, GGUF LoRA, eval gate, deploy) but it
+           is not per node: one adapter is trained over the memories and replies Steven approved in the review queue, weekly at night,
+           when the system is idle, and only if switched on (lora_auto_train in learning.json); it is served only if it beats the
+           adapter being served. So this reports the state of that schedule. With ``now=True`` it starts a run in the background and
+           returns at once.
 
-           This used to hash the node's file name into 256 floats, wrap them
-           in a safetensors header and write them into the node as
-           ``lora-weights``, returning "Successfully compiled". Nothing was
-           trained and nothing loads an adapter, so each block was noise that
-           was then validated, selected and broadcast as if it were a model.
-           Callers that merely want to compile when it is real should use
-           :func:`compile_adapter_if_implemented`.
+           The zero-leak guard is kept: a node marked SECURED is refused here exactly as before, and the corpus builder applies the
+           same rule to every node it reads.
     """
     import json
     import re
     from pathlib import Path
 
-    from python.inference.lora_trainer import STATUS_NOTE, LoraTrainingUnavailable
+    from sdk.agent import lora_pipeline
 
     p = Path(node_path)
     if not p.exists():
         raise FileNotFoundError(f"HTML-NN node file not found: {node_path}")
 
-    # The zero-leak guard stays: a SECURED node must never be encoded into
-    # weights, and that has to hold from the day an adapter is real, not after.
     content = p.read_text(encoding="utf-8")
     for block_id in ("node-metadata", "node-state"):
         block = re.search(rf'<script[^>]*id="{block_id}"[^>]*>(.*?)</script>', content, re.DOTALL)
@@ -879,24 +878,27 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> st
             continue
         _pi_sanitizer(payload)
 
-    raise LoraTrainingUnavailable(f"{STATUS_NOTE} Nothing was written to {node_path}.")
+    # Report only. A run is started by the schedule (lora_auto_train) or by Steven's click in the LORA page, never by an agent: starting
+    # one takes the whole GPU and ends in a new model being served, and the agent asking has no say in what was approved.
+    from sdk.agent import lora_approvals
+
+    state = lora_pipeline.status()
+    minimum = lora_pipeline.settings()["lora_min_approved"]
+    ref = f" (task {task_id})" if task_id else ""
+    automatic = "on" if state["auto_train"] else "off"
+    return (f"Nothing was written to {node_path}{ref}: adapters are not trained per node, and this tool cannot start a run. One persona adapter is "
+            f"trained weekly, at night when the system is idle, from the replies and memories Steven approved ({lora_approvals.approved_count()} "
+            f"approved; a run needs {minimum}), and it is served only if it beats the current adapter on the eval gate (automatic training is "
+            f"{automatic}). Last run: {state['last_status'] or 'none yet'}"
+            f"{' (serving ' + state['active_adapter'] + ')' if state['active_adapter'] else ''}.")
 
 
 async def compile_adapter_if_implemented(node_path: str, task_id: str | None = None) -> bool:
-    """Compile an adapter into a node only when LoRA is real; report whether it did.
-
-    The goal engine, the dream cycle and behavioural-weight adjustment each ran
-    the compile as the last step of otherwise genuine work (a manifest change,
-    a rollback record). Skipping that step quietly, rather than logging a
-    failure on every goal, keeps the genuine work in place until LoRA exists.
-    """
-    from python.inference.lora_trainer import IMPLEMENTED
-
-    if not IMPLEMENTED:
-        log.debug("LoRA is not implemented; no adapter compiled for %s", node_path)
-        return False
-    await compile_lora_adapter(node_path, task_id)
-    return True
+    """Whether a node-level compile happened: never now. Callers (the goal engine, the dream, behavioural-weight adjustment) ran this
+    as the last step of genuine work; training is scheduled, not triggered per node, so there is nothing to do here and
+    nothing is logged as a failure."""
+    log.debug("adapters are trained on a schedule, not per node; nothing compiled for %s", node_path)
+    return False
 
 
 @register_tool(

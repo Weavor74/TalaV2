@@ -507,6 +507,15 @@ class HeartbeatScheduler:
         except Exception as exc:  # noqa: BLE001
             log.error("HeartbeatScheduler: failed to run dream sweep: %s", exc)
 
+        # The voice adapter's train -> deploy run rides the tick too, and only starts one: a run is hours, so it goes to the background.
+        try:
+            from sdk.agent.lora_pipeline import retrain_if_due
+
+            if (started := await retrain_if_due()) is not None:
+                log.info("HeartbeatScheduler: voice adapter training %s", started.get("status"))
+        except Exception as exc:  # noqa: BLE001
+            log.error("HeartbeatScheduler: failed to check whether to train: %s", exc)
+
         now = datetime.now(UTC)
         for job in self._jobs:
             if job.is_startup:

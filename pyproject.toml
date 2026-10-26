@@ -94,6 +94,11 @@ training = [
     "datasets==5.0.1",
     "transformers==5.15.0",
     "accelerate==1.14.0",
+    # llama.cpp's converters import it before they look at the tokenizer, even for Llama 3 (the lora_pipeline convert step).
+    "sentencepiece>=0.2.0",
+    # 4-bit (QLoRA) training of the 3B persona adapter on the 6 GB card (scripts/train_voice_adapter.py --quantize 4bit). Needs a CUDA
+    # build of torch: see INSTALL.md, "Persona adapter".
+    "bitsandbytes==0.50.2",
 ]
 # Local voice (docs/local-voice.md): every model runs on this machine, from files on D: (scripts/setup_voice.py).
 # Speech is Kokoro-82M (Apache-2.0). Deliberately NOT the `kokoro` package: it depends on phonemizer-fork (GPL-3.0) and
