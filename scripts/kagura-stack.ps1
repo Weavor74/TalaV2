@@ -32,6 +32,15 @@ $env:TALA_MODELS_DIR  = if ($env:TALA_MODELS_DIR) { $env:TALA_MODELS_DIR } else 
 $env:OLLAMA_MODELS    = if ($env:OLLAMA_MODELS)   { $env:OLLAMA_MODELS }   else { "D:\ollama\models" }
 # Keep an HF cache the user already has on a non-C: drive; otherwise use the profile's.
 if (-not $env:HF_HOME -or $env:HF_HOME -match '^[Cc]:') { $env:HF_HOME = "$($env:TALA_MODELS_DIR)\hf-cache" }
+# The weekly persona LoRA (docs/lora-pipeline.md) refuses to run with its scratch space or caches on C:, and Windows' temp directory
+# defaults to C:. Point it at D: for this session unless it already is.
+foreach ($v in "TEMP", "TMP") {
+    $current = [Environment]::GetEnvironmentVariable($v, "Process")
+    if (-not $current -or $current -match '^[Cc]:') { [Environment]::SetEnvironmentVariable($v, "D:\caches\tmp", "Process") }
+}
+New-Item -ItemType Directory -Force -Path $env:TEMP | Out-Null
+# The llama.cpp checkout whose convert_lora_to_gguf.py turns a trained adapter into a GGUF LoRA (same commit as the engine binary).
+if (-not $env:TALA_LLAMA_CPP_SRC -and (Test-Path "D:\src\llama-build\src\convert_lora_to_gguf.py")) { $env:TALA_LLAMA_CPP_SRC = "D:\src\llama-build\src" }
 
 $LlamaServer = Join-Path $env:TALA_TOOLS_DIR "llama-cuda-copy\llama-server.exe"
 $Gguf        = Join-Path $env:TALA_MODELS_DIR "gguf\gpt-oss-20b-heretic.MXFP4_MOE.gguf"

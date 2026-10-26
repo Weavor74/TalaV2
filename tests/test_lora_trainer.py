@@ -28,14 +28,15 @@ def test_until_it_is_verified_end_to_end_the_panel_says_so(monkeypatch):
 def test_once_it_works_the_panel_reports_what_is_true(monkeypatch):
     monkeypatch.setattr(lt, "IMPLEMENTED", True)
 
-    off = lt.engine_status()
-    assert off["implemented"] is True and off["auto_train"] is False and "scheduled training is off" in off["note"]
-    assert "no adapter served yet" in off["note"] and "no run yet" in off["note"]
+    on = lt.engine_status()
+    assert on["implemented"] is True and on["auto_train"] is True and "weekly at night" in on["note"], "automatic is the default"
+    assert "no adapter served yet" in on["note"] and "no run yet" in on["note"]
 
     from sdk.agent import node_learning as nl
 
-    nl.write_config({"lora_auto_train": True})
-    assert "weekly at night" in lt.engine_status()["note"]
+    nl.write_config({"lora_auto_train": False})
+    off = lt.engine_status()
+    assert off["auto_train"] is False and "scheduled training is off" in off["note"]
 
 
 def test_the_panel_still_renders_when_the_pipeline_cannot_be_read(monkeypatch):

@@ -239,3 +239,14 @@ async def test_listing_pages_and_filters_by_kind(_world):
 
     assert len(page["items"]) == 2 and page["total"] == 5
     assert {i["kind"] for i in (await la.list_candidates(kind="memory"))["items"]} == {"memory"}
+
+
+@pytest.mark.asyncio
+async def test_the_approved_count_is_what_is_on_record(_world):
+    assert la.approved_count() == 0
+    _world.rows["rows"] = [_row(CLEAN_REPLY), _row(SECOND_REPLY, prompt="And the quiet nights?")]
+    ids = [i["id"] for i in (await la.list_candidates())["items"]]
+    await la.decide(ids, "approved")
+    await la.decide([ids[0]], "rejected")
+
+    assert la.approved_count() == 1

@@ -33,7 +33,7 @@ def _run(monkeypatch, tmp_path, *argv):
         return real_extract(path, eras)
 
     monkeypatch.setattr(tva, "extract_turns", spying_extract)
-    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", *argv])
+    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--unapproved-dev", *argv])
     assert tva.main() == 0
     return events
 
@@ -57,7 +57,7 @@ def test_a_custom_corpus_directory_is_never_synced_into(monkeypatch, tmp_path):
     events = []
     monkeypatch.setattr(tva, "DEFAULT_CORPUS", tmp_path / "corpus")
     monkeypatch.setattr(tva, "sync_real_usage", lambda: events.append("sync"))
-    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--corpus", str(other)])
+    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--unapproved-dev", "--corpus", str(other)])
     assert tva.main() == 0
     assert events == []
 
@@ -148,7 +148,7 @@ def test_the_sources_flag_picks_the_eras_for_the_default_corpus(monkeypatch, tmp
     corpus = _corpus_with_three_eras(tmp_path)
     monkeypatch.setattr(tva, "DEFAULT_CORPUS", corpus)
     monkeypatch.setattr(tva, "sync_real_usage", lambda: None)
-    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--corpus", str(corpus)] + (["--sources", flag] if flag else []))
+    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--unapproved-dev", "--corpus", str(corpus)] + (["--sources", flag] if flag else []))
     assert tva.main() == 0
     assert f"examples          {expected}" in capsys.readouterr().out
 
@@ -156,7 +156,7 @@ def test_the_sources_flag_picks_the_eras_for_the_default_corpus(monkeypatch, tmp
 def test_a_custom_corpus_directory_is_read_whole_unless_told_otherwise(monkeypatch, tmp_path, capsys):
     corpus = _corpus_with_three_eras(tmp_path)
     monkeypatch.setattr(tva, "DEFAULT_CORPUS", tmp_path / "somewhere-else")
-    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--corpus", str(corpus)])
+    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--unapproved-dev", "--corpus", str(corpus)])
     assert tva.main() == 0
     assert "examples          3" in capsys.readouterr().out
 
@@ -170,7 +170,7 @@ def test_max_examples_trims_the_dataset_for_a_smoke_run(monkeypatch, tmp_path, c
         for i in range(30))
     (folder / "x.html").write_text(f'<article data-era="real-usage">{turns}</article>', encoding="utf-8")
     monkeypatch.setattr(tva, "DEFAULT_CORPUS", tmp_path / "elsewhere")
-    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--corpus", str(corpus), "--max-examples", "7"])
+    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", "--unapproved-dev", "--corpus", str(corpus), "--max-examples", "7"])
     assert tva.main() == 0
     assert "examples          7" in capsys.readouterr().out
 
@@ -272,3 +272,89 @@ def test_the_training_report_says_what_was_trained_and_what_it_cost(tmp_path):
     report = json.loads((tmp_path / "train_report.json").read_text(encoding="utf-8"))
     assert report == {"base": "b", "examples": 20, "rank": 16, "quantize": "4bit", "seconds": 12.3, "peak_vram_mb": 3951,
                       "final_loss": 1.25, "steps": 30}
+
+
+# --- the trainer trains on what was approved, and on nothing else unless told it is a development run ------------------------------
+
+
+TURN = ('<article data-era="approved-train"><div class="turn" data-speaker="user"><p>How was the run?</p></div>'
+        '<div class="turn" data-speaker="tala"><p>Quiet, and I would rather say so than dress it up.</p></div></article>')
+
+
+def _approved_dataset(tmp_path):
+    """The shape lora_dataset writes: <version>/manifest.html beside <version>/train/."""
+    version = tmp_path / "datasets" / "v0001"
+    (version / "train").mkdir(parents=True)
+    (version / "train" / "corpus.html").write_text(TURN, encoding="utf-8")
+    (version / "manifest.html").write_text('<article data-doc-target="system.lora-dataset" data-dataset-version="v0001"></article>', encoding="utf-8")
+    return version
+
+
+def _main(monkeypatch, *argv):
+    monkeypatch.setattr(sys, "argv", ["train_voice_adapter.py", "--dry-run", *argv])
+    return tva.main()
+
+
+def test_the_default_base_is_the_3b_the_adapter_is_served_on():
+    assert tva.DEFAULT_BASE_MODEL == "unsloth/Llama-3.2-3B-Instruct"
+
+
+def test_by_default_it_trains_on_the_latest_approved_dataset_and_never_syncs_the_unapproved_corpus(monkeypatch, tmp_path, capsys):
+    from sdk.agent import lora_dataset
+
+    version = _approved_dataset(tmp_path)
+    monkeypatch.setattr(lora_dataset, "load_manifest", lambda v=None: {"version": "v0001", "dir": str(version)})
+    synced = []
+    monkeypatch.setattr(tva, "sync_real_usage", lambda: synced.append(1))
+
+    assert _main(monkeypatch) == 0
+
+    assert "examples          1" in capsys.readouterr().out and synced == []
+
+
+def test_with_nothing_approved_it_says_what_to_do_and_trains_on_nothing(monkeypatch, capsys):
+    from sdk.agent import lora_dataset
+
+    monkeypatch.setattr(lora_dataset, "load_manifest", lambda v=None: None)
+
+    assert _main(monkeypatch) == 2
+
+    out = capsys.readouterr().out
+    assert "approve" in out.lower() and "--unapproved-dev" in out
+
+
+def test_a_corpus_that_is_not_an_approved_dataset_is_refused_without_the_development_flag(monkeypatch, tmp_path, capsys):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "x.html").write_text(TURN, encoding="utf-8")
+
+    assert _main(monkeypatch, "--corpus", str(corpus)) == 2
+
+    out = capsys.readouterr().out
+    assert "not an approved dataset" in out and "--unapproved-dev" in out
+
+
+def test_the_pipelines_corpus_argument_is_accepted_because_it_sits_in_an_approved_dataset(monkeypatch, tmp_path, capsys):
+    version = _approved_dataset(tmp_path)
+
+    assert _main(monkeypatch, "--corpus", str(version / "train"), "--no-real-usage") == 0
+
+    assert "examples          1" in capsys.readouterr().out
+
+
+def test_choosing_eras_of_the_unapproved_corpus_needs_the_development_flag(monkeypatch, tmp_path, capsys):
+    version = _approved_dataset(tmp_path)
+
+    assert _main(monkeypatch, "--corpus", str(version / "train"), "--sources", "all") == 2
+
+    assert "--unapproved-dev" in capsys.readouterr().out
+
+
+def test_the_development_flag_says_loudly_that_the_corpus_is_not_approved(monkeypatch, tmp_path, capsys):
+    corpus = tmp_path / "corpus"
+    corpus.mkdir()
+    (corpus / "x.html").write_text(TURN, encoding="utf-8")
+
+    assert _main(monkeypatch, "--unapproved-dev", "--corpus", str(corpus)) == 0
+
+    assert "UNAPPROVED" in capsys.readouterr().out

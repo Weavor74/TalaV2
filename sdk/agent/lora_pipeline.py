@@ -19,7 +19,8 @@ Why this shape, measured on Kagura (RTX 3050, 6 GB; 2026-10-25) rather than assu
 Nothing here downloads: the base weights come from the local Hugging Face cache, the converter from a local llama.cpp checkout.
 
 Configuration lives in learning.json (the learning settings file), all optional:
-    lora_auto_train     false   the scheduled run is off until this is true
+    lora_auto_train     true    the weekly run is automatic: she improves without being told to. false stops it. What she learns
+                                from is still only what Steven approved, so with nothing approved a week is a skip
     lora_interval_days  7       days between scheduled attempts
     lora_hour           2       local hour after which the scheduled run may start
     lora_idle_minutes   30      how long the system must have been idle first
@@ -39,6 +40,7 @@ import asyncio
 import collections
 import json
 import logging
+import ntpath
 import os
 import shutil
 import sys
@@ -55,9 +57,12 @@ MIN_GGUF_BYTES = 100_000  # an adapter, not a model
 STALE_RUN_HOURS = 24.0
 LOCAL_PRIORITY_BASE = 1000  # the server's own band for local providers
 RECALL_SAMPLE = 20
+FORBIDDEN_DRIVE = "C:"  # Kagura keeps everything on D:: training, its scratch space and its caches must not touch this drive
+HALT_CODE = 125  # what _exec answers when the emergency halt killed the command
+HALT_POLL_S = 5.0  # how often a long stage looks at the emergency halt
 
 DEFAULTS: dict[str, Any] = {
-    "lora_auto_train": False, "lora_interval_days": 7, "lora_hour": 2, "lora_idle_minutes": 30.0, "lora_min_approved": 15, "lora_epochs": 3,
+    "lora_auto_train": True, "lora_interval_days": 7, "lora_hour": 2, "lora_idle_minutes": 30.0, "lora_min_approved": 15, "lora_epochs": 3,
     "lora_rank": 16, "lora_max_seq": 768, "lora_keep": 3, "lora_hf_home": "", "lora_train_args": [], "llama_cpp_src": "",
 }
 #: Per-stage time allowed. A 3B on the GPU trains in minutes; the CPU fallback is hours.
@@ -132,6 +137,11 @@ def _generations_dir() -> Path:
     return _user_data() / "lora-generations"
 
 
+def is_running() -> bool:
+    """Whether a run is in progress: in this process, or a marker left by one that started less than a day ago."""
+    return _RUNNING or _marker_active(datetime.now())
+
+
 def status() -> dict[str, Any]:
     """What a person needs to know: is it on, what did it last do and how did it score, is one running, what is served."""
     from python.inference import persona_adapter
@@ -139,8 +149,8 @@ def status() -> dict[str, Any]:
     state, config = _read_state(), settings()
     served = persona_adapter.status()
     return {
-        "auto_train": bool(config["lora_auto_train"]), "running": _RUNNING or _marker_active(datetime.now()),
-        "stage": state.get("stage") if (_RUNNING or _marker_active(datetime.now())) else None,
+        "auto_train": bool(config["lora_auto_train"]), "running": is_running(),
+        "stage": state.get("stage") if is_running() else None,
         "last_status": state.get("last_status"), "last_stage": state.get("last_stage"), "last_reason": state.get("last_reason"),
         "last_run_id": state.get("last_run_id"), "last_adapter": state.get("last_adapter"), "last_scores": state.get("last_scores"),
         "last_trained_at": state.get("last_trained_at"),
@@ -153,8 +163,10 @@ def status() -> dict[str, Any]:
 
 
 async def _exec(args: list[str], *, timeout_s: float, env: dict[str, str] | None = None, low_priority: bool = False,
-                tail_lines: int = 60) -> tuple[int, str]:
-    """Run a command; ``(return code, the last lines of its output)``. A timeout kills it and returns 124."""
+                tail_lines: int = 60, watch_halt: bool = False) -> tuple[int, str]:
+    """Run a command; ``(return code, the last lines of its output)``. A timeout kills it and returns 124. With ``watch_halt`` the
+    emergency halt is looked at every HALT_POLL_S and kills the command, returning HALT_CODE: a halt that waited for a
+    multi-minute training to finish would stop nothing."""
     kwargs: dict[str, Any] = {}
     if low_priority:
         if sys.platform.startswith("win"):
@@ -169,12 +181,25 @@ async def _exec(args: list[str], *, timeout_s: float, env: dict[str, str] | None
         async for line in proc.stdout:
             tail.append(line.decode(errors="replace").rstrip())
 
+    async def _until_halted() -> None:
+        while not _halted():
+            await asyncio.sleep(HALT_POLL_S)
+
+    work = asyncio.ensure_future(asyncio.gather(_pump(), proc.wait()))
+    watcher = asyncio.ensure_future(_until_halted()) if watch_halt else None
     try:
-        await asyncio.wait_for(asyncio.gather(_pump(), proc.wait()), timeout=timeout_s)
-    except asyncio.TimeoutError:
+        done, _pending = await asyncio.wait({work, *([watcher] if watcher else [])}, timeout=timeout_s, return_when=asyncio.FIRST_COMPLETED)
+        if work in done:
+            work.result()
+            return int(proc.returncode or 0), "\n".join(tail)
         proc.kill()
+        if watcher is not None and watcher in done:
+            return HALT_CODE, "stopped: the emergency halt was engaged\n" + "\n".join(tail)
         return 124, f"timed out after {timeout_s:.0f}s\n" + "\n".join(tail)
-    return int(proc.returncode or 0), "\n".join(tail)
+    finally:
+        for task in (work, watcher):
+            if task is not None and not task.done():
+                task.cancel()
 
 
 def _converter_dir(config: dict[str, Any]) -> Path | None:
@@ -184,11 +209,35 @@ def _converter_dir(config: dict[str, Any]) -> Path | None:
     return None
 
 
-def _on_c_drive() -> str | None:
-    for name in ("TEMP", "TMP", "HF_HOME"):
-        value = os.environ.get(name, "")
-        if value.upper().startswith("C:"):
-            return f"{name}={value}"
+_CACHE_VARIABLES = ("TEMP", "TMP", "TMPDIR", "HF_HOME", "HF_HUB_CACHE", "TRANSFORMERS_CACHE", "HF_DATASETS_CACHE", "TORCH_HOME")
+
+
+def _resolved(path: Any) -> str:
+    """Where a path really is: absolute, with symlinks and junctions followed and the extended-length prefix dropped."""
+    real = os.path.realpath(os.path.abspath(str(path)))
+    return real[4:] if real.startswith("\\\\?\\") else real
+
+
+def _drive(path: Any) -> str:
+    """The drive a path names ("C:"), or "" when it names none. Pure text, so it reads the same on any platform."""
+    text = str(path or "")
+    if text.startswith("\\\\?\\"):
+        text = text[4:]
+    return ntpath.splitdrive(ntpath.normpath(text))[0].upper() if text else ""
+
+
+def _on_forbidden_drive(extra: dict[str, Any] | None = None) -> str | None:
+    """The first place training would read or write that is on FORBIDDEN_DRIVE, described, else None. It looks at where each path really
+    is (a junction from D: to C: is C:), at the temp directory actually in use (not only whether TEMP is set), at every variable that can
+    redirect a cache, and at the user-data root, where datasets, adapters and checkpoints go."""
+    places: dict[str, Any] = {name: os.environ[name] for name in _CACHE_VARIABLES if os.environ.get(name)}
+    places["the temp directory in use"] = tempfile.gettempdir()
+    places["the user data root"] = _user_data()
+    places.update(extra or {})
+    for name, value in places.items():
+        resolved = _resolved(value)
+        if FORBIDDEN_DRIVE in (_drive(value), _drive(resolved)):
+            return f"{name} = {value}" + ("" if str(value) == resolved else f" (really {resolved})")
     return None
 
 
@@ -242,7 +291,8 @@ async def _generation_eval(profile: Any, adapters: list[Path], configs: dict[str
         raise RuntimeError("the evaluation server could not be started")
     try:
         async with httpx.AsyncClient(base_url=handle.base_url, timeout=180.0) as client:
-            return await lora_eval.generation_scores(client, {k: (str(v) if v else None) for k, v in configs.items()}, eval_set, recall_items)
+            return await lora_eval.generation_scores(client, {k: (str(v) if v else None) for k, v in configs.items()}, eval_set, recall_items,
+                                                     should_stop=_halted)
     finally:
         await persona_adapter._stop_handle(handle)
 
@@ -250,7 +300,7 @@ async def _generation_eval(profile: Any, adapters: list[Path], configs: dict[str
 # --- the run --------------------------------------------------------------------------------------------------------------------
 
 
-async def run_pipeline(*, reason: str = "manual", force: bool = False, now: datetime | None = None) -> dict[str, Any]:
+async def _run_pipeline(*, reason: str = "manual", force: bool = False, now: datetime | None = None) -> dict[str, Any]:
     """One full run. Never raises; the result says what happened and, if it stopped, at which stage and why. ``force`` skips the
     "enough approved" and "something new" checks, never the safety ones."""
     global _RUNNING
@@ -259,9 +309,9 @@ async def run_pipeline(*, reason: str = "manual", force: bool = False, now: date
         return {"status": "busy", "stage": "start", "reason": "a training run is already in progress"}
     _RUNNING = True
     run_id = started.strftime("%Y%m%d-%H%M%S")
-    _write_state({"running_since": started.isoformat(), "last_reason_started": reason, "stage": "start"})
     scratch = _generations_dir() / ".work" / run_id
     try:
+        _write_state({"running_since": started.isoformat(), "last_reason_started": reason, "stage": "start"})
         result = await _run(run_id, scratch, force=force, reason=reason, started=started)
     except Exception as exc:  # a bug in here must not leave the marker set or the scratch files behind
         log.exception("lora_pipeline: unexpected error")
@@ -280,8 +330,12 @@ async def run_pipeline(*, reason: str = "manual", force: bool = False, now: date
         state.update(last_dataset_hash=result.get("dataset_hash"), last_scores=result.get("scores"), last_trained_at=started.astimezone().isoformat())
     if result["status"] == "deployed":
         state["last_adapter"] = result["adapter"]
-    _write_state(state)
-    _record_run(result, started)
+    try:
+        _write_state(state)
+    except OSError as exc:  # the run's outcome is still the answer; only the "last run" note could not be kept
+        log.warning("lora_pipeline: could not write the run state: %s", exc)
+    if result["status"] != "skipped":  # a week with nothing approved is the usual week; it is not worth a record of its own
+        _record_run(result, started)
     log.info("lora_pipeline: run %s -> %s (%s)", run_id, result["status"], result.get("reason") or result.get("adapter"))
     return result
 
@@ -302,8 +356,6 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
     config = settings()
     if _halted():
         return _skipped("guard", "the emergency halt is engaged")
-    if (c_drive := _on_c_drive()):
-        return _failed("guard", f"refusing to run with {c_drive}: training scratch space must not be on C:")
     profile = _profile()
     if profile is None or profile.persona is None:
         return _failed("guard", "the active inference profile has no persona model to train an adapter for")
@@ -316,6 +368,9 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
         return _failed("guard", f"the base weights for {profile.persona.base_model} are not in a local Hugging Face cache (it never downloads): "
                                 "set lora_hf_home in learning.json to the cache that holds them")
     base_dir, hf_home = base
+    if (where := _on_forbidden_drive({"the persona model": profile.persona.model_path, "the Hugging Face cache": hf_home,
+                                      "the base weights": base_dir, "the llama.cpp converter": converter})):
+        return _failed("guard", f"refusing to run: {where} is on {FORBIDDEN_DRIVE}; training, its scratch space and its caches must stay off it")
 
     # 1. the dataset: only what was approved
     _write_state({"stage": "dataset"})
@@ -333,15 +388,27 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
         return _failed("dataset", "the dataset has no held-out items to score the adapter on; approve more")
     dataset_dir = Path(built["dir"])
 
+    peft_dir = _generations_dir() / f"{built['version']}-{built['hash']}" / "adapter"  # keyed by dataset so an interrupted run resumes
+
+    def aborted(stage: str, *, keep_checkpoints: bool = False) -> dict[str, Any]:
+        """The run stopped because the emergency halt was engaged: nothing is registered, and what it made is removed (an interrupted
+        training keeps its checkpoints, which are what a resume starts from)."""
+        if not keep_checkpoints:
+            shutil.rmtree(peft_dir.parent, ignore_errors=True)
+        return {"status": "aborted", "stage": stage, "reason": f"the emergency halt was engaged at the {stage} stage; the run stopped and registered nothing"}
+
     # 2. train (the whole GPU is needed)
     _write_state({"stage": "train"})
     await _free_gpu(profile)
-    peft_dir = _generations_dir() / f"{built['version']}-{built['hash']}" / "adapter"  # keyed by dataset so an interrupted run resumes
+    if _halted():
+        return aborted("train", keep_checkpoints=True)
     env = {**os.environ, "HF_HUB_OFFLINE": "1", "HF_HOME": hf_home}
     train = [sys.executable, str(REPO_ROOT / "scripts" / "train_voice_adapter.py"), "--train", "--no-real-usage", "--corpus", str(dataset_dir / "train"),
              "--output", str(peft_dir), "--base", str(base_dir), "--quantize", "auto", "--target", "all", "--rank", str(config["lora_rank"]),
              "--epochs", str(config["lora_epochs"]), "--max-seq", str(config["lora_max_seq"]), "--resume", *map(str, config["lora_train_args"])]
-    code, output = await _exec(train, timeout_s=TIMEOUT_S["train"], env=env, low_priority=True)
+    code, output = await _exec(train, timeout_s=TIMEOUT_S["train"], env=env, low_priority=True, watch_halt=True)
+    if code == HALT_CODE:
+        return aborted("train", keep_checkpoints=True)
     weights = peft_dir / "adapter_model.safetensors"
     if code != 0:
         return _failed("train", f"the trainer exited with code {code}:\n{output}")
@@ -351,6 +418,8 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
         report = json.loads((peft_dir / "train_report.json").read_text(encoding="utf-8"))
     except (OSError, ValueError):
         report = {}
+    if _halted():
+        return aborted("persona")
 
     # 3. persona: held-out loss for the base, the served adapter and the candidate
     _write_state({"stage": "persona"})
@@ -363,7 +432,9 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
                "--max-seq", str(config["lora_max_seq"]), "--out", str(nll_file), "--adapter", f"candidate={peft_dir}"]
     if have_current:
         nll_cmd += ["--adapter", f"current={current_peft}"]
-    code, output = await _exec(nll_cmd, timeout_s=TIMEOUT_S["nll"], env=env, low_priority=True)
+    code, output = await _exec(nll_cmd, timeout_s=TIMEOUT_S["nll"], env=env, low_priority=True, watch_halt=True)
+    if code == HALT_CODE:
+        return aborted("persona")
     try:
         nll = json.loads(nll_file.read_text(encoding="utf-8"))
         candidate_nll = nll["candidate"]["nll"]
@@ -372,15 +443,22 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
         return _failed("persona", f"the held-out loss could not be computed (code {code}):\n{output}")
     if candidate_nll is None or reference_nll is None:
         return _failed("persona", "no held-out example could be scored")
+    if _halted():
+        return aborted("convert")
 
     # 4. convert to a GGUF LoRA
     _write_state({"stage": "convert"})
     gguf = scratch / f"{run_id}.gguf"
     convert_env = {**env, "PYTHONPATH": str(converter / "gguf-py") + os.pathsep + env.get("PYTHONPATH", "")}
     code, output = await _exec([sys.executable, str(converter / "convert_lora_to_gguf.py"), str(peft_dir), "--base", str(base_dir), "--outfile", str(gguf),
-                                "--outtype", "f16"], timeout_s=TIMEOUT_S["convert"], env=convert_env, low_priority=True)
+                                "--outtype", "f16"], timeout_s=TIMEOUT_S["convert"], env=convert_env, low_priority=True,
+                               watch_halt=True)
+    if code == HALT_CODE:
+        return aborted("convert")
     if code != 0 or not gguf.is_file() or gguf.stat().st_size < MIN_GGUF_BYTES or gguf.read_bytes()[:4] != b"GGUF":
         return _failed("convert", f"converting the adapter to GGUF failed (code {code}):\n{output}")
+    if _halted():
+        return aborted("eval")
 
     # 5. recall, safety and general sanity, through the persona server with the real GGUFs
     _write_state({"stage": "eval"})
@@ -389,8 +467,12 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
     configs: dict[str, Path | None] = {"base": None, "candidate": gguf, **({"current": Path(current["gguf"])} if have_current else {})}
     try:
         generated = await _generation_eval(profile, adapters, configs, eval_set, _recall_items(manifest))
+    except lora_eval.Halted:
+        return aborted("eval")
     except Exception as exc:
         return _failed("eval", f"the adapter could not be evaluated: {type(exc).__name__}: {exc}")
+    if _halted():
+        return aborted("gate")
 
     # 6. the gate
     _write_state({"stage": "gate"})
@@ -406,6 +488,8 @@ async def _run(run_id: str, scratch: Path, *, force: bool, reason: str, started:
         return {"status": "rejected", "stage": "gate", "reason": "; ".join(verdict["reasons"]), "kept": current["id"] if current else None, **common}
 
     # 7. deploy: register, activate, keep the newest few, make it a provider
+    if _halted():  # the last look before anything is written to the registry or made the one that is served
+        return aborted("deploy")
     _write_state({"stage": "deploy"})
     adapter_id = run_id
     root = persona_adapter.adapters_dir()
@@ -476,7 +560,7 @@ def start_background(*, reason: str = "ui", force: bool = False) -> dict[str, An
         return {"status": "busy", "reason": "a training run is already in progress"}
     if _halted():
         return {"status": "skipped", "reason": "the emergency halt is engaged"}
-    asyncio.get_running_loop().create_task(run_pipeline(reason=reason, force=force))
+    asyncio.get_running_loop().create_task(_run_pipeline(reason=reason, force=force))
     return {"status": "started"}
 
 
@@ -502,5 +586,5 @@ async def retrain_if_due(now: datetime | None = None) -> dict[str, Any] | None:
     if not await dreaming.system_idle(float(config["lora_idle_minutes"])):
         return None
     _write_state({"last_attempt_date": local.date().isoformat()})
-    asyncio.get_running_loop().create_task(run_pipeline(reason="scheduled", now=local))
+    asyncio.get_running_loop().create_task(_run_pipeline(reason="scheduled", now=local))
     return {"status": "started"}

@@ -833,18 +833,18 @@ def _pi_sanitizer(data: dict) -> dict:
 @register_tool(
     name="compile_lora_adapter",
     description=(
-        "Report on, or with now=true start, the persona-adapter training run. One adapter is trained weekly from the memories and replies "
-        "Steven approved, and served only if it beats the current one on an eval gate; it is not per node: this does not write anything "
-        "into the node you name."
+        "Report on the persona-adapter training schedule; it cannot start a run. One adapter is trained weekly, automatically, from the "
+        "memories and replies Steven approved, and served only if it beats the current one on an eval gate; it is not per node: this does "
+        "not write anything into the node you name."
     ),
 )
-async def compile_lora_adapter(node_path: str, task_id: str | None = None, now: bool = False) -> str:
+async def compile_lora_adapter(node_path: str, task_id: str | None = None) -> str:
     """
     NAME
-           compile_lora_adapter - the voice adapter's training run: report on it, or start it now
+           compile_lora_adapter - report on the persona adapter's training schedule (it cannot start a run)
 
     SYNOPSIS
-           await compile_lora_adapter(node_path, task_id, now=False)
+           await compile_lora_adapter(node_path, task_id)
 
     DESCRIPTION
            This used to hash the node's file name into 256 floats and call it a LoRA; later it refused. Training is now real
@@ -857,7 +857,6 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None, now: 
            The zero-leak guard is kept: a node marked SECURED is refused here exactly as before, and the corpus builder applies the
            same rule to every node it reads.
     """
-    import asyncio
     import json
     import re
     from pathlib import Path
@@ -879,13 +878,18 @@ async def compile_lora_adapter(node_path: str, task_id: str | None = None, now: 
             continue
         _pi_sanitizer(payload)
 
-    if now:
-        asyncio.get_running_loop().create_task(lora_pipeline.run_pipeline(reason="tool", force=True))
-        return "Persona adapter training started in the background (a GPU run takes minutes; the CPU fallback takes hours). Check the LoRA review page for the result."
+    # Report only. A run is started by the schedule (lora_auto_train) or by Steven's click in the LORA page, never by an agent: starting
+    # one takes the whole GPU and ends in a new model being served, and the agent asking has no say in what was approved.
+    from sdk.agent import lora_approvals
+
     state = lora_pipeline.status()
-    when = "off (set lora_auto_train in learning.json to enable it)" if not state["auto_train"] else "weekly at night, when idle"
-    return (f"Adapters are trained over all her chat sessions and HTML-NN skills and memories, not per node, so nothing was written to "
-            f"{node_path}. Scheduled training is {when}. Last run: {state['last_status'] or 'none yet'}"
+    minimum = lora_pipeline.settings()["lora_min_approved"]
+    ref = f" (task {task_id})" if task_id else ""
+    automatic = "on" if state["auto_train"] else "off"
+    return (f"Nothing was written to {node_path}{ref}: adapters are not trained per node, and this tool cannot start a run. One persona adapter is "
+            f"trained weekly, at night when the system is idle, from the replies and memories Steven approved ({lora_approvals.approved_count()} "
+            f"approved; a run needs {minimum}), and it is served only if it beats the current adapter on the eval gate (automatic training is "
+            f"{automatic}). Last run: {state['last_status'] or 'none yet'}"
             f"{' (serving ' + state['active_adapter'] + ')' if state['active_adapter'] else ''}.")
 
 

@@ -2,42 +2,36 @@
 """
 scripts/train_voice_adapter.py
 
-Train a LoRA adapter on Tala's voice from the pre-Weavor story corpus.
+Train the persona LoRA adapter on the replies and memories Steven approved.
 
-WHY THIS EXISTS
----------------
-JIT LoRA training was never implemented. _perform_training_sync wrote
-DUMMY_LORA_WEIGHTS_FOR_<node_id> when peft was missing and executed a bare
-`pass` when it was present, while the queue logged "Successfully trained LoRA"
-over the top of both. Every adapter in the repository is 37-51 bytes of ASCII.
+WHAT IT TRAINS ON
+-----------------
+Only the approved dataset (sdk/agent/lora_dataset.py): a versioned set of messages and her replies, built from the review queue
+(sdk/agent/lora_approvals.py) and filtered, never redacted, for secrets and PII. By default it reads the latest version's ``train/``
+(``--dataset v0003`` picks another). A corpus that was not approved is refused unless ``--unapproved-dev`` is given, and that flag is
+for developing the trainer itself, never for an adapter that will be served: it says so on every run.
 
-WHAT IT TRAINS, AND WHAT IT DELIBERATELY DOES NOT
--------------------------------------------------
-Voice and behaviour. A LoRA fitted to a few kilobytes of one node's prose will
-overfit and teach cadence, register and habit -- which is exactly what is wanted
-here and exactly why it must not be aimed at facts. Factual recall is the
-retrieval path's job, and retrieval is better at it at every scale. The node
-schema already draws this line: weight_behavior_influence is the axis this
-serves.
+The default base is Llama 3.2 3B Instruct (Meta, US-origin; the ungated unsloth mirror), the model the adapter is served on. The
+6 GB card trains it in 4-bit (QLoRA) with gradient checkpointing; the 8B does not fit (docs/lora-pipeline.md).
 
-The corpus is built for it. Each story carries turns marked
-data-speaker="tala", each opening with the literal "[Emotional State: X]"
-prefix that python/harness/memory.py writes into RP conversation memory, and
-some carrying tool calls inline. Training on that surface form keeps voice,
-emotion and tool habit on one axis rather than three.
+WHAT IT DELIBERATELY DOES NOT AIM AT
+------------------------------------
+Voice and habit. Factual recall is the retrieval path's job, and retrieval is better at it at every scale; the eval gate
+(sdk/agent/lora_eval.py) measures both. Only her reply is scored, never the message it answers.
 
-Before reading the corpus it refreshes real-usage/ (Tala's own replies in the renderer's chat sessions) and learning-events/
-(her HTML-NN skills and memories: the skill, lesson and remembered-fact nodes that use creates) from the live database and
-nodes -- see sdk/agent/real_usage_corpus.py for what is kept and why. Those two are what she trains on by default; the
-synthetic stories are used only with --sources all. Pass --no-real-usage to train on what is already on disk.
+HISTORY
+-------
+JIT LoRA training was never implemented. The old queue wrote DUMMY_LORA_WEIGHTS_FOR_<node_id> when peft was missing and executed a bare
+`pass` when it was present, while it reported success over the top of both. This script writes no placeholder and says so plainly when
+it cannot train.
 
 USAGE
-    python scripts/train_voice_adapter.py --dry-run      # show the dataset, no torch needed
-    python scripts/train_voice_adapter.py --train
-    python scripts/train_voice_adapter.py --train --base unsloth/Llama-3.2-1B-Instruct
+    python scripts/train_voice_adapter.py --dry-run               # the approved dataset as the model will see it, no torch needed
+    python scripts/train_voice_adapter.py --train                 # the latest approved dataset, 4-bit on the GPU where there is one
+    python scripts/train_voice_adapter.py --train --dataset v0002
+    python scripts/train_voice_adapter.py --dry-run --unapproved-dev --corpus data/training_corpus   # development only
 
-Training needs peft, trl, transformers and torch:
-    uv pip install peft trl transformers accelerate
+Training needs peft, trl, transformers, torch (a CUDA build for the GPU) and bitsandbytes: see INSTALL.md, "Persona adapter".
 """
 from __future__ import annotations
 
@@ -52,11 +46,10 @@ sys.path.insert(0, str(REPO_ROOT))
 DEFAULT_CORPUS = REPO_ROOT / "data" / "training_corpus"
 DEFAULT_OUTPUT = REPO_ROOT / "lora-generations" / "voice-adapter"
 
-# Llama 3.2 1B Instruct (Meta, US-origin) -- same family as the embedded
-# engine's default GGUF (Llama 3.2 3B), small enough to train on CPU. The
-# unsloth mirror is the ungated copy of meta-llama/Llama-3.2-1B-Instruct.
+# Llama 3.2 3B Instruct (Meta, US-origin): the model the persona adapter is served on (profiles.json "persona"), and the largest that
+# QLoRA-trains on a 6 GB card (the 8B does not fit). The unsloth mirror is the ungated copy of meta-llama/Llama-3.2-3B-Instruct.
 # Project rule: US-origin base models only.
-DEFAULT_BASE_MODEL = "unsloth/Llama-3.2-1B-Instruct"
+DEFAULT_BASE_MODEL = "unsloth/Llama-3.2-3B-Instruct"
 
 # Attributes are pulled from the captured tag rather than matched in sequence:
 # a greedy [^>]* between them swallows data-emotion before an optional group can
@@ -384,16 +377,52 @@ def sync_real_usage() -> None:
     print()
 
 
+def is_approved_dataset(path: Path) -> bool:
+    """Whether ``path`` is an approved dataset version (sdk/agent/lora_dataset.py) or one of its splits: a manifest sits in it or beside it."""
+    for folder in (path, path.parent):
+        manifest = folder / "manifest.html"
+        try:
+            if manifest.is_file() and 'data-doc-target="system.lora-dataset"' in manifest.read_text(encoding="utf-8", errors="ignore")[:4000]:
+                return True
+        except OSError:
+            continue
+    return False
+
+
+def resolve_approved_corpus(corpus: str | None, dataset: str | None) -> tuple[Path | None, str]:
+    """The directory to train on and why not, when there is none: an explicit ``--corpus`` must itself be approved; otherwise the
+    requested (or latest) approved dataset's ``train/``."""
+    if corpus:
+        path = Path(corpus)
+        if is_approved_dataset(path):
+            return path, ""
+        return None, (f"{path} is not an approved dataset (no lora-dataset manifest in it or beside it). Train on an approved dataset, or "
+                      "pass --unapproved-dev for a development run on a corpus that nobody approved.")
+    from sdk.agent import lora_dataset
+
+    manifest = lora_dataset.load_manifest(dataset)
+    if manifest is None:
+        return None, ("There is no approved dataset" + (f" named {dataset}" if dataset else "") + ". Approve replies and memories in "
+                      "Settings -> LORA first (the weekly run builds the dataset), or pass --unapproved-dev for a development run on a "
+                      "corpus that nobody approved.")
+    return Path(manifest["dir"]) / "train", ""
+
+
 def main() -> int:
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("--corpus", default=str(DEFAULT_CORPUS))
+    ap.add_argument("--corpus", default=None, help="a directory of HTML corpus pages: an approved dataset's train/ (default: the latest "
+                                                   "approved dataset). Anything else needs --unapproved-dev")
+    ap.add_argument("--dataset", default=None, help="an approved dataset version such as v0003 (default: the latest)")
+    ap.add_argument("--unapproved-dev", action="store_true",
+                    help="DEVELOPMENT ONLY: train on a corpus nobody approved (data/training_corpus, synced from the live database and "
+                         "nodes). Never for an adapter that will be served")
     ap.add_argument("--output", default=str(DEFAULT_OUTPUT))
     ap.add_argument("--base", default=DEFAULT_BASE_MODEL)
     ap.add_argument("--sources", choices=("real", "all"), default=None,
-                    help="real = her chat sessions and HTML-NN skills/memories only; all = also the synthetic stories. "
-                         "Default: real for the shared corpus, everything for a --corpus directory you point at")
+                    help="with --unapproved-dev: real = her chat sessions and HTML-NN skills/memories only; all = also the synthetic "
+                         "stories. Default: real for the shared corpus, everything for a --corpus directory you point at")
     ap.add_argument("--no-real-usage", action="store_true",
-                    help="skip refreshing the real-usage and learning-event corpora from the live database and nodes")
+                    help="with --unapproved-dev: skip refreshing the real-usage and learning-event corpora from the live database and nodes")
     ap.add_argument("--epochs", type=int, default=3)
     ap.add_argument("--max-examples", type=int, default=None,
                     help="train on only the newest N examples: a quick smoke run of the whole pipeline, not a real adapter")
@@ -409,15 +438,28 @@ def main() -> int:
     group.add_argument("--train", action="store_true")
     args = ap.parse_args()
 
-    corpus = Path(args.corpus)
-    if not args.no_real_usage and corpus.resolve() == DEFAULT_CORPUS.resolve():
-        sync_real_usage()  # only into the default corpus: the sync writes there, and a custom directory is the caller's own
-    if not corpus.is_dir():
-        print(f"Corpus directory not found: {corpus}")
-        return 2
-
-    use_real_only = args.sources == "real" or (args.sources is None and corpus.resolve() == DEFAULT_CORPUS.resolve())
-    examples = limit_examples(extract_turns(corpus, REAL_ERAS if use_real_only else None), args.max_examples)
+    if args.unapproved_dev:
+        print("*** UNAPPROVED development run: this corpus was not reviewed. Do not serve an adapter trained on it. ***\n")
+        corpus = Path(args.corpus) if args.corpus else DEFAULT_CORPUS
+        if not args.no_real_usage and corpus.resolve() == DEFAULT_CORPUS.resolve():
+            sync_real_usage()  # only into the default corpus: the sync writes there, and a custom directory is the caller's own
+        if not corpus.is_dir():
+            print(f"Corpus directory not found: {corpus}")
+            return 2
+        use_real_only = args.sources == "real" or (args.sources is None and corpus.resolve() == DEFAULT_CORPUS.resolve())
+        examples = limit_examples(extract_turns(corpus, REAL_ERAS if use_real_only else None), args.max_examples)
+    else:
+        if args.sources is not None:
+            print("--sources chooses eras of the unapproved corpus, so it needs --unapproved-dev.")
+            return 2
+        corpus_path, problem = resolve_approved_corpus(args.corpus, args.dataset)
+        if corpus_path is None:
+            print(problem)
+            return 2
+        if not corpus_path.is_dir():
+            print(f"Corpus directory not found: {corpus_path}")
+            return 2
+        examples = limit_examples(extract_turns(corpus_path), args.max_examples)
     if args.dry_run:
         return cmd_dry_run(examples)
     return cmd_train(examples, args.base, Path(args.output), args.epochs, args.rank, quantize=args.quantize, target=args.target,

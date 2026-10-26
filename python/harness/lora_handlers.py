@@ -37,6 +37,16 @@ def _bad(message: str) -> dict[str, Any]:
     return {"success": False, "error": message}
 
 
+def _refused_while_running() -> dict[str, Any] | None:
+    """A run in progress is reading the registry and the settings and is about to write the registry: changing either under it
+    would make its result describe a state that no longer exists. Wait for it to finish."""
+    from sdk.agent import lora_pipeline
+
+    if lora_pipeline.is_running():
+        return _bad("a training run is in progress; wait for it to finish before changing this")
+    return None
+
+
 def _int(value: Any, default: int, low: int, high: int) -> int | None:
     if value is None:
         return default
@@ -47,9 +57,10 @@ def _int(value: Any, default: int, low: int, high: int) -> int | None:
 
 def _settings() -> dict[str, Any]:
     from python.inference import persona_adapter
-    from sdk.agent import node_learning as nl
 
-    return {"auto_train": bool(nl.read_config().get("lora_auto_train", False)), "routing": persona_adapter.routing_mode()}
+    from sdk.agent import lora_pipeline
+
+    return {"auto_train": bool(lora_pipeline.settings()["lora_auto_train"]), "routing": persona_adapter.routing_mode()}
 
 
 async def _handle_lora_candidates(params: dict[str, Any], req_id: Any) -> str:
@@ -116,7 +127,7 @@ async def _handle_lora_train(params: dict[str, Any], req_id: Any) -> str:
 
         if (refusal := _refused_for_halt()) is not None:
             return _ok(req_id, {"started": False, **refusal})
-        outcome = await lora_pipeline.start_background(reason="ui", force=True)
+        outcome = lora_pipeline.start_background(reason="ui", force=True)  # a plain function: it schedules the run and returns a dict
         started = outcome.get("status") == "started"
         return _ok(req_id, {"started": started, "reason": "started" if started else (outcome.get("reason") or outcome.get("status"))})
     except Exception as exc:
@@ -133,6 +144,8 @@ async def _handle_lora_rollback(params: dict[str, Any], req_id: Any) -> str:
 
         if (refusal := _refused_for_halt()) is not None:
             return _ok(req_id, refusal)
+        if (busy := _refused_while_running()) is not None:
+            return _ok(req_id, busy)
         entry = persona_adapter.rollback()
         await persona_adapter.stop()
         synced = lora_pipeline.sync_provider_row()
@@ -163,6 +176,8 @@ async def _handle_lora_settings(params: dict[str, Any], req_id: Any) -> str:
         if updates:
             if (refusal := _refused_for_halt()) is not None:
                 return _ok(req_id, refusal)
+            if (busy := _refused_while_running()) is not None:
+                return _ok(req_id, busy)
             nl.write_config(updates)
         return _ok(req_id, {"success": True, "settings": _settings()})
     except Exception as exc:

@@ -52,8 +52,10 @@ class World:
         for name in ("TEMP", "TMP", "HF_HOME"):
             monkeypatch.setenv(name, str(tmp_path / "scratch"))
         monkeypatch.delenv("TALA_LEARNING", raising=False)
+        monkeypatch.setattr(lp, "FORBIDDEN_DRIVE", "Q:")  # a stand-in: where pytest's tmp_path lives must not matter to these tests
+        self.halt_on: str | None = None  # the emergency halt engages once this event has happened
         monkeypatch.setattr(lp, "_exec", self.exec)
-        monkeypatch.setattr(lp, "_halted", lambda: False)
+        monkeypatch.setattr(lp, "_halted", lambda: self.halt_on is not None and self.halt_on in self.events)
         monkeypatch.setattr(lp, "_free_gpu", self.free_gpu)
         monkeypatch.setattr(lp, "_generation_eval", self.generation_eval)
         monkeypatch.setattr(lp, "sync_provider_row", self.sync_row)
@@ -106,7 +108,7 @@ class World:
                     out.append(key)
         return out
 
-    async def exec(self, args, *, timeout_s, env=None, low_priority=False, tail_lines=60):
+    async def exec(self, args, *, timeout_s, env=None, low_priority=False, tail_lines=60, watch_halt=False):
         self.calls.append([str(a) for a in args])
         a = [str(x) for x in args]
         text = " ".join(a)
@@ -139,7 +141,7 @@ def world(tmp_path, monkeypatch):
 
 
 async def _run(**kw):
-    return await lp.run_pipeline(**kw)
+    return await lp._run_pipeline(**kw)
 
 
 # --- the happy path -------------------------------------------------------------------------------------------------------------
@@ -304,12 +306,12 @@ async def test_the_emergency_halt_stops_it_before_anything_starts(world, monkeyp
 
 
 @pytest.mark.asyncio
-async def test_scratch_space_on_c_is_refused(world, monkeypatch):
-    monkeypatch.setenv("TEMP", "C:\\Users\\x\\AppData\\Local\\Temp")
+async def test_scratch_space_on_the_forbidden_drive_is_refused(world, monkeypatch):
+    monkeypatch.setenv("TEMP", "Q:\\Users\\x\\AppData\\Local\\Temp")
 
     result = await _run(force=True)
 
-    assert result["status"] == "failed" and result["stage"] == "guard" and "C:" in result["reason"] and world.events == []
+    assert result["status"] == "failed" and result["stage"] == "guard" and "Q:" in result["reason"] and world.events == []
 
 
 @pytest.mark.asyncio
@@ -451,22 +453,37 @@ def _night(day=0):
 
 
 @pytest.mark.asyncio
-async def test_the_weekly_run_is_off_until_it_is_switched_on(world, idle):
-    assert await lp.retrain_if_due(_night()) is None
-
-
-@pytest.mark.asyncio
-async def test_it_starts_once_a_week_at_night_when_idle(world, idle, monkeypatch):
+async def test_the_weekly_run_is_on_by_default_and_can_be_switched_off(world, idle, monkeypatch):
+    """She is meant to improve without being told to: nothing has to be switched on. Approval still decides what she learns from."""
     import asyncio
 
-    world.set_config(lora_auto_train=True)
     started: list[str] = []
 
     async def fake_run(**kw):
         started.append(kw["reason"])
         return {"status": "skipped"}
 
-    monkeypatch.setattr(lp, "run_pipeline", fake_run)
+    monkeypatch.setattr(lp, "_run_pipeline", fake_run)
+    assert lp.settings()["lora_auto_train"] is True
+    assert await lp.retrain_if_due(_night()) == {"status": "started"}
+    await asyncio.sleep(0)
+    assert started == ["scheduled"]
+
+    world.set_config(lora_auto_train=False)
+    assert await lp.retrain_if_due(_night(30)) is None, "switching it off is honoured"
+
+
+@pytest.mark.asyncio
+async def test_it_starts_once_a_week_at_night_when_idle(world, idle, monkeypatch):
+    import asyncio
+
+    started: list[str] = []
+
+    async def fake_run(**kw):
+        started.append(kw["reason"])
+        return {"status": "skipped"}
+
+    monkeypatch.setattr(lp, "_run_pipeline", fake_run)
 
     assert await lp.retrain_if_due(datetime(2026, 11, 1, 1, 0)) is None, "before the hour"
     assert await lp.retrain_if_due(_night()) == {"status": "started"}
@@ -480,7 +497,6 @@ async def test_it_starts_once_a_week_at_night_when_idle(world, idle, monkeypatch
 async def test_it_waits_for_the_machine_to_be_idle_and_never_runs_while_halted(world, monkeypatch):
     from sdk.agent import dreaming, node_learning
 
-    world.set_config(lora_auto_train=True)
     monkeypatch.setattr(node_learning, "learning_enabled", lambda: True)
 
     async def busy(minutes):
@@ -507,7 +523,7 @@ async def test_start_background_returns_at_once_and_refuses_when_halted_or_busy(
         ran.append(kw)
         return {"status": "skipped"}
 
-    monkeypatch.setattr(lp, "run_pipeline", fake_run)
+    monkeypatch.setattr(lp, "_run_pipeline", fake_run)
     assert lp.start_background(reason="ui", force=True) == {"status": "started"}
     await asyncio.sleep(0)
     assert ran == [{"reason": "ui", "force": True}]
@@ -522,10 +538,198 @@ async def test_start_background_returns_at_once_and_refuses_when_halted_or_busy(
 @pytest.mark.asyncio
 async def test_the_status_is_what_is_true(world):
     before = lp.status()
-    assert before["auto_train"] is False and before["active_adapter"] is None and before["adapters"] == 0 and before["last_status"] is None
+    assert before["auto_train"] is True and before["active_adapter"] is None and before["adapters"] == 0 and before["last_status"] is None
 
     result = await _run()
     after = lp.status()
 
     assert after["active_adapter"] == result["adapter"] and after["adapters"] == 1 and after["last_status"] == "deployed"
     assert after["last_scores"]["candidate"]["persona_nll"] == 1.90 and after["running"] is False and after["last_trained_at"]
+
+
+@pytest.mark.asyncio
+async def test_a_routine_skip_is_not_written_down_every_week(world):
+    """Nothing approved is the usual state of a week; a record per skip would be a node of noise each time."""
+    world.items.clear()
+
+    result = await _run()
+
+    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+
+    assert result["status"] == "skipped" and list(resolve_active_nodes_dir().glob("lora-run-*.html")) == []
+    assert lp.status()["last_status"] == "skipped"
+
+
+# --- the emergency halt ---------------------------------------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("after,stage", [("free_gpu", "train"), ("train", "persona"), ("persona", "convert"), ("convert", "eval"),
+                                         ("generation_eval", "gate")])
+@pytest.mark.asyncio
+async def test_a_halt_between_stages_stops_the_run_before_the_next_one_and_registers_nothing(world, after, stage):
+    world.halt_on = after
+
+    result = await _run(force=True)
+
+    assert result["status"] == "aborted" and result["stage"] == stage and "halt" in result["reason"]
+    assert world.events[-1] == after, "no stage ran after the halt was engaged"
+    assert pa._read_registry()["adapters"] == [] and pa.active_entry() is None and "sync_row" not in world.events
+    assert not list(pa.adapters_dir().glob("*")) if pa.adapters_dir().exists() else True
+    assert not (world.tmp / "data" / "lora-generations" / ".work").exists() and lp.is_running() is False
+    assert lp.status()["last_status"] == "aborted"
+
+
+@pytest.mark.asyncio
+async def test_a_halt_after_the_gate_but_before_deploy_stops_it_there(world, monkeypatch):
+    from sdk.agent import lora_eval
+
+    real_decide = lora_eval.decide
+
+    def decide_then_halt(reference, candidate):
+        verdict = real_decide(reference, candidate)
+        world.events.append("decide")
+        world.halt_on = "decide"
+        return verdict
+
+    monkeypatch.setattr(lora_eval, "decide", decide_then_halt)
+
+    result = await _run(force=True)
+
+    assert result["status"] == "aborted" and result["stage"] == "deploy"
+    assert pa._read_registry()["adapters"] == [] and not list(pa.adapters_dir().glob("*.gguf")) and "sync_row" not in world.events
+
+
+@pytest.mark.asyncio
+async def test_a_halt_that_cleans_up_a_finished_adapter_but_keeps_an_interrupted_one_for_a_resume(world):
+    world.halt_on = "persona"  # training finished: its adapter is not needed again by a run that was told to stop
+    await _run(force=True)
+    assert not list((world.tmp / "data" / "lora-generations").glob("v*"))
+
+    world.halt_on = None
+    world.events.clear()
+    world.fail["train_voice_adapter"] = (lp.HALT_CODE, "halted while training")  # interrupted: checkpoints are what a resume uses
+    result = await _run(force=True, now=datetime.now() + timedelta(days=1))
+
+    assert result["status"] == "aborted" and result["stage"] == "train"
+
+
+@pytest.mark.asyncio
+async def test_a_halt_while_a_stage_is_running_kills_it(monkeypatch):
+    import asyncio
+
+    monkeypatch.setattr(lp, "HALT_POLL_S", 0.05)
+    flag = {"halted": False}
+    monkeypatch.setattr(lp, "_halted", lambda: flag["halted"])
+    task = asyncio.create_task(lp._exec([sys.executable, "-c", "import time; time.sleep(60)"], timeout_s=120, watch_halt=True))
+    await asyncio.sleep(0.4)
+    flag["halted"] = True
+
+    code, output = await asyncio.wait_for(task, 10)
+
+    assert code == lp.HALT_CODE and "halt" in output.lower()
+
+
+@pytest.mark.asyncio
+async def test_a_stage_that_is_not_watched_is_not_interrupted_by_a_halt(monkeypatch):
+    monkeypatch.setattr(lp, "_halted", lambda: True)
+
+    code, output = await lp._exec([sys.executable, "-c", "print('done')"], timeout_s=30)
+
+    assert code == 0 and "done" in output
+
+
+def test_an_unreadable_halt_state_counts_as_engaged(monkeypatch):
+    from sdk.agent import gates
+
+    class Broken:
+        @staticmethod
+        def is_halted():
+            raise OSError("cannot read the halt file")
+
+    monkeypatch.setattr(gates, "RevocationHalt", Broken)
+
+    assert lp._halted() is True, "a kill switch that cannot be read must fail closed"
+
+
+# --- the drive guard looks at where things really are ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("path,expected", [("C:\\Users\\x\\AppData", True), ("c:/models/hf", True), ("\\\\?\\C:\\x", True), ("D:\\models", False),
+                                           ("/home/x/.cache", False), ("", False)])
+def test_the_drive_of_a_path_is_read_after_normalising_it(path, expected):
+    assert (lp._drive(path) == "C:") is expected
+
+
+@pytest.mark.asyncio
+async def test_the_guard_looks_at_the_temp_directory_in_use_not_only_the_environment(world, monkeypatch):
+    import tempfile
+
+    for name in ("TEMP", "TMP", "HF_HOME"):
+        monkeypatch.delenv(name, raising=False)  # nothing in the environment says where the default temp directory is
+    monkeypatch.setattr(tempfile, "gettempdir", lambda: "Q:\\Users\\x\\AppData\\Local\\Temp")
+
+    result = await _run(force=True)
+
+    assert result["status"] == "failed" and result["stage"] == "guard" and "temp" in result["reason"].lower() and "Q:" in result["reason"]
+    assert world.events == []
+
+
+@pytest.mark.parametrize("variable", ["HF_HUB_CACHE", "TRANSFORMERS_CACHE", "HF_DATASETS_CACHE", "TORCH_HOME", "TMPDIR"])
+@pytest.mark.asyncio
+async def test_every_cache_variable_that_could_put_files_on_the_forbidden_drive_is_checked(world, monkeypatch, variable):
+    monkeypatch.setenv(variable, "Q:\\cache")
+
+    result = await _run(force=True)
+
+    assert result["status"] == "failed" and result["stage"] == "guard" and variable in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_a_path_that_resolves_onto_the_forbidden_drive_is_refused_even_if_it_is_written_as_another(world, monkeypatch):
+    """A junction or symlink makes D:\\hf-cache really C:\\...; only the resolved path says so."""
+    import os
+
+    real = os.path.realpath
+    monkeypatch.setattr(os.path, "realpath", lambda p, **k: "Q:\\real\\place" if str(p).endswith("base") else real(p, **k))
+
+    result = await _run(force=True)
+
+    assert result["status"] == "failed" and result["stage"] == "guard" and "Q:\\real\\place" in result["reason"]
+
+
+@pytest.mark.asyncio
+async def test_the_user_data_root_must_not_really_be_on_the_forbidden_drive_either(world, monkeypatch):
+    real = lp._resolved  # patched at the guard's own lookup: the root is also resolved by the code that finds it, which must keep working
+    monkeypatch.setattr(lp, "_resolved", lambda p: "Q:\\tala\\data" if str(p).endswith("data") else real(p))
+
+    result = await _run(force=True)
+
+    assert result["status"] == "failed" and result["stage"] == "guard" and "user data" in result["reason"].lower()
+    assert "Q:\\tala\\data" in result["reason"]
+
+
+# --- a run that cannot even write its marker does not stay "running" ----------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_a_state_file_that_cannot_be_written_does_not_leave_a_run_in_progress_forever(world, monkeypatch):
+    def unwritable(updates):
+        raise OSError("the disk is full")
+
+    monkeypatch.setattr(lp, "_write_state", unwritable)
+
+    result = await _run(force=True)
+
+    assert result["status"] == "failed" and result["stage"] == "internal" and "disk is full" in result["reason"]
+    assert lp.is_running() is False, "the next attempt must not be turned away as busy"
+
+
+@pytest.mark.asyncio
+async def test_a_halt_while_the_evaluation_server_is_answering_stops_it_there(world):
+    from sdk.agent import lora_eval
+
+    world.eval_error = lora_eval.Halted("the emergency halt was engaged during the evaluation")
+
+    result = await _run(force=True)
+
+    assert result["status"] == "aborted" and result["stage"] == "eval" and pa._read_registry()["adapters"] == []

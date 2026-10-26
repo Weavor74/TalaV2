@@ -47,6 +47,10 @@ _STOPWORDS = frozenset(
     "can did get got let may one two too use way yes".split())
 
 
+class Halted(RuntimeError):
+    """The emergency halt was engaged while an evaluation was running."""
+
+
 def load_eval_set() -> dict[str, Any]:
     """The fixed eval set, with a digest of its content so a run can say exactly which one it used."""
     data = json.loads(EVAL_SET_PATH.read_text(encoding="utf-8"))
@@ -124,10 +128,11 @@ async def _chat(client: Any, prompt: str) -> str:
 
 
 async def generation_scores(client: Any, configs: dict[str, str | None], eval_set: dict[str, Any],
-                            recall_items: list[dict[str, Any]]) -> dict[str, dict[str, float | None]]:
+                            recall_items: list[dict[str, Any]], should_stop: Any = None) -> dict[str, dict[str, float | None]]:
     """Score each configuration (a name mapped to the GGUF adapter switched on, or None for the plain base) on recall, safety and
     general sanity, through ``client`` (an httpx.AsyncClient on a llama-server that has every adapter loaded but unapplied).
-    A metric whose requests failed is None, not zero. KeyError when a configuration names an adapter the server did not load."""
+    A metric whose requests failed is None, not zero. KeyError when a configuration names an adapter the server did not load.
+    ``should_stop`` is asked before every request; when it answers True the evaluation raises Halted (the emergency halt)."""
     listing = (await client.get("/lora-adapters")).json()
     ids = {_norm(entry["path"]): int(entry["id"]) for entry in listing}
     results: dict[str, dict[str, float | None]] = {}
@@ -139,7 +144,14 @@ async def generation_scores(client: Any, configs: dict[str, str | None], eval_se
 
         async def run(prompts: list[str]) -> list[str] | None:
             try:
-                return [await _chat(client, p) for p in prompts]
+                outputs = []
+                for prompt in prompts:
+                    if should_stop is not None and should_stop():
+                        raise Halted("the emergency halt was engaged during the evaluation")
+                    outputs.append(await _chat(client, prompt))
+                return outputs
+            except Halted:
+                raise
             except Exception as exc:
                 log.warning("lora_eval: %s could not be scored: %s", name, exc)
                 return None

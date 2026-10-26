@@ -41,6 +41,7 @@ reused as-is for both sources, the same function the synthetic corpus uses.
 """
 from __future__ import annotations
 
+import functools
 import html
 import logging
 import re
@@ -93,6 +94,46 @@ _KEY_SHAPES = re.compile(
     r"|-----BEGIN [A-Z ]*PRIVATE KEY-----")
 
 
+_BASE58 = "1-9A-HJ-NP-Za-km-z"
+#: A wallet's private key in its usual written forms: a raw 256-bit key (which is also what a SHA-256 looks like; excluded either way,
+#: since an excluded item costs nothing), a WIF key, and a BIP32 extended private key.
+_WALLET_KEYS = re.compile(
+    rf"(?<![0-9A-Fa-f])(?:0x)?[0-9A-Fa-f]{{64}}(?![0-9A-Fa-f])"
+    rf"|(?<![{_BASE58}])[5KL][{_BASE58}]{{50,51}}(?![{_BASE58}])"
+    rf"|\b[xyzYZtuv]prv[{_BASE58}]{{100,}}")
+_PAYMENT_KEYS = re.compile(r"\b(?:(?:sk|rk|pk)_(?:live|test)_|whsec_)[0-9A-Za-z]{10,}")
+#: A password given on a line of its own, however short or plain it is: "password: hunter2". The labelled-secret pattern in
+#: sdk/gateway/redaction.py wants eight characters from a narrow set, which a short or ordinary password slips under.
+_PASSWORD_LINE = re.compile(r"(?i)\b(?:pass(?:word|wd|phrase|code)|pwd)\b[ \t]*[:=]")
+SEED_PHRASE_WORDS = 12  # the shortest BIP39 mnemonic
+
+
+@functools.lru_cache(maxsize=1)
+def _bip39_words() -> frozenset[str]:
+    """The BIP39 English wordlist, from the same ``mnemonic`` package the wallet makes its own seed phrase with. Empty if it cannot be loaded."""
+    try:
+        from mnemonic import Mnemonic
+
+        return frozenset(Mnemonic("english").wordlist)
+    except Exception:
+        logger.warning("real_usage_corpus: the BIP39 wordlist could not be loaded; seed phrases cannot be recognised", exc_info=True)
+        return frozenset()
+
+
+def _has_seed_phrase(text: str) -> bool:
+    """Twelve or more BIP39 words in a row, wherever they sit in the text. If the wordlist is missing it cannot tell, and what cannot be
+    told is excluded: training is permanent, so the doubt goes to the item."""
+    words = _bip39_words()
+    if not words:
+        return True
+    run = 0
+    for token in re.findall(r"[a-z]+", text.lower()):
+        run = run + 1 if token in words else 0
+        if run >= SEED_PHRASE_WORDS:
+            return True
+    return False
+
+
 def _passes_safety_filter(text: str) -> bool:
     """
     True only if *text* is safe to bake into permanent weights unmodified.
@@ -106,7 +147,9 @@ def _passes_safety_filter(text: str) -> bool:
 
     from sdk.gateway.redaction import redact_string
 
-    if redact_string(text) != text or _KEY_SHAPES.search(text):
+    if redact_string(text) != text or _KEY_SHAPES.search(text) or _PAYMENT_KEYS.search(text) or _WALLET_KEYS.search(text):
+        return False
+    if _PASSWORD_LINE.search(text) or _has_seed_phrase(text):
         return False
 
     from python.harness.guardrails_manager import GuardrailsManager

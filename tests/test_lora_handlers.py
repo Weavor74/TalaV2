@@ -138,7 +138,7 @@ async def test_status_pulls_the_pipeline_the_persona_the_counts_and_the_settings
     assert set(result) >= {"pipeline", "persona", "counts", "settings"}
     assert result["counts"]["pending"] == 1
     assert result["persona"]["active"] is None and result["persona"]["entries"] == []
-    assert result["settings"] == {"auto_train": False, "routing": "off"}
+    assert result["settings"] == {"auto_train": True, "routing": "off"}, "automatic training is the default; Steven does not have to ask for it"
     assert "last_status" in result["pipeline"]
 
 
@@ -205,7 +205,7 @@ async def test_settings_is_refused_while_halted(world):
 async def test_train_starts_the_pipeline_in_the_background_and_returns_at_once(world, monkeypatch):
     seen = {}
 
-    async def fake_start(**kwargs):
+    def fake_start(**kwargs):  # sync, like the real one: awaiting its dict raises TypeError
         seen.update(kwargs)
         return {"status": "started"}
 
@@ -219,7 +219,7 @@ async def test_train_starts_the_pipeline_in_the_background_and_returns_at_once(w
 
 @pytest.mark.asyncio
 async def test_train_says_why_it_did_not_start(world, monkeypatch):
-    async def busy(**kwargs):
+    def busy(**kwargs):
         return {"status": "busy", "reason": "a training run is already in progress"}
 
     monkeypatch.setattr(lora_pipeline, "start_background", busy, raising=False)
@@ -231,7 +231,7 @@ async def test_train_says_why_it_did_not_start(world, monkeypatch):
 
 @pytest.mark.asyncio
 async def test_train_is_refused_while_halted_and_never_reaches_the_pipeline(world, monkeypatch):
-    async def must_not_run(**kwargs):
+    def must_not_run(**kwargs):
         raise AssertionError("the pipeline was started while halted")
 
     monkeypatch.setattr(lora_pipeline, "start_background", must_not_run, raising=False)
@@ -245,7 +245,7 @@ async def test_train_is_refused_while_halted_and_never_reaches_the_pipeline(worl
 
 @pytest.mark.asyncio
 async def test_train_answers_with_an_error_not_an_exception_when_the_pipeline_breaks(world, monkeypatch):
-    async def broken(**kwargs):
+    def broken(**kwargs):
         raise RuntimeError("boom")
 
     monkeypatch.setattr(lora_pipeline, "start_background", broken, raising=False)
@@ -317,3 +317,77 @@ async def test_rollback_is_refused_while_halted(world, monkeypatch):
     world.state["halted"] = False
 
     assert result["success"] is False and result["halted"] is True and pa.active_entry()["id"] == "a-03"
+
+
+def test_start_background_really_is_a_plain_function():
+    """The handler awaited it once and "Train now" answered with an internal error. If it ever becomes async, the handler must change too."""
+    import inspect
+
+    assert not inspect.iscoroutinefunction(lora_pipeline.start_background)
+
+
+# --- nothing is changed under a run that is in progress -------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_rollback_is_refused_while_a_run_is_active(world, monkeypatch):
+    from python.inference import persona_adapter as pa
+
+    async def must_not_run(*a, **k):
+        raise AssertionError("the persona server or provider row was touched during a run")
+
+    monkeypatch.setattr(pa, "stop", must_not_run)
+    monkeypatch.setattr(lora_pipeline, "sync_provider_row", must_not_run, raising=False)
+    monkeypatch.setattr(lora_pipeline, "is_running", lambda: True)
+    _adapters(world)
+
+    result = (await call("lora.rollback"))["result"]
+
+    assert result["success"] is False and "run" in result["error"] and pa.active_entry()["id"] == "a-03"
+
+
+@pytest.mark.asyncio
+async def test_a_settings_change_is_refused_while_a_run_is_active_but_reading_is_not(world, monkeypatch):
+    monkeypatch.setattr(lora_pipeline, "is_running", lambda: True)
+
+    refused = (await call("lora.settings", {"auto_train": True}))["result"]
+    read = (await call("lora.settings"))["result"]
+
+    assert refused["success"] is False and "run" in refused["error"] and "lora_auto_train" not in nl.read_config()
+    assert read["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_rollback_and_settings_work_again_once_the_run_has_finished(world, monkeypatch):
+    from python.inference import persona_adapter as pa
+
+    async def noop():
+        return None
+
+    monkeypatch.setattr(pa, "stop", noop)
+    monkeypatch.setattr(lora_pipeline, "sync_provider_row", noop, raising=False)
+    monkeypatch.setattr(lora_pipeline, "is_running", lambda: False)
+    _adapters(world)
+
+    assert (await call("lora.rollback"))["result"]["success"] is True
+    assert (await call("lora.settings", {"auto_train": True}))["result"]["success"] is True
+
+
+@pytest.mark.asyncio
+async def test_train_now_works_through_the_real_start_background_not_just_a_fake(world, monkeypatch):
+    """The fakes above stand in for start_background; this one does not, so the handler and the real function are checked together."""
+    import asyncio
+
+    ran = []
+
+    async def stub_run(**kwargs):
+        ran.append(kwargs)
+        return {"status": "skipped"}
+
+    monkeypatch.setattr(lora_pipeline, "_run_pipeline", stub_run)
+    monkeypatch.setattr(lora_pipeline, "_halted", lambda: False)
+
+    result = (await call("lora.train"))["result"]
+    await asyncio.sleep(0)
+
+    assert result == {"started": True, "reason": "started"} and ran == [{"reason": "ui", "force": True}]

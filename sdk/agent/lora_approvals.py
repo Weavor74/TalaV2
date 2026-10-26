@@ -122,6 +122,11 @@ async def decide(ids: list[str], decision: str) -> dict[str, Any]:
     return {"updated": updated, "refused": refused}
 
 
+def approved_count() -> int:
+    """How many items are on record as approved. A count of decisions, not of what would survive the filters today."""
+    return sum(1 for d in _read_decisions().values() if d["decision"] == "approved")
+
+
 async def approved_items() -> list[dict[str, Any]]:
     """What the trainer may use: approved, still present with the same content, and passing the filters *now* (gathering runs them
     again, so a tightened rule or a swapped node drops an item that was approved earlier). Oldest first."""

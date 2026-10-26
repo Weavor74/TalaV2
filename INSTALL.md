@@ -405,8 +405,10 @@ uv pip install --python .venv\Scripts\python.exe -e ".[training]"        # peft,
 git clone https://github.com/ggml-org/llama.cpp D:\src\llama-build\src
 ```
 
-Then, in `learning.json`, point at the converter and (if your cache is not `HF_HOME`) the weights, and switch the weekly run on:
-`{"llama_cpp_src": "D:\\src\\llama-build\\src", "lora_hf_home": "D:\\hf-cache", "lora_auto_train": true}`.
+The weekly run is automatic (`lora_auto_train` defaults to true; set it to `false` to stop it): with nothing approved it simply skips.
+Point it at the converter and (if your cache is not `HF_HOME`) the weights in `learning.json`, or let `kagura-stack.ps1` set
+`TALA_LLAMA_CPP_SRC` and a D: temp directory for you (the run refuses to use C:):
+`{"llama_cpp_src": "D:\\src\\llama-build\\src", "lora_hf_home": "D:\\hf-cache"}`.
 
 ### Semantic Memory (Mem0)
 

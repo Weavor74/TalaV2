@@ -648,3 +648,52 @@ def test_a_bare_credential_is_excluded_even_with_no_label_beside_it(secret):
 
 def test_ordinary_prose_with_dashes_and_underscores_still_passes():
     assert ruc._passes_safety_filter("The sk-learn style of naming is not something I would call a secret; it is just a habit, really.") is True
+
+
+# --- credentials that are not "key=value": wallet keys, seed phrases, Stripe keys, password lines -----------------------------------
+
+
+SEED_12 = "abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon abandon about"
+SEED_24 = ("legal winner thank year wave sausage worth useful legal winner thank yellow legal winner thank year wave sausage "
+           "worth useful legal winner thank year")
+
+
+@pytest.mark.parametrize("secret", [
+    "4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+    "0x4c0883a69102937d6231471b5dbb6204fe5129617082792ae468d01a3f362318",
+    "5HueCGU8rMjxEXxiPuD5BDku4MkFqeZyd4dZ1jvhTVqvbTLvyTJ",
+    "L1aW4aubDFB7yfras2S1mN3bqg9nwySY8nkoLmJebSLD5BWv3ENZ",
+    "xprv9s21ZrQH143K3QTDL4LXw2F7HEK3wJUD2nW2nRk4stbPy6cq3jPPqjiChkVvvNKmPGJxWUtg6LnF5kejMRNNU3TGtRBeJgk33yuGBxrMPHi",
+    SEED_12,
+    SEED_24,
+    "sk_" + "live_" + "0123456789abcdefghijklmn",  # built at runtime: a literal would trip GitHub push protection
+    "rk_" + "live_" + "0123456789abcdefghijklmn",
+    "sk_" + "test_" + "0123456789abcdefghijklmn",
+    "whsec_" + "0123456789abcdefghijklmn",
+])
+def test_a_raw_wallet_key_seed_phrase_or_payment_key_is_excluded(secret):
+    assert ruc._passes_safety_filter(f"Here is what I wrote down for the wallet last night, keep it somewhere safe: {secret} and that is all of it.") is False
+    assert ruc._passes_safety_filter(secret) is False
+
+
+@pytest.mark.parametrize("line", ["password: hunter2", "Password = p@ss", "passwd: x", "pwd: abc", "login ok\npassword:swordfish\nthanks",
+                                  "The PASSPHRASE: correct horse battery staple"])
+def test_a_password_line_is_excluded_whatever_its_length_or_characters(line):
+    assert ruc._passes_safety_filter(f"For the router, as I noted earlier in the day, {line} is what it was set to, and that was a mistake.") is False
+
+
+@pytest.mark.parametrize("text", [
+    "I would rather abandon the plan about the legal winner than thank the year for a worth-while sausage, honestly.",
+    "She asked about the password policy and whether a password manager is worth the trouble for a small crew.",
+    "The commit abc1234 fixed it, and the sha 9f86d081884c7d659a2feaa0c55ad015a3bf4f1b made the build cache hit.",
+    "Just eleven words from that list, which is not enough for anything: abandon ability able about above absent absorb abstract absurd abuse access, and that is all.",
+    "The payment test went through on the sandbox account and the live account is untouched for now, as it should be.",
+])
+def test_ordinary_prose_that_merely_mentions_these_things_still_passes(text):
+    assert ruc._passes_safety_filter(text) is True
+
+
+def test_a_seed_phrase_is_found_wherever_it_sits_in_a_longer_message():
+    text = f"Right, so the thing I was telling you about is {SEED_12}, and then after that we moved on to the cargo manifest for Stanton."
+
+    assert ruc._passes_safety_filter(text) is False
