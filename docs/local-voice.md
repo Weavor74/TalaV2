@@ -152,6 +152,23 @@ slows both down: use `--device cpu` then. The run lowers its own priority, write
 `scripts/make_wake_fixtures.py` in held-out voices) through the detector: with a stand-in model everywhere, and with the real model on
 a machine that has it.
 
+### Measuring on your own voice
+
+Every number above is synthetic, and the two models measured so far (trained on Piper voices, trained on Kokoro voices) each do well on
+the speech engine they were trained on and badly on the other. What settles it is you saying the phrase. `scripts\real_wake_samples.py`
+records a guided set (the phrase said seven different ways, questions that start with it, names that sound like it, ordinary sentences,
+thirty seconds of your room) and scores the installed model and the retrained candidate on it:
+
+```powershell
+python scripts\real_wake_samples.py devices      # which microphone is the default (virtual devices often deliver silence)
+python scripts\real_wake_samples.py record       # about 6 minutes; Ctrl+C and run again to resume; --quick for about 3
+python scripts\real_wake_samples.py measure      # misses by how you said it, false wakes per hour, near misses accepted
+```
+
+The takes are your voice: they are saved only under `D:\models\voice\wakeword_real_samples` (never on C:, never in the repository, no
+network anywhere in the script), and the folder can be deleted when you are done. A model is worth using on your voice if it misses at most 10%
+of your takes of the phrase, wakes at most once an hour on everything else, and accepts at most 15% of the near misses.
+
 ## Latency
 
 Three numbers per spoken turn, measured on the runtime's own clock:
