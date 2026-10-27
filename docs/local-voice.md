@@ -191,6 +191,8 @@ written is a warning, never an error in the voice loop. `voice.status` returns t
 each one to the renderer, and the status bar shows it next to the model's speed:
 `voice: wake to first word 6.3 s · speech to text 850 ms · first audio 4.2 s`.
 
+`python scriptsoice_latency_report.py --last 5` prints the median of each number over the last five logged turns.
+
 ## Tests
 
 `tests/test_voice_session.py` (state machine, with barge-in as a table), `test_voice_vad.py` (segmentation on a fixture WAV),

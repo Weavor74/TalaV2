@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import asyncio
 import json
+from pathlib import Path
 import numpy as np
 import pytest
 
@@ -191,3 +192,17 @@ def test_playback_that_starts_for_a_turn_with_no_marks_logs_nothing(tmp_path, mo
     r = asyncio.run(go())
 
     assert "voice.latency" not in r.names() and not (tmp_path / "logs").exists()
+
+
+def test_the_report_script_summarises_the_log(tmp_path, monkeypatch, capsys):
+    monkeypatch.setenv("TALA_VOICE_LOG_DIR", str(tmp_path))
+    monkeypatch.setattr(vl, "_on_c_drive", lambda text: False)
+    for ms in (100, 300, 200):
+        vl.append({"turn_id": "t", "ms": {"stt_latency": ms}})
+    import importlib.util
+    spec = importlib.util.spec_from_file_location("voice_latency_report", Path(__file__).parent.parent / "scripts" / "voice_latency_report.py")
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    assert module.main(["--last", "3"]) == 0
+    out = capsys.readouterr().out
+    assert "last 3 turn" in out and "200" in out
