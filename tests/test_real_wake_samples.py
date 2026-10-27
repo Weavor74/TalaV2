@@ -254,3 +254,42 @@ def test_the_report_names_the_misses_by_how_they_were_said(tmp_path):
 
     styles = report["m"]["by_threshold"]["0.5"]["miss_by_style"]
     assert styles["quietly"] == 1.0 and styles["normally"] == 0.0
+
+
+# --- more of what is not the phrase ------------------------------------------------------------------------------------------------------
+
+
+def test_the_extra_negative_plan_is_a_minute_per_take_of_ordinary_life_without_the_phrase():
+    plan = rws.build_negative_plan(10)
+
+    assert len(plan) == 10 and all(t.kind == "speech_long" and t.seconds == 60.0 and not t.positive for t in plan)
+    assert len({t.name for t in plan}) == 10 and not {t.name for t in plan} & {t.name for t in rws.build_plan()}
+    assert not any("tala" in t.prompt.lower() for t in plan)
+    assert len({t.prompt for t in plan}) >= 4, "reading aloud, talking, the TV on, working: not the same minute ten times"
+
+
+def test_a_second_session_adds_to_the_manifest_instead_of_replacing_it(tmp_path):
+    first = rws.build_plan()[:3]
+    rws.run_record(first, tmp_path, record=lambda t: tone(t.seconds), say=lambda m: None, pause=lambda s: None)
+
+    rws.run_record(rws.build_negative_plan(2), tmp_path, record=lambda t: tone(t.seconds), say=lambda m: None, pause=lambda s: None)
+
+    names = [m["name"] for m in rws.load_manifest(tmp_path)]
+    assert names == [t.name for t in first] + ["speech_long-00", "speech_long-01"]
+
+
+def test_the_manifest_drops_a_take_whose_file_was_deleted(tmp_path):
+    plan = rws.build_plan()[:3]
+    rws.run_record(plan, tmp_path, record=lambda t: tone(t.seconds), say=lambda m: None, pause=lambda s: None)
+    (tmp_path / f"{plan[1].name}.wav").unlink()
+
+    rws.run_record(rws.build_negative_plan(1), tmp_path, record=lambda t: tone(t.seconds), say=lambda m: None, pause=lambda s: None)
+
+    assert plan[1].name not in [m["name"] for m in rws.load_manifest(tmp_path)]
+
+
+def test_thresholds_on_the_command_line_are_numbers_between_zero_and_one():
+    assert rws.parse_thresholds("0.1, 0.2,0.5") == (0.1, 0.2, 0.5)
+    for bad in ("", "a,b", "0", "1.5", "-0.2"):
+        with pytest.raises(SystemExit):
+            rws.parse_thresholds(bad)

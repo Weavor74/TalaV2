@@ -75,6 +75,30 @@ class Take:
         return self.kind.startswith("hey_tala")
 
 
+ACTIVITIES = (
+    "Read something aloud at your normal pace: an article, a book, anything long.",
+    "Talk about your day as if to a friend, with no phrase from this list in it.",
+    "Have the TV, a video or music on and say nothing; let it play.",
+    "Work or play as you normally do, talking to yourself or someone else now and then.",
+    "Read something aloud, a bit faster and more casually than before.",
+)
+
+
+def build_negative_plan(minutes: int = 10) -> list[Take]:
+    """More of what is not the phrase, a minute per take: false wakes are rare, so measuring them takes a lot of ordinary life."""
+    return [Take("speech_long", f"{ACTIVITIES[i % len(ACTIVITIES)]}   (60 seconds)", 60.0, f"speech_long-{i:02d}") for i in range(minutes)]
+
+
+def parse_thresholds(text: str) -> tuple[float, ...]:
+    try:
+        values = tuple(float(part) for part in text.split(","))
+    except ValueError:
+        raise SystemExit(f"--thresholds wants numbers separated by commas, not {text!r}") from None
+    if not values or any(not 0.0 < v < 1.0 for v in values):
+        raise SystemExit("--thresholds must be numbers strictly between 0 and 1")
+    return values
+
+
 def build_plan(phrase_takes: int = 15, question_takes: int = 8, near_miss_takes: int = 10, speech_takes: int = 12,
                room_seconds: float = 30.0) -> list[Take]:
     """The takes to record, in the order they are asked for. Each positive asks for a different way of saying it."""
@@ -190,7 +214,9 @@ def run_record(plan: list[Take], folder: Path, record: Callable[[Take], np.ndarr
         pause(0.5)
     if not dry_run:
         have = {p.stem for p in folder.glob("*.wav")}
-        write_manifest(folder, [asdict(t) | {"positive": t.positive} for t in plan if t.name in have])
+        rows = [r for r in load_manifest(folder) if r["name"] in have and r["name"] not in {t.name for t in plan}]
+        rows += [asdict(t) | {"positive": t.positive} for t in plan if t.name in have]
+        write_manifest(folder, rows)
 
 
 # --- measuring ---------------------------------------------------------------------------------------------------------------------------
@@ -307,10 +333,13 @@ def main(argv: list[str] | None = None) -> int:
     rec.add_argument("--out", default=None, help="folder for the takes (default: <models>/voice/wakeword_real_samples)")
     rec.add_argument("--retake", action="store_true", help="record every take again, replacing what is there")
     rec.add_argument("--quick", action="store_true", help="a shorter session: 8 phrases, 4 questions, 5 near misses, 6 sentences, 15 s of room")
+    rec.add_argument("--more-negatives", type=int, default=0, metavar="MINUTES",
+                     help="instead of the guided set, add MINUTES of ordinary life without the phrase (reading aloud, talking, the TV on)")
     mea = sub.add_parser("measure", help="score the models on the recorded takes")
     mea.add_argument("--samples", default=None)
     mea.add_argument("--model", action="append", default=[], help="NAME=PATH to a .onnx (default: the installed hey_tala and the retrained candidate)")
     mea.add_argument("--json", default=None, help="also write the full report here")
+    mea.add_argument("--thresholds", default=None, help="comma-separated thresholds to try (default: 0.3 to 0.95)")
     args = ap.parse_args(argv)
 
     if args.command == "devices":
@@ -331,7 +360,7 @@ def main(argv: list[str] | None = None) -> int:
         folder = Path(args.out) if args.out else default_samples_dir()
         refuse_c_drive(folder)
         device = _pick_device(sd, args.device)
-        plan = build_plan(8, 4, 5, 6, 15.0) if args.quick else build_plan()
+        plan = build_negative_plan(args.more_negatives) if args.more_negatives else (build_plan(8, 4, 5, 6, 15.0) if args.quick else build_plan())
         print("These recordings are your voice. They are saved only in", folder, "(never on C:, never in the repository),")
         print("they never leave this machine, and nothing here uses a network. Delete the folder when you are done.")
         print(f"\n{len(plan)} takes, about {sum(t.seconds + 3.2 for t in plan) / 60:.0f} minutes. Use your normal voice and your normal distance, "
@@ -359,7 +388,8 @@ def main(argv: list[str] | None = None) -> int:
         if candidate.is_file():
             models["retrained candidate"] = str(candidate)
     samples = Path(args.samples) if args.samples else default_samples_dir()
-    report = measure(samples, {k: Path(v) for k, v in models.items()}, wake_dir)
+    report = measure(samples, {k: Path(v) for k, v in models.items()}, wake_dir,
+                     thresholds=parse_thresholds(args.thresholds) if args.thresholds else THRESHOLDS)
     print(render(report))
     if args.json:
         Path(args.json).write_text(json.dumps(report, indent=2), encoding="utf-8")
