@@ -201,6 +201,56 @@ engine), `test_voice_latency.py`, `test_multimodal.py` (the old recorder stays g
 `test_voice_stt.py`, `test_train_wakeword.py`, and `test_voice_models.py` which runs the real models and is skipped where
 they are not installed. Jest: `tests/renderer/voice_ui.test.js`, `tests/electron/media_permissions.test.js`.
 
+## Measured on Kagura (2026-10-26)
+
+The live smoke for the "no button press, nothing leaves the machine" acceptance items: the real harness on a scratch database and a
+scratch vault, the real models (Silero, openWakeWord with the installed `hey_tala.onnx` at its shipped threshold 0.8, faster-whisper
+`base.en` on the CPU, Kokoro, the 20B main model through llama-server with the **full default system prompt and tools**), launched
+under a socket audit hook with the Hugging Face libraries **not** forced offline. **Stood in:** the person (Windows' own voices, which
+the wake model never trained on), the microphone and the speakers (a timer plays each sentence for its true duration). The microphone
+path through Electron and the browser's echo cancellation was **not** exercised.
+
+| | measured |
+|---|---|
+| ordinary speech with no wake word | ignored: never transcribed |
+| "Hey Tala, what time is it?", no button, 6 runs | all 6 woke (each run waited 8 s first, longer than the follow-up window); the phrase was stripped from the transcript |
+| interrupted mid-reply | playback stopped 1.9 s after the interrupting speech began; "Stop." and then the new question each started a turn, and the new question was answered |
+| follow-up with no wake word | worked ("And what day of the week is it today?") |
+| audio on disk | none written (the only file the run produced is the latency log) |
+
+| median of 5 warm runs | |
+|---|---|
+| `stt_latency` (end of speech to transcript) | 0.44 s |
+| `model_first_text` (turn start to the model's first token) | 26.0 s |
+| `first_sentence_tts` | 2.8 s |
+| `first_audio_to_playback` | 0.08 s |
+| `time_to_first_audio` (end of speech to first audio synthesised) | 43.2 s |
+| `wake_to_first_word` | 44.7 s |
+| first turn after launch (cold) | wake to first word 111 s |
+
+The wait is the 20B model, not the voice stack: speech-to-text, synthesis and hand-off add about 3.5 s. The 20B runs partly on the CPU
+here with the full default prompt and makes a tool call (`get_system_info`) before it answers; the same question with a minimal prompt
+and no tools came back in 7 to 9 s. The voice loop is fast enough; the default model on this machine is not yet a conversational one.
+
+**Network.** The audit hook saw 48 connections and 97 name lookups, every one to loopback (ports 11434 and the harness's own); no
+non-loopback address was contacted, and the psutil sample of the harness and its children (every 0.5 s) saw no remote connection. The
+audit hook watches `socket.connect`, which the Windows proactor event loop does not call, so name lookups and the connection sample
+are the evidence for asynchronous clients, not the hook alone.
+
+**What the first run found.** The first pass of this smoke was not clean: two spoken questions made the model call `web_search`, and with
+no search provider configured the search manager fell back to its DuckDuckGo crawler, which connected to `html.duckduckgo.com`
+carrying the query text, under a network guard whose default is deny. The provider branch asked the guard; the crawler paths never
+did. They do now (`python/harness/search_manager.py`, `tests/test_search_crawler_network_guard.py`), and the proof above is from a run
+on the fixed code, in which no `web_search` ran. **Voice turns can still search the web if you have a search provider the guard
+allows**: that is a tool the model chooses, and the guard, not the voice stack, decides whether it may reach out.
+
+Wake word, on a person: 23 takes of "Hey Tala" in the author's own voice, scored through the real detector. At the shipped threshold
+of 0.8 the installed model missed 35%; at 0.4 to 0.5, 22%; at 0.3, 13%. The median peak score was 0.997 and 20 of 23 takes peaked
+above 0.5, so the misses are takes it scored low, not takes it did not hear. The ordinary speech and near misses recorded (2.4 minutes)
+produced no false wake at any of these thresholds (near-miss peaks at most 0.012). **That is too little negative speech to certify a
+false-wake rate**; `real_wake_samples.py record --more-negatives` adds more. The Kokoro-trained candidate did worse on the same takes
+(17 to 26% missed, with 150 to 250 false wakes an hour) and was not installed.
+
 ## Measured on Kagura (2026-10-23)
 
 A live smoke against the real harness with the real models: Silero, openWakeWord with the trained `hey_tala` model, faster-whisper
@@ -245,4 +295,5 @@ present. `tests/test_voice_models.py` runs the real chain: what Kokoro says, fas
   is untested. (Its weights' unconfirmed origin was accepted on 2026-10-24.)
 * Microphone capture, echo cancellation on speakers, and playback have only been tested with fakes (Jest). Talking over her
   on speakers depends on the browser's echo cancellation working; headphones avoid the question.
-* The wake model has never heard a real person. If it misses you, use the pretrained fallback or lower `wake_threshold`.
+* The wake model misses about a third of one real voice's takes at the shipped threshold of 0.8 (see 2026-10-26); lowering `wake_threshold` to
+  0.3 to 0.4 cuts that to 13 to 22% but has been checked against only 2.4 minutes of ordinary speech. The default has not been changed.
