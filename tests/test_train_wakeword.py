@@ -27,11 +27,33 @@ def test_train_and_held_out_speakers_never_overlap():
     assert {s.label for s in train}.isdisjoint({s.label for s in test})
 
 
-def test_whole_voices_are_held_out_not_just_clips():
+def test_every_voice_is_a_kokoro_voice_or_a_windows_voice_and_nothing_gpl_is_involved():
     train, test = tw.split_speakers(seed=7)
-    train_voices = {s.name for s in train if s.speaker_id is None}
-    test_voices = {s.name for s in test if s.speaker_id is None}
-    assert train_voices.isdisjoint(test_voices) and {"en_US-kusal-medium", "en_US-lessac-medium"} <= test_voices
+    assert {s.kind for s in train} == {"kokoro"} and {s.kind for s in test} == {"kokoro", "sapi"}
+    assert "piper" not in {s.kind for s in train + test}
+
+
+def test_whole_voices_are_held_out_and_no_trained_blend_contains_one():
+    """A blend of a held-out voice with a trained one would leak the held-out speaker into training."""
+    train, test = tw.split_speakers(seed=7)
+    held_out = {s.name for s in test if s.kind == "kokoro"}
+    trained_parts = {part for s in train for part in s.name.split("+")}
+    assert len(held_out) == 4 and held_out.isdisjoint(trained_parts)
+    assert held_out <= set(tw.KOKORO_VOICES)
+
+
+def test_the_held_out_voices_include_both_genders():
+    _, test = tw.split_speakers(seed=7)
+    held = [s.name for s in test if s.kind == "kokoro"]
+    assert sum(v.startswith("af_") for v in held) == 2 and sum(v.startswith("am_") for v in held) == 2
+
+
+def test_blends_are_only_ever_training_speakers_and_each_names_its_mix():
+    train, test = tw.split_speakers(seed=7)
+    blends = [s for s in train if "+" in s.name]
+    assert len(blends) == tw.TRAIN_BLENDS and not any("+" in s.name for s in test)
+    assert all(s.blend is not None and 0.25 <= s.blend <= 0.75 for s in blends)
+    assert all("@" in s.label for s in blends)
 
 
 def test_the_windows_voices_are_only_ever_test_speakers():
@@ -39,17 +61,38 @@ def test_the_windows_voices_are_only_ever_test_speakers():
     assert not any(s.kind == "sapi" for s in train) and sum(s.kind == "sapi" for s in test) == 2
 
 
-def test_libritts_speakers_are_split_by_id_and_the_split_is_reproducible():
-    a = tw.split_speakers(seed=7)
-    b = tw.split_speakers(seed=7)
-    assert a == b
-    ids_train = {s.speaker_id for s in a[0] if s.speaker_id is not None}
-    ids_test = {s.speaker_id for s in a[1] if s.speaker_id is not None}
-    assert ids_train and ids_test and ids_train.isdisjoint(ids_test)
-
-
-def test_a_different_seed_holds_out_different_speakers():
+def test_the_split_is_reproducible_and_a_different_seed_holds_out_different_voices():
+    assert tw.split_speakers(seed=7) == tw.split_speakers(seed=7)
     assert tw.split_speakers(seed=7) != tw.split_speakers(seed=8)
+
+
+def test_a_blend_is_a_weighted_mix_of_two_voices_and_the_speed_reaches_the_model(monkeypatch):
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("scipy")  # resampling in the trainer; training-machine dependencies, not installed in CI
+
+    seen = {}
+
+    class FakeModel:
+        def __call__(self, phonemes, ref, speed):
+            seen.update(phonemes=phonemes, ref=ref, speed=speed)
+            return torch.zeros(2400)
+
+    class FakeEngine:
+        model = FakeModel()
+        device = "cpu"
+
+        def _phonemize(self, text):
+            return "abc"
+
+        def _voice(self, name):
+            return {"af_heart": torch.ones(10, 1, 4), "am_adam": torch.zeros(10, 1, 4)}[name]
+
+    monkeypatch.setattr(tw, "_kokoro_engine", lambda: FakeEngine())
+
+    audio = tw.synth_kokoro(tw.Speaker("kokoro", "af_heart+am_adam", blend=0.25), "hey tala", speed=1.2)
+
+    assert seen["speed"] == 1.2 and torch.allclose(seen["ref"], torch.full((1, 4), 0.25)), "0.25 of the first voice, 0.75 of the second"
+    assert audio.dtype == np.float32 and len(audio) == 1600, "24 kHz resampled to 16 kHz"
 
 
 # --- where it should fire ---------------------------------------------------------------------------------------------------------
@@ -166,6 +209,14 @@ def test_the_script_downloads_nothing():
     assert "hf_hub_download" not in source and "urlopen" not in source and "requests." not in source
 
 
+def test_the_script_no_longer_touches_piper():
+    """Piper is GPL-3.0 and the shipped voice is Kokoro; the synthetic clips come from Kokoro and the Windows voices only."""
+    import re
+
+    source = SCRIPT.read_text(encoding="utf-8")
+    assert not re.search(r"^\s*(?:import|from)\s+piper", source, re.M) and "synth_piper" not in source
+
+
 # --- trimming ---------------------------------------------------------------------------------------------------------------------
 
 
@@ -211,3 +262,43 @@ def test_when_nothing_clears_the_bar_the_default_threshold_and_its_shortfalls_ar
 def test_the_threshold_is_written_into_the_report_so_the_runtime_can_use_it():
     source = SCRIPT.read_text(encoding="utf-8")
     assert '"threshold": threshold' in source or "'threshold': threshold" in source
+
+
+# --- being a good neighbour: the card may be in use, and this runs for an hour -------------------------------------------------------------
+
+
+def test_the_device_is_chosen_without_surprises():
+    assert tw.choose_device("auto", cuda=True) == "cuda" and tw.choose_device("auto", cuda=False) == "cpu"
+    assert tw.choose_device("cpu", cuda=True) == "cpu"
+    with pytest.raises(SystemExit):
+        tw.choose_device("cuda", cuda=False)
+
+
+def test_the_default_is_to_ask_the_card_for_nothing_it_is_busy_with(monkeypatch):
+    """Synthesis is the slow part and the GPU is the fast way to do it, but "auto" can be wrong when a game is running on it, so the
+    command line has a plain --device cpu and the docs say when to use it."""
+    args = tw.build_parser().parse_args([])
+    assert args.device == "auto" and args.negative_ratio == 2.0 and args.normal_priority is False
+    args = tw.build_parser().parse_args(["--device", "cpu", "--negative-ratio", "1.25", "--normal-priority"])
+    assert args.device == "cpu" and args.negative_ratio == 1.25 and args.normal_priority is True
+
+
+def test_a_long_run_lowers_its_own_priority_and_survives_a_platform_that_cannot(monkeypatch):
+    psutil = pytest.importorskip("psutil")  # a training-machine dependency; CI does not install it
+
+    class Process:
+        niced = []
+
+        def nice(self, value=None):
+            self.niced.append(value)
+
+    monkeypatch.setattr(psutil, "Process", Process)
+    tw.lower_priority()
+    assert Process.niced, "it asked the operating system to run it below normal priority"
+
+    class Broken:
+        def nice(self, value=None):
+            raise psutil.AccessDenied()
+
+    monkeypatch.setattr(psutil, "Process", Broken)
+    tw.lower_priority()  # no exception

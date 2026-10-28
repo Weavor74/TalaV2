@@ -2,7 +2,7 @@
 python/harness/voice_chunker.py -- turn a streamed reply into sentences to speak, as soon as each is complete.
 
 The model's text arrives in arbitrary fragments. :class:`SentenceChunker` removes what must never be spoken (the model's
-``<thinking>`` blocks, ``<call:.../>`` tool tags, fenced code), reads markdown as plain words, and emits a sentence the
+``<thinking>`` blocks, tool-call tags in any shape, ``<code>`` blocks, fenced code), reads markdown as plain words, and emits a sentence the
 moment it ends, so the first one can be synthesised and played while the rest is still being generated.
 
 Rules worth knowing:
@@ -24,16 +24,24 @@ _ABBREVIATIONS = frozenset({
 })
 _TAGS = (
     ("<thinking>", "</thinking>"),
-    ("<call:", ">"),
+    ("<code>", "</code>"),
     ("```", "```"),
 )
+# A tool call in any of the shapes a model writes it: `<call:tool a="b"/>`, `<call name="x"/>`, `<call:tool>body</call:tool>`, or
+# `<call><code><call name="x"/></code></call>`. A self-closing tag is dropped alone; an opening tag hides everything up to its close.
+_CALL_OPEN = "<call"
+_CALL_CLOSE = re.compile(r"</call(?::[\w.]+)?>")
+_OPENERS = tuple(o for o, _ in _TAGS) + (_CALL_OPEN,)
+_ANY_TAG = re.compile(r"</?[A-Za-z][^<>]*>")          # whatever tag is left: spoken text never contains one
+_OPEN_TAG_TAIL = re.compile(r"<[/A-Za-z][^<>]*$")      # the start of a tag whose end has not arrived yet; "3 < 5" is not one
+_SKIP_TAIL = 48                                        # enough of a hidden block's end to still recognise a closer split across fragments
 _BOUNDARY = re.compile(r"([.!?]+[\"')\]*_]*)(\s|$)|\n")
 
 
 def _held_prefix_len(text: str) -> int:
     """How many trailing characters could be the start of an opening tag that has not fully arrived."""
     keep = 0
-    for opener, _closer in _TAGS:
+    for opener in _OPENERS:
         for n in range(1, len(opener)):
             if text.endswith(opener[:n]):
                 keep = max(keep, n)
@@ -54,7 +62,7 @@ class SentenceChunker:
         self.max_chars = max_chars
         self.min_chars = min_chars
         self._raw = ""
-        self._skip_until: str | None = None
+        self._skip: re.Pattern[str] | None = None
         self._visible = ""
         self._carry = ""
         self._emitted_any = False
@@ -63,23 +71,38 @@ class SentenceChunker:
 
     def _filter(self) -> None:
         while self._raw:
-            if self._skip_until is not None:
-                at = self._raw.find(self._skip_until)
-                if at < 0:
-                    self._raw = self._raw[-(len(self._skip_until) - 1):] if len(self._skip_until) > 1 else ""
+            if self._skip is not None:
+                found = self._skip.search(self._raw)
+                if not found:
+                    self._raw = self._raw[-_SKIP_TAIL:]
                     return
-                self._raw = self._raw[at + len(self._skip_until):]
-                self._skip_until = None
+                self._raw = self._raw[found.end():]
+                self._skip = None
                 continue
-            hits = [(self._raw.find(op), op, cl) for op, cl in _TAGS if self._raw.find(op) >= 0]
+            hits = [(self._raw.find(op), op) for op in _OPENERS if self._raw.find(op) >= 0]
             if hits:
-                at, opener, closer = min(hits)
-                self._visible += self._raw[:at]
+                at, opener = min(hits)
+                self._visible += _ANY_TAG.sub("", self._raw[:at])
+                if opener == _CALL_OPEN:
+                    end = self._raw.find(">", at)
+                    if end < 0:  # the tag has not finished arriving; keep it whole until it has
+                        self._raw = self._raw[at:]
+                        return
+                    tag = self._raw[at:end + 1]
+                    self._raw = self._raw[end + 1:]
+                    if not tag.endswith("/>"):
+                        self._skip = _CALL_CLOSE
+                    continue
+                closer = dict(_TAGS)[opener]
                 self._raw = self._raw[at + len(opener):]
-                self._skip_until = closer
+                self._skip = re.compile(re.escape(closer))
                 continue
             keep = _held_prefix_len(self._raw)
-            self._visible += self._raw[:len(self._raw) - keep] if keep else self._raw
+            partial = _OPEN_TAG_TAIL.search(self._raw)
+            if partial:
+                keep = max(keep, len(self._raw) - partial.start())
+            speakable = self._raw[:len(self._raw) - keep] if keep else self._raw
+            self._visible += _ANY_TAG.sub("", speakable)
             self._raw = self._raw[len(self._raw) - keep:] if keep else ""
             return
 
@@ -136,10 +159,10 @@ class SentenceChunker:
 
     def flush(self) -> list[str]:
         """The end of the reply: whatever is left, including a carried fragment. A skipped block that never closed is dropped."""
-        if self._skip_until is None:
-            self._visible += self._raw
+        if self._skip is None:
+            self._visible += _OPEN_TAG_TAIL.sub("", _ANY_TAG.sub("", self._raw))
         self._raw = ""
-        self._skip_until = None
+        self._skip = None
         out: list[str] = []
         tail = _clean((self._carry + " " + self._visible).strip())
         self._carry, self._visible = "", ""

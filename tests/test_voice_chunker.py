@@ -116,3 +116,50 @@ def test_flush_is_idempotent():
 
 def test_a_question_mark_ends_a_sentence_and_a_tiny_one_joins_the_next():
     assert speak(["Really? Yes! Absolutely."]) == ["Really?", "Yes! Absolutely."]
+
+
+# --- markup is never spoken, in whatever shape the model wrote it ----------------------------------------------------------
+#
+# 2026-10-24, the real app: a reply ending `<call><code><call name="update_user_model" focus="memory" max_turns="3"/></code></call>`
+# was read aloud. The chunker only knew the `<call:tool ...>` form.
+
+LEAK = ('I am doing well, Weavor. My memory indicates I am running smoothly. '
+        '<call><code><call name="update_user_model" focus="memory" max_turns="3"/></code></call>')
+
+
+def _spoken(fragments):
+    return " ".join(speak(fragments))
+
+
+@pytest.mark.parametrize("size", [1, 2, 3, 5, 7, 400])
+def test_the_leaked_call_markup_is_never_spoken_however_the_fragments_fall(size):
+    fragments = [LEAK[i:i + size] for i in range(0, len(LEAK), size)]
+    heard = _spoken(fragments)
+    assert "I am doing well, Weavor." in heard and "running smoothly" in heard
+    for forbidden in ("<", ">", "call", "code", "update_user_model", "name=", "focus", "max_turns"):
+        assert forbidden not in heard, f"{forbidden!r} was spoken: {heard!r}"
+
+
+@pytest.mark.parametrize("markup", [
+    '<call name="x" a="1"/>',
+    '<call:read_file path="a.txt" />',
+    '<call:web_search query="q">a body that is code, not speech</call:web_search>',
+    "<code>print('this is code, not speech')</code>",
+    "<b>bold</b>",
+])
+def test_markup_in_other_shapes_is_not_spoken_either(markup):
+    heard = _spoken(["Sure thing. ", markup, " All done."])
+    assert "Sure thing." in heard and "All done." in heard
+    for forbidden in ("<", ">", "call", "print", "this is code", "a body", "path="):
+        assert forbidden not in heard, f"{forbidden!r} was spoken: {heard!r}"
+
+
+def test_a_comparison_is_not_mistaken_for_a_tag():
+    assert speak(["Is 3 < 5 true? Yes, and 7 > 2 as well."]) == ["Is 3 < 5 true?", "Yes, and 7 > 2 as well."]
+
+
+def test_a_tag_split_across_fragments_is_held_until_it_is_whole():
+    c = SentenceChunker()
+    assert c.feed("Okay. <ca") == ["Okay."]
+    assert c.feed('ll name="x"') == []
+    assert c.feed("/> Next sentence. ") == ["Next sentence."]

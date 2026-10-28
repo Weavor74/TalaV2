@@ -1,12 +1,11 @@
 """
 multimodal.py — Tala Desktop-Native Multimodality
 =================================================
-Handles Screen Context (screenshots) and a fixed-length voice capture (local faster-whisper)
-gracefully failing if TALA_HEADLESS is active.
+Handles Screen Context (screenshots), gracefully failing if TALA_HEADLESS is active.
 
-The conversational voice loop -- wake word, voice-activity detection, streaming transcripts, spoken replies and barge-in --
-is python/harness/voice_runtime.py; the renderer owns that microphone. ``transcribe_voice`` here is the older harness-side
-recorder, kept for callers that want one fixed-length capture, and it now uses the same local engine.
+Listening is not here. The conversational voice loop -- wake word, voice-activity detection, streaming transcripts, spoken replies
+and barge-in -- is python/harness/voice_runtime.py, and the renderer owns that microphone. The fixed five-second harness-side
+recorder that used to live in this file was removed: nothing called it, and it was a second place a microphone could be opened.
 """
 import base64
 import io
@@ -39,21 +38,6 @@ except Exception as exc:  # noqa: BLE001 - optional dep, degrade don't crash
     pyautogui = None
     Image = None
 
-try:
-    import sounddevice as sd
-    import numpy as np
-except Exception as exc:  # noqa: BLE001 - optional dep, degrade don't crash
-    logger.warning(
-        "Voice dependencies unavailable (%s: %s); transcription disabled.",
-        type(exc).__name__, exc,
-    )
-    sd = None
-    np = None
-
-# The recogniser is loaded once, on first use, from D: (python/harness/voice_stt.py)
-_stt = None
-
-
 async def get_screen_context() -> dict[str, Any]:
     """Capture the active screen, return base64 encoded image."""
     if settings.IS_HEADLESS:
@@ -76,35 +60,4 @@ async def get_screen_context() -> dict[str, Any]:
         }
     except Exception as e:
         logger.exception("Failed to capture screen context")
-        return {"error": str(e)}
-
-
-async def transcribe_voice(duration_seconds: int = 5) -> dict[str, Any]:
-    """Record audio for duration_seconds and transcribe it locally with faster-whisper."""
-    global _stt
-
-    if settings.IS_HEADLESS:
-        return {"error": "Tala is running in embedded/headless mode and cannot access the Microphone."}
-
-    if not sd or not np:
-        return {"error": "Voice dependencies (sounddevice, numpy) are not installed."}
-
-    try:
-        import asyncio
-
-        from python.harness.voice_stt import SAMPLE_RATE, SttEngine
-
-        if _stt is None:
-            _stt = SttEngine()
-            await asyncio.to_thread(_stt.load)
-
-        logger.info("Recording audio for %s seconds...", duration_seconds)
-        recording = sd.rec(int(duration_seconds * SAMPLE_RATE), samplerate=SAMPLE_RATE, channels=1, dtype="float32")
-        sd.wait()
-        logger.info("Recording finished. Transcribing...")
-
-        text = await asyncio.to_thread(_stt.transcribe, np.squeeze(recording))
-        return {"text": text}
-    except Exception as e:
-        logger.exception("Failed to transcribe voice")
         return {"error": str(e)}

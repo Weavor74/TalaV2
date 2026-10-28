@@ -53,7 +53,7 @@ System prompt enforcing safety constraints and defining multimodal input handlin
 
   <section id="semantic-memory">
     <h2>Semantic Memory</h2>
-    <p>Tala has Desktop-Native Multimodal capabilities, enabling her to "see" and "hear" the environment when running in a desktop OS context. These features are available via internal JSON-RPC bridges (<code>multimodal.capture_screen</code> and <code>multimodal.transcribe_voice</code>).</p>
+    <p>Tala has Desktop-Native Multimodal capabilities, enabling her to "see" and "hear" the environment when running in a desktop OS context. These features are available via internal JSON-RPC bridges (<code>multimodal.capture_screen</code> for the screen; listening is the voice loop, <code>voice.audio</code>).</p>
     <ul>
       <li><strong>Screen Context</strong>: Powered by <code>pyautogui</code> and <code>Pillow</code>, Tala can capture the active screen window as a Base64 image payload to pass to Vision Models (e.g., LLaVA).</li>
       <li><strong>Voice Commands</strong>: Powered by a local <code>openai-whisper</code> model, users can speak to Tala. Transcriptions happen entirely offline.</li>

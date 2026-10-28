@@ -17,7 +17,11 @@ import binascii
 import logging
 from typing import Any
 
+from python.harness import voice_preload
 from python.harness.jsonrpc import JsonRpcError, _err, _ok
+
+# Imported while the server is still starting, on the main thread, before anything else is running: see voice_preload.
+voice_preload.preload()
 
 logger = logging.getLogger(__name__)
 

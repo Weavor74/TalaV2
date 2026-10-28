@@ -9,7 +9,7 @@ not on D:.
     python scripts/setup_voice.py              # Kokoro voice, whisper base.en, wake-word runtime models, spaCy model
     python scripts/setup_voice.py --whisper small.en --voice am_adam
     python scripts/setup_voice.py --check      # report what is present, download nothing
-    python scripts/setup_voice.py --training-voices   # plus the Piper voices the wake-word trainer uses
+    python scripts/setup_voice.py --training-voices   # plus Kokoro's other US voices, which the wake-word trainer speaks with
 
 Layout under ``TALA_MODELS_DIR`` (default ``<user data>/models``; set it to D:\\models on Kagura)::
 
@@ -17,7 +17,8 @@ Layout under ``TALA_MODELS_DIR`` (default ``<user data>/models``; set it to D:\\
     voice/kokoro/lexicon.json         (optional: your own word -> phonemes, for words Kokoro cannot pronounce)
     voice/whisper/<model>/            (CTranslate2 weights)
     voice/wakeword/                   (openWakeWord melspectrogram/embedding + pretrained phrases)
-    voice/piper/<voice>.onnx          (only with --training-voices; Piper is GPL-3.0 and is a training tool, not the voice)
+    voice/kokoro/voices/<voice>.pt    (all twenty US voices with --training-voices: scripts/train_wakeword.py trains on sixteen and
+                                       measures on four it never heard)
 
 The spaCy model ``en_core_web_sm`` (misaki's tagger) is installed into the active Python environment, not into the models
 folder, because that is where spaCy looks for it.
@@ -44,10 +45,9 @@ KOKORO_SHA256 = {
 }
 SPACY_MODEL = "en_core_web_sm"
 SPACY_WHEEL = "https://github.com/explosion/spacy-models/releases/download/en_core_web_sm-3.8.0/en_core_web_sm-3.8.0-py3-none-any.whl"
-#: Piper voices, used only to synthesise training clips for a custom wake-word model (scripts/train_wakeword.py).
-TRAINING_VOICES = ("en_US-amy-medium", "en_US-ryan-medium", "en_US-hfc_female-medium", "en_US-joe-medium",
-                   "en_US-kusal-medium", "en_US-libritts_r-medium", "en_US-lessac-medium")
-PIPER_REPO = "rhasspy/piper-voices"
+#: Kokoro's US-English voices, used to synthesise training and test clips for a custom wake-word model (scripts/train_wakeword.py).
+KOKORO_US_VOICES = ("af_alloy", "af_aoede", "af_bella", "af_heart", "af_jessica", "af_kore", "af_nicole", "af_nova", "af_river", "af_sarah",
+                    "af_sky", "am_adam", "am_echo", "am_eric", "am_fenrir", "am_liam", "am_michael", "am_onyx", "am_puck", "am_santa")
 WHISPER_REPO = "Systran/faster-whisper-{model}"
 
 
@@ -66,12 +66,6 @@ def models_root() -> Path:
 def refuse_c_drive(path: Path) -> None:
     if str(path.resolve()).upper().startswith("C:"):
         raise SystemExit(f"refusing to write to {path}: voice models must not go on C:. Set TALA_MODELS_DIR to a folder on another drive")
-
-
-def piper_voice_path(voice: str) -> str:
-    """The voice's path inside the piper-voices repo: en_US-lessac-medium -> en/en_US/lessac/medium/<voice>."""
-    lang, name, quality = voice.split("-")
-    return f"{lang.split('_')[0]}/{lang}/{name}/{quality}/{voice}"
 
 
 def sha256_of(path: Path) -> str:
@@ -125,17 +119,14 @@ def fetch_spacy_model() -> None:
     print(f"spaCy model {SPACY_MODEL} installed")
 
 
-def fetch_piper(root: Path, voice: str) -> None:
+def fetch_kokoro_voices(root: Path, voices: tuple[str, ...]) -> None:
+    """More Kokoro voices (about half a megabyte each), at the same pinned revision as the model."""
     from huggingface_hub import hf_hub_download
 
-    target = root / "piper"
-    target.mkdir(parents=True, exist_ok=True)
-    base = piper_voice_path(voice)
-    for suffix in (".onnx", ".onnx.json"):
-        hf_hub_download(PIPER_REPO, base + suffix, local_dir=str(target / "_dl"))
-        src = target / "_dl" / (base + suffix)
-        src.replace(target / f"{voice}{suffix}")
-    print(f"piper voice (wake-word training only) -> {target / (voice + '.onnx')}")
+    target = root / "kokoro"
+    for voice in voices:
+        hf_hub_download(KOKORO_REPO, f"voices/{voice}.pt", revision=KOKORO_REVISION, local_dir=str(target))
+    print(f"{len(voices)} kokoro voices (wake-word training) -> {target / 'voices'}")
 
 
 def fetch_whisper(root: Path, model: str) -> None:
@@ -161,7 +152,7 @@ def main(argv: list[str] | None = None) -> int:
     ap.add_argument("--whisper", default=DEFAULT_WHISPER, choices=["small.en", "base.en", "tiny.en"])
     ap.add_argument("--check", action="store_true", help="report what is present and download nothing")
     ap.add_argument("--training-voices", action="store_true",
-                    help="also fetch the Piper voices that scripts/train_wakeword.py uses (about 400 MB; Piper is GPL-3.0)")
+                    help="also fetch Kokoro's other US voices that scripts/train_wakeword.py speaks with (about 10 MB)")
     args = ap.parse_args(argv)
 
     root = models_root()
@@ -182,8 +173,7 @@ def main(argv: list[str] | None = None) -> int:
     fetch_whisper(root, args.whisper)
     fetch_wakeword(root)
     if args.training_voices:
-        for name in TRAINING_VOICES:
-            fetch_piper(root, name)
+        fetch_kokoro_voices(root, KOKORO_US_VOICES)
     return 0
 
 

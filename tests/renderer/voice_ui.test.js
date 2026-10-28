@@ -323,6 +323,26 @@ describe('indicator text', () => {
     assert.match(text, /Hey Tala/);
   });
 
+  test('in conversation style it says to just talk, not to say a phrase', () => {
+    const { indicatorText } = load();
+    const text = indicatorText({ listening: true, state: 'waiting', mode: 'continuous', wake_enabled: false, listening_for: 'Hey Tala' });
+    assert.match(text, /MIC LIVE/);
+    assert.match(text, /just talk/i);
+    assert.doesNotMatch(text, /Hey Tala/);
+  });
+
+  test('with the wake phrase required it still names the phrase', () => {
+    const { indicatorText } = load();
+    assert.match(indicatorText({ listening: true, state: 'waiting', mode: 'continuous', wake_enabled: true, listening_for: 'Hey Tala' }), /Hey Tala/);
+  });
+
+  test('dictating is not described as waiting for a phrase', () => {
+    const { indicatorText } = load();
+    const text = indicatorText({ listening: true, state: 'waiting', mode: 'dictate', wake_enabled: false });
+    assert.match(text, /dictating/i);
+    assert.doesNotMatch(text, /just talk/i);
+  });
+
   test('every state keeps saying the mic is live', () => {
     const { indicatorText } = load();
     for (const state of ['waiting', 'capturing', 'transcribing', 'thinking', 'speaking']) {
@@ -610,5 +630,154 @@ describe('wiring', () => {
     const worklet = fs.readFileSync(path.join(ROOT, 'renderer/voice_worklet.js'), 'utf8');
     assert.match(worklet, /registerProcessor\('tala-pcm-capture'/);
     assert.doesNotMatch(worklet, /fetch|XMLHttpRequest|WebSocket|localStorage|indexedDB/);
+  });
+});
+
+
+describe('voice latency notification', () => {
+  function controller(extra = {}) {
+    const env = makeEnv();
+    const { doc } = makeDoc(['btn-chat-listen', 'voice-indicator', 'voice-indicator-text', 'chat-textarea']);
+    return load().createController({ doc, rpc: env.rpc, agentChat: { appendMessage() {} }, confirmFn: () => true,
+      getUserMedia: env.getUserMedia, AudioContext: env.AudioContext, AudioWorkletNode: env.AudioWorkletNode, ...extra });
+  }
+
+  test('the numbers the harness measured go to the status bar', () => {
+    const shown = [];
+    const ui = controller({ showVoiceLatency: (ms) => shown.push(ms) });
+
+    ui.handleNotification('voice.latency', { turn_id: 't1', latency_ms: { wake_to_first_word: 6300, stt_latency: 850 } });
+
+    assert.deepEqual(shown, [{ wake_to_first_word: 6300, stt_latency: 850 }]);
+  });
+
+  test('without a status bar to show it in, the notification is harmless', () => {
+    assert.doesNotThrow(() => controller().handleNotification('voice.latency', { latency_ms: { stt_latency: 1 } }));
+  });
+});
+
+
+describe('listening from launch (no button press)', () => {
+  const IDS = ['btn-chat-listen', 'voice-indicator', 'voice-indicator-text', 'chat-textarea'];
+
+  function rig(settings, { failSettings = 0 } = {}) {
+    let settingsCalls = 0;
+    const env = makeEnv(async (m) => {
+      if (m === 'voice.get_settings') {
+        settingsCalls += 1;
+        if (settingsCalls <= failSettings) throw new Error('harness not up yet');
+        return { settings };
+      }
+      if (m === 'voice.listen_start') return { listening: true, state: 'waiting', mode: 'continuous', listening_for: 'Hey Tala' };
+      return {};
+    });
+    const { doc, els } = makeDoc(IDS);
+    els['voice-indicator'].hidden = true;
+    const chat = { messages: [], appendMessage(...a) { this.messages.push(a); } };
+    const ui = load().createController({ doc, rpc: env.rpc, agentChat: chat, confirmFn: () => true,
+      getUserMedia: env.getUserMedia, AudioContext: env.AudioContext, AudioWorkletNode: env.AudioWorkletNode });
+    return { env, els, ui, chat };
+  }
+
+  test('when the setting is on, she starts listening by herself, in conversation mode, and the indicator says so', async () => {
+    const r = rig({ listen_on_start: true, wake_enabled: true, wake_phrase: 'Hey Tala' });
+
+    await r.ui.autoStart([0]);
+
+    assert.equal(r.env.calls.filter(([m]) => m === 'voice.listen_start').length, 1);
+    assert.equal(json(r.env.calls.find(([m]) => m === 'voice.listen_start')), json(['voice.listen_start', { mode: 'continuous' }]));
+    assert.equal(r.ui.isListening(), true);
+    assert.equal(r.env.gum.length, 1, 'the microphone was opened');
+    assert.match(r.els['voice-indicator-text'].textContent, /MIC LIVE/);
+    assert.equal(r.els['voice-indicator'].hidden, false);
+  });
+
+  test('when the setting is off or absent, nothing starts and the microphone is never touched', async () => {
+    for (const settings of [{ listen_on_start: false }, {}, { listen_on_start: 'true' }, { listen_on_start: 1 }]) {
+      const r = rig(settings);
+      await r.ui.autoStart([0]);
+      assert.equal(r.env.calls.filter(([m]) => m === 'voice.listen_start').length, 0);
+      assert.equal(r.env.gum.length, 0);
+      assert.equal(r.ui.isListening(), false);
+    }
+  });
+
+  test('a harness that is still starting is retried, then given up on quietly', async () => {
+    const r = rig({ listen_on_start: true }, { failSettings: 2 });
+    await r.ui.autoStart([0, 0, 0]);
+    assert.equal(r.ui.isListening(), true, 'the third try found it');
+
+    const dead = rig({ listen_on_start: true }, { failSettings: 99 });
+    await assert.doesNotReject(dead.ui.autoStart([0, 0]));
+    assert.equal(dead.ui.isListening(), false);
+    assert.equal(dead.chat.messages.length, 0, 'no error message for a harness that never came up');
+  });
+
+  test('a refused microphone or listen_start is reported once, not retried forever', async () => {
+    const env = makeEnv(async (m) => (m === 'voice.get_settings' ? { settings: { listen_on_start: true } }
+      : m === 'voice.listen_start' ? { error: { message: 'refused: the emergency halt is engaged' } } : {}));
+    const { doc } = makeDoc(IDS);
+    const chat = { messages: [], appendMessage(...a) { this.messages.push(a); } };
+    const ui = load().createController({ doc, rpc: env.rpc, agentChat: chat, confirmFn: () => true,
+      getUserMedia: env.getUserMedia, AudioContext: env.AudioContext, AudioWorkletNode: env.AudioWorkletNode });
+
+    await ui.autoStart([0, 0, 0]);
+
+    assert.equal(env.calls.filter(([m]) => m === 'voice.listen_start').length, 1);
+    assert.match(chat.messages[0][2], /Voice stopped: refused/);
+  });
+
+  test('it never starts twice if she is already listening', async () => {
+    const r = rig({ listen_on_start: true });
+    await r.ui.toggle();
+    await r.ui.autoStart([0]);
+    assert.equal(r.env.calls.filter(([m]) => m === 'voice.listen_start').length, 1);
+  });
+});
+
+describe('the listen-on-start switch', () => {
+  const IDS = ['voice-listen-on-start', 'voice-settings-note', 'voice-wake-enabled'];
+
+  function rig(confirmAnswer, saved = false) {
+    const env = makeEnv(async (m, p) => {
+      if (m === 'voice.get_settings') return { settings: { listen_on_start: saved, wake_enabled: true } };
+      if (m === 'voice.set_settings') return { ...p.settings, warnings: [] };
+      return {};
+    });
+    const { doc, els } = makeDoc(IDS);
+    const asked = [];
+    return { env, els, asked, run: () => load().initSettings(doc, env.rpc, (t) => { asked.push(t); return confirmAnswer; }) };
+  }
+
+  test('shows what is saved', async () => {
+    const r = rig(true, true);
+    await r.run();
+    assert.equal(r.els['voice-listen-on-start'].checked, true);
+  });
+
+  test('turning it on asks first: the microphone will be live from the moment she starts', async () => {
+    const r = rig(false);
+    await r.run();
+    r.els['voice-listen-on-start'].checked = true;
+    await r.els['voice-listen-on-start'].fire('change');
+
+    assert.match(r.asked[0], /microphone/i);
+    assert.equal(r.els['voice-listen-on-start'].checked, false, 'declining leaves it off');
+    assert.equal(r.env.calls.filter(([m]) => m === 'voice.set_settings').length, 0);
+  });
+
+  test('once confirmed it is saved, and turning it off needs no confirmation', async () => {
+    const r = rig(true);
+    await r.run();
+    r.els['voice-listen-on-start'].checked = true;
+    await r.els['voice-listen-on-start'].fire('change');
+    assert.equal(json(r.env.calls.at(-1)), json(['voice.set_settings', { settings: { listen_on_start: true } }]));
+
+    const off = rig(false, true);
+    await off.run();
+    off.els['voice-listen-on-start'].checked = false;
+    await off.els['voice-listen-on-start'].fire('change');
+    assert.equal(off.asked.length, 0);
+    assert.equal(json(off.env.calls.at(-1)), json(['voice.set_settings', { settings: { listen_on_start: false } }]));
   });
 });

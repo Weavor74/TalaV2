@@ -76,6 +76,11 @@ class Clock:
 @pytest.fixture(autouse=True)
 def userdata(tmp_path, monkeypatch):
     monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    # The wake-word flows below are the subject of most of these tests. Conversation style (no wake phrase) is the default now,
+    # so they ask for the phrase explicitly, and the conversation tests turn it back off.
+    from python.harness import voice_settings
+
+    voice_settings.update({"wake_enabled": True})
     # partial transcripts call the recogniser too; only the test that is about them turns them on
     monkeypatch.setattr("python.harness.voice_runtime.PARTIAL_EVERY_S", 1e9)
 
@@ -328,7 +333,7 @@ def test_latency_is_measured_and_logged_when_playback_starts():
         r.clock.t += 0.2
         await r.rt.playback("started", turn)
         latency = r.rt.last_latency
-        assert {"stt", "wake_to_playback", "end_of_speech_to_first_audio"} <= set(latency)
+        assert {"wake_to_first_word", "stt_latency", "time_to_first_audio"} <= set(latency)
         assert all(isinstance(v, int) and v >= 0 for v in latency.values())
 
     run(go())
@@ -397,3 +402,50 @@ def test_warming_up_never_stops_listening_from_starting():
             kokoro.module_present = original
 
     run(go())
+
+
+
+# --- conversation style ----------------------------------------------------------------------------------------------
+
+
+def test_in_conversation_style_speech_alone_begins_a_turn_and_the_mic_stays_open():
+    from python.harness import voice_settings
+
+    voice_settings.update({"wake_enabled": False})
+
+    async def go():
+        r = Rig("what is the weather")
+        await r.rt.start()
+        assert r.rt.status()["wake_enabled"] is False
+        await r.feed(quiet(0.5))
+        await r.feed(tone(1.2))
+        await r.feed(quiet(1.2))
+        assert "voice.turn" in r.names(), r.names()
+        assert r.last("voice.turn")["text"] == "what is the weather"
+        assert r.rt.session.state is not State.OFF  # still listening: a conversation, not one command
+        return r
+
+    run(go())
+
+
+def test_in_conversation_style_the_wake_detector_is_not_consulted():
+    from python.harness import voice_settings
+
+    voice_settings.update({"wake_enabled": False})
+
+    async def go():
+        r = Rig("hello")
+        await r.rt.start()
+        await r.feed(tone(1.0))
+        await r.feed(quiet(1.2))
+        assert r.wake.fed == 0, "with no phrase required there is nothing to listen for"
+
+    run(go())
+
+
+def test_the_wake_phrase_is_on_by_default_and_hey_tala_is_the_phrase():
+    """She answers after "Hey Tala" out of the box. The no-phrase conversation style is a choice, not the default."""
+    from python.harness import voice_settings
+
+    assert voice_settings.DEFAULTS["wake_enabled"] is True and voice_settings.DEFAULTS["wake_phrase"] == "Hey Tala"
+    assert voice_settings.DEFAULTS["listen_on_start"] is False, "the microphone is never on without the user having said so"

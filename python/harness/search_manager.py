@@ -57,12 +57,38 @@ async def get_search_providers() -> list[dict[str, Any]]:
         return []
 
 
+CRAWLER_URL = "https://html.duckduckgo.com/html/"
+
+
+async def _guarded_crawl(query: str, outcome: "SearchOutcome") -> list[dict[str, str]]:
+    """
+    Run the DuckDuckGo crawler only if the network guard permits that host.
+
+    The provider branch of ``query_detailed`` has always asked the guard; the crawler
+    fallback did not, and it is the route a fresh install takes (no providers
+    configured), so a query could leave the machine under a default-deny guard. The
+    guard is asked about the host only -- never given the query text.
+    """
+    from python.harness.access import AGENT, Principal
+    from python.harness.network_guard import check as net_check
+
+    permitted = await net_check(CRAWLER_URL, Principal(AGENT, "default"), purpose="search:crawler")
+    if not permitted.allowed:
+        logger.warning("The web crawler is blocked by the network guard: %s", permitted.reason)
+        outcome.errors.append({
+            "provider": "DuckDuckGo crawler",
+            "reason": f"blocked by network guardrails ({permitted.matched})",
+        })
+        return []
+    return await _crawl_web(query)
+
+
 async def _crawl_web(query: str, max_results: int = 5) -> list[dict[str, str]]:
     """
     Crawl DuckDuckGo HTML search directly as a fallback.
     Extracts title, url (resolving DDG redirect), and snippet.
     """
-    url = f"https://html.duckduckgo.com/html/?q={urllib.parse.quote(query)}"
+    url = f"{CRAWLER_URL}?q={urllib.parse.quote(query)}"
     headers = {
         "User-Agent": (
             "Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
@@ -148,6 +174,8 @@ class SearchOutcome:
         if not self.errors:
             return ""
         head = "; ".join(f"{e['provider']}: {e['reason']}" for e in self.errors)
+        if self.source == "crawler" and not self.results:
+            return f"Search unavailable ({head}). Nothing was sent."
         if self.source == "crawler":
             return (
                 f"Search provider unavailable ({head}). "
@@ -296,7 +324,7 @@ class SearchManager:
         if provider_id:
             if provider_id == "crawler":
                 logger.info("SearchManager: Direct crawling fallback selected.")
-                outcome.results = await _crawl_web(query)
+                outcome.results = await _guarded_crawl(query, outcome)
                 # Explicitly chosen, so this is not a degradation.
                 outcome.source = "crawler"
                 outcome.provider_name = "DuckDuckGo crawler"
@@ -430,7 +458,7 @@ class SearchManager:
             )
         else:
             logger.info("No search providers configured. Using the direct web crawler.")
-        outcome.results = await _crawl_web(query)
+        outcome.results = await _guarded_crawl(query, outcome)
         outcome.source = "crawler"
         outcome.provider_name = "DuckDuckGo crawler"
         return outcome

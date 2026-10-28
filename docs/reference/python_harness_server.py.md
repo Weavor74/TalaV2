@@ -786,8 +786,6 @@ without restarting the harness.
 ### `async def handle_multimodal_capture_screen(params, req_id)`
 *No docstring provided.*
 
-### `async def handle_multimodal_transcribe_voice(params, req_id)`
-*No docstring provided.*
 
 ### `async def handle_browser_get_dom(params, req_id)`
 *No docstring provided.*

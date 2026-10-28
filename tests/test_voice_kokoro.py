@@ -282,4 +282,5 @@ def test_the_voice_extra_does_not_depend_on_a_gpl_package():
     for gpl in ("piper", "phonemizer", "espeak", "kokoro"):
         assert gpl not in voice, f"the voice extra depends on {gpl}"
     assert "misaki[" not in voice, "misaki's `en` extra is what carries phonemizer-fork and espeakng-loader"
-    assert any(d.lower().startswith("piper-tts") for d in extras["wakeword-training"])
+    # the wake-word trainer speaks with Kokoro now, so Piper (GPL) is not needed even as a developer tool
+    assert not any(d.lower().startswith("piper") for d in extras["wakeword-training"])

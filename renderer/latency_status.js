@@ -42,4 +42,39 @@ function latencyShow(doc, timing) {
   item.title = line ? latencyDetail(timing) : '';
 }
 
-window.LatencyStatus = { format: latencyFormat, detail: latencyDetail, show: latencyShow };
+/**
+ * Voice turns: the three numbers python/harness/voice_latency.py measures, in the same bar. They are not the model's speed (that is
+ * the readout above) but how long a spoken turn took you to hear: wake word to the first sound of her answer, the end of your
+ * speech to the final transcript, and the end of your speech to the first piece of her answer being ready.
+ */
+const VOICE_LATENCY_PARTS = [
+  ['wake_to_first_word', 'wake to first word'],
+  ['stt_latency', 'speech to text'],
+  ['time_to_first_audio', 'first audio'],
+];
+
+function latencyVoiceFormat(ms) {
+  if (!ms || typeof ms !== 'object') return '';
+  const parts = [];
+  for (const [key, label] of VOICE_LATENCY_PARTS) {
+    const value = ms[key];
+    if (typeof value === 'number' && value >= 0) parts.push(`${label} ${latencyDuration(value)}`);
+  }
+  return parts.length ? `voice: ${parts.join(' · ')}` : '';
+}
+
+function latencyVoiceShow(doc, ms) {
+  const item = doc.getElementById('status-voice-latency');
+  const text = doc.getElementById('status-voice-latency-text');
+  if (!item || !text) return;
+  const line = latencyVoiceFormat(ms);
+  text.textContent = line;
+  item.hidden = !line;
+  item.title = line
+    ? 'Wake to first word: the wake word is heard until her answer starts playing.\nSpeech to text: you stop speaking until the transcript is final.\nFirst audio: you stop speaking until the first piece of her answer is ready.\nLogged, as numbers only, to the voice latency log on D:.'
+    : '';
+}
+
+window.LatencyStatus = {
+  format: latencyFormat, detail: latencyDetail, show: latencyShow, formatVoice: latencyVoiceFormat, showVoice: latencyVoiceShow,
+};

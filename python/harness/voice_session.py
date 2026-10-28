@@ -54,6 +54,8 @@ class VoiceConfig:
     wake_window_s: float = 8.0
     followup_s: float = 6.0
     barge_in_ms: float = 250.0
+    #: Conversation style (no wake phrase): speech this soon after she stops is her own voice still in the room, not you.
+    echo_guard_s: float = 0.6
     max_utterance_s: float = 30.0
 
 
@@ -64,6 +66,7 @@ class VoiceSession:
         self.state = State.OFF
         self.mode = "continuous"
         self._engaged_until = 0.0
+        self._deaf_until = 0.0
         self._capture_started = 0.0
 
     # --- helpers ---------------------------------------------------------------------------------------------
@@ -87,6 +90,7 @@ class VoiceSession:
         """Turn listening on. ``dictate`` captures one utterance with no wake word and then turns itself off."""
         self.mode = mode
         self._engaged_until = self._clock() + self.config.wake_window_s if mode == "dictate" else 0.0
+        self._deaf_until = 0.0
         self.state = State.WAITING
         return []
 
@@ -109,7 +113,7 @@ class VoiceSession:
         return []
 
     def on_speech_start(self) -> list[Action]:
-        if self.state is State.WAITING and self._engaged():
+        if self.state is State.WAITING and self._engaged() and self._clock() >= self._deaf_until:
             return self._begin_capture(from_segment_start=True)
         return []
 
@@ -148,6 +152,8 @@ class VoiceSession:
     def on_playback_ended(self) -> list[Action]:
         if self.state is State.SPEAKING:
             self._to_waiting(followup=True)
+            if not self.config.wake_required:
+                self._deaf_until = self._clock() + self.config.echo_guard_s
         return []
 
     def on_turn_finished(self) -> list[Action]:

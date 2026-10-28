@@ -234,3 +234,131 @@ def test_an_unavailable_kokoro_says_why_in_the_backends_list(monkeypatch, tmp_pa
     note = {b["id"]: b for b in listing["backends"]}["kokoro"]["note"]
     assert note.startswith("Not available:") and "setup_voice.py" in note
     assert voice_kokoro.missing_reason(voice_settings.read()["tts_voice"]) in note
+
+
+def test_the_wake_phrase_is_the_default_and_conversation_style_is_the_choice(tmp_path, monkeypatch):
+    """Out of the box she answers after "Hey Tala". Turning the phrase off gives the no-phrase conversation style."""
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    assert voice_settings.DEFAULTS["wake_enabled"] is True
+    assert voice_settings.read()["wake_enabled"] is True and voice_settings.read()["wake_phrase"] == "Hey Tala"
+
+    from python.harness.voice_runtime import VoiceRuntime
+
+    async def notify(method, params):
+        return None
+
+    runtime = VoiceRuntime(notify)
+    assert runtime.session.config.wake_required is True
+    assert runtime.status()["wake_enabled"] is True
+
+    voice_settings.update({"wake_enabled": False})
+    runtime.apply_settings()
+    assert runtime.session.config.wake_required is False and runtime.status()["wake_enabled"] is False
+
+
+def test_an_explicit_wake_setting_is_still_honoured(tmp_path, monkeypatch):
+    monkeypatch.setenv("TALA_USER_DATA", str(tmp_path))
+    voice_settings.update({"wake_enabled": True})
+    assert voice_settings.read()["wake_enabled"] is True
+
+
+# --- end to end: the cloud voice is never reached, never imported and never the default -----------------------------------------------
+
+
+@pytest.fixture
+def cloud_spy(monkeypatch):
+    """Every way edge-tts could be reached is replaced by something that records it. All three local backends are 'installed'."""
+    import builtins
+    import sys
+
+    calls: list[str] = []
+    imported: list[str] = []
+
+    async def edge(text, voice):
+        calls.append(text)
+        return {"audio_base64": "x", "mime_type": "audio/mpeg", "backend": "edge-tts", "voice": "v"}
+
+    real_import = builtins.__import__
+
+    def watching_import(name, *args, **kwargs):
+        if name.split(".")[0] == "edge_tts":
+            imported.append(name)
+        return real_import(name, *args, **kwargs)
+
+    monkeypatch.delitem(sys.modules, "edge_tts", raising=False)
+    monkeypatch.setattr(builtins, "__import__", watching_import)
+    monkeypatch.setattr(voice, "_available", lambda: dict(ALL))
+    monkeypatch.setattr(voice, "_synthesize_edge", edge)
+    return type("Spy", (), {"calls": calls, "imported": imported})
+
+
+def _local_voices_fail(monkeypatch):
+    async def broken(text, voice_name):
+        raise RuntimeError("no local voice today")
+
+    monkeypatch.setattr(voice, "_synthesize_kokoro", broken)
+    monkeypatch.setattr(voice, "_synthesize_pyttsx3", broken)
+
+
+def test_synthesis_never_falls_through_to_the_cloud_when_every_local_voice_fails(cloud_spy, monkeypatch):
+    _local_voices_fail(monkeypatch)
+
+    result = asyncio.run(voice.synthesize_speech("Where is the cargo manifest?"))
+
+    assert "error" in result and "edge-tts" not in result["error"], "it says it could not speak; it does not send the text to Microsoft"
+    assert cloud_spy.calls == [] and cloud_spy.imported == [], "not called, and the package was not even imported"
+
+
+def test_a_settings_file_that_says_cloud_in_any_other_shape_still_means_off(cloud_spy, monkeypatch, userdata):
+    _local_voices_fail(monkeypatch)
+    for value in ("true", 1, "yes", ["on"]):
+        (userdata / "voice.json").write_text(__import__("json").dumps({"allow_cloud_tts": value}), encoding="utf-8")
+
+        assert voice_settings.read()["allow_cloud_tts"] is False
+        assert "error" in asyncio.run(voice.synthesize_speech("hello"))
+
+    assert cloud_spy.calls == []
+
+
+def test_the_settings_api_will_not_take_a_cloud_switch_that_is_not_a_boolean(userdata):
+    with pytest.raises(ValueError):
+        voice_settings.update({"allow_cloud_tts": "true"})
+    assert voice_settings.read()["allow_cloud_tts"] is False
+
+
+def test_when_the_user_turns_it_on_it_is_tried_last_and_only_then(cloud_spy, monkeypatch, userdata):
+    _local_voices_fail(monkeypatch)
+    voice_settings.update({"allow_cloud_tts": True})
+
+    result = asyncio.run(voice.synthesize_speech("hello"))
+
+    assert result["backend"] == "edge-tts" and cloud_spy.calls == ["hello"]
+
+
+def test_a_local_voice_that_works_means_the_cloud_is_not_touched_even_when_enabled(cloud_spy, monkeypatch, userdata):
+    async def kokoro(text, voice_name):
+        return {"audio_base64": "x", "mime_type": "audio/wav", "backend": "kokoro", "voice": "af_heart"}
+
+    monkeypatch.setattr(voice, "_synthesize_kokoro", kokoro)
+    voice_settings.update({"allow_cloud_tts": True})
+
+    assert asyncio.run(voice.synthesize_speech("hello"))["backend"] == "kokoro"
+    assert cloud_spy.calls == []
+
+
+def test_the_backend_report_labels_the_cloud_voice_and_shows_it_off_by_default(cloud_spy):
+    report = asyncio.run(voice.list_backends())
+
+    edge = next(b for b in report["backends"] if b["id"] == "edge-tts")
+    assert edge["enabled"] is False and "CLOUD" in edge["note"]
+    assert [b["id"] for b in report["backends"] if b.get("offline")][:1] == ["kokoro"]
+
+
+def test_the_settings_page_ships_with_the_cloud_switch_unticked_and_asks_before_it_is_ticked():
+    from pathlib import Path
+
+    html = (Path(__file__).resolve().parents[1] / "renderer" / "index.html").read_text(encoding="utf-8")
+    tag = next(line for line in html.splitlines() if 'id="voice-cloud-tts"' in line)
+    assert "checked" not in tag
+    js = (Path(__file__).resolve().parents[1] / "renderer" / "voice_ui.js").read_text(encoding="utf-8")
+    assert "sends everything she says to Microsoft" in js and "confirmFn" in js

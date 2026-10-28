@@ -255,3 +255,126 @@ def test_stopping_an_idle_session_does_nothing_audible(clock):
     s = make(clock)
     s.start()
     assert s.stop() == [] and s.state is State.OFF
+
+
+# --- conversation style: no wake phrase, so her own voice must not become the next utterance -------------------------------
+
+
+def converse(clock, **config):
+    """A session with no wake requirement, one turn into her reply."""
+    s = make(clock, wake_required=False, **config)
+    s.start()
+    s.on_speech_start()
+    s.on_speech_end()
+    s.on_transcript("what is the weather")
+    s.on_playback_started()
+    assert s.state is State.SPEAKING
+    return s
+
+
+def test_every_utterance_is_a_turn_in_conversation_style_and_the_mic_stays_open(clock):
+    s = converse(clock)
+    s.on_playback_ended()
+    clock.advance(5.0)  # a long pause; there is no follow-up window to expire
+    assert kinds(s.on_speech_start()) == [CAPTURE_START]
+
+
+def test_speech_in_the_instant_after_she_stops_is_her_own_echo(clock):
+    s = converse(clock)
+    s.on_playback_ended()
+    clock.advance(0.1)
+    assert s.on_speech_start() == [], "her own voice, still ringing in the room, is not a new question"
+    assert s.state is State.WAITING
+
+
+def test_speech_after_the_echo_guard_is_heard(clock):
+    s = converse(clock, echo_guard_s=0.5)
+    s.on_playback_ended()
+    clock.advance(0.6)
+    assert kinds(s.on_speech_start()) == [CAPTURE_START]
+
+
+def test_talking_over_her_still_interrupts_her(clock):
+    s = converse(clock)
+    assert kinds(s.on_speech_progress(400)) == [STOP_PLAYBACK, CANCEL_TURN, CAPTURE_START]
+
+
+def test_the_echo_guard_does_not_change_how_the_wake_word_flow_works(clock):
+    s = make(clock)  # wake required, as before
+    s.start()
+    run_to_thinking(s)
+    s.on_playback_started()
+    s.on_playback_ended()
+    clock.advance(0.1)
+    assert kinds(s.on_speech_start()) == [CAPTURE_START], "the follow-up window opens at once; unchanged"
+
+
+# --- barge-in as a table: every state, either side of the threshold ---------------------------------------------------------------------
+
+
+def _in_state(clock, where, barge_in_ms=250):
+    s = make(clock, barge_in_ms=barge_in_ms)
+    if where == "off":
+        return s
+    s.start()
+    if where == "waiting":
+        return s
+    if where == "capturing":
+        s.on_speech_start()
+        s.on_wake(speech_active=True)
+        return s
+    if where == "transcribing":
+        s.on_speech_start()
+        s.on_wake(speech_active=True)
+        s.on_speech_end()
+        return s
+    run_to_thinking(s)
+    if where == "speaking":
+        s.on_playback_started()
+    return s
+
+
+INTERRUPT = [STOP_PLAYBACK, CANCEL_TURN, CAPTURE_START]
+
+
+@pytest.mark.parametrize("where,speech_ms,expected,state", [
+    ("speaking", 249, [], State.SPEAKING),
+    ("speaking", 250, INTERRUPT, State.CAPTURING),
+    ("speaking", 4000, INTERRUPT, State.CAPTURING),
+    ("thinking", 249, [], State.THINKING),
+    ("thinking", 250, INTERRUPT, State.CAPTURING),
+    ("waiting", 4000, [], State.WAITING),
+    ("capturing", 4000, [], State.CAPTURING),
+    ("transcribing", 4000, [], State.TRANSCRIBING),
+    ("off", 4000, [], State.OFF),
+])
+def test_barge_in_table(clock, where, speech_ms, expected, state):
+    """Only while she is thinking or speaking, and only once the speech has lasted barge_in_ms (a cough is not an interruption);
+    in every other state the same speech does nothing here."""
+    s = _in_state(clock, where)
+
+    assert kinds(s.on_speech_progress(speech_ms=speech_ms)) == expected
+    assert s.state is state
+
+
+def test_after_an_interruption_the_session_is_listening_again_and_her_turn_is_over(clock):
+    s = _in_state(clock, "speaking")
+
+    s.on_speech_progress(speech_ms=400)
+    s.on_speech_end()
+    begin = s.on_transcript("wait, stop")
+
+    assert begin == [(BEGIN_TURN, {"text": "wait, stop"})] and s.state is State.THINKING
+    assert kinds(s.on_playback_ended()) == [] and s.state is State.THINKING, "the cancelled turn's playback ending changes nothing"
+
+
+def test_a_late_playback_end_from_the_cancelled_turn_never_ends_the_new_one(clock):
+    s = _in_state(clock, "speaking")
+    s.on_speech_progress(speech_ms=400)
+    s.on_speech_end()
+    s.on_transcript("new question")
+    s.on_playback_started()
+
+    s.on_playback_ended()
+
+    assert s.state is State.WAITING, "the new turn spoke and finished normally: back to waiting for the follow-up"

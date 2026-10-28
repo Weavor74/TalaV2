@@ -104,3 +104,37 @@ describe('wiring', () => {
     assert.doesNotMatch(SRC, /innerHTML/);
   });
 });
+
+
+describe('voice latency', () => {
+  const ms = { wake_to_first_word: 6300, stt_latency: 850, time_to_first_audio: 4200 };
+
+  test('formatVoice shows wake to first word, speech to text and time to first audio', () => {
+    assert.equal(load().formatVoice(ms), 'voice: wake to first word 6.3 s · speech to text 850 ms · first audio 4.2 s');
+  });
+
+  test('numbers that were not measured are left out, and nothing measured shows nothing', () => {
+    assert.equal(load().formatVoice({ stt_latency: 700 }), 'voice: speech to text 700 ms');
+    for (const empty of [null, undefined, {}, { stt_latency: 'x' }, { stt_latency: -5 }]) assert.equal(load().formatVoice(empty), '');
+  });
+
+  test('showVoice reveals the readout, explains the three numbers, and clears on nothing', () => {
+    const d = doc();
+    d.els['status-voice-latency'] = { hidden: true, title: '' };
+    d.els['status-voice-latency-text'] = { textContent: '' };
+    const ui = load();
+
+    ui.showVoice(d, ms);
+    assert.equal(d.els['status-voice-latency'].hidden, false);
+    assert.match(d.els['status-voice-latency-text'].textContent, /wake to first word 6\.3 s/);
+    assert.match(d.els['status-voice-latency'].title, /you stop speaking/i);
+
+    ui.showVoice(d, null);
+    assert.equal(d.els['status-voice-latency'].hidden, true);
+    assert.equal(d.els['status-voice-latency-text'].textContent, '');
+  });
+
+  test('a page without the voice readout is left alone', () => {
+    assert.doesNotThrow(() => load().showVoice(doc(), ms));
+  });
+});

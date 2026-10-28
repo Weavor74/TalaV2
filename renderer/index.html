@@ -541,7 +541,8 @@
               </div>
               <div class="settings-voice-row" id="settings-voice" style="display: flex; flex-wrap: wrap; gap: 10px; align-items: center; font-size: 0.72rem; margin: 8px 0;">
                 <strong>VOICE</strong>
-                <label style="display: inline-flex; gap: 4px; align-items: center;"><input type="checkbox" id="voice-wake-enabled" checked /> wake word</label>
+                <label style="display: inline-flex; gap: 4px; align-items: center;" title="On (default): while listening, she answers only after you say the phrase. Off: conversation style, she answers whatever you say."><input type="checkbox" id="voice-wake-enabled" checked /> require wake phrase</label>
+                <label style="display: inline-flex; gap: 4px; align-items: center;" title="Off (default): the microphone is off until you press the always-listen button. On: Tala starts listening when she starts, so saying the phrase is all it takes. The MIC LIVE indicator shows whenever it is on."><input type="checkbox" id="voice-listen-on-start" /> listen when Tala starts</label>
                 <label style="display: inline-flex; gap: 4px; align-items: center;">phrase <input type="text" id="voice-wake-phrase" value="Hey Tala" size="12" maxlength="40" /></label>
                 <label style="display: inline-flex; gap: 4px; align-items: center;">voice <input type="text" id="voice-tts-voice" value="af_heart" size="14" maxlength="40" title="A Kokoro voice installed on D: by scripts/setup_voice.py (af_heart, am_adam, ...)" /></label>
                 <label style="display: inline-flex; gap: 4px; align-items: center;">hearing
@@ -3426,6 +3427,10 @@
     <!-- Speed of the last reply: tokens per second and time to first token -->
     <div class="status-item" id="status-latency" hidden>
       <span id="status-latency-text"></span>
+    </div>
+    <!-- How long the last spoken turn took: wake to first word, speech to text, first audio (python/harness/voice_latency.py) -->
+    <div class="status-item" id="status-voice-latency" hidden>
+      <span id="status-voice-latency-text"></span>
     </div>
     <!-- Connection status -->
     <div class="status-item" id="status-connection">
