@@ -163,7 +163,9 @@ async def regenerate_contract_if_changed() -> dict[str, Any]:
         return {"ran": False, "reason": str(exc)}
 
     try:
-        contract = await build_contract()
+        # Off the event loop: building the contract runs git and walks the node store synchronously, and a loop that is
+        # busy there answers nobody (the harness has stalled on exactly this). It has its own loop in the worker thread.
+        contract = await asyncio.to_thread(asyncio.run, build_contract())
     except Exception as exc:
         log.exception("doc maintenance: contract generation failed")
         return {"ran": False, "reason": str(exc)}
