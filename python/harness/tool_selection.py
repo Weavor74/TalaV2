@@ -102,6 +102,15 @@ FORCED_BY_INTENT: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
         r"\b(?:browser|web\s*site|web\s*page|site|url|link|google|youtube|[\w-]+\.(?:com|org|net|io|gov|edu|co|app|dev))\b"
         r"|\b(?:browser|web\s*site|link)\b[^.!?]*\b(?:open|launch)\b", re.IGNORECASE),
      ("open_url",)),
+    # Driving the machine herself -- "open the Start menu on my computer" -- is desktop_run (the local vision and mouse loop). Without it
+    # on offer she explained which key to press instead of pressing it.
+    (re.compile(
+        r"\b(?:open|click|double[- ]click|right[- ]click|press|push|hit|type|move|drag|scroll|launch|close|minimi[sz]e|maxim[iz]e"
+        r"|switch\s+to|use|control|take\s+over)\b[^.!?]*"
+        r"\b(?:start\s*menu|start\s+button|task\s*bar|desktop|my\s+(?:computer|pc|screen|laptop|mouse|keyboard)|(?:the|your)\s+(?:mouse|cursor|keyboard)"
+        r"|windows\s+key|file\s+explorer|notepad|calculator|control\s+panel|task\s+manager|settings\s+app|ok)\b"
+        r"|\b(?:computer|desktop|mouse)\s+control\b|\bmove\s+(?:the|your)\s+(?:mouse|cursor)\b", re.IGNORECASE),
+     ("desktop_run",)),
 )
 
 

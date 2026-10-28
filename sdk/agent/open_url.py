@@ -28,9 +28,9 @@ _BARE_DOMAIN = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9-]*[A-Za-z0-9])?(?:\.[A-Za-
 
 def _address(raw: str | None) -> tuple[str | None, str]:
     """``(address, "")`` for something safe to open, or ``(None, why not)``."""
-    text = "about:blank" if raw is None else str(raw).strip()
-    if not text:
-        return None, "no address was given"
+    # "No address" arrives as None or as an empty string (the first live attempt sent ""): both mean a blank page.
+    text = str(raw).strip() if raw is not None else ""
+    text = text or "about:blank"
     if len(text) > MAX_URL_CHARS:
         return None, f"the address is longer than {MAX_URL_CHARS} characters"
     if re.search(r"[\s\x00-\x1f\x7f]", text):

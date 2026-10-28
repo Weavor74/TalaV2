@@ -57,8 +57,10 @@ def test_a_bare_domain_is_taken_as_https(opened):
     assert opened[0][0] == "https://example.com/page"
 
 
-def test_with_no_address_it_opens_a_blank_page(opened):
-    result = _call(None)
+@pytest.mark.parametrize("nothing", [None, "", "   "])
+def test_with_no_address_it_opens_a_blank_page(opened, nothing):
+    """The first live attempt failed with 'no address was given': the model passed an empty string for 'no address'."""
+    result = _call(nothing)
     assert result["success"] is True
     assert opened[0][0] == "about:blank"
 
@@ -66,7 +68,7 @@ def test_with_no_address_it_opens_a_blank_page(opened):
 @pytest.mark.parametrize("url", [
     "file:///C:/Windows/System32/cmd.exe", "javascript:alert(1)", "data:text/html,<script>1</script>", "ftp://example.com/x",
     "chrome://settings", "ms-settings:privacy", "mailto:a@b.c", "https://user:pass@example.com/", "https://exa mple.com",
-    "https://example.com/\nsecond", "", "   ", "C:\\Windows\\notepad.exe", "calc", "https://" + "a" * 2100 + ".com",
+    "https://example.com/\nsecond", "C:\\Windows\\notepad.exe", "calc", "https://" + "a" * 2100 + ".com",
 ])
 def test_anything_that_is_not_a_plain_web_address_is_refused_and_nothing_opens(opened, url):
     result = _call(url)
@@ -104,6 +106,32 @@ def test_the_tool_is_offered_when_the_user_asks_to_open_a_browser_or_site(text):
     index = ts.ToolIndex(registry)
     chosen = ts._select_tool_names(text, index, 8, core=ts._core_tools(8), available=[t["name"] for t in registry])
     assert "open_url" in chosen, chosen
+
+
+@pytest.mark.parametrize("text", [
+    "Open the Start menu on my computer.", "click the start button", "move the mouse to the taskbar and open notepad",
+    "press the Windows key", "Can you use my computer to open File Explorer?", "type hello into notepad on my screen",
+    "open task manager", "take over my mouse and click OK",
+])
+def test_computer_control_is_offered_when_the_user_asks_her_to_drive_the_machine(text):
+    """Live: 'Open the Start menu on my computer' offered start_job, open_url and start_swarm, so she explained how to press the
+    Windows key instead of doing it. She is meant to move the mouse herself (desktop_run)."""
+    from python.harness import tool_selection as ts
+
+    registry = [{"name": t["name"], "description": t["description"]} for t in tools_mod.ToolRegistry._tools.values()]
+    index = ts.ToolIndex(registry)
+    chosen = ts._select_tool_names(text, index, 8, core=ts._core_tools(8), available=[t["name"] for t in registry])
+    assert "desktop_run" in chosen, chosen
+
+
+@pytest.mark.parametrize("text", ["What time is it?", "Tell me about the moon.", "who is the president"])
+def test_ordinary_questions_do_not_pull_in_computer_control(text):
+    from python.harness import tool_selection as ts
+
+    registry = [{"name": t["name"], "description": t["description"]} for t in tools_mod.ToolRegistry._tools.values()]
+    index = ts.ToolIndex(registry)
+    chosen = ts._select_tool_names(text, index, 8, core=ts._core_tools(8), available=[t["name"] for t in registry])
+    assert "desktop_run" not in chosen and "open_url" not in chosen, chosen
 
 
 # --- a reply that claims an action no tool took -----------------------------------------------------------------------
