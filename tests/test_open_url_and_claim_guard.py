@@ -34,7 +34,7 @@ def _call(url):
 
     func = tools_mod.ToolRegistry._tools["open_url"]["func"]
     result = func(url) if url is not None else func()
-    return asyncio.get_event_loop().run_until_complete(result) if asyncio.iscoroutine(result) else result
+    return asyncio.run(result) if asyncio.iscoroutine(result) else result
 
 
 # --- the tool ---------------------------------------------------------------------------------------------------------
@@ -80,15 +80,15 @@ def test_if_the_system_cannot_open_a_browser_it_says_so(monkeypatch):
     assert result["success"] is False
 
 
-def test_opening_a_page_makes_no_connection_from_this_process(monkeypatch, opened):
-    """The page is the browser's request, not Tala's: the tool imports no HTTP client and opens no socket."""
-    import socket
+def test_the_tool_imports_no_network_library():
+    """The page is the browser's request, not Tala's: this module has no HTTP client or socket to make one with."""
+    import ast
+    from pathlib import Path
 
-    def boom(*a, **k):
-        raise AssertionError("open_url made a network connection")
-
-    monkeypatch.setattr(socket.socket, "connect", boom)
-    assert _call("https://example.com")["success"] is True
+    tree = ast.parse((Path(__file__).resolve().parents[1] / "sdk" / "agent" / "open_url.py").read_text(encoding="utf-8"))
+    imported = {a.name.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.Import) for a in n.names}
+    imported |= {n.module.split(".")[0] for n in ast.walk(tree) if isinstance(n, ast.ImportFrom) and n.module}
+    assert not imported & {"socket", "httpx", "requests", "aiohttp", "urllib3", "http", "websockets"}, imported
 
 
 # --- it is on offer when someone asks for it --------------------------------------------------------------------------

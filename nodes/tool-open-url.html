@@ -1,0 +1,138 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="tala-schema" content="neural-node/v2">
+  <title>Neural Node: Tool: open_url</title>
+</head>
+<body>
+<article
+  data-node-id="tool-open-url"
+  data-node-type="function-doc"
+  data-schema-version="neural-node/v2"
+  data-execution-authority="0.00"
+  data-memory-authority="0.60"
+  data-provider-authority="0.00"
+  data-wallet-authority="0.00"
+  data-tool-authority="0.00"
+  data-weight-relevance="1.00"
+  data-weight-confidence="1.00"
+  data-weight-behavior-influence="0.00"
+  data-weight-governance-importance="0.80"
+  data-governance-status="context-only"
+  data-doc-target="open_url"
+  data-source-files="sdk/agent/open_url.py"
+  data-source-fingerprint="sha256:DCB0B05943988DB559AD6153C9FC9E0BE1BD1748B1CC5AFF6BE8AC84ECC99426"
+  data-source-digest="sha256:2A9454F277C9AFF6BA5F7D42EE7FCE20488C02DE98F5FCB8285298992B9ECBC4"
+  data-description-baseline-digest=""
+  data-document-purpose="description"
+  data-document-accountability="descriptive"
+  data-conforming-implementations=""
+  data-review-owner=""
+  data-generated-at="2026-10-28T13:56:43Z"
+  data-source="local"
+  data-trust-tier="system">
+
+  <header id="node-identity">
+    <h1 id="node-title">Tool: open_url</h1>
+  </header>
+
+  <section id="semantic-memory">
+    <p>&lt;p&gt;&lt;strong&gt;open_url&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Open a web page or website in the user&#x27;s own visible default web browser: use this when asked to open a browser, a website, a link or a page. Takes a web address (https://...); with none it opens a blank page. Unlike browser_navigate, which is headless and shows nothing, the user sees this one.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;open_url(url)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;url&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;NAME open_url - show a web page in the user&#x27;s default browser SYNOPSIS open_url(url: str | None = None) -&gt; dict[str, Any]&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.open_url&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+  </section>
+
+  <section id="source-evidence">
+    <h2>Source Evidence</h2>
+    <ul>
+      <li><code>sdk/agent/open_url.py</code></li>
+
+    </ul>
+  </section>
+
+  <section id="audit-activation-trace">
+    <h2>Audit / Activation Trace</h2>
+    <p>This documentation node was generated through an approved Tala documentation-node bridge and validated after writing.</p>
+  </section>
+
+  <nav id="relationship-anchors" aria-label="Node relationships">
+    <h2>Relationships</h2>
+    <ul>
+      <li><a href="./system-neural-node-v2-schema.html" data-target-node-id="system-neural-node-v2-schema" data-relationship-type="bounded-by" data-relationship-weight="1.00" data-navigation-role="schema-contract" data-authority-required="none">HTML Neural Node v2 Schema</a></li>
+      <li><a href="./system-html-nn-authoring-guide.html" data-target-node-id="system-html-nn-authoring-guide" data-relationship-type="depends-on" data-relationship-weight="1.00" data-navigation-role="authoring-guide" data-authority-required="none">HTML-NN Authoring Guide</a></li>
+    </ul>
+  </nav>
+
+  <script type="application/tala-director+json"
+          id="director-reference-tool-open-url"
+          data-script-kind="reference"
+          data-side-effects="none">
+{
+  "when": {
+    "intent": "reference_documentation_node",
+    "doc_target": "open_url"
+  },
+  "reference": [
+    {
+      "type": "html-nn",
+      "node_id": "system-neural-node-v2-schema",
+      "required": true
+    },
+    {
+      "type": "html-nn",
+      "node_id": "system-html-nn-authoring-guide",
+      "required": true
+    }
+  ],
+  "then": {
+    "instruction": "Use these reference nodes as canonical context before updating or validating this documentation node."
+  }
+}
+  </script>
+
+  <script type="application/json" id="node-state" data-cognitive-block="state">
+{
+  "title": "Tool: open_url",
+  "description": "Program documentation for open_url.",
+  "tags": [
+    "tool",
+    "registry",
+    "capability",
+    "open_url"
+  ],
+  "metadata": {
+    "author": "tala-system",
+    "created_or_updated": "2026-10-28T13:56:43Z",
+    "schema": "neural-node/v2",
+    "doc_target": "open_url",
+    "source_fingerprint": "sha256:DCB0B05943988DB559AD6153C9FC9E0BE1BD1748B1CC5AFF6BE8AC84ECC99426",
+    "source_files": [
+      "sdk/agent/open_url.py"
+    ],
+    "source_digest": "sha256:2A9454F277C9AFF6BA5F7D42EE7FCE20488C02DE98F5FCB8285298992B9ECBC4",
+    "document_purpose": "description",
+    "document_accountability": "descriptive",
+    "conforming_implementations": [],
+    "scope": "",
+    "review_owner": ""
+  },
+  "tool": {
+    "name": "open_url",
+    "description": "Open a web page or website in the user's own visible default web browser: use this when asked to open a browser, a website, a link or a page. Takes a web address (https://...); with none it opens a blank page. Unlike browser_navigate, which is headless and shows nothing, the user sees this one.",
+    "signature": "open_url(url)",
+    "schema": {
+      "type": "object",
+      "properties": {
+        "url": {
+          "type": "string"
+        }
+      },
+      "required": []
+    },
+    "module": "sdk.agent.open_url",
+    "required": []
+  }
+}
+  </script>
+</article>
+</body>
+</html>

@@ -93,21 +93,21 @@ ECHO = ("[SYSTEM REMINDER]: If you decide to invoke a tool, call it directly thr
 
 
 def test_an_echoed_reminder_is_removed_from_a_reply():
-    assert reply_text.strip_stray_calls(f"It is 9 pm. {ECHO}") == "It is 9 pm."
+    assert reply_text._strip_stray_calls(f"It is 9 pm. {ECHO}") == "It is 9 pm."
 
 
 def test_a_reply_that_is_only_repeated_reminders_becomes_empty():
-    assert reply_text.strip_stray_calls(f"{ECHO} {ECHO} {ECHO} [SYSTEM REMINDER]: If you decide to invoke a tool, call it dire") == ""
+    assert reply_text._strip_stray_calls(f"{ECHO} {ECHO} {ECHO} [SYSTEM REMINDER]: If you decide to invoke a tool, call it dire") == ""
 
 
 def test_a_reminder_mentioned_in_code_is_left_alone():
     text = "The marker looks like `[SYSTEM REMINDER]: x` in the prompt."
-    assert reply_text.strip_stray_calls(text) == text
+    assert reply_text._strip_stray_calls(text) == text
 
 
 def test_ordinary_text_with_brackets_is_untouched():
     text = "See [the docs](http://x) and [note 1]."
-    assert reply_text.strip_stray_calls(text) == text
+    assert reply_text._strip_stray_calls(text) == text
 
 
 def _speak(fragments: list[str]) -> str:

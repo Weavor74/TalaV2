@@ -50,7 +50,7 @@ def _strip_echoed_reminders(text: str) -> str:
     return re.sub(r"[ 	]{2,}", " ", result).strip()
 
 
-def strip_stray_calls(text: str) -> str:
+def _strip_stray_calls(text: str) -> str:
     """``text`` without tool-call markup that was never parsed, and without echoed system reminders; unchanged if there is none."""
     text = _strip_echoed_reminders(text)
     if "<call" not in text.lower() and "</call" not in text.lower():
@@ -106,7 +106,7 @@ def _claims_an_action(text: str) -> bool:
 
 def finish_reply(text: str, tools_ran: bool) -> str:
     """The reply as it should be shown and spoken: markup and echoed reminders removed, and a claim no tool backs corrected."""
-    text = strip_stray_calls(text)
+    text = _strip_stray_calls(text)
     if tools_ran or not text or CLAIM_CORRECTION in text or not _claims_an_action(text):
         return text
     log.info("reply_text: a reply claimed an action although no tool ran; correction appended")
