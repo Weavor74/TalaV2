@@ -354,6 +354,10 @@ async def desktop_run(task: str, model: str = "gemma3:4b", endpoint: str = "http
         # cross-platform fallback, while desktop_observe/desktop_action do.
         return {"success": False, "error": "desktop_run is Windows-only (it drives UI Automation). "
                 "On this platform use desktop_observe and desktop_action for desktop work."}
+    # A model that has no URL to give writes "local" (live: three desktop_run calls in a row were refused for it). Those words mean
+    # the default Ollama on this machine; anything else is still held to the loopback rule below.
+    if str(endpoint or "").strip().lower() in ("", "local", "localhost", "ollama", "default", "auto"):
+        endpoint = "http://localhost:11434"
     parsed = urlparse(endpoint)
     if parsed.scheme not in ("http", "https") or parsed.hostname not in ("localhost", "127.0.0.1", "::1") or parsed.username or parsed.password or parsed.query or parsed.fragment:
         return {"success": False, "error": "Desktop Ollama endpoint must be a loopback HTTP(S) address"}

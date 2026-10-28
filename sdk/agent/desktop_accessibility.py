@@ -7,15 +7,29 @@ DESCRIPTION
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 import time
 from pathlib import Path
 
+log = logging.getLogger(__name__)
+
 
 # The first ask of a Chromium/Electron window for its accessibility tree makes the window build one, which was seen to take longer than
 # eight seconds; the next ask is quick. So: a generous first deadline, and one more try, before giving up on the window.
 _DEADLINES_S = (25, 15)
+
+
+def _title(hwnd):
+    """The window's title, for the log only; never raises."""
+    try:
+        import ctypes
+        buffer = ctypes.create_unicode_buffer(120)
+        ctypes.windll.user32.GetWindowTextW(int(hwnd), buffer, 120)
+        return buffer.value
+    except Exception:
+        return '?'
 
 
 def snapshot(hwnd):
@@ -27,16 +41,19 @@ def snapshot(hwnd):
     if sys.platform != 'win32' or not hwnd:
         return {'elements': [], 'error': 'Windows accessibility unavailable'}
     waited = 0
-    for deadline in _DEADLINES_S:
+    for attempt, deadline in enumerate(_DEADLINES_S, 1):
+        started = time.monotonic()
         try:
             result = subprocess.run([sys.executable, '-m', 'sdk.agent.desktop_accessibility', str(int(hwnd))],
                 cwd=str(Path(__file__).resolve().parents[2]),
                 capture_output=True, text=True, encoding='utf-8', timeout=deadline,
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            log.info('desktop accessibility: window %s read in %.1f s (try %d)', hwnd, time.monotonic() - started, attempt)
             if result.returncode:
                 return {'elements': [], 'error': 'Accessibility helper failed'}
             return json.loads(result.stdout)
         except subprocess.TimeoutExpired:
+            log.warning('desktop accessibility: window %s (%s) gave no answer in %d s (try %d)', hwnd, _title(hwnd), deadline, attempt)
             waited += deadline
         except Exception as exc:
             return {'elements': [], 'error': type(exc).__name__}

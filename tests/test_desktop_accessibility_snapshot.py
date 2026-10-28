@@ -69,3 +69,28 @@ def test_without_a_window_or_off_windows_nothing_is_run(monkeypatch):
     assert da.snapshot(0)["error"] == "Windows accessibility unavailable"
     monkeypatch.setattr(da.sys, "platform", "linux")
     assert da.snapshot(1234)["error"] == "Windows accessibility unavailable"
+
+
+# --- the endpoint a model writes when it has none ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("word", ["local", "localhost", "ollama", "default", "Local", "", "  "])
+def test_desktop_run_takes_a_word_for_the_local_endpoint(monkeypatch, word):
+    """Live: three desktop_run calls in a row were refused with 'endpoint must be a loopback address' because the model wrote 'local'."""
+    import asyncio
+
+    from sdk.agent import desktop_agent
+
+    monkeypatch.setattr(desktop_agent, "_native_supported", lambda: True)
+    # max_steps=0 stops the call right after the endpoint check, before anything touches the desktop
+    result = asyncio.run(desktop_agent.desktop_run("open the start menu", endpoint=word, max_steps=0))
+    assert result["error"] == "Provide a task and max_steps between 1 and 40", result
+
+
+def test_desktop_run_still_refuses_an_endpoint_that_is_not_this_machine(monkeypatch):
+    import asyncio
+
+    from sdk.agent import desktop_agent
+
+    monkeypatch.setattr(desktop_agent, "_native_supported", lambda: True)
+    result = asyncio.run(desktop_agent.desktop_run("x", endpoint="http://example.com:11434", max_steps=0))
+    assert "loopback" in result["error"]
