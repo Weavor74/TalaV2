@@ -70,10 +70,28 @@ foreach ($p in @($env:TALA_TOOLS_DIR, $env:TALA_MODELS_DIR, $env:OLLAMA_MODELS, 
     if ($p -match '^[Cc]:') { throw "Refusing to use a C: path: $p" }
 }
 
+# Run a native command quietly. Windows PowerShell 5.1 turns anything a native program writes to stderr (a torch warning, say) into a
+# terminating error under $ErrorActionPreference = "Stop", even with 2>$null, so the checks below must not run under it.
+function Invoke-Quiet([scriptblock]$Block) {
+    $previous = $ErrorActionPreference
+    $ErrorActionPreference = "Continue"
+    try { & $Block 2>$null } finally { $ErrorActionPreference = $previous }
+}
+
+# A profile override (TALA_PROFILES_FILE, see python/inference/profiles.py) can point the main model at a file already on this
+# machine, for example the Ollama blob of a model pulled there. Then the Hugging Face GGUF below is not needed and is not downloaded.
+$overrideModel = $null
+if ($env:TALA_PROFILES_FILE -and (Test-Path $env:TALA_PROFILES_FILE)) {
+    try { $overrideModel = (Get-Content -Raw $env:TALA_PROFILES_FILE | ConvertFrom-Json).kagura.main.model_path } catch { $overrideModel = $null }
+}
+if ($overrideModel -and ($overrideModel -match '^[Cc]:')) { throw "Refusing to use a C: path: $overrideModel (TALA_PROFILES_FILE)" }
+$viaOverride = [bool]($overrideModel -and (Test-Path $overrideModel))
+if ($viaOverride) { $Gguf = $overrideModel }
+
 $haveServer = Test-Path $LlamaServer
 $haveGguf   = Test-Path $Gguf
 Write-Host ("llama-server   : {0}  ({1})" -f $LlamaServer, $(if ($haveServer) { "found" } else { "MISSING" }))
-Write-Host ("gpt-oss GGUF   : {0}  ({1})" -f $Gguf, $(if ($haveGguf) { "found" } else { "missing" }))
+Write-Host ("main model     : {0}  ({1})" -f $Gguf, $(if ($viaOverride) { "found, from the TALA_PROFILES_FILE override" } elseif ($haveGguf) { "found" } else { "missing" }))
 
 # Local voice (docs/local-voice.md): Kokoro, faster-whisper and the wake-word models live under $TALA_MODELS_DIR\voice, put
 # there once by scripts\setup_voice.py. At run time nothing is fetched and nothing leaves the machine.
@@ -88,14 +106,14 @@ $PersonaGguf = Join-Path $env:TALA_MODELS_DIR "gguf\Llama-3.2-3B-Instruct-Q4_K_M
 $havePersona = Test-Path $PersonaGguf
 Write-Host ("persona GGUF   : {0}  ({1})" -f $PersonaGguf, $(if ($havePersona) { "found" } else { "missing: pass -FetchPersona, or see docs/lora-pipeline.md" }))
 if (Test-Path $VenvPython) {
-    $torch = & $VenvPython -c "import torch; print(torch.__version__, torch.cuda.is_available())" 2>$null
-    $bnb   = & $VenvPython -c "import bitsandbytes" 2>$null; $haveBnb = ($LASTEXITCODE -eq 0)
+    $torch = Invoke-Quiet { & $VenvPython -c "import torch; print(torch.__version__, torch.cuda.is_available())" }
+    Invoke-Quiet { & $VenvPython -c "import bitsandbytes" } | Out-Null; $haveBnb = ($LASTEXITCODE -eq 0)
     Write-Host ("persona train  : torch {0}; bitsandbytes {1}" -f $(if ($torch) { $torch } else { "missing" }), $(if ($haveBnb) { "found" } else { "missing" }))
 }
 
 function Test-Swisseph {
     if (-not (Test-Path $VenvPython)) { return $false }
-    & $VenvPython -c "import swisseph" 2>$null
+    Invoke-Quiet { & $VenvPython -c "import swisseph" } | Out-Null
     return ($LASTEXITCODE -eq 0)
 }
 $haveSwe = Test-Swisseph
