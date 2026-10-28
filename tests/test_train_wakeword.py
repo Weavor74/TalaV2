@@ -283,7 +283,7 @@ def test_the_default_is_to_ask_the_card_for_nothing_it_is_busy_with(monkeypatch)
 
 
 def test_a_long_run_lowers_its_own_priority_and_survives_a_platform_that_cannot(monkeypatch):
-    import psutil
+    psutil = pytest.importorskip("psutil")  # a training-machine dependency; CI does not install it
 
     class Process:
         niced = []
