@@ -98,7 +98,7 @@ class RiskClassifier:
             if resource in ("run_workspace_command", "write_workspace_file",
                             "submit_agent_goal", "desktop_action", "desktop_run"):
                 return "high"
-            if resource in ("send_telegram_message", "verify_and_heal_documentation", "update_neural_node"):
+            if resource in ("send_telegram_message", "verify_and_heal_documentation", "update_neural_node", "open_url"):
                 return "medium"
             return "low"
 

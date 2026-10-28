@@ -64,5 +64,5 @@ def test_stripping_twice_changes_nothing():
 def test_the_handler_no_longer_glues_the_notice_into_the_reply_text():
     src = (Path(__file__).resolve().parents[1] / "python" / "harness" / "server.py").read_text(encoding="utf-8")
     assert 'generated_text = f"{fallback_notice}' not in src, "an internal notice must not be part of what she says"
-    assert "_reply_text.strip_stray_calls(generated_text)" in src
+    assert "_reply_text.finish_reply(generated_text" in src  # strip_stray_calls plus the unbacked-claim correction
     assert '"fallback_notice": fallback_notice,' in src, "the notice still travels beside the reply for a UI that wants it"

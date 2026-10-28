@@ -93,6 +93,17 @@ DEFAULT_BUDGETS: dict[str, int] = {
 _WORD_RE = re.compile(r"[a-z][a-z0-9]{2,}")
 _SPLIT_NAME_RE = re.compile(r"[._\W]+")
 
+# Requests that name their tool outright. Keyword ranking cannot be trusted with these: "open a web browser" went to a turn whose eight
+# slots held the headless browser tools, so she had nothing that opens a window the user can see, and said she had opened one anyway.
+# Like the core, these only ever ADD a tool (the safe half of an intent gate), and are guaranteed, not ranked.
+FORCED_BY_INTENT: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
+    (re.compile(
+        r"\b(?:open|launch|start|pull\s+up|bring\s+up|fire\s+up|go\s+to|visit|show\s+me)\b[^.!?]*"
+        r"\b(?:browser|web\s*site|web\s*page|site|url|link|google|youtube|[\w-]+\.(?:com|org|net|io|gov|edu|co|app|dev))\b"
+        r"|\b(?:browser|web\s*site|link)\b[^.!?]*\b(?:open|launch)\b", re.IGNORECASE),
+     ("open_url",)),
+)
+
 
 def _name_tokens(name: str) -> set[str]:
     return {t for t in _SPLIT_NAME_RE.split(name.lower()) if len(t) > 2 and t not in _STOPWORDS}
@@ -182,7 +193,8 @@ def _select_tool_names(
 
     chosen: list[str] = []
     seen: set[str] = set()
-    for name in [*_keep(core), *_keep(sticky)]:
+    named = [n for pattern, names in FORCED_BY_INTENT if pattern.search(text or "") for n in names]
+    for name in [*_keep(core), *_keep(sticky), *_keep(named)]:
         if name not in seen:
             seen.add(name)
             chosen.append(name)

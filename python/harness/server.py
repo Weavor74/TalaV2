@@ -3723,7 +3723,7 @@ async def handle_inference_generate(
 
     generated_text = validated_text
     fallback_notice = "\n".join(fallback_notices)  # travels beside the reply (and as a toast); inside it, it would be read aloud
-    generated_text = _reply_text.strip_stray_calls(generated_text)
+    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools))
 
     try:
         from python.harness.memory import handle_memory_record_completed_turn
