@@ -31,8 +31,28 @@ def _strip_segment(segment: str) -> str:
     return re.sub(r"[ \t]+\n", "\n", segment)
 
 
+# The harness's own instructions to the model are written as "[SYSTEM REMINDER]: ..." lines. A small model handed them can read them
+# back as its answer (granite3.2-vision:2b did, three times over, and it was spoken aloud). They contain no "[" after the marker,
+# so a reminder runs to the next "[" or to the end, whether or not the echo was cut off by the token limit.
+_ECHOED_REMINDER = re.compile(r"\[SYSTEM REMINDER\]:[^\[]*", re.IGNORECASE)
+
+
+def _strip_echoed_reminders(text: str) -> str:
+    """``text`` without any ``[SYSTEM REMINDER]: ...`` the model read back; unchanged if there is none. Code spans are left alone."""
+    if "system reminder" not in text.lower():
+        return text
+    parts = _PROTECTED.split(text)
+    cleaned = [part if index % 2 else _ECHOED_REMINDER.sub("", part) for index, part in enumerate(parts)]
+    result = "".join(cleaned)
+    if result == text:
+        return text
+    log.info("reply_text: removed an echoed system reminder from a reply")
+    return re.sub(r"[ 	]{2,}", " ", result).strip()
+
+
 def strip_stray_calls(text: str) -> str:
-    """``text`` without tool-call markup that was never parsed; unchanged (not even re-trimmed) if there is none."""
+    """``text`` without tool-call markup that was never parsed, and without echoed system reminders; unchanged if there is none."""
+    text = _strip_echoed_reminders(text)
     if "<call" not in text.lower() and "</call" not in text.lower():
         return text
     parts = _PROTECTED.split(text)
