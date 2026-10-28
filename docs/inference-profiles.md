@@ -127,6 +127,20 @@ setx HF_HOME "D:\models\hf-cache"   # or keep a Hugging Face cache you already h
 
 4. Start the stack: `.\scripts\kagura-stack.ps1` (`-Check` only reports).
 
+   If the main model is already on this machine under another name (an Ollama blob, say), do not download the 12 GB GGUF: point
+   an override at it and set `TALA_PROFILES_FILE` before running the script, which then reports "found, from the
+   TALA_PROFILES_FILE override" and fetches nothing. Only the keys you give are changed:
+
+   ```json
+   { "kagura": { "main": { "model_path": "D:/ollama/models/blobs/sha256-<the model's blob>" } } }
+   ```
+
+   ```powershell
+   $env:TALA_PROFILES_FILE = "D:\tala-config\profiles-override.json"; .\scripts\kagura-stack.ps1
+   ```
+
+   The path must not be on C:.
+
 Tala starts `llama-server` itself, equivalent to:
 
 ```powershell
