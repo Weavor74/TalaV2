@@ -13,24 +13,34 @@ import time
 from pathlib import Path
 
 
+# The first ask of a Chromium/Electron window for its accessibility tree makes the window build one, which was seen to take longer than
+# eight seconds; the next ask is quick. So: a generous first deadline, and one more try, before giving up on the window.
+_DEADLINES_S = (25, 15)
+
+
 def snapshot(hwnd):
     """NAME
-           snapshot - read native controls with an eight-second deadline
+           snapshot - read native controls, bounded by a deadline and one retry
     DESCRIPTION
            Returns an explicit error when accessibility is unavailable.
     """
     if sys.platform != 'win32' or not hwnd:
         return {'elements': [], 'error': 'Windows accessibility unavailable'}
-    try:
-        result = subprocess.run([sys.executable, '-m', 'sdk.agent.desktop_accessibility', str(int(hwnd))],
-            cwd=str(Path(__file__).resolve().parents[2]),
-            capture_output=True, text=True, encoding='utf-8', timeout=8,
-            creationflags=subprocess.CREATE_NO_WINDOW)
-        if result.returncode:
-            return {'elements': [], 'error': 'Accessibility helper failed'}
-        return json.loads(result.stdout)
-    except Exception as exc:
-        return {'elements': [], 'error': type(exc).__name__}
+    waited = 0
+    for deadline in _DEADLINES_S:
+        try:
+            result = subprocess.run([sys.executable, '-m', 'sdk.agent.desktop_accessibility', str(int(hwnd))],
+                cwd=str(Path(__file__).resolve().parents[2]),
+                capture_output=True, text=True, encoding='utf-8', timeout=deadline,
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+            if result.returncode:
+                return {'elements': [], 'error': 'Accessibility helper failed'}
+            return json.loads(result.stdout)
+        except subprocess.TimeoutExpired:
+            waited += deadline
+        except Exception as exc:
+            return {'elements': [], 'error': type(exc).__name__}
+    return {'elements': [], 'error': f'TimeoutExpired after {waited} s over {len(_DEADLINES_S)} tries'}
 
 
 def _read(hwnd):
