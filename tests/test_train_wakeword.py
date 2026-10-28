@@ -67,7 +67,8 @@ def test_the_split_is_reproducible_and_a_different_seed_holds_out_different_voic
 
 
 def test_a_blend_is_a_weighted_mix_of_two_voices_and_the_speed_reaches_the_model(monkeypatch):
-    import torch
+    torch = pytest.importorskip("torch")
+    pytest.importorskip("scipy")  # resampling in the trainer; training-machine dependencies, not installed in CI
 
     seen = {}
 
