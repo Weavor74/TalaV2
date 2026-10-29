@@ -139,13 +139,19 @@ _RULE = ("=== THE USER IS CHALLENGING YOUR LAST ANSWER ===\n"
          "use it first. If you cannot verify the claim, say so plainly and say you were unsure or wrong; that is the answer the user needs.")
 
 
+def plain(text: str) -> str:
+    """``text`` lower-cased with every dash variant (the non-breaking hyphen the model writes into names and URLs) as a plain hyphen, so
+    two spellings of one thing compare equal."""
+    return (text or "").translate(_DASHES).lower()
+
+
 def _is_challenge(message: str) -> bool:
     """Whether the user is questioning something Tala said (where did you get that, are you sure, that's wrong, you're lying...)."""
     text = (message or "").translate(_DASHES)
     return any(pattern.search(text) for pattern in _CHALLENGES)
 
 
-def _last_assistant_text(history: Any) -> str:
+def last_assistant_text(history: Any) -> str:
     if not isinstance(history, list):
         return ""
     for message in reversed(history):
@@ -162,7 +168,7 @@ def challenge_note(user_text: str, history: Any) -> str | None:
             return None
         lines = [_RULE]
         seen: list[str] = []
-        for path in [*_cited_paths(_last_assistant_text(history)), *_cited_paths(user_text)]:
+        for path in [*_cited_paths(last_assistant_text(history)), *_cited_paths(user_text)]:
             if path in seen:
                 continue
             seen.append(path)

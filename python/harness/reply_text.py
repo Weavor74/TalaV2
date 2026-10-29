@@ -11,7 +11,7 @@ from __future__ import annotations
 import logging
 import re
 
-from python.harness import honesty
+from python.harness import honesty, turn_log
 
 log = logging.getLogger(__name__)
 
@@ -125,10 +125,14 @@ def _cut_at_template_token(text: str) -> str:
     return text
 
 
-def finish_reply(text: str, tools_ran: bool, tool_outcomes: list[tuple[str, str | None]] | None = None) -> str:
+def finish_reply(text: str, tools_ran: bool, tool_calls: turn_log.TurnLog | list[tuple[str, str | None]] | None = None) -> str:
     """The reply as it should be shown and spoken: markup, echoed reminders and runaway template turns removed, and a claim no tool backs,
-    a file that is not there, or an answer built on tool calls that all failed, corrected."""
-    text = honesty.add_failed_tool_note(honesty.add_missing_file_correction(_strip_stray_calls(_cut_at_template_token(text))), tool_outcomes)
+    a file that is not there, an answer built on a failed tool call, or details a challenged answer took from no tool result, corrected.
+    ``tool_calls`` is the turn's TurnLog, or just its (tool, failure reason) outcomes."""
+    log_ = tool_calls if isinstance(tool_calls, turn_log.TurnLog) else None
+    text = honesty.add_failed_tool_note(honesty.add_missing_file_correction(_strip_stray_calls(_cut_at_template_token(text))),
+                                        log_.outcomes if log_ else tool_calls)
+    text = log_.add_unsupported_note(text) if log_ else text
     if tools_ran or not text or CLAIM_CORRECTION in text or not _claims_an_action(text):
         return text
     log.info("reply_text: a reply claimed an action although no tool ran; correction appended")

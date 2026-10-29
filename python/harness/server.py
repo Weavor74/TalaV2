@@ -1546,7 +1546,7 @@ async def handle_inference_generate(
     native_tool_specs: list[dict[str, Any]] = []
     tool_index = None
     sticky_tools: set[str] = set()
-    tool_outcomes: list[tuple[str, str | None]] = []  # (tool, why it failed or None) per call, for the reply's honesty check
+    reply_log = _reply_text.turn_log.TurnLog()  # every tool call this turn, and the answer the user challenged, for the reply's honesty checks
 
     raw_prompt = bool(params.get("raw_prompt", False))
     if raw_prompt:
@@ -2365,9 +2365,8 @@ async def handle_inference_generate(
                             "=== PEER HTML NEURAL NODE CONTEXT ===\n" + "\n\n".join(peer_context_parts)
                         )
 
-                    from python.harness.honesty import challenge_note
                     from python.harness.topic_stance import stance_context_block
-                    system_context_additions.extend(b for b in (await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion), challenge_note(raw_user_prompt, history)) if b)
+                    system_context_additions.extend(b for b in (await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion), reply_log.challenge_note(raw_user_prompt, history)) if b)
                     if system_context_additions:
                         if active_system_prompt:
                             active_system_prompt = active_system_prompt + "\n\n" + "\n\n".join(system_context_additions)
@@ -3627,7 +3626,7 @@ async def handle_inference_generate(
             except Exception as exc:
                 tool_result = f"Error executing registry tool: {exc}"
 
-        tool_outcomes.append((tool_name, _reply_text.honesty.tool_failure(tool_result)))
+        reply_log.record(tool_name, tool_result)
         if tool_lower.startswith("docs."):
             # Produce a human-readable confirmation instead of a raw JSON blob
             if isinstance(tool_result, dict):
@@ -3724,7 +3723,7 @@ async def handle_inference_generate(
 
     generated_text = validated_text
     fallback_notice = "\n".join(fallback_notices)  # travels beside the reply (and as a toast); inside it, it would be read aloud
-    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools), tool_outcomes)
+    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools), reply_log)
 
     try:
         from python.harness.memory import handle_memory_record_completed_turn
