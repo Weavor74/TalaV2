@@ -129,11 +129,25 @@ def _parse(raw: Any) -> datetime | None:
 
 
 def _pid_alive(pid: Any) -> bool:
+    """Whether a process with this pid is running. No third-party package (psutil is not a declared dependency); True when it cannot be told."""
     try:
-        import psutil
+        pid = int(pid)
+        if sys.platform == "win32":
+            import ctypes
 
-        return psutil.pid_exists(int(pid))
-    except Exception:  # cannot tell: keep treating the marker as live
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if not handle:
+                return False
+            code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            kernel32.CloseHandle(handle)
+            return code.value == 259  # STILL_ACTIVE
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except Exception:
         return True
 
 
