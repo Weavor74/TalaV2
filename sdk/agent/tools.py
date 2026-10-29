@@ -4700,6 +4700,7 @@ def _sc_trim(resource: str, row: dict[str, Any], detail: bool = False) -> dict[s
         "objects, manufacturers, commodities, weapons, factions, and the in-universe "
         "written record via galactapedia articles and comm-links. Use this for any "
         "question about the Star Citizen universe rather than answering from memory. "
+        "Find a record by name with `query`; pass `identifier` only for a slug or id an earlier result gave you. "
         "Resources: " + ", ".join(sorted(_SC_RESOURCES)) + "."
     ),
 )
@@ -4763,16 +4764,25 @@ async def starcitizen_lookup(
     else:
         url = f"{_SC_API_BASE}/{path}?{_url.urlencode({'page[size]': str(limit)})}"
 
-    def _fetch() -> dict[str, Any]:
-        r = _req.Request(url, headers={"Accept": "application/json",
-                                       "User-Agent": "Tala/1.0 (+html-nn)"})
+    def _fetch(target: str) -> dict[str, Any]:
+        r = _req.Request(target, headers={"Accept": "application/json",
+                                          "User-Agent": "Tala/1.0 (+html-nn)"})
         with _req.urlopen(r, timeout=25) as resp:
             return _json.loads(resp.read())
 
     try:
-        payload = await _asyncio.to_thread(_fetch)
+        payload = await _asyncio.to_thread(_fetch, url)
     except Exception as exc:
-        return {"error": f"{type(exc).__name__}: {exc}", "url": url}
+        failure = {"success": False, "error": f"{type(exc).__name__}: {exc}", "url": url}
+        if not identifier or query or getattr(exc, "code", None) not in (404, 422):
+            return failure
+        # A slug she guessed ("starlancer-tac") is not an id the wiki knows (HTTP 422); the words in it are a name search.
+        query = str(identifier).replace("-", " ").replace("_", " ")
+        search = {f"filter[{filter_field}]": query, "page[size]": str(limit)}
+        try:
+            payload = await _asyncio.to_thread(_fetch, f"{_SC_API_BASE}/{path}?{_url.urlencode(search)}")
+        except Exception:
+            return failure
 
     data = payload.get("data")
     total = (payload.get("meta") or {}).get("total")
@@ -4796,6 +4806,7 @@ async def starcitizen_lookup(
         "total_matches": total,
         "returned": len(rows),
         "results": rows,
+        **({} if rows else {"hint": "nothing matched in this resource; ships and vehicles are under resource 'vehicles', lore under 'galactapedia'"}),
     }
 
 

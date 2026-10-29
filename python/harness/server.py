@@ -1546,6 +1546,7 @@ async def handle_inference_generate(
     native_tool_specs: list[dict[str, Any]] = []
     tool_index = None
     sticky_tools: set[str] = set()
+    tool_outcomes: list[tuple[str, str | None]] = []  # (tool, why it failed or None) per call, for the reply's honesty check
 
     raw_prompt = bool(params.get("raw_prompt", False))
     if raw_prompt:
@@ -3558,10 +3559,8 @@ async def handle_inference_generate(
         from sdk.agent.agent_reply_tools import parse_call_tag
         tool_name, attrs = parse_call_tag(tool_match)
 
-        # Keep this tool on offer for the rest of the request. Two reasons: a
-        # multi-turn task must not lose a tool it is mid-way through using, and a
-        # tool the model reached for despite selection ranking it low is direct
-        # evidence the ranking was wrong about this conversation.
+        # Keep this tool on offer for the rest of the request: a multi-turn task must not lose a tool it is mid-way through using, and a tool
+        # the model reached for despite a low ranking is direct evidence the ranking was wrong about this conversation.
         if tool_name:
             if tool_name not in sticky_tools:
                 logger.info("Tool '%s' pinned for the rest of this request", tool_name)
@@ -3628,6 +3627,7 @@ async def handle_inference_generate(
             except Exception as exc:
                 tool_result = f"Error executing registry tool: {exc}"
 
+        tool_outcomes.append((tool_name, _reply_text.honesty.tool_failure(tool_result)))
         if tool_lower.startswith("docs."):
             # Produce a human-readable confirmation instead of a raw JSON blob
             if isinstance(tool_result, dict):
@@ -3724,7 +3724,7 @@ async def handle_inference_generate(
 
     generated_text = validated_text
     fallback_notice = "\n".join(fallback_notices)  # travels beside the reply (and as a toast); inside it, it would be read aloud
-    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools))
+    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools), tool_outcomes)
 
     try:
         from python.harness.memory import handle_memory_record_completed_turn
