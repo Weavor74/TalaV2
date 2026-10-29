@@ -62,6 +62,7 @@ if __name__ == "__main__":
 
 from python.harness.config import settings
 from python.harness import db
+from python.harness import stdin_guard
 from python.harness import vps_mode as vps_mode_module
 from python.harness.provider_selection import (
     ensure_embedded_provider,
@@ -15377,6 +15378,8 @@ def _stdin_is_a_parent_pipe() -> bool:
     """
     import stat
 
+    if stdin_guard.holds_parent_pipe():  # main() moved the pipe to a private descriptor so no child inherits it
+        return True
     try:
         mode = os.fstat(sys.stdin.fileno()).st_mode
     except Exception:
@@ -15395,11 +15398,7 @@ async def _monitor_stdin() -> None:
         return
 
     try:
-        def _read_stdin():
-            try:
-                return sys.stdin.read(1)
-            except Exception:
-                return ""
+        _read_stdin = stdin_guard.wait_for_eof
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, _read_stdin)
     except Exception:
@@ -15793,6 +15792,7 @@ def main() -> None:
     args, _unknown = parser.parse_known_args()
 
     _configure_logging()
+    stdin_guard.detach()  # before anything can start a child: a child inheriting the stdin pipe hangs at start-up (stdin_guard.py)
 
     if args.vps:
         from python.harness import vps_mode

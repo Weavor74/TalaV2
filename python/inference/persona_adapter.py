@@ -215,7 +215,7 @@ async def _spawn(profile: Any, adapters: list[Path], *, port: int | None = None,
     port = port or persona.port
     argv = server_argv(profile, adapters, port=port, apply=apply)
     log.info("persona_adapter: starting the persona server: %s", " ".join(argv))
-    proc = await asyncio.create_subprocess_exec(*argv, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
+    proc = await asyncio.create_subprocess_exec(*argv, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT)
     lifecycle.register_process(proc, {"name": "llama-server-persona", "port": port})
     handle = _Handle(proc=proc, port=port, adapters=list(adapters))
     asyncio.create_task(lsm._pump_output(proc, "persona"))

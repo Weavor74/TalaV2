@@ -128,9 +128,41 @@ def _parse(raw: Any) -> datetime | None:
     return moment.astimezone().replace(tzinfo=None) if moment.tzinfo else moment
 
 
+def _pid_alive(pid: Any) -> bool:
+    """Whether a process with this pid is running. No third-party package (psutil is not a declared dependency); True when it cannot be told."""
+    try:
+        pid = int(pid)
+        if sys.platform == "win32":
+            import ctypes
+
+            kernel32 = ctypes.windll.kernel32
+            handle = kernel32.OpenProcess(0x1000, False, pid)  # PROCESS_QUERY_LIMITED_INFORMATION
+            if not handle:
+                return False
+            code = ctypes.c_ulong()
+            kernel32.GetExitCodeProcess(handle, ctypes.byref(code))
+            kernel32.CloseHandle(handle)
+            return code.value == 259  # STILL_ACTIVE
+        os.kill(pid, 0)
+        return True
+    except ProcessLookupError:
+        return False
+    except Exception:
+        return True
+
+
 def _marker_active(now: datetime) -> bool:
-    started = _parse(_read_state().get("running_since"))
-    return started is not None and (now - started) < timedelta(hours=STALE_RUN_HOURS)
+    """A run is in progress while its marker is under a day old and the harness that wrote it is still running it. A marker left by a
+    process that has gone (the app was closed mid-run) would otherwise turn Train now away as busy, and refuse Roll back and the settings,
+    for a day; one written before pids were recorded has nothing to check and keeps the day limit alone."""
+    state = _read_state()
+    started = _parse(state.get("running_since"))
+    if started is None or (now - started) >= timedelta(hours=STALE_RUN_HOURS):
+        return False
+    pid = state.get("running_pid")
+    if pid is None:
+        return True
+    return _RUNNING if int(pid) == os.getpid() else _pid_alive(pid)
 
 
 def _generations_dir() -> Path:
@@ -173,7 +205,7 @@ async def _exec(args: list[str], *, timeout_s: float, env: dict[str, str] | None
             kwargs["creationflags"] = 0x00004000  # BELOW_NORMAL_PRIORITY_CLASS: training must not take the machine from its user
         else:
             kwargs["preexec_fn"] = lambda: os.nice(10)
-    proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env, **kwargs)
+    proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env, **kwargs)
     tail: collections.deque[str] = collections.deque(maxlen=tail_lines)
 
     async def _pump() -> None:
@@ -311,7 +343,7 @@ async def _run_pipeline(*, reason: str = "manual", force: bool = False, now: dat
     run_id = started.strftime("%Y%m%d-%H%M%S")
     scratch = _generations_dir() / ".work" / run_id
     try:
-        _write_state({"running_since": started.isoformat(), "last_reason_started": reason, "stage": "start"})
+        _write_state({"running_since": started.isoformat(), "running_pid": os.getpid(), "last_reason_started": reason, "stage": "start"})
         result = await _run(run_id, scratch, force=force, reason=reason, started=started)
     except Exception as exc:  # a bug in here must not leave the marker set or the scratch files behind
         log.exception("lora_pipeline: unexpected error")
@@ -324,7 +356,7 @@ async def _run_pipeline(*, reason: str = "manual", force: bool = False, now: dat
             pass
         _RUNNING = False
     result.setdefault("run_id", run_id)
-    state: dict[str, Any] = {"running_since": None, "stage": None, "last_status": result["status"], "last_stage": result.get("stage"),
+    state: dict[str, Any] = {"running_since": None, "running_pid": None, "stage": None, "last_status": result["status"], "last_stage": result.get("stage"),
                              "last_reason": result.get("reason"), "last_run_id": run_id}
     if result["status"] in ("deployed", "rejected"):
         state.update(last_dataset_hash=result.get("dataset_hash"), last_scores=result.get("scores"), last_trained_at=started.astimezone().isoformat())
