@@ -9,6 +9,8 @@ because the decision is a predicate worth reading on its own.
 from __future__ import annotations
 
 import logging
+import re
+import time
 from dataclasses import dataclass, field
 from typing import Any
 
@@ -31,6 +33,54 @@ EMBEDDED_PROVIDER: dict[str, Any] = {
     "config": {"model": "bartowski/Llama-3.2-3B-Instruct-GGUF"},
     "locked": True,
 }
+
+
+# A provider that keeps answering with nothing (gpt-oss through Ollama returns empty content for every request on this stack) used
+# to be tried first on every turn, each time costing a model load before the next provider got a go. Two empty replies inside the
+# window put it on a cooldown; a provider the user named or forced is still tried (an explicit choice is not second-guessed).
+EMPTY_REPLY_LIMIT = 2
+EMPTY_REPLY_WINDOW_S = 600.0
+EMPTY_REPLY_COOLDOWN_S = 600.0
+_EMPTY_REPLIES: dict[str, list[float]] = {}
+
+
+def note_empty_reply(provider_id: str, message: str = "", now: float | None = None) -> None:
+    """Record that this provider answered with no text, and log ``message``."""
+    moment = time.monotonic() if now is None else now
+    recent = [t for t in _EMPTY_REPLIES.get(provider_id, []) if moment - t <= EMPTY_REPLY_WINDOW_S]
+    recent.append(moment)
+    _EMPTY_REPLIES[provider_id] = recent
+    logger.warning("%s (%d empty in the last %d s)", message or f"Provider '{provider_id}' returned empty response text.",
+                   len(recent), int(EMPTY_REPLY_WINDOW_S))
+
+
+def _empty_reply_cooldown(provider_id: str, now: float | None = None) -> bool:
+    """Whether this provider has returned empty text often enough, recently enough, to be passed over."""
+    moment = time.monotonic() if now is None else now
+    recent = [t for t in _EMPTY_REPLIES.get(provider_id, []) if moment - t <= EMPTY_REPLY_COOLDOWN_S]
+    return len(recent) >= EMPTY_REPLY_LIMIT
+
+
+def _reset_empty_replies() -> None:
+    _EMPTY_REPLIES.clear()
+
+
+def _model_text(provider: dict[str, Any]) -> str:
+    cfg = provider.get("config") or {}
+    model = cfg.get("model", "") if isinstance(cfg, dict) else ""
+    return f"{provider.get('name', '')} {model}".lower()
+
+
+def _is_embedding_only(provider: dict[str, Any]) -> bool:
+    """An embedding model cannot chat: it must never be added to a chat chain on its own. (Not the "embedded" engine.)"""
+    if provider.get("type") == "embedded":
+        return False
+    return re.search(r"embed(?!ded)", _model_text(provider)) is not None
+
+
+def _is_vision_named(provider: dict[str, Any]) -> bool:
+    """A small vision model is a last resort for text: it answered a voice turn with the system prompt read back."""
+    return "vision" in _model_text(provider)
 
 
 @dataclass
@@ -71,7 +121,7 @@ def tier_sort_providers(provider_list: list[dict[str, Any]]) -> list[dict[str, A
     """
     return sorted(
         provider_list,
-        key=lambda p: PROVIDER_TIER_RANK.get(p.get("type"), 3),
+        key=lambda p: (PROVIDER_TIER_RANK.get(p.get("type"), 3), _is_vision_named(p)),
     )
 
 
@@ -92,6 +142,7 @@ def skip_provider_attempt(
     provider: dict[str, Any],
     forced_provider: dict[str, Any] | None,
     request_provider: dict[str, Any] | None,
+    now: float | None = None,
 ) -> bool:
     """
     Whether this provider should be passed over without being tried.
@@ -118,6 +169,10 @@ def skip_provider_attempt(
     blocked = provider_refusal(provider, requested=requested)
     if blocked:
         logger.info("Skipping provider '%s': %s", provider["name"], blocked)
+        return True
+
+    if not requested and _empty_reply_cooldown(provider["id"], now):
+        logger.info("Skipping provider '%s': it returned empty text twice in the last %d s", provider["name"], int(EMPTY_REPLY_COOLDOWN_S))
         return True
 
     if provider.get("status") != "offline":
@@ -273,17 +328,17 @@ def resolve_provider_chain(
             request_provider["name"],
         )
         others = tier_sort_providers(
-            [p for p in providers if p["id"] != request_provider["id"]]
+            [p for p in providers if p["id"] != request_provider["id"] and not _is_embedding_only(p)]
         )
         chain = [request_provider] + others
     elif forced_provider:
         logger.info("Forced provider active: '%s' (Preferred First)", forced_provider["name"])
         others = tier_sort_providers(
-            [p for p in providers if p["id"] != forced_provider["id"]]
+            [p for p in providers if p["id"] != forced_provider["id"] and not _is_embedding_only(p)]
         )
         chain = [forced_provider] + others
     else:
-        chain = tier_sort_providers(providers)
+        chain = tier_sort_providers([p for p in providers if not _is_embedding_only(p)])
         logger.info(
             "Enqueued %d providers in tier order (remote -> local -> embedded).",
             len(chain),

@@ -93,6 +93,28 @@ DEFAULT_BUDGETS: dict[str, int] = {
 _WORD_RE = re.compile(r"[a-z][a-z0-9]{2,}")
 _SPLIT_NAME_RE = re.compile(r"[._\W]+")
 
+# Requests that name their tool outright. Keyword ranking cannot be trusted with these: "open a web browser" went to a turn whose eight
+# slots held the headless browser tools, so she had nothing that opens a window the user can see, and said she had opened one anyway.
+# Like the core, these only ever ADD a tool (the safe half of an intent gate), and are guaranteed, not ranked.
+FORCED_BY_INTENT: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
+    (re.compile(
+        r"\b(?:open|launch|start|pull\s+up|bring\s+up|fire\s+up|go\s+to|visit|show\s+me)\b[^.!?]*"
+        r"\b(?:browser|web\s*site|web\s*page|site|url|link|google|youtube|[\w-]+\.(?:com|org|net|io|gov|edu|co|app|dev))\b"
+        r"|\b(?:browser|web\s*site|link)\b[^.!?]*\b(?:open|launch)\b", re.IGNORECASE),
+     ("open_url",)),
+    # Driving the machine herself -- "open the Start menu on my computer" -- is desktop_run (the local vision and mouse loop). Without it
+    # on offer she explained which key to press instead of pressing it.
+    (re.compile(
+        r"\b(?:open|click|double[- ]click|right[- ]click|press|push|hit|type|move|drag|scroll|launch|close|minimi[sz]e|maxim[iz]e"
+        r"|switch\s+to|use|control|take\s+over)\b[^.!?]*"
+        r"\b(?:start\s*menu|start\s+button|task\s*bar|desktop|my\s+(?:computer|pc|screen|laptop|mouse|keyboard)|(?:the|your)\s+(?:mouse|cursor|keyboard)"
+        r"|windows\s+key|file\s+explorer|notepad|calculator|control\s+panel|task\s+manager|settings\s+app|ok)\b"
+        r"|\b(?:computer|desktop|mouse)\s+control\b|\bmove\s+(?:the|your)\s+(?:mouse|cursor)\b"
+        # A voice turn is often just the thing wanted ("Start menu."), with no verb at all (live: she answered how to press the key).
+        r"|\A\W*(?:the\s+)?(?:start\s*(?:menu|button)|task\s*bar|task\s+manager|file\s+explorer|control\s+panel|notepad|calculator)\W*\Z", re.IGNORECASE),
+     ("desktop_run",)),
+)
+
 
 def _name_tokens(name: str) -> set[str]:
     return {t for t in _SPLIT_NAME_RE.split(name.lower()) if len(t) > 2 and t not in _STOPWORDS}
@@ -182,7 +204,8 @@ def _select_tool_names(
 
     chosen: list[str] = []
     seen: set[str] = set()
-    for name in [*_keep(core), *_keep(sticky)]:
+    named = [n for pattern, names in FORCED_BY_INTENT if pattern.search(text or "") for n in names]
+    for name in [*_keep(core), *_keep(sticky), *_keep(named)]:
         if name not in seen:
             seen.add(name)
             chosen.append(name)

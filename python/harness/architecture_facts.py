@@ -29,6 +29,7 @@ from __future__ import annotations
 
 import re
 import subprocess
+import tempfile
 from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any
@@ -513,6 +514,33 @@ def capability_maturity() -> list[dict[str, Any]]:
 # ---------------------------------------------------------------------------
 
 
+def _run_capture(argv: list[str], cwd: Any, timeout: float) -> str:
+    """
+    The stdout of ``argv`` (stripped), or "" if it fails, is missing or outlasts ``timeout``. Never hangs.
+
+    Not ``subprocess.run(capture_output=True, timeout=...)``: on Windows that kills the child on a timeout and then calls
+    ``communicate()`` again with no timeout to collect the pipe, and Git for Windows leaves its filesystem-monitor daemon
+    holding the inherited pipe open, so the call never returns (it froze the whole harness for good). Output goes to a temporary
+    file instead, so there is no pipe for a grandchild to hold.
+    """
+    try:
+        with tempfile.TemporaryFile() as out:
+            proc = subprocess.Popen(argv, cwd=cwd, stdin=subprocess.DEVNULL, stdout=out, stderr=subprocess.DEVNULL)
+            try:
+                proc.wait(timeout=timeout)
+            except subprocess.TimeoutExpired:
+                proc.kill()
+                try:
+                    proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    pass
+                return ""
+            out.seek(0)
+            return out.read().decode("utf-8", "replace").strip()
+    except Exception:
+        return ""
+
+
 def verification_metadata() -> dict[str, Any]:
     """
     What was reviewed, when, and at which commit.
@@ -521,12 +549,7 @@ def verification_metadata() -> dict[str, Any]:
     cannot tell whether it predates the thing they are looking at.
     """
     def _git(*args: str) -> str:
-        try:
-            return subprocess.run(
-                ["git", *args], cwd=ROOT, capture_output=True, text=True, timeout=15,
-            ).stdout.strip()
-        except Exception:
-            return ""
+        return _run_capture(["git", *args], cwd=ROOT, timeout=15)
 
     dirty = _git("status", "--porcelain")
     return {

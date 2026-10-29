@@ -69,7 +69,7 @@ from python.harness.provider_selection import (
     format_fallback_notice,
     preferred_provider,
     remote_provider_ready,
-    resolve_provider_chain,
+    resolve_provider_chain, note_empty_reply,
     skip_provider_attempt,
     tier_sort_providers as _tier_sort_providers,  # noqa: F401 — re-exported for tests
 )
@@ -3425,7 +3425,7 @@ async def handle_inference_generate(
 
                 if not generated_text or not generated_text.strip():
                     err_msg = f"Provider '{p_name}' ({p_type}) returned empty response text."
-                    logger.warning(err_msg)
+                    note_empty_reply(provider["id"], err_msg)
                     errors.append(err_msg)
                     success = False
                     continue
@@ -3723,7 +3723,7 @@ async def handle_inference_generate(
 
     generated_text = validated_text
     fallback_notice = "\n".join(fallback_notices)  # travels beside the reply (and as a toast); inside it, it would be read aloud
-    generated_text = _reply_text.strip_stray_calls(generated_text)
+    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools))
 
     try:
         from python.harness.memory import handle_memory_record_completed_turn

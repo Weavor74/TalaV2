@@ -257,7 +257,7 @@ function voiceCreateController(env) {
     const node = new env.AudioWorkletNode(ctx, 'tala-pcm-capture');
     sendLoop = new VoiceSendLoop(rpc, (err) => fail(err));
     batcher = new VoiceBatcher((int16) => sendLoop.push(int16));
-    node.port.onmessage = (e) => batcher.push(e.data);
+    node.port.onmessage = (e) => { if (batcher) batcher.push(e.data); };
     source.connect(node); // deliberately not connected to the speakers: no monitoring of the microphone
     if (playbackCtx && playbackCtx.state === 'suspended') playbackCtx.resume();
     mic = {
@@ -285,20 +285,29 @@ function voiceCreateController(env) {
     if (agentChat && agentChat.appendMessage) agentChat.appendMessage('agent', 'Tala', `Voice stopped: ${(err && err.message) || err}`, true);
   }
 
+  // `listening` is only set once the harness has answered, which can take many seconds while it loads the speech models, so a second
+  // press in that time used to open a second microphone: the first one was then orphaned and kept feeding a closed batcher.
+  let starting = false;
+
   async function start(mode) {
-    if (listening) return;
-    const started = await rpc('voice.listen_start', { mode });
-    if (started && started.error) throw new Error(started.error.message || started.error);
-    listening = true;
-    if (!playbackCtx) playbackCtx = new env.AudioContext();
+    if (listening || starting) return;
+    starting = true;
     try {
-      await openMic();
-    } catch (err) {
-      await rpc('voice.listen_stop', {}).catch(() => {});
-      closeMic();
-      throw err;
+      const started = await rpc('voice.listen_start', { mode });
+      if (started && started.error) throw new Error(started.error.message || started.error);
+      listening = true;
+      if (!playbackCtx) playbackCtx = new env.AudioContext();
+      try {
+        await openMic();
+      } catch (err) {
+        await rpc('voice.listen_stop', {}).catch(() => {});
+        closeMic();
+        throw err;
+      }
+      render(started);
+    } finally {
+      starting = false;
     }
-    render(started);
   }
 
   /**
@@ -331,6 +340,7 @@ function voiceCreateController(env) {
 
   async function toggle() {
     try {
+      if (starting) return;
       if (listening) await stop(); else await start('continuous');
     } catch (err) { fail(err); }
   }

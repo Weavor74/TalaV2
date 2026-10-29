@@ -26,6 +26,9 @@ _TAGS = (
     ("<thinking>", "</thinking>"),
     ("<code>", "</code>"),
     ("```", "```"),
+    # The harness's instruction lines, if a model reads one back: never speech. Both reminders end with this sentence; an echo cut
+    # off by the token limit never closes and is dropped to the end of the reply.
+    ("[SYSTEM REMINDER]", "simply respond with normal text."),
 )
 # A tool call in any of the shapes a model writes it: `<call:tool a="b"/>`, `<call name="x"/>`, `<call:tool>body</call:tool>`, or
 # `<call><code><call name="x"/></code></call>`. A self-closing tag is dropped alone; an opening tag hides everything up to its close.

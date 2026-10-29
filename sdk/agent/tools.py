@@ -4798,6 +4798,7 @@ async def starcitizen_lookup(
 # Registers the Playwright-backed web browsing tools on import (kept in a
 # separate module so the optional playwright dependency stays isolated).
 from sdk.agent import web_browser  # noqa: E402,F401
+from sdk.agent import open_url  # noqa: E402,F401
 from sdk.agent import ui_control  # noqa: E402,F401
 
 # Registers execute_node / list_executable_nodes -- the verb for acting on an

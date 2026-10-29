@@ -395,6 +395,23 @@ describe('controller', () => {
     assert.equal(typeof audio[0][1].pcm_base64, 'string');
   });
 
+  test('two quick presses while the harness is still starting open one microphone, not two', async () => {
+    const started = { listening: true, state: 'waiting', mode: 'continuous', listening_for: 'Hey Tala' };
+    const { env, ui } = await rig(async (m) => (m === 'voice.listen_start' ? new Promise((r) => setTimeout(() => r(started), 30)) : {}));
+    await Promise.all([ui.toggle(), ui.toggle()]);
+    assert.equal(env.gum.length, 1);
+    assert.equal(env.created.nodes.length, 1);
+    assert.equal(env.calls.filter(([m]) => m === 'voice.listen_start').length, 1);
+    assert.equal(ui.isListening(), true);
+  });
+  test('a capture message that arrives after the microphone was closed is dropped, not thrown', async () => {
+    const { env, ui } = await rig();
+    await ui.toggle();
+    const handler = env.created.nodes[0].port.onmessage;
+    await ui.toggle();
+    assert.doesNotThrow(() => handler({ data: new Float32Array(128) }));
+  });
+
   test('stopping turns the mic off, releases the tracks, and hides the indicator', async () => {
     const { env, els, ui } = await rig();
     await ui.toggle();

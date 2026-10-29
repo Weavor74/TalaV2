@@ -30,6 +30,7 @@ from typing import Any, Awaitable, Callable
 import numpy as np
 
 from python.harness import voice_latency, voice_meter, voice_settings
+from python.harness.reply_text import CLAIM_CORRECTION
 from python.harness.voice_session import (
     BEGIN_TURN, CANCEL_TURN, CAPTURE_START, STOP_PLAYBACK, TRANSCRIBE, TRANSCRIPT, State, VoiceConfig, VoiceSession,
 )
@@ -359,6 +360,8 @@ class VoiceRuntime:
             return False
         if not stream.text_seen and text:
             stream.feed_text(text)
+        elif text and CLAIM_CORRECTION in text:
+            stream.feed_text(f" {CLAIM_CORRECTION}")  # added to the reply after it was streamed, so it was not spoken yet
         stream.finish()
         return True
 

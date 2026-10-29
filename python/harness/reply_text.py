@@ -31,8 +31,28 @@ def _strip_segment(segment: str) -> str:
     return re.sub(r"[ \t]+\n", "\n", segment)
 
 
-def strip_stray_calls(text: str) -> str:
-    """``text`` without tool-call markup that was never parsed; unchanged (not even re-trimmed) if there is none."""
+# The harness's own instructions to the model are written as "[SYSTEM REMINDER]: ..." lines. A small model handed them can read them
+# back as its answer (granite3.2-vision:2b did, three times over, and it was spoken aloud). They contain no "[" after the marker,
+# so a reminder runs to the next "[" or to the end, whether or not the echo was cut off by the token limit.
+_ECHOED_REMINDER = re.compile(r"\[SYSTEM REMINDER\]:[^\[]*", re.IGNORECASE)
+
+
+def _strip_echoed_reminders(text: str) -> str:
+    """``text`` without any ``[SYSTEM REMINDER]: ...`` the model read back; unchanged if there is none. Code spans are left alone."""
+    if "system reminder" not in text.lower():
+        return text
+    parts = _PROTECTED.split(text)
+    cleaned = [part if index % 2 else _ECHOED_REMINDER.sub("", part) for index, part in enumerate(parts)]
+    result = "".join(cleaned)
+    if result == text:
+        return text
+    log.info("reply_text: removed an echoed system reminder from a reply")
+    return re.sub(r"[ 	]{2,}", " ", result).strip()
+
+
+def _strip_stray_calls(text: str) -> str:
+    """``text`` without tool-call markup that was never parsed, and without echoed system reminders; unchanged if there is none."""
+    text = _strip_echoed_reminders(text)
     if "<call" not in text.lower() and "</call" not in text.lower():
         return text
     parts = _PROTECTED.split(text)
@@ -42,3 +62,52 @@ def strip_stray_calls(text: str) -> str:
         return text
     log.info("reply_text: removed tool-call markup that was not parsed from a reply")
     return result.strip()
+
+
+# --- a claim of an action that no tool took ---------------------------------------------------------------------------
+#
+# "Open a web browser" was answered "I've opened it" in a turn where no tool ran: the model had nothing to open one with, so it described
+# doing it. The harness knows whether a tool ran this request; the model's words are not evidence either way. When a reply claims one
+# of the usual physical or system actions and nothing ran, the claim is corrected -- in the reply, and aloud (see voice_runtime.turn_done).
+# Deliberately narrow (a verb and an object it could only do with a tool): a false correction costs trust too.
+
+CLAIM_CORRECTION = "Correction: I didn't actually do that, because no tool ran this turn."
+
+_OBJECTS = (r"(?:browser|window|tab|web\s*site|site|web\s*page|page|url|link|app|application|program|terminal|command|script|file|folder"
+            r"|e-?mail|message|download)s?")
+_DONE = (r"(?:opened|launched|started|loaded|pulled\s+up|brought\s+up|fired\s+up|clicked|typed|navigated|ran|executed|closed|created"
+         r"|deleted|saved|sent|installed|downloaded)")
+_CLAIMS = (
+    # "I opened the browser", "I've just launched the app" -- not "I opened with a joke", "I started by saying"
+    re.compile(r"\bI(?:'ve|\s+have)?(?:\s+just)?\s+" + _DONE + r"(?!\s+(?:by|with|to|off|out|from|over|up\s+with)\b)\s+[^.!?\n]{0,40}?\b" + _OBJECTS + r"\b",
+               re.IGNORECASE),
+    # "Opening your browser now."
+    re.compile(r"\b(?:opening|launching|starting|loading|pulling\s+up|bringing\s+up|firing\s+up)\s+(?:up\s+)?(?:your\s+|the\s+|a\s+|an\s+|that\s+|this\s+)?"
+               r"(?:(?:new|web|default)\s+)*" + _OBJECTS + r"\b", re.IGNORECASE),
+    # "Done, the browser is open."
+    re.compile(r"\b(?:browser|window|tab|web\s*site|page|app|application|terminal)\s+(?:is|'s)\s+(?:now\s+|already\s+)?(?:open|opened|running|launched|up)\b",
+               re.IGNORECASE),
+)
+_HEDGE = re.compile(r"\b(?:if|whether|unless|would|could|should|can\s+you|do\s+you\s+want|want\s+me\s+to|shall\s+i)\b|\?", re.IGNORECASE)
+_SENTENCE = re.compile(r"[^.!?\n]+[.!?]*")
+
+
+def _claims_an_action(text: str) -> bool:
+    for index, part in enumerate(_PROTECTED.split(text)):
+        if index % 2:  # code spans and fences: she may be showing syntax, not claiming
+            continue
+        for sentence in _SENTENCE.findall(part):
+            if _HEDGE.search(sentence):
+                continue
+            if any(pattern.search(sentence) for pattern in _CLAIMS):
+                return True
+    return False
+
+
+def finish_reply(text: str, tools_ran: bool) -> str:
+    """The reply as it should be shown and spoken: markup and echoed reminders removed, and a claim no tool backs corrected."""
+    text = _strip_stray_calls(text)
+    if tools_ran or not text or CLAIM_CORRECTION in text or not _claims_an_action(text):
+        return text
+    log.info("reply_text: a reply claimed an action although no tool ran; correction appended")
+    return f"{text}\n\n{CLAIM_CORRECTION}"
