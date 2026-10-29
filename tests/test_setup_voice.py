@@ -188,6 +188,7 @@ def test_piper_is_gone_from_setup(sv):
     assert not hasattr(sv, "fetch_piper") and not hasattr(sv, "PIPER_REPO") and not hasattr(sv, "piper_voice_path")
 
 
-def test_a_target_on_c_drive_is_refused(sv):
+def test_a_target_on_c_drive_is_refused(sv, monkeypatch):
+    monkeypatch.setattr(Path, "resolve", lambda self, *a, **k: self)  # a drive letter only means something on Windows; elsewhere resolve() prefixes the cwd
     with pytest.raises(SystemExit, match="C:"):
         sv.refuse_c_drive(Path("C:/models/voice"))
