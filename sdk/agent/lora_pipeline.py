@@ -128,9 +128,27 @@ def _parse(raw: Any) -> datetime | None:
     return moment.astimezone().replace(tzinfo=None) if moment.tzinfo else moment
 
 
+def _pid_alive(pid: Any) -> bool:
+    try:
+        import psutil
+
+        return psutil.pid_exists(int(pid))
+    except Exception:  # cannot tell: keep treating the marker as live
+        return True
+
+
 def _marker_active(now: datetime) -> bool:
-    started = _parse(_read_state().get("running_since"))
-    return started is not None and (now - started) < timedelta(hours=STALE_RUN_HOURS)
+    """A run is in progress while its marker is under a day old and the harness that wrote it is still running it. A marker left by a
+    process that has gone (the app was closed mid-run) would otherwise turn Train now away as busy, and refuse Roll back and the settings,
+    for a day; one written before pids were recorded has nothing to check and keeps the day limit alone."""
+    state = _read_state()
+    started = _parse(state.get("running_since"))
+    if started is None or (now - started) >= timedelta(hours=STALE_RUN_HOURS):
+        return False
+    pid = state.get("running_pid")
+    if pid is None:
+        return True
+    return _RUNNING if int(pid) == os.getpid() else _pid_alive(pid)
 
 
 def _generations_dir() -> Path:
@@ -311,7 +329,7 @@ async def _run_pipeline(*, reason: str = "manual", force: bool = False, now: dat
     run_id = started.strftime("%Y%m%d-%H%M%S")
     scratch = _generations_dir() / ".work" / run_id
     try:
-        _write_state({"running_since": started.isoformat(), "last_reason_started": reason, "stage": "start"})
+        _write_state({"running_since": started.isoformat(), "running_pid": os.getpid(), "last_reason_started": reason, "stage": "start"})
         result = await _run(run_id, scratch, force=force, reason=reason, started=started)
     except Exception as exc:  # a bug in here must not leave the marker set or the scratch files behind
         log.exception("lora_pipeline: unexpected error")
@@ -324,7 +342,7 @@ async def _run_pipeline(*, reason: str = "manual", force: bool = False, now: dat
             pass
         _RUNNING = False
     result.setdefault("run_id", run_id)
-    state: dict[str, Any] = {"running_since": None, "stage": None, "last_status": result["status"], "last_stage": result.get("stage"),
+    state: dict[str, Any] = {"running_since": None, "running_pid": None, "stage": None, "last_status": result["status"], "last_stage": result.get("stage"),
                              "last_reason": result.get("reason"), "last_run_id": run_id}
     if result["status"] in ("deployed", "rejected"):
         state.update(last_dataset_hash=result.get("dataset_hash"), last_scores=result.get("scores"), last_trained_at=started.astimezone().isoformat())
