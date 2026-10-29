@@ -13,7 +13,8 @@ active one is never removed.
 ``routing`` (``lora_routing`` in learning.json) says when a turn tries the persona: ``off`` (the default), ``fallback`` (after every
 other provider) or ``in_character`` (first, for an in-character turn that uses no tools). A turn that may call tools always keeps
 the main model: the persona is a 3B and a roleplay turn that probes the machine must not lose that. The provider can also be named
-explicitly in the provider picker, which always wins.
+explicitly in the provider picker, which always wins. ``final_stage`` is different in kind: the persona never answers in place of the
+main model; it says the main model's finished reply in her voice afterwards (python/inference/persona_voice.py).
 """
 from __future__ import annotations
 
@@ -31,7 +32,7 @@ log = logging.getLogger(__name__)
 
 PROVIDER_ID = "persona-lora"
 KEEP = 3
-ROUTING_MODES = ("off", "fallback", "in_character")
+ROUTING_MODES = ("off", "fallback", "in_character", "final_stage")
 
 
 # --- the registry ---------------------------------------------------------------------------------------------------------------

@@ -172,6 +172,13 @@ def persona_turn(*, in_character: bool, has_tools: bool) -> dict[str, Any]:
             "in_character": in_character, "has_tools": has_tools}
 
 
+async def voice_final(text: str, messages: list[dict[str, Any]], *, user_text: str = "") -> str:
+    """The finished reply, said in the persona's voice when ``lora_routing`` is ``final_stage`` and an adapter is active; otherwise ``text``."""
+    from python.inference import persona_voice
+
+    return await persona_voice.voice_final(text, messages, user_text=user_text)
+
+
 def apply(
     route: Any,
     profile: Profile | None,

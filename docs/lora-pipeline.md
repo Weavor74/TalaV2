@@ -84,6 +84,19 @@ GPU Ollama model) stops the persona. The next turn that needs a model starts it 
 - `off` (default): the provider chain is exactly what it was.
 - `fallback`: the persona is tried after every other provider.
 - `in_character`: the persona leads an in-character turn that uses **no tools**.
+- `final_stage`: the persona never answers in place of the main model. The main model runs the tool loop and writes the reply; the
+  persona then says that finished reply in her own voice (`python/inference/persona_voice.py`). One personality in chat and in
+  assistant work, with the 20B still doing the facts.
+
+### How the final stage stays honest
+
+- It is a no-op until an adapter has been trained, approved and activated, and while the harness is halted.
+- Every fact in the original (numbers, paths, URLs, `commands`, file names) must still be in the voiced reply, and it may state no
+  number the original did not. Otherwise, or on any failure or timeout, the original reply is used unchanged.
+- Code, thinking blocks and replies over 1200 characters are never sent to the persona; thinking is kept exactly as it was.
+- By voice, the main model's words are shown as they stream but not spoken; the voiced reply is spoken once, when it is final. The
+  cost is a GPU swap (main model out, 3B persona in) per turn, so a spoken answer starts later than it does without it. Measure
+  that on your hardware before leaving it on.
 
 A turn that may call tools always keeps the main model: a 3B persona must not take a roleplay turn that probes the machine. The
 chat handler never passes a toolless turn, so today the persona leads room/agent replies and can be **picked by name** in the provider
