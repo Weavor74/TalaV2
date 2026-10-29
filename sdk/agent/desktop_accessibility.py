@@ -51,7 +51,7 @@ def snapshot(hwnd):
         try:
             result = subprocess.run([sys.executable, '-m', 'sdk.agent.desktop_accessibility', argument],
                 cwd=str(Path(__file__).resolve().parents[2]),
-                capture_output=True, text=True, encoding='utf-8', timeout=deadline,
+                stdin=subprocess.DEVNULL, capture_output=True, text=True, encoding='utf-8', timeout=deadline,
                 # Above normal: the helper is short and the user is waiting, while a local model and the voice stack are using every core
                 # (seen: a helper that takes 2 s on an idle machine had not got past its own start-up after 25 s during a voice turn).
                 creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'ABOVE_NORMAL_PRIORITY_CLASS', 0))

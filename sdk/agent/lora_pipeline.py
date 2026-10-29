@@ -173,7 +173,7 @@ async def _exec(args: list[str], *, timeout_s: float, env: dict[str, str] | None
             kwargs["creationflags"] = 0x00004000  # BELOW_NORMAL_PRIORITY_CLASS: training must not take the machine from its user
         else:
             kwargs["preexec_fn"] = lambda: os.nice(10)
-    proc = await asyncio.create_subprocess_exec(*args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env, **kwargs)
+    proc = await asyncio.create_subprocess_exec(*args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT, env=env, **kwargs)
     tail: collections.deque[str] = collections.deque(maxlen=tail_lines)
 
     async def _pump() -> None:

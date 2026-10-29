@@ -573,7 +573,7 @@ async def _spawn(variant: str) -> _ServerHandle | None:
     args.extend(_ext.server_extra_args())
     logger.info("llama_server_manager: starting %s variant on port %d", variant, port)
     proc = await asyncio.create_subprocess_exec(
-        *args, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
+        *args, stdin=asyncio.subprocess.DEVNULL, stdout=asyncio.subprocess.PIPE, stderr=asyncio.subprocess.STDOUT,
     )
     lifecycle.register_process(proc, {"name": "llama-server", "variant": variant, "port": port})
     # Must be drained or llama-server's own stdout write() blocks once the OS
