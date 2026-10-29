@@ -22,14 +22,14 @@
   data-governance-status="context-only"
   data-doc-target="search_workspace_files"
   data-source-files="sdk/agent/tools.py"
-  data-source-fingerprint="sha256:9435C03D3EB2A5CCB70B46EDEC2E38161A736635CCBAE37FD8F6A402C833C899"
-  data-source-digest="sha256:07F4B17E0CF81FFB03E409AA8748B5CAB75521DCC807A4AFBAD297AADC17D839"
+  data-source-fingerprint="sha256:FFBA5567484235E59970E8791AE0125FCC21A9FFD6389A0FA698CDFCC46F87B0"
+  data-source-digest="sha256:D113C0CFF7684BCC6D4F853160B9F6F923FF8F93B52900EBA5B2F9E837E2D854"
   data-description-baseline-digest=""
   data-document-purpose="description"
   data-document-accountability="descriptive"
   data-conforming-implementations=""
   data-review-owner=""
-  data-generated-at="2026-09-08T01:43:22Z"
+  data-generated-at="2026-10-29T14:50:10Z"
   data-source="local"
   data-trust-tier="system">
 
@@ -38,7 +38,7 @@
   </header>
 
   <section id="semantic-memory">
-    <p>&lt;p&gt;&lt;strong&gt;search_workspace_files&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Search for a text string or regex pattern across workspace files using fast native Python search.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;search_workspace_files(query, file_pattern)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;file_pattern&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Fast, cross-platform native Python search across workspace files.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
+    <p>&lt;p&gt;&lt;strong&gt;search_workspace_files&lt;/strong&gt; is a callable tool in Tala&#x27;s registry. Search the text of the project&#x27;s own files (source, configuration, scripts, documentation) for a string or regex pattern. This reads the codebase only and knows nothing about the person you are talking to: anything personal, such as what they told you, their belongings, people or preferences, is in search_memory, not here; a match in a project file is never a fact about them.&lt;/p&gt;&lt;p&gt;Call it as &lt;code&gt;search_workspace_files(query, file_pattern)&lt;/code&gt;, where &lt;code&gt;*&lt;/code&gt; marks a required argument:&lt;/p&gt;&lt;ul&gt;&lt;li&gt;&lt;code&gt;query&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;li&gt;&lt;code&gt;file_pattern&lt;/code&gt; (string, optional)&lt;/li&gt;&lt;/ul&gt;&lt;p&gt;Fast, cross-platform native Python search across workspace files.&lt;/p&gt;&lt;p&gt;Implemented in &lt;code&gt;sdk.agent.tools&lt;/code&gt;. The Python registry remains what actually executes; this node is the catalogue entry that makes the tool retrievable and referenceable from a workflow.&lt;/p&gt;</p>
   </section>
 
   <section id="source-evidence">
@@ -101,14 +101,14 @@
   ],
   "metadata": {
     "author": "tala-system",
-    "created_or_updated": "2026-09-08T01:43:22Z",
+    "created_or_updated": "2026-10-29T14:50:10Z",
     "schema": "neural-node/v2",
     "doc_target": "search_workspace_files",
-    "source_fingerprint": "sha256:9435C03D3EB2A5CCB70B46EDEC2E38161A736635CCBAE37FD8F6A402C833C899",
+    "source_fingerprint": "sha256:FFBA5567484235E59970E8791AE0125FCC21A9FFD6389A0FA698CDFCC46F87B0",
     "source_files": [
       "sdk/agent/tools.py"
     ],
-    "source_digest": "sha256:07F4B17E0CF81FFB03E409AA8748B5CAB75521DCC807A4AFBAD297AADC17D839",
+    "source_digest": "sha256:D113C0CFF7684BCC6D4F853160B9F6F923FF8F93B52900EBA5B2F9E837E2D854",
     "document_purpose": "description",
     "document_accountability": "descriptive",
     "conforming_implementations": [],
@@ -117,7 +117,7 @@
   },
   "tool": {
     "name": "search_workspace_files",
-    "description": "Search for a text string or regex pattern across workspace files using fast native Python search.",
+    "description": "Search the text of the project's own files (source, configuration, scripts, documentation) for a string or regex pattern. This reads the codebase only and knows nothing about the person you are talking to: anything personal, such as what they told you, their belongings, people or preferences, is in search_memory, not here; a match in a project file is never a fact about them.",
     "signature": "search_workspace_files(query, file_pattern)",
     "schema": {
       "type": "object",
