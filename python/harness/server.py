@@ -2364,9 +2364,9 @@ async def handle_inference_generate(
                             "=== PEER HTML NEURAL NODE CONTEXT ===\n" + "\n\n".join(peer_context_parts)
                         )
 
+                    from python.harness.honesty import challenge_note
                     from python.harness.topic_stance import stance_context_block
-                    if stance_block := await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion):
-                        system_context_additions.append(stance_block)
+                    system_context_additions.extend(b for b in (await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion), challenge_note(raw_user_prompt, history)) if b)
                     if system_context_additions:
                         if active_system_prompt:
                             active_system_prompt = active_system_prompt + "\n\n" + "\n\n".join(system_context_additions)

@@ -113,6 +113,8 @@ FORCED_BY_INTENT: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
         # A voice turn is often just the thing wanted ("Start menu."), with no verb at all (live: she answered how to press the key).
         r"|\A\W*(?:the\s+)?(?:start\s*(?:menu|button)|task\s*bar|task\s+manager|file\s+explorer|control\s+panel|notepad|calculator)\W*\Z", re.IGNORECASE),
      ("desktop_run",)),
+    # Ship, hull and Star Citizen questions have a lookup with real data. Without it on offer she wrote a spec table from general knowledge.
+    (re.compile(r"\b(?:star\s*citizen|starlancer|galactapedia|stanton|pyro|quantum\s+drive|hull|ships?)\b", re.IGNORECASE), ("starcitizen_lookup",)),
 )
 
 

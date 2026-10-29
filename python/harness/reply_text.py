@@ -11,6 +11,8 @@ from __future__ import annotations
 import logging
 import re
 
+from python.harness import honesty
+
 log = logging.getLogger(__name__)
 
 _PROTECTED = re.compile(r"(```.*?```|`[^`\n]*`)", re.DOTALL)
@@ -106,8 +108,15 @@ def _claims_an_action(text: str) -> bool:
 
 def finish_reply(text: str, tools_ran: bool) -> str:
     """The reply as it should be shown and spoken: markup and echoed reminders removed, and a claim no tool backs corrected."""
-    text = _strip_stray_calls(text)
+    text = honesty.add_missing_file_correction(_strip_stray_calls(text))
     if tools_ran or not text or CLAIM_CORRECTION in text or not _claims_an_action(text):
         return text
     log.info("reply_text: a reply claimed an action although no tool ran; correction appended")
     return f"{text}\n\n{CLAIM_CORRECTION}"
+
+
+def trailing_correction(text: str) -> str | None:
+    """The corrections finish_reply appended (from the first ``Correction:`` paragraph to the end), or None. A streamed reply is spoken
+    before they exist, so voice_runtime.turn_done speaks them afterwards."""
+    index = (text or "").find("\n\nCorrection: ")
+    return text[index + 2:] if index >= 0 else None
