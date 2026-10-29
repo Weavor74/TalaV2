@@ -187,7 +187,8 @@ def test_missing_metrics_fail_closed():
 # --- where it writes --------------------------------------------------------------------------------------------------------------------
 
 
-def test_it_refuses_the_c_drive():
+def test_it_refuses_the_c_drive(monkeypatch):
+    monkeypatch.setattr(Path, "resolve", lambda self, *a, **k: self)  # a drive letter only means something on Windows; elsewhere resolve() prefixes the cwd
     with pytest.raises(SystemExit):
         tw.refuse_c_drive(Path(r"C:\Users\someone\models"))
     tw.refuse_c_drive(Path(r"D:\models\voice"))

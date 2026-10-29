@@ -186,7 +186,8 @@ def test_a_row_that_uses_more_vram_than_is_free_is_flagged_not_hidden():
 # --- where it writes -----------------------------------------------------------------------------------------------------------------
 
 
-def test_it_refuses_to_write_to_the_c_drive():
+def test_it_refuses_to_write_to_the_c_drive(monkeypatch):
+    monkeypatch.setattr(Path, "resolve", lambda self, *a, **k: self)  # a drive letter only means something on Windows; elsewhere resolve() prefixes the cwd
     with pytest.raises(SystemExit):
         bk.refuse_c_drive(Path(r"C:\Users\someone\bench"))
     bk.refuse_c_drive(Path(r"D:\tala-audit\bench"))
