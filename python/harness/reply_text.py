@@ -106,9 +106,29 @@ def _claims_an_action(text: str) -> bool:
     return False
 
 
-def finish_reply(text: str, tools_ran: bool) -> str:
-    """The reply as it should be shown and spoken: markup and echoed reminders removed, and a claim no tool backs corrected."""
-    text = honesty.add_missing_file_correction(_strip_stray_calls(text))
+# The model's own chat-template tokens. One in a reply means it stopped answering and began writing the next turns itself (a reply seen
+# 2026-10-29 went "...|im_end|> As a highly advanced AI ... |im_start|>assistant" and invented both sides), so the reply ends there.
+_TEMPLATE_TOKEN = re.compile(r"<?\|(?:im_start|im_end|endoftext|eot_id|end_of_text|start_header_id|end_header_id)\|>?")
+
+
+def _cut_at_template_token(text: str) -> str:
+    """``text`` up to its first chat-template token; unchanged if there is none. Code spans are left alone (she may be naming the token)."""
+    if "|" not in text:
+        return text
+    offset = 0
+    for index, part in enumerate(_PROTECTED.split(text)):
+        match = None if index % 2 else _TEMPLATE_TOKEN.search(part)
+        if match:
+            log.info("reply_text: a reply ran on past a chat-template token; cut there")
+            return text[:offset + match.start()].rstrip()
+        offset += len(part)
+    return text
+
+
+def finish_reply(text: str, tools_ran: bool, tool_outcomes: list[tuple[str, str | None]] | None = None) -> str:
+    """The reply as it should be shown and spoken: markup, echoed reminders and runaway template turns removed, and a claim no tool backs,
+    a file that is not there, or an answer built on tool calls that all failed, corrected."""
+    text = honesty.add_failed_tool_note(honesty.add_missing_file_correction(_strip_stray_calls(_cut_at_template_token(text))), tool_outcomes)
     if tools_ran or not text or CLAIM_CORRECTION in text or not _claims_an_action(text):
         return text
     log.info("reply_text: a reply claimed an action although no tool ran; correction appended")

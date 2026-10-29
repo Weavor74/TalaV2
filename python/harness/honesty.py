@@ -82,6 +82,41 @@ def add_missing_file_correction(text: str) -> str:
     return f"{text}\n\nCorrection: {names} {'doesn' if len(missing) == 1 else 'don'}'t exist, {CITATION_TAG}"
 
 
+# --- a tool that failed -----------------------------------------------------------------------------------------------------------------
+
+# What ToolRegistry and the chat loop put in a result when the call itself went wrong.
+_FAILED_RESULT = re.compile(r"^(?:Tool execution failed|Error running|Error executing|Tool '[^']*' is not supported)", re.IGNORECASE)
+# A reply that already says the lookup did not work needs no correction. Deliberately wide: a missed correction is cheaper than a wrong one.
+_ADMITS = re.compile(r"\b(?:fail\w*|error\w*|couldn'?t|could\s+not|can'?t|cannot|unable|not\s+able|wasn'?t\s+able|(?:didn'?t|did\s+not)\s+(?:work|return|find|load|go\s+through)|"
+                     r"no\s+(?:result|data|luck)s?|timed?\s*out|unavailable|unreachable)\b", re.IGNORECASE)
+FAILURE_TAG = "so anything above that depended on it is not checked."
+
+
+def tool_failure(result: Any) -> str | None:
+    """Why a tool call failed, or None when it did not. A tool that returns ``{"error": ...}`` without ``success: False`` is still a failure:
+    starcitizen_lookup did exactly that on an HTTP 422 and the registry counted it as a success."""
+    if isinstance(result, dict):
+        error = result.get("error")
+        if result.get("success") is True or not (result.get("success") is False or error):
+            return None
+        return str(error or "the tool reported failure")[:120]
+    if isinstance(result, str) and _FAILED_RESULT.match(result.strip()):
+        return result.strip().split(" | ")[0][:120]
+    return None
+
+
+def add_failed_tool_note(text: str, outcomes: list[tuple[str, str | None]] | None) -> str:
+    """``text``, with a correction appended when her last tool call this turn failed and the reply does not say so; unchanged otherwise.
+    ``outcomes`` is (tool name, failure reason or None) per call. A retry that worked leaves the reply alone (the last call is what she
+    answered from); an earlier success does not excuse a final failure -- on 2026-10-29 a memory search succeeded and the lookup that
+    mattered failed, and the ship table that followed was invented."""
+    if not text or not outcomes or FAILURE_TAG in text or outcomes[-1][1] is None or _ADMITS.search(text):
+        return text
+    names = list(dict.fromkeys(name for name, reason in outcomes if reason is not None))
+    log.info("honesty: a reply followed only failed tool calls (%s) and did not say so", ", ".join(names))
+    return f"{text}\n\nCorrection: my {', '.join(names)} {'call' if len(names) == 1 else 'calls'} failed ({outcomes[-1][1]}), {FAILURE_TAG}"
+
+
 # --- a challenge to the last answer -----------------------------------------------------------------------------------------------------
 
 _CHALLENGES = tuple(re.compile(pattern, re.IGNORECASE) for pattern in (
