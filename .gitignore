@@ -108,3 +108,6 @@ data/workstation.json
 
 # Local adapter/GGUF outputs of manual LoRA experiments (LoRA is not implemented in the stack)
 /lora-generations/
+# Output of the real LoRA pipeline (sdk/agent/lora_pipeline.py): the approved-conversation list, datasets built from the user's own
+# chats, and trained adapters. Personal data and multi-hundred-MB binaries; never committed.
+/lora/
