@@ -111,7 +111,7 @@ def test_the_tool_is_offered_when_the_user_asks_to_open_a_browser_or_site(text):
 @pytest.mark.parametrize("text", [
     "Open the Start menu on my computer.", "click the start button", "move the mouse to the taskbar and open notepad",
     "press the Windows key", "Can you use my computer to open File Explorer?", "type hello into notepad on my screen",
-    "open task manager", "take over my mouse and click OK",
+    "open task manager", "take over my mouse and click OK", "Start menu.", "the taskbar", "  Task Manager!  ",
 ])
 def test_computer_control_is_offered_when_the_user_asks_her_to_drive_the_machine(text):
     """Live: 'Open the Start menu on my computer' offered start_job, open_url and start_swarm, so she explained how to press the

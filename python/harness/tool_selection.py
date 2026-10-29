@@ -109,7 +109,9 @@ FORCED_BY_INTENT: tuple[tuple[re.Pattern[str], tuple[str, ...]], ...] = (
         r"|switch\s+to|use|control|take\s+over)\b[^.!?]*"
         r"\b(?:start\s*menu|start\s+button|task\s*bar|desktop|my\s+(?:computer|pc|screen|laptop|mouse|keyboard)|(?:the|your)\s+(?:mouse|cursor|keyboard)"
         r"|windows\s+key|file\s+explorer|notepad|calculator|control\s+panel|task\s+manager|settings\s+app|ok)\b"
-        r"|\b(?:computer|desktop|mouse)\s+control\b|\bmove\s+(?:the|your)\s+(?:mouse|cursor)\b", re.IGNORECASE),
+        r"|\b(?:computer|desktop|mouse)\s+control\b|\bmove\s+(?:the|your)\s+(?:mouse|cursor)\b"
+        # A voice turn is often just the thing wanted ("Start menu."), with no verb at all (live: she answered how to press the key).
+        r"|\A\W*(?:the\s+)?(?:start\s*(?:menu|button)|task\s*bar|task\s+manager|file\s+explorer|control\s+panel|notepad|calculator)\W*\Z", re.IGNORECASE),
      ("desktop_run",)),
 )
 
