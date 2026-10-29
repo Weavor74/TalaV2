@@ -52,7 +52,9 @@ def snapshot(hwnd):
             result = subprocess.run([sys.executable, '-m', 'sdk.agent.desktop_accessibility', argument],
                 cwd=str(Path(__file__).resolve().parents[2]),
                 capture_output=True, text=True, encoding='utf-8', timeout=deadline,
-                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0))
+                # Above normal: the helper is short and the user is waiting, while a local model and the voice stack are using every core
+                # (seen: a helper that takes 2 s on an idle machine had not got past its own start-up after 25 s during a voice turn).
+                creationflags=getattr(subprocess, 'CREATE_NO_WINDOW', 0) | getattr(subprocess, 'ABOVE_NORMAL_PRIORITY_CLASS', 0))
             log.info('desktop accessibility: window %s read in %.1f s (try %d)', hwnd, time.monotonic() - started, attempt)
             if result.returncode:
                 return {'elements': [], 'error': 'Accessibility helper failed'}
@@ -60,8 +62,10 @@ def snapshot(hwnd):
             if read.get('skipped'):
                 log.warning('desktop accessibility: windows that did not answer and were skipped: %s', read['skipped'])
             return read
-        except subprocess.TimeoutExpired:
-            log.warning('desktop accessibility: window %s (%s) gave no answer in %d s (try %d)', hwnd, _title(hwnd), deadline, attempt)
+        except subprocess.TimeoutExpired as exc:
+            seen = exc.stderr.decode('utf-8', 'replace') if isinstance(exc.stderr, bytes) else (exc.stderr or '')
+            log.warning('desktop accessibility: window %s (%s) gave no answer in %d s (try %d); the helper had got as far as: %s',
+                hwnd, _title(hwnd), deadline, attempt, ' | '.join(seen.strip().splitlines()[-4:]) or 'nothing (it never started)')
             waited += deadline
         except Exception as exc:
             return {'elements': [], 'error': type(exc).__name__}
@@ -71,10 +75,19 @@ def snapshot(hwnd):
 _ROLES = {50000: 'button', 50002: 'checkbox', 50003: 'combobox', 50004: 'input', 50005: 'link', 50007: 'listitem', 50011: 'menuitem', 50013: 'radio', 50018: 'tab', 50020: 'text', 50030: 'document', 50033: 'pane'}
 
 
+def _trace(message):
+    """One timestamped line on stderr; the controller logs the tail of it when the helper does not finish, so a hang names its step."""
+    sys.stderr.write(f'{time.strftime("%H:%M:%S")}.{int(time.time() * 1000) % 1000:03d} {message}\n')
+    sys.stderr.flush()
+
+
 def _uia():
+    _trace('importing comtypes')
     import comtypes.client
     module = comtypes.client.GetModule('UIAutomationCore.dll')
-    return module, comtypes.client.CreateObject(module.CUIAutomation, interface=module.IUIAutomation)
+    uia = comtypes.client.CreateObject(module.CUIAutomation, interface=module.IUIAutomation)
+    _trace('automation client ready')
+    return module, uia
 
 
 def _collect(module, walker, root, elements, deadline, cap):
@@ -195,27 +208,35 @@ def _read_desktop():
            The taskbar, the Start menu and the open applications. A window that does not answer (a full-screen game, live: 2026-10-28)
            is skipped and named, not waited for; Tala's own window is left out, since it is not something she is asked to operate.
     """
+    _trace('finding the apps own processes')
     own = _own_pids()
+    _trace('listing windows')
+    windows = _top_windows()
+    _trace(f'{len(windows)} windows')
     elements, skipped = [], []
     deadline = time.monotonic() + _DESKTOP_S
-    for hwnd, pid, title in _top_windows():
+    for hwnd, pid, title in windows:
         if time.monotonic() > deadline or len(elements) >= _DESKTOP_CAP:
             break
         if pid in own:
             continue
         mine = []
+        _trace(f'reading {title[:30]!r}')
         if not _read_window(hwnd, mine):
             skipped.append(title)
+            _trace('  no answer')
         elements.extend(mine[:max(0, _DESKTOP_CAP - len(elements))])
     return {'elements': elements, 'skipped': skipped}
 
 
 if __name__ == '__main__':
     sys.stdout.reconfigure(encoding='utf-8')
+    _trace('helper started')
     try:
         print(json.dumps(_read_desktop() if sys.argv[1] == DESKTOP else _read(int(sys.argv[1])), ensure_ascii=False))
     except Exception as exc:
         print(json.dumps({'elements': [], 'error': f'{type(exc).__name__}: {exc}'}))
     # A window that never answered leaves a thread stuck inside COM; do not let interpreter shutdown wait for it.
     sys.stdout.flush()
+    _trace('done')
     os._exit(0)

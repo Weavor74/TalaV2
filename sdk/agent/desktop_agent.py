@@ -373,7 +373,9 @@ async def desktop_run(task: str, model: str = "gemma3:4b", endpoint: str = "http
     desktop._input_stop.clear()
     history = []
     deadline = time.monotonic() + 1200
-    endpoint = endpoint.rstrip("/").removesuffix("/v1")
+    # Only the server matters: a model that writes the URL of an Ollama call ("http://localhost:11434/api/generate", seen live) or
+    # of the OpenAI-style "/v1" must still reach /api/show and /api/chat on that server.
+    endpoint = f"{parsed.scheme}://{parsed.netloc}"
     try:
         async with desktop._lock, httpx.AsyncClient(timeout=180) as client:
             capability = await client.post(endpoint + "/api/show", json={"model": model})

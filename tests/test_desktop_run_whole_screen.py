@@ -151,3 +151,53 @@ def test_the_cap_holds_across_windows(monkeypatch):
 
     monkeypatch.setattr(da, '_read_window', read_window)
     assert len(da._read_desktop()['elements']) == da._DESKTOP_CAP
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize('given', ['http://localhost:11434/api/generate', 'http://localhost:11434/v1', 'http://localhost:11434/', 'http://127.0.0.1:11434/api/chat'])
+async def test_an_endpoint_with_a_path_still_reaches_the_ollama_server(monkeypatch, given):
+    """Live: the model wrote 'http://localhost:11434/api/generate', and the capability check went to .../api/generate/api/show (404)."""
+    posted = []
+    client = AsyncMock()
+
+    async def post(url, **kwargs):
+        posted.append(url)
+        return MagicMock(json=lambda: {'capabilities': []}, raise_for_status=lambda: None)
+
+    client.post = post
+    factory = MagicMock()
+    factory.return_value.__aenter__ = AsyncMock(return_value=client)
+    factory.return_value.__aexit__ = AsyncMock(return_value=False)
+    monkeypatch.setattr(agent.httpx, 'AsyncClient', factory)
+    monkeypatch.setattr(agent.desktop, '_lock', asyncio.Lock())
+    monkeypatch.setattr(agent, '_running', False)
+    monkeypatch.setattr(agent, '_native_supported', lambda: True)
+    await agent.desktop_run('x', endpoint=given, max_steps=1)
+    assert posted == [given.split('/')[0] + '//' + given.split('/')[2] + '/api/show']
+
+
+def test_the_helper_runs_above_normal_priority_without_a_console_window(monkeypatch):
+    monkeypatch.setattr(da.sys, 'platform', 'win32')
+    monkeypatch.setattr(da.subprocess, 'CREATE_NO_WINDOW', 0x08000000, raising=False)
+    monkeypatch.setattr(da.subprocess, 'ABOVE_NORMAL_PRIORITY_CLASS', 0x8000, raising=False)
+    seen = {}
+
+    def run(cmd, **kw):
+        seen.update(kw)
+        return subprocess.CompletedProcess(cmd, 0, stdout='{"elements": []}', stderr='')
+
+    monkeypatch.setattr(da.subprocess, 'run', run)
+    da.snapshot(da.DESKTOP)
+    assert seen['creationflags'] == 0x08000000 | 0x8000
+
+
+def test_a_timeout_logs_how_far_the_helper_got(monkeypatch, caplog):
+    monkeypatch.setattr(da.sys, 'platform', 'win32')
+
+    def run(cmd, **kw):
+        raise subprocess.TimeoutExpired(cmd, kw['timeout'], stderr=b'20:36:50.452 helper started\n20:36:50.600 listing windows\n')
+
+    monkeypatch.setattr(da.subprocess, 'run', run)
+    with caplog.at_level('WARNING', logger=da.__name__):
+        da.snapshot(da.DESKTOP)
+    assert 'listing windows' in caplog.text
