@@ -1166,7 +1166,9 @@ async def trigger_vps_update() -> dict[str, Any]:
 
 @register_tool(
     name="search_workspace_files",
-    description="Search for a text string or regex pattern across workspace files using fast native Python search.",
+    description=("Search the text of the project's own files (source, configuration, scripts, documentation) for a string or regex pattern. "
+                 "This reads the codebase only and knows nothing about the person you are talking to: anything personal, such as what they told you, "
+                 "their belongings, people or preferences, is in search_memory, not here; a match in a project file is never a fact about them."),
 )
 async def search_workspace_files(query: str = "", file_pattern: str = "*") -> dict[str, Any]:
 
@@ -4321,7 +4323,9 @@ async def run_tool_script(code: str, timeout_seconds: float = 120.0) -> dict[str
 
 @register_tool(
     name="search_memory",
-    description="Full-text search across Tala's unified memory index: past sessions, tasks, HTML-NN nodes, workflows, profiles, and documentation.",
+    description=("Search what Tala remembers: facts about the user and things they told you (people, pets, belongings, places, preferences, plans), "
+                 "past sessions, lessons, tasks, workflows, profiles and documentation. For any question about the user or what they said, "
+                 "try this first. It is not for searching the codebase; use search_workspace_files for that."),
 )
 async def search_memory(query: str, limit: int = 10) -> dict[str, Any]:
     """
