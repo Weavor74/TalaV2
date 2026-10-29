@@ -224,4 +224,4 @@ def test_the_chat_handler_records_every_tool_outcome_and_passes_them_on():
     from python.harness import server
 
     source = inspect.getsource(server.handle_inference_generate)
-    assert "reply_log.record(" in source and "finish_reply(generated_text, bool(sticky_tools), reply_log)" in source
+    assert "reply_log.record(" in source and "finish_reply(generated_text, bool(sticky_tools), None if raw_prompt else reply_log)" in source

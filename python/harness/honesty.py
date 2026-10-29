@@ -23,7 +23,7 @@ from typing import Any
 
 log = logging.getLogger(__name__)
 
-_DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
+DASHES = dict.fromkeys(map(ord, "‐‑‒–—―−"), "-")
 _CITE = re.compile(r"(?<![\w/.:~\-])((?:nodes|sdk|python|scripts|tests|docs|renderer|electron)/[\w\-./]+?\.(?:html|py|js|md|json|ps1|txt))(?![\w/])", re.IGNORECASE)
 _FENCE = re.compile(r"```.*?```", re.DOTALL)
 _SENTENCES = re.compile(r"(?<=[.!?])\s+|\n")
@@ -46,7 +46,7 @@ def _cited_paths(text: str) -> list[str]:
     if not text:
         return []
     found: list[str] = []
-    prose = _FENCE.sub(" ", text).translate(_DASHES).replace("\\", "/")
+    prose = _FENCE.sub(" ", text).translate(DASHES).replace("\\", "/")
     for sentence in _SENTENCES.split(prose):
         if _HEDGE.search(sentence):
             continue
@@ -142,12 +142,12 @@ _RULE = ("=== THE USER IS CHALLENGING YOUR LAST ANSWER ===\n"
 def plain(text: str) -> str:
     """``text`` lower-cased with every dash variant (the non-breaking hyphen the model writes into names and URLs) as a plain hyphen, so
     two spellings of one thing compare equal."""
-    return (text or "").translate(_DASHES).lower()
+    return (text or "").translate(DASHES).lower()
 
 
 def _is_challenge(message: str) -> bool:
     """Whether the user is questioning something Tala said (where did you get that, are you sure, that's wrong, you're lying...)."""
-    text = (message or "").translate(_DASHES)
+    text = (message or "").translate(DASHES)
     return any(pattern.search(text) for pattern in _CHALLENGES)
 
 

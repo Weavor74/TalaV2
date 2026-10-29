@@ -188,7 +188,7 @@ def test_the_chat_handler_uses_one_log_for_outcomes_the_challenge_and_the_finish
 
     source = inspect.getsource(server.handle_inference_generate)
     assert "turn_log.TurnLog()" in source and "reply_log.record(" in source
-    assert "reply_log.challenge_note(" in source and "finish_reply(generated_text, bool(sticky_tools), reply_log)" in source
+    assert "reply_log.challenge_note(" in source and "None if raw_prompt else reply_log" in source
 
 
 @pytest.mark.parametrize("text", ["", None])
