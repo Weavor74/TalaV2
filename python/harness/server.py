@@ -3702,7 +3702,7 @@ async def handle_inference_generate(
 
     # Guardrails output validation (post-inference)
     try:
-        validated_text = guardrails_mgr.validate_output(generated_text)
+        validated_text = guardrails_mgr.validate_output(await _router.voice_final(generated_text, messages, user_text=raw_user_prompt))
     except SafetyGuardrailViolation as exc:
         err_msg = f"Guardrail blocked response: {exc.message}"
         logger.warning(err_msg)

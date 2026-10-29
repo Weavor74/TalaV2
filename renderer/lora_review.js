@@ -15,7 +15,7 @@
 
 const LORA_STATUSES = ['pending', 'approved', 'rejected', 'blocked'];
 const LORA_KINDS = [['', 'All'], ['chat', 'Replies'], ['memory', 'Memories']];
-const LORA_ROUTING = [['off', 'off'], ['fallback', 'after the other providers'], ['in_character', 'first for in-character turns without tools']];
+const LORA_ROUTING = [['off', 'off'], ['fallback', 'after the other providers'], ['in_character', 'first for in-character turns without tools'], ['final_stage', 'her voice on every finished reply']];
 const LORA_POLL_MS = 5000;
 const LORA_PAGE = 100;
 

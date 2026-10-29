@@ -150,9 +150,11 @@ class TurnStream:
 class TapWs:
     """A websocket stand-in that forwards everything and listens for the model's text chunks."""
 
-    def __init__(self, ws: Any, stream: TurnStream):
+    def __init__(self, ws: Any, stream: TurnStream, speak: bool = True):
         self._ws = ws
         self._stream = stream
+        #: False when the persona will voice the finished reply (persona_voice): the main model's own words are shown, not spoken.
+        self._speak = speak
 
     def __getattr__(self, name: str) -> Any:
         return getattr(self._ws, name)
@@ -167,7 +169,7 @@ class TapWs:
     async def send(self, message: Any, *args: Any, **kwargs: Any) -> Any:
         result = await self._ws.send(message, *args, **kwargs)
         try:
-            if isinstance(message, str) and "inference.generate.chunk" in message:
+            if self._speak and isinstance(message, str) and "inference.generate.chunk" in message:
                 params = json.loads(message).get("params") or {}
                 self._stream.feed_text(str(params.get("chunk") or ""))
         except Exception:  # speech must never break the reply that is being delivered
@@ -190,4 +192,6 @@ def tap_ws(ws: Any, params: dict[str, Any]) -> Any:
         stream.task = asyncio.current_task()
     except RuntimeError:
         stream.task = None
-    return TapWs(ws, stream)
+    from python.inference import persona_voice
+
+    return TapWs(ws, stream, speak=not persona_voice.takes_over())
