@@ -65,8 +65,11 @@ _FORGET_SUBJECT = re.compile(
     r"^\s*(?:(?:ok(?:ay)?|alright)[,.!]?\s*)?(?:please\s+)?(?:tala[,:]?\s+)?(?:you\s+can\s+)?(?:forget|drop|delete|discard)\s+(?:about\s+)?"
     r"(?P<subject>(?:my|our)\s+.+?)\s*[.!]*\s*$", re.IGNORECASE)
 MAX_FORGET_CHARS = 80
-#: "forget that" means the fact saved in the last few minutes.
-RECENT_SECONDS = 600
+#: "forget that" means the fact last saved or recalled (the file changes on both) within the hour; found live 2026-10-30, when ten
+#: minutes was too short: the cat had been asked about 17 minutes earlier, nothing was forgotten, and she said it was.
+RECENT_SECONDS = 3600
+#: Facts touched within this many seconds of each other were recalled together, so "that" does not say which one.
+TOGETHER_SECONDS = 30
 #: Two facts are about the same thing when their content words overlap this much (and share at least two).
 SAME_SUBJECT = 0.5
 SAME_SUBJECT_CUED = 0.34
@@ -263,7 +266,7 @@ def _forget(facts: list[dict[str, Any]], reason: str) -> dict[str, Any]:
     fact = facts[0]
     if not _retire(fact, "forgotten", None, reason):
         return _forget_note('[Memory] The user asked you to forget a fact, but it could not be retired because learning is off or halted; '
-                            "say so and change nothing.")
+                            "say so and change nothing. Do NOT say you forgot anything.")
     return {"success": True, "node_id": fact["id"], "retired": [fact["id"]],
             "note": f'[Memory] Forgotten at the user\'s request: "{_shorten(fact["text"])}". It is retired and will no longer be recalled '
                     "(the file is kept)."}
@@ -277,11 +280,16 @@ async def _forget_from_message(message: str) -> dict[str, Any] | None:
         return None
     facts = _saved_facts()
     if pronoun:
-        recent = [fact for fact in facts if time.time() - fact["mtime"] <= RECENT_SECONDS][:1]
+        recent = [fact for fact in facts if time.time() - fact["mtime"] <= RECENT_SECONDS]
         if not recent:
-            return _forget_note("[Memory] The user asked you to forget something, but nothing was saved just now to forget; change nothing and "
-                                "say so (ask what they mean).")
-        return _forget(recent, "user said to forget it")
+            return _forget_note("[Memory] The user asked you to forget something, but no fact was saved or recalled in the last hour to forget; "
+                                "change nothing and say so (ask what they mean). Do NOT say you forgot anything.")
+        together = [fact for fact in recent if recent[0]["mtime"] - fact["mtime"] <= TOGETHER_SECONDS]
+        if len(together) > 1:
+            names = "; ".join(f'"{_shorten(fact["text"], 80)}"' for fact in together)
+            return _forget_note(f"[Memory] The user asked you to forget \"that\", but several facts were just recalled together ({names}); nothing was "
+                                "changed. Ask which one. Do NOT say you forgot anything.")
+        return _forget(recent[:1], "user said to forget it")
     wanted = _keys(subject.group("subject"))
     scored = sorted(((len(wanted & _keys(fact["text"])) / len(wanted), fact) for fact in facts if wanted), key=lambda pair: pair[0], reverse=True)
     scored = [(score, fact) for score, fact in scored if score >= 0.5]
@@ -290,7 +298,7 @@ async def _forget_from_message(message: str) -> dict[str, Any] | None:
     if len(scored) > 1 and scored[1][0] == scored[0][0]:
         names = "; ".join(f'"{_shorten(fact["text"], 80)}"' for score, fact in scored if score == scored[0][0])
         return _forget_note(f"[Memory] The user asked you to forget something that matches more than one saved fact ({names}); nothing was "
-                            "changed. Ask which one.")
+                            "changed. Ask which one. Do NOT say you forgot anything.")
     return _forget([scored[0][1]], f"user said to forget: {subject.group('subject')[:100]}")
 
 

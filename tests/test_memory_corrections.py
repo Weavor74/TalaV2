@@ -306,3 +306,105 @@ async def test_the_retired_marks_are_plain_attributes_on_the_node_a_person_can_r
     article = (userdata / "nodes" / f"{old['node_id']}.html").read_text(encoding="utf-8").split("<article", 1)[1].split(">", 1)[0]
     for attribute in ('data-retired="superseded"', "data-superseded-by=", 'data-retired-from="0.80/0.80"'):
         assert attribute in article
+
+
+# --- found live 2026-10-30: "forget that" 17 minutes after the cat was last discussed retired nothing, and she said it was forgotten ---------------
+
+
+def _age(userdata, node_id, seconds):
+    import os
+    import time
+
+    path = userdata / "nodes" / f"{node_id}.html"
+    stamp = time.time() - seconds
+    os.utime(path, (stamp, stamp))
+
+
+@pytest.mark.asyncio
+async def test_forget_that_means_the_fact_last_saved_or_recalled_within_the_hour(userdata):
+    saved = await write_memory("my cat is named Pixel", "user-fact")
+    _age(userdata, saved["node_id"], 17 * 60)  # discussed 17 minutes ago: the live case
+    result = await _remember_from_message("forget that")
+    assert result["success"] is True and result["node_id"] == saved["node_id"]
+
+
+@pytest.mark.asyncio
+async def test_a_fact_untouched_for_hours_is_not_that(userdata):
+    saved = await write_memory("my cat is named Pixel", "user-fact")
+    _age(userdata, saved["node_id"], 3 * 3600)
+    result = await _remember_from_message("forget that")
+    assert result["success"] is False and "nothing" in result["note"].lower()
+    assert not _retired(userdata / "nodes" / f"{saved['node_id']}.html")
+
+
+@pytest.mark.asyncio
+async def test_two_facts_recalled_together_make_that_ambiguous(userdata):
+    await write_memory("my cat is named Pixel", "user-fact")
+    await write_memory("my dog is named Biscuit", "user-fact")
+    result = await _remember_from_message("forget that")
+    assert result["success"] is False and "which" in result["note"].lower()
+    assert len(_live(userdata)) == 2
+
+
+@pytest.mark.asyncio
+async def test_the_newer_of_two_facts_is_that_when_they_were_not_touched_together(userdata):
+    older = await write_memory("my dog is named Biscuit", "user-fact")
+    _age(userdata, older["node_id"], 40 * 60)
+    newer = await write_memory("my cat is named Pixel", "user-fact")
+    result = await _remember_from_message("forget that")
+    assert result["success"] is True and result["node_id"] == newer["node_id"]
+
+
+# --- she must not claim a forget that did not happen ----------------------------------------------------------------------------------------------
+
+CLAIMS = ["Understood—I’ll no longer reference Pixel.", "Okay, I’ve forgotten that.", "Done, I forgot it.", "Sure, I won’t remember that anymore.",
+          "Got it, deleted.", "I have removed it from my memory.", "Consider it forgotten."]
+
+
+@pytest.mark.parametrize("claim", CLAIMS)
+def test_a_claim_to_have_forgotten_after_a_failed_forget_gets_a_correction(claim):
+    from python.harness import turn_log
+
+    failed = {"success": False, "note": "[Memory] nothing was saved just now to forget"}
+    fixed = turn_log.TurnLog(failed).add_unsupported_note(claim)
+    assert fixed.startswith(claim) and "Correction:" in fixed and "nothing was forgotten" in fixed
+
+
+def test_an_honest_reply_after_a_failed_forget_is_left_alone():
+    from python.harness import turn_log
+
+    failed = {"success": False, "note": "[Memory] nothing was saved just now to forget"}
+    for text in ("I don't see anything recent to forget. What do you mean?", "Which one do you want me to forget, the cat or the dog?"):
+        assert turn_log.TurnLog(failed).add_unsupported_note(text) == text
+
+
+def test_a_claim_after_a_real_forget_is_left_alone():
+    from python.harness import turn_log
+
+    done = {"success": True, "node_id": "fact-x", "retired": ["fact-x"], "note": "[Memory] Forgotten at the user's request"}
+    claim = "Understood, I'll no longer reference Pixel."
+    assert turn_log.TurnLog(done).add_unsupported_note(claim) == claim
+
+
+def test_no_correction_when_there_was_no_memory_command():
+    from python.harness import turn_log
+
+    claim = "I'll no longer mention the weather."
+    assert turn_log.TurnLog(None).add_unsupported_note(claim) == claim
+    assert turn_log.TurnLog({"success": True, "node_id": "fact-y", "note": "[Memory] Saved"}).add_unsupported_note(claim) == claim
+
+
+def test_the_correction_says_why_and_is_spoken():
+    from python.harness import reply_text, turn_log
+
+    failed = {"success": False, "note": "[Memory] The user asked you to forget something, but nothing was saved just now to forget"}
+    fixed = reply_text.finish_reply("I’ll no longer reference Pixel.", False, turn_log.TurnLog(failed))
+    assert reply_text.trailing_correction(fixed).startswith("Correction:") and "nothing was forgotten" in fixed
+
+
+def test_the_chat_handler_gives_the_log_the_memory_outcome():
+    import inspect
+
+    from python.harness import server
+
+    assert "TurnLog(remembered)" in inspect.getsource(server.handle_inference_generate)

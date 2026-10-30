@@ -38,6 +38,11 @@ _WITHDRAWS = re.compile(r"\bmade\s+(?:\w+\s+){0,3}up\b|\binvent\w*|\bguess(?:ed)
                         r"\bno\s+source\b|\b(?:was|were|is|are)n'?t\s+(?:from|in)\b|\bnot\s+(?:from|in)\s+(?:the|that|this)\s+(?:lookup|result|record|data|api)\b",
                         re.IGNORECASE)
 
+# She says she forgot something. Only checked after a forget command that the harness could not carry out.
+_CLAIMS_FORGOT = re.compile(
+    r"\bno\s+longer\s+(?:reference|remember|recall|bring\s+up|mention|use)\b|\bforgot(?:ten)?\b|\b(?:won't|will\s+not)\s+(?:remember|recall|mention|bring\s+up)\b|"
+    r"\b(?:removed|deleted|erased|cleared|wiped)\b|\bconsider\s+it\s+(?:gone|deleted)\b", re.IGNORECASE)
+FORGET_TAG = "nothing was forgotten"
 UNSUPPORTED_TAG = "so they did not come from it"
 LINK_TAG = "I built it myself rather than being given it"
 MIN_UNSUPPORTED = 3
@@ -68,7 +73,8 @@ def _supported(item: str, haystack: str, numbers: set[str]) -> bool:
 class TurnLog:
     """Every tool call this turn (name, failure reason or None, result) and the answer the user challenged, if they challenged one."""
 
-    def __init__(self) -> None:
+    def __init__(self, memory: dict[str, Any] | None = None) -> None:
+        self.memory = memory  # what the capture step did with the user's message ("remember", "forget ..."), if anything
         self.calls: list[tuple[str, str | None, Any]] = []
         self.arguments = ""  # what she asked the tools for: a link she passed in is one she may repeat
         self.challenged = ""
@@ -92,12 +98,29 @@ class TurnLog:
         results = [json.dumps(result, default=str, ensure_ascii=False) for _, reason, result in self.calls if reason is None]
         return honesty.plain(" ".join(results))
 
+    def _false_forget_note(self, text: str) -> str | None:
+        """A correction when she claims to have forgotten something after a forget command the harness could not carry out."""
+        memory = self.memory or {}
+        note = str(memory.get("note") or "")
+        if memory.get("success") or "forget" not in note.lower() or not _CLAIMS_FORGOT.search(text.replace("\u2019", "'")):
+            return None
+        why = ("more than one saved fact matched, so I changed nothing; tell me which one" if "more than one" in note or "together" in note
+               else "learning is off or halted, so I could not change anything" if "off or halted" in note
+               else "I found no fact saved or recalled in the last hour for that to mean, so I changed nothing")
+        return f"{text}\n\nCorrection: {FORGET_TAG} ({why}); that fact is still remembered."
+
     def add_unsupported_note(self, text: str) -> str:
         """``text``, with a correction appended naming the details it (or the answer the user challenged) gave that no tool result supports;
         unchanged otherwise, and when no tool succeeded this turn (the failed-tool note covers that)."""
-        if not text or UNSUPPORTED_TAG in text or LINK_TAG in text or _WITHDRAWS.search(text):
+        if not text or FORGET_TAG in text or UNSUPPORTED_TAG in text or LINK_TAG in text:
             return text
         try:
+            corrected = self._false_forget_note(text)
+            if corrected:
+                log.info("turn_log: a reply claimed a forget the harness could not carry out; correction appended")
+                return corrected
+            if _WITHDRAWS.search(text):
+                return text
             haystack = self._haystack()
             if not haystack.strip():
                 return text

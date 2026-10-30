@@ -1546,7 +1546,7 @@ async def handle_inference_generate(
     native_tool_specs: list[dict[str, Any]] = []
     tool_index = None
     sticky_tools: set[str] = set()
-    reply_log = _reply_text.turn_log.TurnLog()  # every tool call this turn, and the answer the user challenged, for the reply's honesty checks
+    reply_log = _reply_text.turn_log.TurnLog(remembered)  # every tool call this turn, and the answer the user challenged, for the reply's honesty checks
 
     raw_prompt = bool(params.get("raw_prompt", False))
     if raw_prompt:
