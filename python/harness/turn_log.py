@@ -45,6 +45,14 @@ _CLAIMS_FORGOT = re.compile(
     # "your cat's name will no longer be stored in my memory" (found live 2026-10-30, after a forget with nothing to forget)
     r"\bno\s+longer\s+(?:be\s+)?(?:stored|saved|kept|remembered|recalled|on\s+record|in\s+my\s+(?:memory|records))\b|"
     r"\b(?:won't|will\s+not)\s+(?:be\s+)?(?:stored|saved|kept)\b", re.IGNORECASE)
+# An honest reply to a forget that did not happen asks what was meant or says nothing was done. Anything else ("I'll treat it as no longer
+# relevant", found live 2026-10-30) is taken as a claim, because matching her wording one phrase at a time kept missing the next one.
+_ADMITS_NOTHING = re.compile(r"\?|\b(?:nothing|no\s+fact|not\s+saved|haven't|have\s+not|don't\s+have|do\s+not\s+have|didn't|did\s+not|couldn't|could\s+not|"
+                             r"can't|cannot|unable|not\s+able)\b", re.IGNORECASE)
+def _claims_forgot(text: str) -> bool:
+    return bool(_CLAIMS_FORGOT.search(text) or not _ADMITS_NOTHING.search(text))
+
+
 FORGET_TAG = "nothing was forgotten"
 UNSUPPORTED_TAG = "so they did not come from it"
 LINK_TAG = "I built it myself rather than being given it"
@@ -105,7 +113,7 @@ class TurnLog:
         """A correction when she claims to have forgotten something after a forget command the harness could not carry out."""
         memory = self.memory or {}
         note = str(memory.get("note") or "")
-        if memory.get("success") or "forget" not in note.lower() or not _CLAIMS_FORGOT.search(text.replace("\u2019", "'")):
+        if memory.get("success") or "forget" not in note.lower() or not _claims_forgot(text.replace("\u2019", "'")):
             return None
         why = ("more than one saved fact matched, so I changed nothing; tell me which one" if "more than one" in note or "together" in note
                else "learning is off or halted, so I could not change anything" if "off or halted" in note

@@ -359,7 +359,8 @@ async def test_the_newer_of_two_facts_is_that_when_they_were_not_touched_togethe
 
 CLAIMS = ["Understood—I’ll no longer reference Pixel.", "Okay, I’ve forgotten that.", "Done, I forgot it.", "Sure, I won’t remember that anymore.",
           "Got it, deleted.", "I have removed it from my memory.", "Consider it forgotten.",
-          "Understood—your cat’s name will no longer be stored in my memory.", "Sure, that won’t be saved.", "Okay, it’s dropped."]
+          "Understood—your cat’s name will no longer be stored in my memory.", "Sure, that won’t be saved.", "Okay, it’s dropped.",
+          "Understood. I’ll treat the cat’s name as no longer relevant. Let me know if there’s anything else you’d like to focus on.", "Okay."]
 
 
 @pytest.mark.parametrize("claim", CLAIMS)
@@ -375,7 +376,9 @@ def test_an_honest_reply_after_a_failed_forget_is_left_alone():
     from python.harness import turn_log
 
     failed = {"success": False, "note": "[Memory] nothing was saved just now to forget"}
-    for text in ("I don't see anything recent to forget. What do you mean?", "Which one do you want me to forget, the cat or the dog?"):
+    for text in ("I don't see anything recent to forget. What do you mean?", "Which one do you want me to forget, the cat or the dog?",
+                 "Sure—just to clarify, what would you like me to forget?", "There is nothing saved about that, so I changed nothing.",
+                 "I can't forget what I never stored."):
         assert turn_log.TurnLog(failed).add_unsupported_note(text) == text
 
 
