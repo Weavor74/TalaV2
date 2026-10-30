@@ -3626,7 +3626,7 @@ async def handle_inference_generate(
             except Exception as exc:
                 tool_result = f"Error executing registry tool: {exc}"
 
-        reply_log.record(tool_name, tool_result)
+        reply_log.record(tool_name, tool_result, attrs)
         if tool_lower.startswith("docs."):
             # Produce a human-readable confirmation instead of a raw JSON blob
             if isinstance(tool_result, dict):
@@ -3723,7 +3723,7 @@ async def handle_inference_generate(
 
     generated_text = validated_text
     fallback_notice = "\n".join(fallback_notices)  # travels beside the reply (and as a toast); inside it, it would be read aloud
-    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools), reply_log)
+    generated_text = _reply_text.finish_reply(generated_text, bool(sticky_tools), None if raw_prompt else reply_log)
 
     try:
         from python.harness.memory import handle_memory_record_completed_turn
