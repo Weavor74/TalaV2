@@ -49,6 +49,12 @@ _LEARNING_CUE_PATTERNS = (
 )
 
 
+#: A reply that only acknowledges ("Got it ... I'll keep that in mind for future reference") states no lesson, but it often contains a cue
+#: phrase. Found 2026-10-30: such a reply became a weight-1.0 learning node, a second copy of a fact the user later retired.
+_ACKNOWLEDGEMENT = re.compile(r"^\W*(?:got\s+it|understood|noted|sure|okay|ok|alright|done|will\s+do|of\s+course|absolutely|certainly|roger|copy\s+that)\b",
+                              re.IGNORECASE)
+
+
 def _coerce_text(value: Any) -> str:
     return str(value or "").strip()
 
@@ -63,6 +69,8 @@ def _is_learning_event(params: dict[str, Any], role: str, content: str) -> bool:
         return True
     if role != "assistant" or not content.strip():
         return False
+    if params.get("memory_command") or _ACKNOWLEDGEMENT.match(content):
+        return False  # the harness already stored a remembered / corrected / forgotten fact where it belongs, or she only acknowledged
     return any(pattern.search(content) for pattern in _LEARNING_CUE_PATTERNS)
 
 
@@ -233,7 +241,9 @@ async def handle_memory_search(params: dict[str, Any]) -> dict[str, Any]:
     emotion_label = await _current_emotion_label()
 
     manager = get_manager()
-    results = await manager.search(query, sources, limit, allow_private)
+    from sdk.agent.memory_tools import without_retired
+
+    results = without_retired(await manager.search(query, sources, limit, allow_private))
 
     # Log recall event for the top result
     if results:

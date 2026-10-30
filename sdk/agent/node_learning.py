@@ -404,6 +404,59 @@ def apply_feedback(node_ids: Iterable[str], kind: str, nodes_dir: Path, *, reaso
     return _finish(changes)
 
 
+RETIRED_KINDS = ("forgotten", "superseded")
+
+
+def retire(node_id: str, nodes_dir: Path, *, kind: str = "forgotten", superseded_by: str | None = None, reason: str = "",
+           now: datetime | None = None) -> list[dict[str, Any]]:
+    """Take a node out of recall because the user said to ("forget that") or replaced what it says. Its weights go to the floor, so retrieval
+    scores it far below any threshold; it is marked retired (and, for a replacement, which node superseded it) and its former weights are
+    kept in ``data-retired-from``. The file stays: it can be restored, and the ledger is append-only anyway. Nothing happens when learning is
+    off or halted (the caller says so), or for a protected node."""
+    if kind not in RETIRED_KINDS:
+        raise ValueError(f"kind must be one of {RETIRED_KINDS}, not {kind!r}")
+    if not _may_write():
+        return []
+    now = _now(now)
+    changes: list[dict[str, Any]] = []
+    for target_id, path in _targets([node_id], nodes_dir):
+        node = _load(path)
+        if node is None or node.protected:
+            continue
+        edits: dict[str, str | None] = {
+            "data-weight-relevance": _fmt(MIN_WEIGHT), "data-weight-confidence": _fmt(MIN_WEIGHT),
+            "data-retired": kind, "data-retired-from": f"{_fmt(node.relevance)}/{_fmt(node.confidence)}", "data-retired-at": now.isoformat(),
+            "data-superseded-by": superseded_by,
+        }
+        try:
+            changes += _write(node, edits, kind=f"retire_{kind}", reason=reason[:200], now=now)
+        except OSError as exc:
+            log.warning("node_learning: could not retire %s: %s", target_id, exc)
+    return _finish(changes)
+
+
+def unretire(node_id: str, nodes_dir: Path, *, reason: str = "", now: datetime | None = None) -> list[dict[str, Any]]:
+    """Bring a retired node back because the user said it again: weights to the starting weight for a fact, the retired marks removed. Nothing
+    happens when learning is off or halted (the caller says so), or for a protected node."""
+    if not _may_write():
+        return []
+    now = _now(now)
+    changes: list[dict[str, Any]] = []
+    for target_id, path in _targets([node_id], nodes_dir):
+        node = _load(path)
+        if node is None or node.protected:
+            continue
+        edits: dict[str, str | None] = {
+            "data-weight-relevance": _fmt(NEW_FACT_WEIGHT), "data-weight-confidence": _fmt(NEW_FACT_WEIGHT),
+            "data-retired": None, "data-retired-from": None, "data-retired-at": None, "data-superseded-by": None,
+        }
+        try:
+            changes += _write(node, edits, kind="unretire", reason=reason[:200], now=now)
+        except OSError as exc:
+            log.warning("node_learning: could not restore %s: %s", target_id, exc)
+    return _finish(changes)
+
+
 def decay_unused(nodes_dir: Path, *, now: datetime | None = None) -> list[dict[str, Any]]:
     """One small step down for each node learning has used and then left idle, to the floor and no further."""
     if not _may_write():
