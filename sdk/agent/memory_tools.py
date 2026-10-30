@@ -9,7 +9,10 @@ turn. Two doors lead here:
 * ``write_memory`` -- the tool the model may call. It is registered in tools.py and gated by the lease policy like every
   other tool that writes a file.
 * ``_remember_from_message`` -- the harness itself, for a message that *starts with* an explicit "remember ...". The user
-  gave the instruction, so nothing waits on a small model choosing to call a tool; the same checks apply.
+  gave the instruction, so nothing waits on a small model choosing to call a tool; the same checks apply. The same door takes
+  corrections ("actually my cat is named Pixel") and "forget that": a new fact about the same subject as a saved one retires the
+  old one, and a forget command retires the fact it names. Retiring floors the node's weights so retrieval stops surfacing it; the
+  file is kept. Every outcome comes back with a ``note`` for the model, so what she says about it is what happened.
 
 Neither stores anything that looks like a credential, a wallet key or a seed phrase: a node is retrieval context and
 is anchored to a ledger, so a secret saved here would be recalled into prompts and written down for good.
@@ -22,6 +25,7 @@ from __future__ import annotations
 import hashlib
 import logging
 import re
+import time
 from pathlib import Path
 from typing import Any
 
@@ -40,6 +44,36 @@ _EXPLICIT_REMEMBER = re.compile(
 )
 #: A fact is a sentence; anything much longer is a prompt or a document, never an instruction to remember one thing.
 MAX_MESSAGE_CHARS = 600
+
+#: "remember this: X", "remember the following - X": the lead-in is not part of the fact.
+_LEAD_IN = re.compile(r"^(?:this|these|the\s+following)\s*[:\-\u2013\u2014]+\s*(?=\S)", re.IGNORECASE)
+#: "..., you can drop it later", "(feel free to forget it afterwards)": an instruction about the fact, not the fact.
+_DROP_TAIL = re.compile(r"[\s,;:.\-\u2013\u2014]*[(\[]?\s*(?:you\s+can|you\s+may|feel\s+free\s+to|please|go\s+ahead\s+and)\s+"
+                        r"(?:drop|forget|delete|discard|ignore)\s+(?:it|that|this)\b[^)\]\n]*[)\]]?[.!\s]*$", re.IGNORECASE)
+#: "actually my cat is ...", "no, it's ...", "that's wrong, ...", "I meant ...": a correction cue before the corrected statement.
+_CORRECTION = re.compile(
+    r"^\s*(?:(?:no|nope|actually|wait|sorry|correction|i\s+meant|i\s+mean|that'?s\s+(?:wrong|not\s+right|incorrect|not\s+correct)|"
+    r"that\s+is\s+(?:wrong|not\s+right|incorrect))\s*[,:.!\-\u2013\u2014]*\s*)+(?P<fact>.+?)\s*$", re.IGNORECASE | re.DOTALL)
+#: "forget that", "you can drop it", "forget what I just told you" -- the whole message, and short: "forget it, it's fine", "drop it like it's
+#: hot" and "I'll forget that I asked" are not commands.
+_FORGET_THAT = re.compile(
+    r"^\s*(?:(?:ok(?:ay)?|alright|thanks)[,.!]?\s*)?(?:please\s+)?(?:tala[,:]?\s+)?"
+    r"(?:(?:(?:you\s+can|go\s+ahead\s+and)\s+)?(?:forget|drop|delete|discard)\s+(?:that|this|what\s+i\s+(?:just\s+)?(?:said|told\s+you))"
+    r"|(?:you\s+can\s+|please\s+|go\s+ahead\s+and\s+)drop\s+it|drop\s+it)\s*[.!]*\s*$", re.IGNORECASE)
+#: "forget my cat's name": a command naming what to forget.
+_FORGET_SUBJECT = re.compile(
+    r"^\s*(?:(?:ok(?:ay)?|alright)[,.!]?\s*)?(?:please\s+)?(?:tala[,:]?\s+)?(?:you\s+can\s+)?(?:forget|drop|delete|discard)\s+(?:about\s+)?"
+    r"(?P<subject>(?:my|our)\s+.+?)\s*[.!]*\s*$", re.IGNORECASE)
+MAX_FORGET_CHARS = 80
+#: "forget that" means the fact saved in the last few minutes.
+RECENT_SECONDS = 600
+#: Two facts are about the same thing when their content words overlap this much (and share at least two).
+SAME_SUBJECT = 0.5
+SAME_SUBJECT_CUED = 0.34
+
+_STOPWORDS = frozenset("a an the my our your his her their its is are was were be been am i me we you it of to and or in on at for with that this "
+                       "so as by from has have had do does did not no".split())
+_NAME_WORDS = frozenset({"named", "called", "name", "names"})
 
 _CREDENTIAL_WORDS = re.compile(
     r"\b(password|passcode|passphrase|api[ _-]?key|secret[ _-]?key|private[ _-]?key|seed[ _-]?phrase|recovery[ _-]?phrase|"
@@ -61,6 +95,69 @@ def _problem(text: str) -> str | None:
         return ("that looks like a credential, a key or other secret, so I won't store it in a node "
                 "(nodes are recalled into prompts and written to the ledger)")
     return None
+
+
+#: What write_memory puts before the user's words in the node (the parser folds the blank line into spaces).
+_PREFIX = re.compile(r"^A fact the user told Tala \(topic:[^)]*\)\.\s*")
+
+
+def _clean_fact(fact: str) -> str:
+    """The fact as the user stated it: without a "this:" lead-in or a "you can drop it" tail."""
+    fact = _DROP_TAIL.sub("", _LEAD_IN.sub("", fact.strip())).strip()
+    return fact.rstrip(" ,;:-")
+
+
+def _keys(text: str) -> set[str]:
+    """The content words of a fact, reduced so "cat's name", "named" and "called" compare equal and "colour"/"colours" do."""
+    words = re.sub(r"['\u2019]s\b", "", text.lower())
+    out = set()
+    for word in re.findall(r"[a-z0-9]+", words):
+        if word in _NAME_WORDS:
+            out.add("name")
+        elif word not in _STOPWORDS:
+            out.add(word[:-1] if len(word) > 3 and word.endswith("s") else word)
+    return out
+
+
+def _saved_facts() -> list[dict[str, Any]]:
+    """The live fact nodes (newest first): id, path, text as the user said it, and when the file last changed. Retired ones are skipped."""
+    from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+    from sdk.agent.parser import parse_file
+
+    facts = []
+    for path in resolve_active_nodes_dir().glob("fact-*.html"):
+        try:
+            if 'data-retired="' in path.read_text(encoding="utf-8"):
+                continue
+            body = parse_file(str(path)).semantic_memory or ""
+            facts.append({"id": path.stem, "path": path, "text": _PREFIX.sub("", body).strip(), "mtime": path.stat().st_mtime})
+        except Exception as exc:
+            log.debug("memory_tools: skipped unreadable fact %s: %s", path, exc)
+    return sorted(facts, key=lambda fact: fact["mtime"], reverse=True)
+
+
+def _shorten(text: str, limit: int = 160) -> str:
+    return text if len(text) <= limit else text[:limit - 1] + "\u2026"
+
+
+def _same_subject(new_text: str, cued: bool) -> list[dict[str, Any]]:
+    """Saved facts about the same thing as ``new_text`` that say something different: they share two or more content words and enough of
+    them (a correction cue lowers the bar), and are not the same statement."""
+    new_keys = _keys(new_text)
+    threshold = SAME_SUBJECT_CUED if cued else SAME_SUBJECT
+    found = []
+    for fact in _saved_facts():
+        keys = _keys(fact["text"])
+        shared = new_keys & keys
+        if fact["text"].strip().lower() != new_text.strip().lower() and len(shared) >= 2 and len(shared) / len(new_keys | keys) >= threshold:
+            found.append(fact)
+    return found
+
+
+def _retire(fact: dict[str, Any], kind: str, superseded_by: str | None = None, reason: str = "") -> bool:
+    from sdk.agent import node_learning
+
+    return bool(node_learning.retire(fact["id"], fact["path"].parent, kind=kind, superseded_by=superseded_by, reason=reason))
 
 
 def _fact_node_id(text: str) -> str:
@@ -128,16 +225,86 @@ async def write_memory(content: str, topic: str = "user-preference") -> dict[str
         return {"success": False, "error": f"Could not write the node: {exc}"}
 
 
-async def _remember_from_message(message: Any) -> dict[str, Any] | None:
-    """If the user's message is an explicit "remember ...", save that fact now. None when it is not one."""
-    found = (_EXPLICIT_REMEMBER.match(message)
-             if isinstance(message, str) and len(message) <= MAX_MESSAGE_CHARS else None)
-    if not found:
-        return None
-    fact = found.group("fact").strip()
+async def _save_fact(fact: str, *, cued: bool, require_conflict: bool) -> dict[str, Any] | None:
+    """Save ``fact``; if it restates something already saved, the older statement is retired. With ``require_conflict`` (a bare correction
+    cue) nothing is saved unless there is a fact to correct: "no, I don't want that" is not a memory."""
+    fact = _clean_fact(fact)
     if len(fact) < MIN_FACT_CHARS or fact.endswith("?"):
         return None
-    return await write_memory(fact, "user-fact")
+    older = _same_subject(fact, cued) if not _problem(fact) else []
+    if require_conflict and not older:
+        return None
+    result = await write_memory(fact, "user-fact")
+    if not result.get("success"):
+        return result
+    if not result.get("created") or not older:
+        result["note"] = f'[Memory] Saved a fact the user just told you: "{_shorten(fact)}". You may say you will remember it.'
+        return result
+    retired = [old for old in older if _retire(old, "superseded", result["node_id"], f"replaced by: {fact[:120]}")]
+    old_text = "; ".join(f'"{_shorten(old["text"], 100)}"' for old in older)
+    result["retired"] = [old["id"] for old in retired]
+    result["note"] = (f'[Memory] Saved: "{_shorten(fact)}". It replaces an earlier fact, {old_text}, which is retired and will no longer be '
+                      f"recalled." if retired else
+                      f'[Memory] Saved: "{_shorten(fact)}". It may contradict an earlier fact, {old_text}, but learning is off or halted so '
+                      "the old one could not be retired; say that.")
+    return result
+
+
+def _forget_note(text: str) -> dict[str, Any]:
+    return {"success": False, "note": text}
+
+
+def _forget(facts: list[dict[str, Any]], reason: str) -> dict[str, Any]:
+    fact = facts[0]
+    if not _retire(fact, "forgotten", None, reason):
+        return _forget_note('[Memory] The user asked you to forget a fact, but it could not be retired because learning is off or halted; '
+                            "say so and change nothing.")
+    return {"success": True, "node_id": fact["id"], "retired": [fact["id"]],
+            "note": f'[Memory] Forgotten at the user\'s request: "{_shorten(fact["text"])}". It is retired and will no longer be recalled '
+                    "(the file is kept)."}
+
+
+async def _forget_from_message(message: str) -> dict[str, Any] | None:
+    """"forget that" / "you can drop it" (the fact saved in the last few minutes) or "forget my cat's name" (the one fact that matches it)."""
+    pronoun = _FORGET_THAT.match(message) if len(message) <= MAX_FORGET_CHARS else None
+    subject = None if pronoun or len(message) > MAX_FORGET_CHARS else _FORGET_SUBJECT.match(message)
+    if not pronoun and not subject:
+        return None
+    facts = _saved_facts()
+    if pronoun:
+        recent = [fact for fact in facts if time.time() - fact["mtime"] <= RECENT_SECONDS][:1]
+        if not recent:
+            return _forget_note("[Memory] The user asked you to forget something, but nothing was saved just now to forget; change nothing and "
+                                "say so (ask what they mean).")
+        return _forget(recent, "user said to forget it")
+    wanted = _keys(subject.group("subject"))
+    scored = sorted(((len(wanted & _keys(fact["text"])) / len(wanted), fact) for fact in facts if wanted), key=lambda pair: pair[0], reverse=True)
+    scored = [(score, fact) for score, fact in scored if score >= 0.5]
+    if not scored:
+        return None  # nothing saved is about that: an ordinary sentence, not a memory command
+    if len(scored) > 1 and scored[1][0] == scored[0][0]:
+        names = "; ".join(f'"{_shorten(fact["text"], 80)}"' for score, fact in scored if score == scored[0][0])
+        return _forget_note(f"[Memory] The user asked you to forget something that matches more than one saved fact ({names}); nothing was "
+                            "changed. Ask which one.")
+    return _forget([scored[0][1]], f"user said to forget: {subject.group('subject')[:100]}")
+
+
+async def _remember_from_message(message: Any) -> dict[str, Any] | None:
+    """If the user's message is an explicit "remember ...", a correction of a saved fact, or "forget ...", act on it now. None when it is none of these."""
+    if not isinstance(message, str) or len(message) > MAX_MESSAGE_CHARS:
+        return None
+    forgotten = await _forget_from_message(message)
+    if forgotten is not None:
+        return forgotten
+    found = _EXPLICIT_REMEMBER.match(message)
+    if found:
+        return await _save_fact(found.group("fact"), cued=False, require_conflict=False)
+    cue = _CORRECTION.match(message)
+    if cue:
+        fact = cue.group("fact")
+        restated = _EXPLICIT_REMEMBER.match(fact)  # "no, remember that my cat is Pixel"
+        return await _save_fact(restated.group("fact") if restated else fact, cued=True, require_conflict=True)
+    return None
 
 
 async def remember_safely(message: Any) -> dict[str, Any] | None:

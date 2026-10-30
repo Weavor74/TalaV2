@@ -2366,7 +2366,7 @@ async def handle_inference_generate(
                         )
 
                     from python.harness.topic_stance import stance_context_block
-                    system_context_additions.extend(b for b in (await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion), reply_log.challenge_note(raw_user_prompt, history)) if b)
+                    system_context_additions.extend(b for b in (await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion), reply_log.challenge_note(raw_user_prompt, history), (remembered or {}).get("note")) if b)
                     if system_context_additions:
                         if active_system_prompt:
                             active_system_prompt = active_system_prompt + "\n\n" + "\n\n".join(system_context_additions)
