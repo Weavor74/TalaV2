@@ -1389,7 +1389,7 @@ async def handle_inference_generate(
     raw_user_prompt = prompt
 
     # An explicit "remember that ..." becomes a learning node now, so this same turn's retrieval can find it.
-    from sdk.agent.memory_tools import remember_safely
+    from sdk.agent.memory_tools import forgotten_note, remember_safely
     remembered = await remember_safely(raw_user_prompt)
 
     session_id: str = str(params.get("session_id", uuid.uuid4()))
@@ -2366,7 +2366,7 @@ async def handle_inference_generate(
                         )
 
                     from python.harness.topic_stance import stance_context_block
-                    system_context_additions.extend(b for b in (await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion), reply_log.challenge_note(raw_user_prompt, history), (remembered or {}).get("note")) if b)
+                    system_context_additions.extend(b for b in (await stance_context_block(raw_user_prompt, chat_mode, agent_id_for_emotion), reply_log.challenge_note(raw_user_prompt, history), (remembered or {}).get("note"), forgotten_note()) if b)
                     if system_context_additions:
                         if active_system_prompt:
                             active_system_prompt = active_system_prompt + "\n\n" + "\n\n".join(system_context_additions)
@@ -3743,7 +3743,7 @@ async def handle_inference_generate(
             "session_id": session_id,
             "role": "assistant",
             "content": generated_text,
-            "tool_calls": tool_calls_list,
+            "tool_calls": tool_calls_list, "memory_command": bool(remembered),
         })
     except Exception as exc:
         logger.warning(f"Failed to internally record turn: {exc}")

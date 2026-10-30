@@ -425,7 +425,7 @@ def retire(node_id: str, nodes_dir: Path, *, kind: str = "forgotten", superseded
             continue
         edits: dict[str, str | None] = {
             "data-weight-relevance": _fmt(MIN_WEIGHT), "data-weight-confidence": _fmt(MIN_WEIGHT),
-            "data-retired": kind, "data-retired-from": f"{_fmt(node.relevance)}/{_fmt(node.confidence)}",
+            "data-retired": kind, "data-retired-from": f"{_fmt(node.relevance)}/{_fmt(node.confidence)}", "data-retired-at": now.isoformat(),
             "data-superseded-by": superseded_by,
         }
         try:

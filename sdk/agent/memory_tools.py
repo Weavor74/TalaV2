@@ -26,6 +26,7 @@ import hashlib
 import logging
 import re
 import time
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any
 
@@ -70,6 +71,9 @@ MAX_FORGET_CHARS = 80
 RECENT_SECONDS = 3600
 #: Facts touched within this many seconds of each other were recalled together, so "that" does not say which one.
 TOGETHER_SECONDS = 30
+#: How long after a fact is retired the model is still told not to repeat it (the chat already on screen still holds the words).
+RETIRED_NOTE_HOURS = 6
+MAX_NOTED = 8
 #: Two facts are about the same thing when their content words overlap this much (and share at least two).
 SAME_SUBJECT = 0.5
 SAME_SUBJECT_CUED = 0.34
@@ -137,6 +141,42 @@ def _saved_facts() -> list[dict[str, Any]]:
         except Exception as exc:
             log.debug("memory_tools: skipped unreadable fact %s: %s", path, exc)
     return sorted(facts, key=lambda fact: fact["mtime"], reverse=True)
+
+
+def forgotten_note() -> str | None:
+    """A system-context note naming the facts the user took back (forgot or replaced) in the last few hours, with the instruction not to use or
+    repeat them. A retired node is no longer recalled, but the conversation already on screen still contains the words and the model repeats
+    them (found live 2026-10-30: she answered "Quillon" after both cat facts were retired). Read fresh from the node files, so a fact the user
+    restored or deleted by hand drops out. None when there is nothing to say; never raises."""
+    try:
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+        from sdk.agent.parser import parse_file
+
+        cutoff = datetime.now(timezone.utc) - timedelta(hours=RETIRED_NOTE_HOURS)
+        directory = resolve_active_nodes_dir()
+        lines = []
+        for path in sorted(directory.glob("fact-*.html")):
+            text = path.read_text(encoding="utf-8")
+            kind, at = re.search(r'data-retired="(forgotten|superseded)"', text), re.search(r'data-retired-at="([^"]+)"', text)
+            if not kind or not at or datetime.fromisoformat(at.group(1)) < cutoff:
+                continue
+            said = _shorten(_PREFIX.sub("", parse_file(str(path)).semantic_memory or "").strip(), 120)
+            if kind.group(1) == "forgotten":
+                lines.append(f'- forgotten: "{said}"')
+                continue
+            successor = re.search(r'data-superseded-by="([^"]+)"', text)
+            now_says = ""
+            if successor and (directory / f"{successor.group(1)}.html").is_file():
+                now_says = f' (now: "{_shorten(_PREFIX.sub("", parse_file(str(directory / (successor.group(1) + ".html"))).semantic_memory or "").strip(), 120)}")'
+            lines.append(f'- replaced: "{said}"{now_says}')
+        if not lines:
+            return None
+        return ("=== FACTS THE USER TOOK BACK ===\nThe user recently told you to forget, or corrected, the facts below. Do not use or repeat them, "
+                "even if they appear earlier in this conversation; if asked, say you no longer have them (or give the newer fact).\n"
+                + "\n".join(lines[:MAX_NOTED]))
+    except Exception as exc:
+        log.debug("memory_tools: could not build the retired-facts note: %s", exc)
+        return None
 
 
 def _shorten(text: str, limit: int = 160) -> str:

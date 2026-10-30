@@ -408,3 +408,73 @@ def test_the_chat_handler_gives_the_log_the_memory_outcome():
     from python.harness import server
 
     assert "TurnLog(remembered)" in inspect.getsource(server.handle_inference_generate)
+
+
+# --- found live 2026-10-30: after the fact was retired she still said "Quillon", from earlier in the same chat ------------------------------------
+# A retired node is no longer recalled, but the conversation already on screen still holds the words, and the model repeats them. So for the
+# next few hours every turn carries a note naming what the user took back, with the instruction not to use or repeat it.
+
+
+@pytest.mark.asyncio
+async def test_a_forgotten_fact_is_named_in_a_do_not_repeat_note(userdata):
+    await write_memory("my cat is named Pixel", "user-fact")
+    await _remember_from_message("forget that")
+    note = memory_tools.forgotten_note()
+    assert "my cat is named Pixel" in note and "forgotten" in note and "do not use or repeat" in note.lower()
+
+
+@pytest.mark.asyncio
+async def test_a_replaced_fact_is_named_with_what_replaced_it(userdata):
+    await write_memory("my cat is named Quillon", "user-fact")
+    await _remember_from_message("actually my cat is named Pixel")
+    note = memory_tools.forgotten_note()
+    assert "Quillon" in note and "replaced" in note and "Pixel" in note
+
+
+@pytest.mark.asyncio
+async def test_nothing_retired_means_no_note(userdata):
+    await write_memory("my cat is named Pixel", "user-fact")
+    assert memory_tools.forgotten_note() is None
+
+
+@pytest.mark.asyncio
+async def test_a_fact_retired_long_ago_is_no_longer_mentioned(userdata, monkeypatch):
+    await write_memory("my cat is named Pixel", "user-fact")
+    await _remember_from_message("forget that")
+    monkeypatch.setattr(memory_tools, "RETIRED_NOTE_HOURS", -1)
+    assert memory_tools.forgotten_note() is None
+
+
+@pytest.mark.asyncio
+async def test_a_fact_the_user_restored_by_hand_is_not_mentioned(userdata):
+    import re
+
+    saved = await write_memory("my cat is named Pixel", "user-fact")
+    await _remember_from_message("forget that")
+    path = userdata / "nodes" / f"{saved['node_id']}.html"
+    text = re.sub(r'\s*data-(?:retired|retired-from|retired-at|superseded-by)="[^"]*"', "", path.read_text(encoding="utf-8"))
+    path.write_text(text, encoding="utf-8")
+    assert memory_tools.forgotten_note() is None
+
+
+@pytest.mark.asyncio
+async def test_a_deleted_node_is_not_mentioned(userdata):
+    saved = await write_memory("my cat is named Pixel", "user-fact")
+    await _remember_from_message("forget that")
+    (userdata / "nodes" / f"{saved['node_id']}.html").unlink()
+    assert memory_tools.forgotten_note() is None
+
+
+def test_the_note_never_raises(monkeypatch):
+    monkeypatch.setattr(memory_tools, "_saved_facts", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    monkeypatch.delenv("TALA_USER_DATA", raising=False)
+    assert memory_tools.forgotten_note() is None or isinstance(memory_tools.forgotten_note(), str)
+
+
+def test_the_chat_handler_adds_the_do_not_repeat_note_to_every_turn():
+    import inspect
+
+    from python.harness import server
+
+    source = inspect.getsource(server.handle_inference_generate)
+    assert "forgotten_note()" in source and "system_context_additions" in source
