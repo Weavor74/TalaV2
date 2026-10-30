@@ -41,7 +41,10 @@ _WITHDRAWS = re.compile(r"\bmade\s+(?:\w+\s+){0,3}up\b|\binvent\w*|\bguess(?:ed)
 # She says she forgot something. Only checked after a forget command that the harness could not carry out.
 _CLAIMS_FORGOT = re.compile(
     r"\bno\s+longer\s+(?:reference|remember|recall|bring\s+up|mention|use)\b|\bforgot(?:ten)?\b|\b(?:won't|will\s+not)\s+(?:remember|recall|mention|bring\s+up)\b|"
-    r"\b(?:removed|deleted|erased|cleared|wiped)\b|\bconsider\s+it\s+(?:gone|deleted)\b", re.IGNORECASE)
+    r"\b(?:removed|deleted|erased|cleared|wiped|dropped)\b|\bconsider\s+it\s+(?:gone|deleted)\b|"
+    # "your cat's name will no longer be stored in my memory" (found live 2026-10-30, after a forget with nothing to forget)
+    r"\bno\s+longer\s+(?:be\s+)?(?:stored|saved|kept|remembered|recalled|on\s+record|in\s+my\s+(?:memory|records))\b|"
+    r"\b(?:won't|will\s+not)\s+(?:be\s+)?(?:stored|saved|kept)\b", re.IGNORECASE)
 FORGET_TAG = "nothing was forgotten"
 UNSUPPORTED_TAG = "so they did not come from it"
 LINK_TAG = "I built it myself rather than being given it"

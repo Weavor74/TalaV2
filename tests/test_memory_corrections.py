@@ -358,7 +358,8 @@ async def test_the_newer_of_two_facts_is_that_when_they_were_not_touched_togethe
 # --- she must not claim a forget that did not happen ----------------------------------------------------------------------------------------------
 
 CLAIMS = ["Understood—I’ll no longer reference Pixel.", "Okay, I’ve forgotten that.", "Done, I forgot it.", "Sure, I won’t remember that anymore.",
-          "Got it, deleted.", "I have removed it from my memory.", "Consider it forgotten."]
+          "Got it, deleted.", "I have removed it from my memory.", "Consider it forgotten.",
+          "Understood—your cat’s name will no longer be stored in my memory.", "Sure, that won’t be saved.", "Okay, it’s dropped."]
 
 
 @pytest.mark.parametrize("claim", CLAIMS)
