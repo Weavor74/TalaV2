@@ -53,6 +53,12 @@ def _claims_forgot(text: str) -> bool:
     return bool(_CLAIMS_FORGOT.search(text) or not _ADMITS_NOTHING.search(text))
 
 
+# She says she will remember, or has saved, something. Only checked on a turn where nothing was saved.
+_CLAIMS_REMEMBER = re.compile(
+    r"\b(?:I'll|I\s+will|I\s+can|I'?ve|I\s+have|I\s+am\s+going\s+to)\s+(?:remember\s+(?:that|your|this|it|the)\b|"
+    r"(?:saved|stored|noted|logged|recorded|added|kept|written)\s+(?:that|it|this|your|the)\b|keep\s+(?:that|it|this)\s+in\s+(?:my\s+)?(?:memory|mind)\b)|"
+    r"\b(?:saved|stored|logged|recorded)\s+(?:that|it|this)\s+(?:in|to)\s+(?:my\s+)?(?:memory|records)\b", re.IGNORECASE)
+REMEMBER_TAG = "nothing was saved"
 FORGET_TAG = "nothing was forgotten"
 UNSUPPORTED_TAG = "so they did not come from it"
 LINK_TAG = "I built it myself rather than being given it"
@@ -121,15 +127,28 @@ class TurnLog:
         still = "" if "no fact was saved" in note else "; that fact is still remembered"  # nothing to forget: nothing left to be "still remembered"
         return f"{text}\n\nCorrection: {FORGET_TAG} ({why}){still}."
 
+    def _false_remember_note(self, text: str) -> str | None:
+        """A correction when she says she will remember, or has saved, something on a turn where nothing was: the message was not an explicit
+        "remember ..." (the harness saves those), and she did not save it with the tool either."""
+        if (self.memory or {}).get("success") or any(name == "write_memory" and reason is None for name, reason, _ in self.calls):
+            return None
+        if not _CLAIMS_REMEMBER.search(text.replace("\u2019", "'")):
+            return None
+        return f'{text}\n\nCorrection: {REMEMBER_TAG}; I did not store that. Start the message with "remember that" and I will.'
+
     def add_unsupported_note(self, text: str) -> str:
         """``text``, with a correction appended naming the details it (or the answer the user challenged) gave that no tool result supports;
         unchanged otherwise, and when no tool succeeded this turn (the failed-tool note covers that)."""
-        if not text or FORGET_TAG in text or UNSUPPORTED_TAG in text or LINK_TAG in text:
+        if not text or FORGET_TAG in text or REMEMBER_TAG in text or UNSUPPORTED_TAG in text or LINK_TAG in text:
             return text
         try:
             corrected = self._false_forget_note(text)
             if corrected:
                 log.info("turn_log: a reply claimed a forget the harness could not carry out; correction appended")
+                return corrected
+            corrected = self._false_remember_note(text)
+            if corrected:
+                log.info("turn_log: a reply claimed to remember something nothing saved; correction appended")
                 return corrected
             if _WITHDRAWS.search(text):
                 return text

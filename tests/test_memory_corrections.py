@@ -613,3 +613,52 @@ def test_the_correction_after_nothing_to_forget_does_not_say_the_fact_is_still_r
     several = {"success": False, "note": "[Memory] The user asked you to forget \"that\", but several facts were just recalled together"}
     assert "still remembered" in turn_log.TurnLog(several).add_unsupported_note("Done, I removed it.")
 
+
+# --- a misspelled "remember" is still the command, and she must not promise what nothing saved -----------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", ["remeber my cats name is Biscut", "Rember that my cat is named Biscut", "rememeber: my cat is named Biscut",
+                                     "please remmeber my cat is named Biscut"])
+async def test_a_mistyped_remember_is_still_remember(userdata, message):
+    result = await _remember_from_message(message)
+    assert result and result["success"] is True
+    assert "Biscut" in parse_file(result["path"]).semantic_memory
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", ["remembered my keys yesterday", "I remember that day", "rememberme is a band"])
+async def test_ordinary_sentences_are_not_remember(userdata, message):
+    assert await _remember_from_message(message) is None
+
+
+@pytest.mark.parametrize("claim", ["Got it—I’ll remember that your cat’s name is Biscut.", "I've saved that in my memory.",
+                                   "Done, I have noted your cat's name.", "I will remember this.", "Okay, I've stored it to my records."])
+def test_a_promise_to_remember_when_nothing_was_saved_gets_a_correction(claim):
+    from python.harness import turn_log
+
+    fixed = turn_log.TurnLog(None).add_unsupported_note(claim)
+    assert fixed.startswith(claim) and "Correction:" in fixed and "nothing was saved" in fixed and "remember that" in fixed
+
+
+def test_a_promise_to_remember_is_left_alone_when_something_was_saved():
+    from python.harness import turn_log
+
+    claim = "Got it—I’ll remember that your cat’s name is Biscut."
+    saved = {"success": True, "node_id": "fact-x", "note": "[Memory] Saved"}
+    assert turn_log.TurnLog(saved).add_unsupported_note(claim) == claim
+    tooled = turn_log.TurnLog(None)
+    tooled.record("write_memory", {"success": True, "node_id": "fact-y"})
+    assert tooled.add_unsupported_note(claim) == claim
+    failed_tool = turn_log.TurnLog(None)
+    failed_tool.record("write_memory", {"success": False, "error": "refused"})
+    assert "nothing was saved" in failed_tool.add_unsupported_note(claim)
+
+
+def test_ordinary_replies_are_not_taken_for_a_promise():
+    from python.harness import turn_log
+
+    for text in ("Your cat’s name is Mochi.", "I remember to be careful with the router.", "I can remember things when you ask me to.",
+                 "Got it—your cat’s name is Biscut. How is he today?"):
+        assert turn_log.TurnLog(None).add_unsupported_note(text) == text
+

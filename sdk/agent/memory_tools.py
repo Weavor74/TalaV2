@@ -35,12 +35,14 @@ log = logging.getLogger(__name__)
 MAX_FACT_CHARS = 2000
 MIN_FACT_CHARS = 8
 
+#: "remember" and the ways it is mistyped ("remeber my cats name is Biscut" was answered "I'll remember that" with nothing saved, 2026-10-30).
+_REMEMBER_WORD = r"(?:remember|remeber|rememeber|remmeber|rember|remembr|rememer|remebmer|rembember|remmember)"
 #: "remember that ...", "please remember: ...", "Tala, remember my ...". Anchored at the start: a sentence that merely
 #: contains the word ("I remember that day", "what do you remember about ...") is not an instruction.
 #: "remember to ..." is a reminder or an instruction, not a fact, and a system prompt can well begin "Remember to
 #: ...", so it needs "that", a colon, or a possessive or article to count.
 _EXPLICIT_REMEMBER = re.compile(
-    r"^\s*(?:please\s+)?(?:tala[,:]?\s+)?remember(?:\s+that\b|\s*:|(?=\s+(?:my|our|i|we|the|this|these)\b))\s+(?P<fact>.+?)\s*$",
+    r"^\s*(?:please\s+)?(?:tala[,:]?\s+)?" + _REMEMBER_WORD + r"(?:\s+that\b|\s*:|(?=\s+(?:my|our|i|we|the|this|these)\b))\s+(?P<fact>.+?)\s*$",
     re.IGNORECASE | re.DOTALL,
 )
 #: A fact is a sentence; anything much longer is a prompt or a document, never an instruction to remember one thing.
