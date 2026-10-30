@@ -247,3 +247,62 @@ def test_the_chat_handler_hands_the_note_to_the_model():
 
     source = inspect.getsource(server.handle_inference_generate)
     assert '(remembered or {}).get("note")' in source and "system_context_additions" in source
+
+
+# --- the nodes are hers AND yours: editing, restoring and deleting them by hand ---------------------------------------------------------------
+# Facts are HTML-NN nodes so the user can open, edit and delete them. Nothing here may depend on a cache of what was saved.
+
+
+@pytest.mark.asyncio
+async def test_a_fact_edited_by_hand_is_what_a_correction_is_compared_with(userdata):
+    old = await write_memory("my cat is named Quillon", "user-fact")
+    path = userdata / "nodes" / f"{old['node_id']}.html"
+    path.write_text(path.read_text(encoding="utf-8").replace("Quillon", "Whiskers"), encoding="utf-8")
+    result = await _remember_from_message("actually my cat is named Pixel")
+    assert "Whiskers" in result["note"] and _retired(path)
+
+
+@pytest.mark.asyncio
+async def test_a_fact_the_user_already_edited_to_say_the_same_thing_is_not_saved_twice(userdata):
+    old = await write_memory("my cat is named Quillon", "user-fact")
+    path = userdata / "nodes" / f"{old['node_id']}.html"
+    path.write_text(path.read_text(encoding="utf-8").replace("Quillon", "Pixel"), encoding="utf-8")
+    again = await _remember_from_message("remember that my cat is named Pixel")
+    assert again["node_id"] == old["node_id"] and len(_nodes(userdata)) == 1 and not _retired(path)
+
+
+@pytest.mark.asyncio
+async def test_a_node_the_user_deleted_is_simply_gone(userdata):
+    old = await write_memory("my cat is named Quillon", "user-fact")
+    (userdata / "nodes" / f"{old['node_id']}.html").unlink()
+    assert await _remember_from_message("actually my cat is named Pixel") is None, "nothing left to correct"
+    assert (await _remember_from_message("forget that"))["success"] is False
+    result = await _remember_from_message("remember that my cat is named Pixel")
+    assert result["success"] is True and len(_nodes(userdata)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_retired_node_the_user_restores_by_hand_is_live_again(userdata):
+    old = await write_memory("my cat is named Quillon", "user-fact")
+    await _remember_from_message("forget that")
+    path = userdata / "nodes" / f"{old['node_id']}.html"
+    assert _retired(path)
+    import re
+
+    text = path.read_text(encoding="utf-8")
+    text = re.sub(r'\s*data-(?:retired|retired-from|superseded-by)="[^"]*"', "", text)
+    text = text.replace(f'data-weight-relevance="{nl._fmt(nl.MIN_WEIGHT)}"', 'data-weight-relevance="0.80"')
+    text = text.replace(f'data-weight-confidence="{nl._fmt(nl.MIN_WEIGHT)}"', 'data-weight-confidence="0.80"')
+    path.write_text(text, encoding="utf-8")
+    assert [p.stem for p in _live(userdata)] == [old["node_id"]]
+    result = await _remember_from_message("forget that")
+    assert result["success"] is True and result["node_id"] == old["node_id"]
+
+
+@pytest.mark.asyncio
+async def test_the_retired_marks_are_plain_attributes_on_the_node_a_person_can_read(userdata):
+    old = await write_memory("my cat is named Quillon", "user-fact")
+    await _remember_from_message("actually my cat is named Pixel")
+    article = (userdata / "nodes" / f"{old['node_id']}.html").read_text(encoding="utf-8").split("<article", 1)[1].split(">", 1)[0]
+    for attribute in ('data-retired="superseded"', "data-superseded-by=", 'data-retired-from="0.80/0.80"'):
+        assert attribute in article

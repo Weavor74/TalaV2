@@ -234,6 +234,11 @@ async def _save_fact(fact: str, *, cued: bool, require_conflict: bool) -> dict[s
     older = _same_subject(fact, cued) if not _problem(fact) else []
     if require_conflict and not older:
         return None
+    # The nodes are files the user can edit: one they changed to say exactly this is already the memory, whatever its id says.
+    same = next((saved for saved in _saved_facts() if saved["text"].strip().lower() == fact.lower()), None) if not _problem(fact) else None
+    if same:
+        return {"success": True, "node_id": same["id"], "path": str(same["path"]), "created": False,
+                "note": f'[Memory] The user told you "{_shorten(fact)}", which is already saved; nothing changed.'}
     result = await write_memory(fact, "user-fact")
     if not result.get("success"):
         return result
