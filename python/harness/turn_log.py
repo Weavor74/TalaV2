@@ -118,7 +118,8 @@ class TurnLog:
         why = ("more than one saved fact matched, so I changed nothing; tell me which one" if "more than one" in note or "together" in note
                else "learning is off or halted, so I could not change anything" if "off or halted" in note
                else "I found no fact saved or recalled in the last hour for that to mean, so I changed nothing")
-        return f"{text}\n\nCorrection: {FORGET_TAG} ({why}); that fact is still remembered."
+        still = "" if "no fact was saved" in note else "; that fact is still remembered"  # nothing to forget: nothing left to be "still remembered"
+        return f"{text}\n\nCorrection: {FORGET_TAG} ({why}){still}."
 
     def add_unsupported_note(self, text: str) -> str:
         """``text``, with a correction appended naming the details it (or the answer the user challenged) gave that no tool result supports;

@@ -557,3 +557,59 @@ def test_memory_search_filters_through_the_retired_fact_check():
     from python.harness import memory
 
     assert "without_retired(" in inspect.getsource(memory.handle_memory_search)
+
+
+# --- "actually it's Mochi": a correction with no subject means the fact last saved or recalled -----------------------------------------------
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", ["actually its mochi", "Actually it's Mochi", "no, it's called Mochi", "that's wrong, it is Mochi."])
+async def test_a_bare_correction_replaces_the_value_of_the_fact_last_saved(userdata, message):
+    first = await _remember_from_message("remember that my cat's name is Biscuit")
+    result = await _remember_from_message(message)
+    assert result and result["success"] is True and result["retired"] == [first["node_id"]]
+    assert "Mochi" in parse_file(result["path"]).semantic_memory.title() and "Biscuit" not in parse_file(result["path"]).semantic_memory
+    assert len(_live(userdata)) == 1 and _retired(userdata / "nodes" / f"{first['node_id']}.html")
+    assert "retired" in result["note"] and "Biscuit" in result["note"]
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize("message", ["no, it's fine", "actually it's ok", "actually it's the same", "nope, that's not right"])
+async def test_a_bare_correction_that_is_not_a_value_changes_nothing(userdata, message):
+    await _remember_from_message("remember that my cat's name is Biscuit")
+    assert await _remember_from_message(message) is None
+    assert len(_live(userdata)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_bare_correction_with_no_saved_fact_is_not_a_memory(userdata):
+    assert await _remember_from_message("actually its mochi") is None
+    assert _nodes(userdata) == []
+
+
+@pytest.mark.asyncio
+async def test_a_bare_correction_of_a_fact_with_no_value_to_swap_changes_nothing_and_says_so(userdata):
+    await _remember_from_message("remember that I take my coffee black")
+    result = await _remember_from_message("actually it's Mochi")
+    assert result and result["success"] is False and "Do NOT say you updated" in result["note"]
+    assert len(_live(userdata)) == 1
+
+
+@pytest.mark.asyncio
+async def test_a_bare_correction_when_two_facts_were_just_recalled_asks_which(userdata):
+    await write_memory("my cat's name is Biscuit", "user-fact")
+    await write_memory("my dog's name is Rex", "user-fact")
+    result = await _remember_from_message("actually it's Mochi")
+    assert result and result["success"] is False and "Ask which one" in result["note"]
+    assert len(_live(userdata)) == 2
+
+
+def test_the_correction_after_nothing_to_forget_does_not_say_the_fact_is_still_remembered():
+    from python.harness import turn_log
+
+    nothing = {"success": False, "note": "[Memory] The user asked you to forget something, but no fact was saved or recalled in the last hour to forget"}
+    fixed = turn_log.TurnLog(nothing).add_unsupported_note("Done, I removed it.")
+    assert "nothing was forgotten" in fixed and "still remembered" not in fixed
+    several = {"success": False, "note": "[Memory] The user asked you to forget \"that\", but several facts were just recalled together"}
+    assert "still remembered" in turn_log.TurnLog(several).add_unsupported_note("Done, I removed it.")
+

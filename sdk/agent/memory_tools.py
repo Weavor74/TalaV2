@@ -66,6 +66,15 @@ _FORGET_SUBJECT = re.compile(
     r"^\s*(?:(?:ok(?:ay)?|alright)[,.!]?\s*)?(?:please\s+)?(?:tala[,:]?\s+)?(?:you\s+can\s+)?(?:forget|drop|delete|discard)\s+(?:about\s+)?"
     r"(?P<subject>(?:my|our)\s+.+?)\s*[.!]*\s*$", re.IGNORECASE)
 MAX_FORGET_CHARS = 80
+#: "actually it's Mochi", "no, its called Mochi": a correction with no subject, so it means the fact last saved or recalled.
+_ELLIPTICAL = re.compile(r"^(?:it|that|this)(?:\s*['\u2019]?s|\s+is)\s+(?:actually\s+|really\s+)?(?:(?:named|called)\s+)?(?P<value>[^,.;!?]{1,40}?)\s*[.!]*$",
+                         re.IGNORECASE)
+#: Not a replacement value: "no, it's fine" is not a new name.
+_NOT_A_VALUE = frozenset("fine ok okay good great alright true right correct wrong false nothing nevermind whatever so not still the same "
+                         "different better worse cool".split())
+MAX_VALUE_WORDS = 3
+#: A saved fact's value is what follows its last "is/are/named/called".
+_VALUE_AT_END = re.compile(r"^(?P<head>.*?\b(?:is|are|named|called)\s+)(?P<old>[^,.;]+?)\s*$", re.IGNORECASE)
 #: "forget that" means the fact last saved or recalled (the file changes on both) within the hour; found live 2026-10-30, when ten
 #: minutes was too short: the cat had been asked about 17 minutes earlier, nothing was forgotten, and she said it was.
 RECENT_SECONDS = 3600
@@ -385,6 +394,26 @@ async def _forget_from_message(message: str) -> dict[str, Any] | None:
     return _forget([scored[0][1]], f"user said to forget: {subject.group('subject')[:100]}")
 
 
+async def _correct_last_fact(value: str) -> dict[str, Any] | None:
+    """"actually it's Mochi": the fact last saved or recalled, with its value replaced. None when there is no such fact or the reply is not a value
+    (a bare "no, it's fine" must not rewrite a fact); a note, changing nothing, when it cannot be told which fact or which part to change."""
+    words = re.findall(r"[A-Za-z0-9']+", value)
+    if not words or len(words) > MAX_VALUE_WORDS or any(word.lower() in _NOT_A_VALUE for word in words):
+        return None
+    recent = [fact for fact in _saved_facts() if time.time() - fact["mtime"] <= RECENT_SECONDS]
+    if not recent:
+        return None
+    if len([fact for fact in recent if recent[0]["mtime"] - fact["mtime"] <= TOGETHER_SECONDS]) > 1:
+        return _forget_note("[Memory] The user corrected something with \"it's " + value + "\", but several facts were just recalled together, so "
+                            "nothing was changed. Ask which one. Do NOT say you updated or remembered anything.")
+    old = recent[0]
+    parts = _VALUE_AT_END.match(old["text"])
+    if not parts:
+        return _forget_note(f'[Memory] The user corrected "{_shorten(old["text"])}" with "it\'s {value}", but I could not tell which part to change, so '
+                            "nothing was changed. Ask them to say the whole fact. Do NOT say you updated or remembered anything.")
+    return await _save_fact(parts.group("head") + value.strip(), cued=True, require_conflict=True)
+
+
 async def _remember_from_message(message: Any) -> dict[str, Any] | None:
     """If the user's message is an explicit "remember ...", a correction of a saved fact, or "forget ...", act on it now. None when it is none of these."""
     if not isinstance(message, str) or len(message) > MAX_MESSAGE_CHARS:
@@ -399,6 +428,9 @@ async def _remember_from_message(message: Any) -> dict[str, Any] | None:
     if cue:
         fact = cue.group("fact")
         restated = _EXPLICIT_REMEMBER.match(fact)  # "no, remember that my cat is Pixel"
+        bare = None if restated else _ELLIPTICAL.match(fact)
+        if bare:
+            return await _correct_last_fact(bare.group("value"))
         return await _save_fact(restated.group("fact") if restated else fact, cued=True, require_conflict=True)
     return None
 
