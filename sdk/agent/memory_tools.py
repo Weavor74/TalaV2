@@ -148,27 +148,34 @@ RETIRED_RECALL_SHARE = 0.66
 
 
 def without_retired(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
-    """``results`` minus the saved conversation turns that restate a fact the user took back. A retired fact node is no longer recalled, but the
-    transcript index still holds the turn where it was said, and ``search_memory`` handed it to the model in a brand-new chat (found live
-    2026-10-30: "what's my cat's name?" answered "Quillon" after the fact was superseded and then forgotten). Read fresh from the node files,
-    so restoring or deleting a node by hand changes what is recalled. Never raises."""
+    """``results`` minus what the user took back. A retired fact node is no longer recalled, but the memory index still holds the turn where it
+    was said and the learning node made from her acknowledgement, and ``search_memory`` handed both to the model in a brand-new chat (found live
+    2026-10-30: "what's my cat's name?" answered "Quillon" after the fact was superseded and then forgotten, first from the transcript turn,
+    then from the retired learning node). Dropped: any result that points at a retired node, and any saved turn that restates a retired fact.
+    Read fresh from the node files, so restoring or deleting a node by hand changes what is recalled. Never raises."""
     try:
         from sdk.agent.documentation_nodes import resolve_active_nodes_dir
         from sdk.agent.parser import parse_file
 
+        directory = resolve_active_nodes_dir()
         retired, live = [], set()
-        for path in resolve_active_nodes_dir().glob("fact-*.html"):
+        for path in directory.glob("fact-*.html"):
             keys = _keys(_PREFIX.sub("", parse_file(str(path)).semantic_memory or ""))
             if 'data-retired="' in path.read_text(encoding="utf-8"):
                 retired.append(keys)
             else:
                 live |= keys
         retired = [(keys, keys - live) for keys in retired if len(keys) >= 2]
-        if not retired:
-            return results
+
+        def retired_node(row: dict[str, Any]) -> bool:
+            ref = str((row.get("ref") or {}).get("id") or "")
+            path = directory / f"{ref}.html"
+            return bool(re.fullmatch(r"[\w.-]+", ref)) and path.is_file() and 'data-retired="' in path.read_text(encoding="utf-8")
 
         def about_retired(row: dict[str, Any]) -> bool:
-            if not str(row.get("source_type", "")).startswith("session"):
+            if retired_node(row):
+                return True
+            if not retired or not str(row.get("source_type", "")).startswith("session"):
                 return False
             said = _keys(str(row.get("snippet", "")))
             return any(said & told_apart and len(said & keys) / len(keys) >= RETIRED_RECALL_SHARE for keys, told_apart in retired)

@@ -525,6 +525,21 @@ async def test_recall_is_unchanged_when_the_user_restored_the_fact_by_hand(userd
     assert memory_tools.without_retired(rows) == rows
 
 
+@pytest.mark.asyncio
+async def test_recall_drops_a_result_that_points_at_a_retired_node(userdata):
+    """The learning node made from her "Got it, Quillon is your cat" was retired, but its row in the memory index still came back."""
+    saved = await _remember_from_message("remember that my cat is named Quillon")
+    (userdata / "nodes" / "learning-got-it-quillon-is-your-cat.html").write_text(
+        '<html data-retired="forgotten"><body></body></html>', encoding="utf-8")
+    (userdata / "nodes" / "learning-fine.html").write_text("<html><body></body></html>", encoding="utf-8")
+    rows = [{"id": "mem-1", "source_type": "documentation", "snippet": "Got it - Quillon is your cat", "ref": {"id": "learning-got-it-quillon-is-your-cat"}},
+            {"id": "mem-2", "source_type": "documentation", "snippet": "Some lesson", "ref": {"id": "learning-fine"}},
+            {"id": "mem-3", "source_type": "documentation", "snippet": "No node file", "ref": {"id": "not-a-node"}},
+            {"id": "mem-4", "source_type": "documentation", "snippet": "Hostile ref", "ref": {"id": "../../etc/passwd"}}]
+    assert [row["id"] for row in memory_tools.without_retired(rows)] == ["mem-2", "mem-3", "mem-4"]
+    assert saved["success"]
+
+
 def test_recall_filter_never_raises(monkeypatch):
     monkeypatch.delenv("TALA_USER_DATA", raising=False)
     monkeypatch.setattr("sdk.agent.documentation_nodes.resolve_active_nodes_dir", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
