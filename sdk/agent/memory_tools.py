@@ -293,9 +293,15 @@ async def write_memory(content: str, topic: str = "user-preference") -> dict[str
         existing = resolve_active_nodes_dir() / f"{node_id}.html"
         if existing.is_file():
             # Already remembered. Regenerating it from the template would throw away what learning has done to it
-            # (its weights, its usage count), so a fact told twice is left exactly as it is.
-            return {"success": True, "node_id": node_id, "path": str(existing), "created": False,
-                    "message": f"Already remembered as node '{node_id}'"}
+            # (its weights, its usage count), so a fact told twice is left exactly as it is. One the user took back and then said again
+            # is brought back (found live 2026-10-30: it stayed retired while she said it was saved).
+            if 'data-retired="' not in existing.read_text(encoding="utf-8"):
+                return {"success": True, "node_id": node_id, "path": str(existing), "created": False,
+                        "message": f"Already remembered as node '{node_id}'"}
+            if not node_learning.unretire(node_id, existing.parent, reason="the user said it again"):
+                return {"success": False, "error": "that fact was forgotten earlier and learning is off or halted, so it could not be restored"}
+            return {"success": True, "node_id": node_id, "path": str(existing), "created": False, "restored": True,
+                    "message": f"Restored the forgotten node '{node_id}'"}
 
         result = create_documentation_node(
             node_id=node_id,
@@ -338,8 +344,10 @@ async def _save_fact(fact: str, *, cued: bool, require_conflict: bool) -> dict[s
                 "note": f'[Memory] The user told you "{_shorten(fact)}", which is already saved; nothing changed.'}
     result = await write_memory(fact, "user-fact")
     if not result.get("success"):
+        result.setdefault("note", f'[Memory] The user told you "{_shorten(fact)}", but it could not be saved ({result.get("error")}); say so. '
+                                  "Do NOT say you will remember it.")
         return result
-    if not result.get("created") or not older:
+    if not (result.get("created") or result.get("restored")) or not older:
         result["note"] = f'[Memory] Saved a fact the user just told you: "{_shorten(fact)}". You may say you will remember it.'
         return result
     retired = [old for old in older if _retire(old, "superseded", result["node_id"], f"replaced by: {fact[:120]}")]

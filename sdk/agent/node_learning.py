@@ -435,6 +435,28 @@ def retire(node_id: str, nodes_dir: Path, *, kind: str = "forgotten", superseded
     return _finish(changes)
 
 
+def unretire(node_id: str, nodes_dir: Path, *, reason: str = "", now: datetime | None = None) -> list[dict[str, Any]]:
+    """Bring a retired node back because the user said it again: weights to the starting weight for a fact, the retired marks removed. Nothing
+    happens when learning is off or halted (the caller says so), or for a protected node."""
+    if not _may_write():
+        return []
+    now = _now(now)
+    changes: list[dict[str, Any]] = []
+    for target_id, path in _targets([node_id], nodes_dir):
+        node = _load(path)
+        if node is None or node.protected:
+            continue
+        edits: dict[str, str | None] = {
+            "data-weight-relevance": _fmt(NEW_FACT_WEIGHT), "data-weight-confidence": _fmt(NEW_FACT_WEIGHT),
+            "data-retired": None, "data-retired-from": None, "data-retired-at": None, "data-superseded-by": None,
+        }
+        try:
+            changes += _write(node, edits, kind="unretire", reason=reason[:200], now=now)
+        except OSError as exc:
+            log.warning("node_learning: could not restore %s: %s", target_id, exc)
+    return _finish(changes)
+
+
 def decay_unused(nodes_dir: Path, *, now: datetime | None = None) -> list[dict[str, Any]]:
     """One small step down for each node learning has used and then left idle, to the floor and no further."""
     if not _may_write():

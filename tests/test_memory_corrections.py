@@ -662,3 +662,40 @@ def test_ordinary_replies_are_not_taken_for_a_promise():
                  "Got it—your cat’s name is Biscut. How is he today?"):
         assert turn_log.TurnLog(None).add_unsupported_note(text) == text
 
+
+# --- telling her again what she was told to forget brings it back -------------------------------------------------------------------------
+
+
+@pytest.mark.asyncio
+async def test_saying_a_forgotten_fact_again_brings_it_back(userdata):
+    first = await _remember_from_message("remember that my cat's name is Biscut")
+    await _remember_from_message("forget that")
+    path = userdata / "nodes" / f"{first['node_id']}.html"
+    assert _retired(path) and _live(userdata) == []
+    again = await _remember_from_message("remember that my cat's name is Biscut")
+    assert again["success"] is True and again["node_id"] == first["node_id"] and again.get("restored") is True
+    assert not _retired(path) and _live(userdata) == [path]
+    assert parse_file(str(path)).weight_confidence == nl.NEW_FACT_WEIGHT
+    assert "Saved" in again["note"] and "no longer be recalled" not in again["note"]
+
+
+@pytest.mark.asyncio
+async def test_restoring_a_forgotten_fact_retires_the_newer_one_about_the_same_thing(userdata):
+    first = await _remember_from_message("remember that my cat's name is Biscut")
+    await _remember_from_message("forget that")
+    newer = await _remember_from_message("remember that my cat's name is Mochi")
+    assert _live(userdata) == [userdata / "nodes" / f"{newer['node_id']}.html"]
+    again = await _remember_from_message("remember that my cat's name is Biscut")
+    assert again["retired"] == [newer["node_id"]] and again["node_id"] == first["node_id"]
+    assert _live(userdata) == [userdata / "nodes" / f"{first['node_id']}.html"]
+
+
+@pytest.mark.asyncio
+async def test_a_forgotten_fact_cannot_be_restored_with_learning_off_and_she_is_told(userdata, monkeypatch):
+    first = await _remember_from_message("remember that my cat's name is Biscut")
+    await _remember_from_message("forget that")
+    monkeypatch.setenv("TALA_LEARNING", "0")
+    again = await _remember_from_message("remember that my cat's name is Biscut")
+    assert again["success"] is False and "Do NOT say you will remember it" in again["note"]
+    assert _retired(userdata / "nodes" / f"{first['node_id']}.html")
+
