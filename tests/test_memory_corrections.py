@@ -478,3 +478,63 @@ def test_the_chat_handler_adds_the_do_not_repeat_note_to_every_turn():
 
     source = inspect.getsource(server.handle_inference_generate)
     assert "forgotten_note()" in source and "system_context_additions" in source
+
+
+# --- the transcript index must not hand back what the user took back ------------------------------------------------------------------------
+
+
+def _turn(text, source_type="session"):
+    return {"id": "mem-1", "source_type": source_type, "snippet": text}
+
+
+@pytest.mark.asyncio
+async def test_recall_drops_turns_that_restate_a_forgotten_fact(userdata):
+    await _remember_from_message("remember that my cat is named Quillon")
+    await _remember_from_message("forget that")
+    rows = [_turn("remember this: my cat is named Quillon, you can drop it later"), _turn("Got it - Quillon is your cat"),
+            _turn("I like pizza on Fridays")]
+    assert [row["snippet"] for row in memory_tools.without_retired(rows)] == ["I like pizza on Fridays"]
+
+
+@pytest.mark.asyncio
+async def test_recall_keeps_the_live_fact_that_replaced_a_retired_one(userdata):
+    await _remember_from_message("remember that my cat is named Quillon")
+    await _remember_from_message("actually my cat is named Pixel")
+    rows = [_turn("remember this: my cat is named Quillon"), _turn("actually my cat is named Pixel")]
+    assert [row["snippet"] for row in memory_tools.without_retired(rows)] == ["actually my cat is named Pixel"]
+
+
+@pytest.mark.asyncio
+async def test_recall_keeps_unrelated_turns_and_other_kinds_of_result(userdata):
+    await _remember_from_message("remember that my cat is named Quillon")
+    await _remember_from_message("forget that")
+    rows = [_turn("my dog is named Rex"), _turn("my cat is named Quillon", source_type="documentation")]
+    assert memory_tools.without_retired(rows) == rows
+
+
+@pytest.mark.asyncio
+async def test_recall_is_unchanged_when_the_user_restored_the_fact_by_hand(userdata):
+    import re
+
+    saved = await _remember_from_message("remember that my cat is named Quillon")
+    await _remember_from_message("forget that")
+    path = userdata / "nodes" / f"{saved['node_id']}.html"
+    path.write_text(re.sub(r'\s*data-(?:retired|retired-from|retired-at|superseded-by)="[^"]*"', "", path.read_text(encoding="utf-8")),
+                    encoding="utf-8")
+    rows = [_turn("my cat is named Quillon")]
+    assert memory_tools.without_retired(rows) == rows
+
+
+def test_recall_filter_never_raises(monkeypatch):
+    monkeypatch.delenv("TALA_USER_DATA", raising=False)
+    monkeypatch.setattr("sdk.agent.documentation_nodes.resolve_active_nodes_dir", lambda: (_ for _ in ()).throw(RuntimeError("boom")))
+    rows = [_turn("my cat is named Quillon")]
+    assert memory_tools.without_retired(rows) == rows
+
+
+def test_memory_search_filters_through_the_retired_fact_check():
+    import inspect
+
+    from python.harness import memory
+
+    assert "without_retired(" in inspect.getsource(memory.handle_memory_search)

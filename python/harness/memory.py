@@ -241,7 +241,9 @@ async def handle_memory_search(params: dict[str, Any]) -> dict[str, Any]:
     emotion_label = await _current_emotion_label()
 
     manager = get_manager()
-    results = await manager.search(query, sources, limit, allow_private)
+    from sdk.agent.memory_tools import without_retired
+
+    results = without_retired(await manager.search(query, sources, limit, allow_private))
 
     # Log recall event for the top result
     if results:

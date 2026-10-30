@@ -143,6 +143,42 @@ def _saved_facts() -> list[dict[str, Any]]:
     return sorted(facts, key=lambda fact: fact["mtime"], reverse=True)
 
 
+#: A saved turn is about a retired fact when it carries this share of that fact's content words (and one that tells it apart from live facts).
+RETIRED_RECALL_SHARE = 0.66
+
+
+def without_retired(results: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    """``results`` minus the saved conversation turns that restate a fact the user took back. A retired fact node is no longer recalled, but the
+    transcript index still holds the turn where it was said, and ``search_memory`` handed it to the model in a brand-new chat (found live
+    2026-10-30: "what's my cat's name?" answered "Quillon" after the fact was superseded and then forgotten). Read fresh from the node files,
+    so restoring or deleting a node by hand changes what is recalled. Never raises."""
+    try:
+        from sdk.agent.documentation_nodes import resolve_active_nodes_dir
+        from sdk.agent.parser import parse_file
+
+        retired, live = [], set()
+        for path in resolve_active_nodes_dir().glob("fact-*.html"):
+            keys = _keys(_PREFIX.sub("", parse_file(str(path)).semantic_memory or ""))
+            if 'data-retired="' in path.read_text(encoding="utf-8"):
+                retired.append(keys)
+            else:
+                live |= keys
+        retired = [(keys, keys - live) for keys in retired if len(keys) >= 2]
+        if not retired:
+            return results
+
+        def about_retired(row: dict[str, Any]) -> bool:
+            if not str(row.get("source_type", "")).startswith("session"):
+                return False
+            said = _keys(str(row.get("snippet", "")))
+            return any(said & told_apart and len(said & keys) / len(keys) >= RETIRED_RECALL_SHARE for keys, told_apart in retired)
+
+        return [row for row in results if not about_retired(row)]
+    except Exception as exc:
+        log.debug("memory_tools: could not filter retired facts from recall: %s", exc)
+        return results
+
+
 def forgotten_note() -> str | None:
     """A system-context note naming the facts the user took back (forgot or replaced) in the last few hours, with the instruction not to use or
     repeat them. A retired node is no longer recalled, but the conversation already on screen still contains the words and the model repeats
